@@ -119,3 +119,21 @@ In addition to specification of credentials explicitly,
 
 The same patterns work for other cloud providers (GCS, Azure) by using their
 respective fsspec implementations (e.g., `gcsfs`, `adlfs`).
+
+## Naming
+
+### Why is the project called "fizarr"? What happened to "ngff-zarr"?
+
+**fizarr is the artist formerly known as ngff-zarr** 👑
+
+The project was renamed from `ngff-zarr` to `fizarr` to avoid confusion between the broader Next Generation File Format (NGFF) specification and the specific OME-Zarr file format implementation.
+
+While NGFF is a community-driven specification that encompasses various file formats and data models (see [ngff.openmicroscopy.org](https://ngff.openmicroscopy.org/)), fizarr is specifically designed to provide tooling for the **OME-Zarr file format** that emerges from the NGFF community's work.
+
+The name "fizarr" reflects its curation by [fideus labs](https://fideus.io), whose mission is to foster trust and advance understanding from scientific and biomedical images. This clearer naming helps users understand that:
+
+- **NGFF** = The broader specification and community
+- **OME-Zarr** = The specific zarr-based file format for bioimaging data
+- **fizarr** = The lean and kind implementation for working with OME-Zarr files
+
+All functionality remains the same - fizarr continues to be a minimal-dependency, web-ready, and performant library for reading and writing OME-Zarr files, now with a name that better reflects its specific purpose and maintainership.
