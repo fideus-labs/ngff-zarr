@@ -692,6 +692,8 @@ def write_hcs_well_image(
         well_group.attrs["ome"] = {
             'well': well_dict,
             'version': version}
+    else:
+        raise ValueError(f"Unsupported OME-Zarr version: {version}")
 
     # Write the actual image data to the field path
     field_path = f"{well_path}/{field_index}"
