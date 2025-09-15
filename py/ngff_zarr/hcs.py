@@ -32,6 +32,7 @@ from .v04.zarr_metadata import (
 )
 from .multiscales import Multiscales
 from .from_ngff_zarr import from_ngff_zarr
+from .to_ngff_zarr import to_ngff_zarr
 
 
 class LRUCache:
@@ -600,8 +601,6 @@ def write_hcs_well_image(
     ...     field_index=0
     ... )
     """
-    from ngff_zarr import to_ngff_zarr
-
     # Validate row and column exist in plate metadata
     row_index = None
     for i, row in enumerate(plate_metadata.rows):
