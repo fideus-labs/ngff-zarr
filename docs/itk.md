@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC -->
+<!-- SPDX-License-Identifier: MIT -->
 # ⚕️ Insight Toolkit (ITK)
 
 Interoperability is available with the [Insight Toolkit (ITK)](https://itk.org).

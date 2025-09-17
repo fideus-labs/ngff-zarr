@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+# SPDX-License-Identifier: MIT
 from ngff_zarr import ConversionBackend, detect_cli_io_backend
 
 

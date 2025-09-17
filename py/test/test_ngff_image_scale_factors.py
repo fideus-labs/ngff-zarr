@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+# SPDX-License-Identifier: MIT
 import pytest
 import numpy as np
 from ngff_zarr.to_multiscales import _ngff_image_scale_factors

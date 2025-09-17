@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+# SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+# SPDX-License-Identifier: MIT
 
 if __name__ == "__main__" and __package__ is None:
     __package__ = "ngff_zarr"

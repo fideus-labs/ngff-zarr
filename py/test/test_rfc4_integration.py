@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+# SPDX-License-Identifier: MIT
 """Integration test for RFC 4 anatomical orientation."""
 
 import numpy as np

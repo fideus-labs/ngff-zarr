@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+// SPDX-License-Identifier: MIT
 /**
  * Simple test for ITK-Wasm Image to NgffImage conversion
  */

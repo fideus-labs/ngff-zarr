@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+# SPDX-License-Identifier: MIT
 import dask.array as da
 from ngff_zarr import Multiscales, to_multiscales, NgffImage, Methods
 

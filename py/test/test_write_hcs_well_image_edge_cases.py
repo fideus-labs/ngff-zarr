@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 """Test for edge cases in write_hcs_well_image function."""
 
 import pytest

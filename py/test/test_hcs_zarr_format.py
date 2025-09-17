@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 """Test HCS Zarr format version selection."""
 
 import pytest

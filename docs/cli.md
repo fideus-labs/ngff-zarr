@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC -->
+<!-- SPDX-License-Identifier: MIT -->
 # 👨‍💻 Command Line Interface
 
 `ngff-zarr` provides a command line interface to convert a variety of scientific

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+// SPDX-License-Identifier: MIT
 // Browser-compatible module exports
 // This module excludes I/O functionality (from_ngff_zarr, to_ngff_zarr)
 // because those modules depend on Node.js/Deno-specific filesystem APIs

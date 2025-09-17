@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC -->
+<!-- SPDX-License-Identifier: MIT -->
 # AGENTS.md - Development Guide for AI Coding Agents
 
 ## Build/Test Commands

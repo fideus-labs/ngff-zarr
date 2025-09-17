@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+// SPDX-License-Identifier: MIT
 import * as zarr from "zarrita";
 import { NgffImage } from "../types/ngff_image.ts";
 import { Multiscales } from "../types/multiscales.ts";

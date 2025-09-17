@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+// SPDX-License-Identifier: MIT
 import * as zarr from "zarrita";
 import type { Units } from "./units.ts";
 import type { AnatomicalOrientation } from "./rfc4.ts";

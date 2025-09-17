@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+# SPDX-License-Identifier: MIT
 """Data models for ngff-zarr MCP server."""
 
 from typing import Dict, List, Optional, Union, Literal

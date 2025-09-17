@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+// SPDX-License-Identifier: MIT
 import { FileSystemStore } from "@zarrita/storage";
 import * as zarr from "zarrita";
 import { toNgffZarr } from "../src/io/to_ngff_zarr.ts";

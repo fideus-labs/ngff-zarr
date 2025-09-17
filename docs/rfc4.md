@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC -->
+<!-- SPDX-License-Identifier: MIT -->
 # RFC-4: Anatomical Orientation Support
 
 [RFC-4] adds support for anatomical orientation metadata to OME-NGFF axes,

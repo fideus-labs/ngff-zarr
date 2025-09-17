@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+# SPDX-License-Identifier: MIT
 from collections.abc import MutableMapping
 from pathlib import Path
 from typing import Union, Optional
