@@ -4,6 +4,8 @@
 with the ability to convert images to OME-Zarr format using the ngff-zarr
 library.
 
+<!-- mcp-name: io.github.thewtex/ngff-zarr -->
+
 [![asciicast](https://asciinema.org/a/726628.png)](https://asciinema.org/a/726628)
 
 ## Features

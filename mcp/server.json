@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "name": "io.github.thewtex/ngff-zarr",
+  "description": "Model Context Protocol server for OME-Zarr image conversion and optimization using ngff-zarr.",
+  "version": "0.5.0",
+  "repository": {
+    "url": "https://github.com/thewtex/ngff-zarr",
+    "source": "github",
+    "subfolder": "mcp"
+  },
+  "packages": [
+    {
+      "registry_type": "pypi",
+      "identifier": "ngff-zarr-mcp",
+      "version": "0.5.0",
+      "transport": { "type": "stdio" },
+      "runtime_hint": "uvx",
+      "package_arguments": []
+    }
+  ]
+}
