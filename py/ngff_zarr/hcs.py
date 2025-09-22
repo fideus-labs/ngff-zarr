@@ -611,7 +611,6 @@ def write_hcs_well_image(
     ...     field_index=0
     ... )
     """
-
     # Validate row and column exist in plate metadata
     row_index = None
     for i, row in enumerate(plate_metadata.rows):
@@ -704,7 +703,15 @@ def write_hcs_well_image(
         ],
         "version": well_metadata.version or version,
     }
-    well_group.attrs["well"] = well_dict
+    if version == '0.4':
+        well_group.attrs["well"] = well_dict
+    elif version == '0.5':
+        well_dict.pop("version", None)  # version goes at top level in 0.5
+        well_group.attrs["ome"] = {
+            'well': well_dict,
+            'version': version}
+    else:
+        raise ValueError(f"Unsupported OME-Zarr version: {version}")
 
     # Write the actual image data to the field path
     field_path = f"{well_path}/{field_index}"
