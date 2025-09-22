@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Optional, List
 import logging
 from collections import OrderedDict
+from packaging import version as pkg_version
 
 import zarr
 
@@ -466,7 +467,16 @@ def to_hcs_zarr(plate: HCSPlate, store) -> None:
         Store or path to directory in file system.
     """
 
-    root = zarr.open_group(store, mode="w")
+    # For NGFF version 0.4, use Zarr format 2; for 0.5+, use Zarr format 3
+    zarr_format = 2 if plate.metadata.version == "0.4" else 3
+
+    # Check zarr-python version to determine if zarr_format parameter is supported
+    zarr_version = pkg_version.parse(zarr.__version__)
+
+    if zarr_version.major >= 3:
+        root = zarr.open_group(store, mode="w", zarr_format=zarr_format)
+    else:
+        root = zarr.open_group(store, mode="w")
 
     # Build plate metadata dictionary
     plate_dict = {
@@ -629,7 +639,16 @@ def write_hcs_well_image(
         raise ValueError(f"Well '{well_path}' not found in plate metadata")
 
     # Open or create the store
-    root = zarr.open_group(store, mode="a")
+    # For NGFF version 0.4, use Zarr format 2; for 0.5+, use Zarr format 3
+    zarr_format = 2 if version == "0.4" else 3
+
+    # Check zarr-python version to determine if zarr_format parameter is supported
+    zarr_version = pkg_version.parse(zarr.__version__)
+
+    if zarr_version.major >= 3:
+        root = zarr.open_group(store, mode="a", zarr_format=zarr_format)
+    else:
+        root = zarr.open_group(store, mode="a")
 
     # Create or update well group
     well_group_path = well_path
@@ -711,14 +730,33 @@ def write_hcs_well_image(
             **kwargs,
         )
     else:
-        # For non-file stores, create or access the group at the field path
-        field_group = zarr.group(store).require_group(field_path)
-        to_ngff_zarr(
-            store=field_group.store,
-            multiscales=multiscales,
-            version=version,
-            overwrite=True,
-            **kwargs,
-        )
+        # For non-file stores, we need to handle path information properly
+        # The approach differs between zarr 2.x and 3.x
+        if zarr_version.major >= 3:
+            # Zarr 3.x approach using StorePath
+            try:
+                from zarr.storage import StorePath
+
+                store_path = StorePath(store) / field_path
+                to_ngff_zarr(
+                    store=store_path,
+                    multiscales=multiscales,
+                    version=version,
+                    overwrite=True,
+                    **kwargs,
+                )
+            except ImportError:
+                # Fallback if StorePath is not available even in zarr 3.x
+                raise NotImplementedError(
+                    "Non-file stores require zarr-python 3.x with StorePath support. "
+                    "Please update to a newer version of zarr-python or use file-based stores."
+                )
+        else:
+            # Zarr 2.x approach - simplified fallback
+            # For zarr 2.x, we recommend using file-based stores
+            raise NotImplementedError(
+                "Non-file stores with zarr-python 2.x are not fully supported. "
+                "Please use file-based stores (str or Path) or upgrade to zarr-python 3.x."
+            )
 
     logging.info(f"Written field {field_index} to well {well_path} in HCS plate")

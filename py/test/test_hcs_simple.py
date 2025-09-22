@@ -32,13 +32,12 @@ def test_hcs():
             print(f"Image loaded with {len(image.images)} scale levels")
             print(f"Shape: {image.images[0].data.shape}")
             print("HCS test passed!")
-            return True
         else:
             print("Failed to load image")
-            return False
+            assert False
     else:
         print("Failed to get well")
-        return False
+        assert False
 
 
 if __name__ == "__main__":
