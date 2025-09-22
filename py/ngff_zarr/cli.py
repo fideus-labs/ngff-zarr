@@ -272,7 +272,15 @@ def main():
         help="Use the TensorStore library for I/O",
     )
 
+
     args = parser.parse_args()
+
+    # Check that input and output are not the same
+    if args.output:
+        output_path = Path(args.output).resolve()
+        input_paths = [Path(inp).resolve() for inp in args.input]
+        if any(output_path == inp for inp in input_paths):
+            parser.error("Input and output file/directory must not be the same.")
 
     if args.memory_target:
         config.memory_target = dask.utils.parse_bytes(args.memory_target)
