@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+// SPDX-License-Identifier: MIT
 import { expect, test } from "@playwright/test";
 
 test.describe("NGFF Zarr Browser Bundle Tests", () => {

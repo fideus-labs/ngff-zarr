@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+# SPDX-License-Identifier: MIT
 """Simple test to verify HCS functionality works."""
 
 import sys

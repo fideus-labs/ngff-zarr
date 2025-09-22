@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+# SPDX-License-Identifier: MIT
 """Test high content screening (HCS) functionality."""
 
 import pytest

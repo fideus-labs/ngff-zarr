@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+// SPDX-License-Identifier: MIT
 import { assertEquals, assertExists } from "@std/assert";
 import {
   ImageSchemaV01,

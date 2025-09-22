@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC -->
+<!-- SPDX-License-Identifier: MIT -->
 # 🔖 Methods
 
 To avoid [aliasing artifacts] when generating a multiscale representation, it is

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 """Test for index out of range issue in write_hcs_well_image function."""
 
 import pytest

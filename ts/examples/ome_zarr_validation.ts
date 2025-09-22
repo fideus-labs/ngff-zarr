@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+// SPDX-License-Identifier: MIT
 /**
  * Example demonstrating OME-Zarr schema validation usage
  */

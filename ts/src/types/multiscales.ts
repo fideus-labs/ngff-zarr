@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+// SPDX-License-Identifier: MIT
 import type { NgffImage } from "./ngff_image.ts";
 import type { Metadata } from "./zarr_metadata.ts";
 import type { Methods } from "./methods.ts";

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+// SPDX-License-Identifier: MIT
 
 import { spawn } from "child_process";
 import { dirname, join } from "path";

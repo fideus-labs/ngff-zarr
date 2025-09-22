@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+# SPDX-License-Identifier: MIT
 from typing import List, Optional
 from dataclasses import dataclass
 

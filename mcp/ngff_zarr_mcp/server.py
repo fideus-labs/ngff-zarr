@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+# SPDX-License-Identifier: MIT
 """MCP server for ngff-zarr image conversion."""
 
 from typing import List, Optional, Dict, Literal, Union

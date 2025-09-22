@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC -->
+<!-- SPDX-License-Identifier: MIT -->
 # 🤖 MCP Server
 
 The [`ngff-zarr-mcp`] Python package provides a Model Context Protocol (MCP)

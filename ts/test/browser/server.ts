@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+// SPDX-License-Identifier: MIT
 // Simple test server for browser tests
 import { serveFile } from "@std/http/file-server";
 import { join } from "@std/path";

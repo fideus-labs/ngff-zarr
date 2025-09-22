@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+# SPDX-License-Identifier: MIT
 """RFC 4 validation for anatomical orientation in OME-NGFF.
 
 This module provides validation for RFC 4 anatomical orientation metadata

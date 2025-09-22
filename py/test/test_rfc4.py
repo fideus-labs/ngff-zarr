@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+# SPDX-License-Identifier: MIT
 """Test RFC 4 anatomical orientation implementation."""
 
 from ngff_zarr.rfc4 import (

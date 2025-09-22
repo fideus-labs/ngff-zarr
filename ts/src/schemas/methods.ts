@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+// SPDX-License-Identifier: MIT
 import { z } from "zod";
 
 export const MethodsSchema: z.ZodTypeAny = z.enum([

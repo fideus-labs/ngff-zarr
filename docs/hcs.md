@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC -->
+<!-- SPDX-License-Identifier: MIT -->
 # 🧬 High Content Screening (HCS) Support
 
 NGFF-Zarr provides comprehensive support for High Content Screening (HCS) data,

@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC -->
+<!-- SPDX-License-Identifier: MIT -->
 # Development Guide
 
 This repository contains multiple packages implementing NGFF-Zarr support across

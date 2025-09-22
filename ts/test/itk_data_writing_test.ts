@@ -1,4 +1,6 @@
 #!/usr/bin/env -S deno test --allow-all
+// SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+// SPDX-License-Identifier: MIT
 
 /**
  * Test script to verify ITK-Wasm data writing functionality

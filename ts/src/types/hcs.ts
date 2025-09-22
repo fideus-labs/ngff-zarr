@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+// SPDX-License-Identifier: MIT
 import type { Multiscales } from "./multiscales.ts";
 import type {
   PlateAcquisition,

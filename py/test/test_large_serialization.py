@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+# SPDX-License-Identifier: MIT
 from dask_image import imread
 from ngff_zarr import config, to_multiscales, to_ngff_image, to_ngff_zarr
 from zarr.storage import MemoryStore

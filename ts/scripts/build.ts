@@ -1,4 +1,6 @@
 #!/usr/bin/env -S deno run --allow-all
+// SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+// SPDX-License-Identifier: MIT
 
 import { parseArgs } from "@std/cli/parse-args";
 

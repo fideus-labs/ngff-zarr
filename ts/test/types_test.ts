@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+// SPDX-License-Identifier: MIT
 import { assertEquals, assertThrows } from "@std/assert";
 import * as zarr from "zarrita";
 import { NgffImage } from "../src/types/ngff_image.ts";
