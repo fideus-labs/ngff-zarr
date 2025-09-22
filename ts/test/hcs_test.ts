@@ -1,4 +1,4 @@
-import { assertEquals, assertNotEquals } from "jsr:@std/assert";
+import { assertEquals, assertNotEquals } from "jsr:@std/assert@0.224.0";
 import { fromHcsZarr, toHcsZarr } from "../src/io/hcs.ts";
 import { HCSPlate as HCSPlateClass } from "../src/types/hcs.ts";
 import type {
@@ -9,8 +9,8 @@ import type {
   WellImage,
 } from "../src/schemas/index.ts";
 import type { PlateMetadata, WellMetadata } from "../src/types/hcs.ts";
-import { existsSync } from "jsr:@std/fs";
-import { resolve } from "jsr:@std/path";
+import { existsSync } from "jsr:@std/fs@0.224.0";
+import { resolve } from "jsr:@std/path@0.224.0";
 
 // Test data path - using the Python test data
 const TEST_DATA_DIR = resolve("../py/test/data/input");
