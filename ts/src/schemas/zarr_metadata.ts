@@ -83,6 +83,12 @@ export const OmeroSchema: z.ZodObject<{
   channels: z.array(OmeroChannelSchema),
 });
 
+export const MethodMetadataSchema = z.object({
+  description: z.string(),
+  method: z.string(),
+  version: z.string(),
+});
+
 export const MetadataSchema: z.ZodObject<{
   axes: z.ZodArray<typeof AxisSchema>;
   datasets: z.ZodArray<typeof DatasetSchema>;
@@ -90,6 +96,8 @@ export const MetadataSchema: z.ZodObject<{
   omero: z.ZodOptional<typeof OmeroSchema>;
   name: z.ZodDefault<z.ZodString>;
   version: z.ZodDefault<z.ZodString>;
+  type: z.ZodOptional<z.ZodString>;
+  metadata: z.ZodOptional<typeof MethodMetadataSchema>;
 }> = z.object({
   axes: z.array(AxisSchema),
   datasets: z.array(DatasetSchema),
@@ -97,4 +105,6 @@ export const MetadataSchema: z.ZodObject<{
   omero: OmeroSchema.optional(),
   name: z.string().default("image"),
   version: z.string().default("0.4"),
+  type: z.string().optional(),
+  metadata: MethodMetadataSchema.optional(),
 });
