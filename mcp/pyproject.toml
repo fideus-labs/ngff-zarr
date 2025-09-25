@@ -171,6 +171,7 @@ pytest-asyncio = ">=1.0.0,<2"
 [tool.pixi.feature.dev.pypi-dependencies]
 ngff-zarr-mcp = { path = ".", editable = true, extras = ["dev"] }
 ngff-zarr = { path = "../py", editable = true, extras = ["cli", "tensorstore"] }
+jsonschema = "*"
 
 [tool.pixi.feature.dev.tasks]
 test = "pytest tests/"
@@ -181,6 +182,7 @@ format-check = "black --check --diff ."
 typecheck = "mypy ngff_zarr_mcp tests"
 build = "hatch build"
 all-checks = { depends-on = ["lint", "format-check", "typecheck"] }
+validate-server-json = "python -c \"import json,urllib.request; from jsonschema import validate, Draft7Validator; schema=json.load(urllib.request.urlopen('https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json')); data=json.load(open('server.json')); Draft7Validator.check_schema(schema); validate(instance=data, schema=schema); print('server.json is valid')\""
 
 [tool.pixi.feature.cloud.pypi-dependencies]
 ngff-zarr-mcp = { path = ".", editable = true, extras = ["cloud"] }

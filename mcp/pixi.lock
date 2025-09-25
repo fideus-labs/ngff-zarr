@@ -4685,7 +4685,7 @@ packages:
   timestamp: 1738196177597
 - pypi: ../py
   name: ngff-zarr
-  version: 0.15.2
+  version: 0.16.1
   sha256: 2411f274c91e5efd78524d45aa9f1c5de5727b0ba35455ca58fa3b6cbf8880bd
   requires_dist:
   - dask[array]
@@ -4747,8 +4747,8 @@ packages:
   editable: true
 - pypi: ./
   name: ngff-zarr-mcp
-  version: 0.4.0
-  sha256: 0de3f56b4b53550b2f04c523044ceaa51b2304ff12fa84e3aa54ceb01ee6878a
+  version: 0.5.0
+  sha256: 5484ca1e9fd897b65b418f8a3c81b8de6fc42843b2dce76ea2bb55a66744a15c
   requires_dist:
   - aiofiles
   - aiohttp
