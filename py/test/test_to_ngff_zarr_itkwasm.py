@@ -3,9 +3,16 @@
 import numpy as np
 from zarr.storage import MemoryStore
 
-from ngff_zarr import Methods, to_multiscales, to_ngff_image, to_ngff_zarr
+from ngff_zarr import (
+    Methods,
+    to_multiscales,
+    to_ngff_image,
+    to_ngff_zarr,
+    cli_input_to_ngff_image,
+    ConversionBackend,
+)
 
-from ._data import verify_against_baseline
+from ._data import verify_against_baseline, test_data_dir
 
 _HAVE_CUCIM = False
 try:
@@ -249,3 +256,32 @@ def test_label_image_isotropic_scale_factors(input_images):
 #     baseline_name = "x2y4_x2y4/ITKWASM_LABEL_IMAGE.zarr"
 #     store_new_multiscales(dataset_name, baseline_name, multiscales)
 #     verify_against_baseline(dataset_name, baseline_name, multiscales)
+
+
+def test_multichannel_tiff(input_images):
+    dataset_name = "ThreeChannels_Resolution_Level7.tif"
+    dataset_path = test_data_dir / "input" / dataset_name
+    image = cli_input_to_ngff_image(
+        ConversionBackend.TIFFFILE,
+        [
+            dataset_path,
+        ],
+    )
+    from rich import print
+
+    print(image)
+    multiscales = to_multiscales(
+        image,
+        [
+            2,
+        ],
+        method=Methods.ITKWASM_GAUSSIAN,
+    )
+    print(multiscales)
+    store = MemoryStore()
+    to_ngff_zarr(store, multiscales)
+
+    # baseline_name = "multichannel_tiff/ITKWASM_GAUSSIAN.zarr"
+    # multiscales = to_multiscales(image, [2, 4], method=Methods.ITKWASM_GAUSSIAN)
+    # # store_new_multiscales(dataset_name, baseline_name, multiscales)
+    # verify_against_baseline(dataset_name, baseline_name, multiscales)
