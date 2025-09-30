@@ -65,6 +65,7 @@ cli = [
   "itk-io>=5.3.0",
   "itkwasm-image-io",
   "imageio",
+  "nibabel",
   "tifffile>=2024.7.24",
   "imagecodecs",
 ]

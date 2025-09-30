@@ -9,6 +9,7 @@ from rich import print
 from .detect_cli_io_backend import ConversionBackend
 from .from_ngff_zarr import from_ngff_zarr
 from .itk_image_to_ngff_image import itk_image_to_ngff_image
+from .nibabel_image_to_ngff_image import nibabel_image_to_ngff_image
 from .ngff_image import NgffImage
 from .to_ngff_image import to_ngff_image
 
@@ -23,6 +24,14 @@ def cli_input_to_ngff_image(
     if backend is ConversionBackend.ZARR_ARRAY:
         arr = zarr.open_array(input[0], mode="r")
         return to_ngff_image(arr)
+    if backend is ConversionBackend.NIBABEL:
+        try:
+            import nibabel as nib
+        except ImportError:
+            print("[red]Please install the [i]nibabel[/i] package.")
+            sys.exit(1)
+        image = nib.load(input[0])
+        return nibabel_image_to_ngff_image(image)
     if backend is ConversionBackend.ITKWASM:
         try:
             import itkwasm_image_io
