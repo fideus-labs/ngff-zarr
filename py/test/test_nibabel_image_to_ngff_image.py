@@ -253,8 +253,9 @@ def test_nibabel_image_to_ngff_image_memory_optimization_with_scaling():
 
     # Should use float32 for scaled data
     assert ngff_image.data.dtype == np.float32
-    # Verify scaling was applied: scaled_data = slope * raw_data + intercept
-    expected_data = 2.0 * data.astype(np.float32) + 10.0
+    
+    # Compare with nibabel's own scaling (which is the correct reference)
+    expected_data = img.get_fdata(dtype=np.float32)
     np.testing.assert_array_equal(ngff_image.data, expected_data)
 
 
@@ -295,7 +296,9 @@ def test_nibabel_image_to_ngff_image_memory_optimization_slope_only():
 
     # Should use float32 due to non-identity slope
     assert ngff_image.data.dtype == np.float32
-    expected_data = 0.5 * data.astype(np.float32) + 0.0
+    
+    # Compare with nibabel's own scaling (which is the correct reference)
+    expected_data = img.get_fdata(dtype=np.float32)
     np.testing.assert_array_equal(ngff_image.data, expected_data)
 
 
@@ -316,5 +319,7 @@ def test_nibabel_image_to_ngff_image_memory_optimization_intercept_only():
 
     # Should use float32 due to non-zero intercept
     assert ngff_image.data.dtype == np.float32
-    expected_data = 1.0 * data.astype(np.float32) + 5.0
+    
+    # Compare with nibabel's own scaling (which is the correct reference)
+    expected_data = img.get_fdata(dtype=np.float32)
     np.testing.assert_array_equal(ngff_image.data, expected_data)
