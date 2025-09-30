@@ -70,6 +70,12 @@ export async function toNgffZarr(
               coordinateTransformations:
                 multiscales.metadata.coordinateTransformations,
             }),
+            ...(multiscales.metadata.type && {
+              type: multiscales.metadata.type,
+            }),
+            ...(multiscales.metadata.metadata && {
+              metadata: multiscales.metadata.metadata,
+            }),
           },
         ],
         ...(multiscales.metadata.omero && {
