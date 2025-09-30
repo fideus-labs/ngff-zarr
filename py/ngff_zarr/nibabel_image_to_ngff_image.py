@@ -121,12 +121,12 @@ def nibabel_image_to_ngff_image(
     scl_inter = header.get('scl_inter')
 
     # nibabel treats slope of 0 or None as 1.0, and inter of None as 0.0
-    if scl_slope is None or scl_slope == 0:
+    if scl_slope is None or scl_slope == 0 or np.isnan(scl_slope):
         scl_slope = 1.0
     else:
         scl_slope = float(scl_slope)
 
-    if scl_inter is None:
+    if scl_inter is None or np.isnan(scl_inter):
         scl_inter = 0.0
     else:
         scl_inter = float(scl_inter)
