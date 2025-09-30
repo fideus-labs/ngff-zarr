@@ -78,6 +78,9 @@ def extract_spatial_metadata(img) -> Tuple[Dict[str, float], Dict[str, float], n
         if len(shape) == 4:
             scale_dict['t'] = 1.0
             translation_dict['t'] = 0.0
+        elif len(shape) == 5:
+            scale_dict['c'] = 1.0
+            translation_dict['c'] = 0.0
     else:
         raise ValueError(f"Image must have at least 3 dimensions, got {len(shape)}")
 
