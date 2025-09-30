@@ -92,17 +92,52 @@ def nibabel_image_to_ngff_image(
     add_anatomical_orientation: bool = True,
 ) -> NgffImage:
     """Convert a nibabel image to an NgffImage, preserving spatial metadata.
-
+    
+    This function optimizes memory usage by checking the NIfTI scaling parameters:
+    - If scl_slope=1.0 and scl_inter=0.0 (identity scaling), uses the raw dataobj 
+      to preserve the original data type and minimize memory usage
+    - If scaling is required, uses get_fdata(dtype=np.float32) to balance 
+      memory usage and precision
+    
     Args:
         nibabel_image: A nibabel image object
         add_anatomical_orientation: Whether to add anatomical orientation metadata.
-                                   Only added if orientation and shear matrices are identity.
-
+                                   Only added if orientation matrix is identity 
+                                   (no rotation/shear).
+    
     Returns:
         NgffImage with spatial metadata from the NIfTI file
+        
+    Note:
+        The data is returned as a numpy array (not Dask) to maintain compatibility
+        with the original implementation requirements.
     """
-    # Get image data as numpy array (not Dask)
-    data = nibabel_image.get_fdata()
+    # Get image data as numpy array (not Dask) with optimized memory usage
+    # Check NIfTI scaling parameters for memory efficiency
+    header = nibabel_image.header
+    
+    # Get scaling parameters using nibabel's methods which handle defaults correctly
+    scl_slope = header.get('scl_slope')
+    scl_inter = header.get('scl_inter')
+    
+    # nibabel treats slope of 0 or None as 1.0, and inter of None as 0.0
+    if scl_slope is None or scl_slope == 0:
+        scl_slope = 1.0
+    else:
+        scl_slope = float(scl_slope)
+    
+    if scl_inter is None:
+        scl_inter = 0.0
+    else:
+        scl_inter = float(scl_inter)
+    
+    # Use raw data if no scaling is needed (identity scaling)
+    if scl_slope == 1.0 and scl_inter == 0.0:
+        # No scaling needed, use raw data to preserve original dtype and memory
+        data = np.asanyarray(nibabel_image.dataobj)
+    else:
+        # Scaling is needed, use float32 to balance memory and precision
+        data = nibabel_image.get_fdata(dtype=np.float32)
 
     # Extract spatial metadata
     scale_dict, translation_dict, affine = extract_spatial_metadata(nibabel_image)
