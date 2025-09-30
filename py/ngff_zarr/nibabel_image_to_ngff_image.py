@@ -120,14 +120,10 @@ def nibabel_image_to_ngff_image(
         # Decompose the affine to check if orientation and shear are identity
         decomposition = decompose_affine_with_shear(affine)
         orientation_matrix = decomposition["orientation"]
-        shear = decomposition["shear"]
 
         # Check if orientation is identity (within tolerance)
         identity_orientation = np.allclose(orientation_matrix, np.eye(3), atol=1e-6)
-        # Check if shear is zero (within tolerance)
-        zero_shear = np.allclose(shear, 0.0, atol=1e-6)
-
-        if identity_orientation and zero_shear:
+        if identity_orientation:
             axes_orientations = {}
             spatial_dims = [dim for dim in dims if dim in ['x', 'y', 'z']]
 
