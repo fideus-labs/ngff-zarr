@@ -178,3 +178,62 @@ def nibabel_image_to_ngff_image(
     )
 
     return ngff_img
+
+
+def extract_omero_metadata_from_nibabel(nibabel_image):
+    """Extract OMERO windowing metadata from a nibabel image's cal_min/cal_max headers.
+
+    Args:
+        nibabel_image: A nibabel image object
+
+    Returns:
+        Omero metadata if cal_min and cal_max are available and valid, None otherwise
+
+    Note:
+        This function creates OMERO windowing metadata from NIfTI cal_min and cal_max
+        header values when both are not 0.0 and neither is NaN. The windowing applies
+        to all channels in the image.
+    """
+    from .v04.zarr_metadata import Omero, OmeroChannel, OmeroWindow
+
+    header = nibabel_image.header
+
+    # Get calibration min/max values
+    cal_min = header.get('cal_min')
+    cal_max = header.get('cal_max')
+
+    # Convert to float and handle None values
+    if cal_min is None:
+        cal_min = 0.0
+    else:
+        cal_min = float(cal_min)
+
+    if cal_max is None:
+        cal_max = 0.0
+    else:
+        cal_max = float(cal_max)
+
+    # Check if both are not 0.0 and neither is NaN
+    if not (cal_min == 0.0 and cal_max == 0.0) and not (np.isnan(cal_min) or np.isnan(cal_max)):
+        # Determine data range for min/max values
+        data_min = float(np.min(nibabel_image.dataobj))
+        data_max = float(np.max(nibabel_image.dataobj))
+
+        # Create OMERO windowing metadata
+        # For simplicity, create one channel - users can extend this for multi-channel images
+        omero_window = OmeroWindow(
+            min=data_min,
+            max=data_max,
+            start=cal_min,
+            end=cal_max
+        )
+
+        omero_channel = OmeroChannel(
+            color="FFFFFF",  # Default to white
+            window=omero_window,
+            label=""  # Empty label by default
+        )
+
+        return Omero(channels=[omero_channel])
+
+    return None

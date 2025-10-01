@@ -9,7 +9,7 @@ from .config import config
 from .detect_cli_io_backend import ConversionBackend, detect_cli_io_backend
 from .from_ngff_zarr import from_ngff_zarr
 from .itk_image_to_ngff_image import itk_image_to_ngff_image
-from .nibabel_image_to_ngff_image import nibabel_image_to_ngff_image
+from .nibabel_image_to_ngff_image import nibabel_image_to_ngff_image, extract_omero_metadata_from_nibabel
 from .memory_usage import memory_usage
 from .methods import Methods
 from .multiscales import Multiscales
@@ -66,6 +66,7 @@ __all__ = [
     "to_ngff_image",
     "itk_image_to_ngff_image",
     "nibabel_image_to_ngff_image",
+    "extract_omero_metadata_from_nibabel",
     "ngff_image_to_itk_image",
     "memory_usage",
     "task_count",

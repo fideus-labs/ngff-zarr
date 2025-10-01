@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from ngff_zarr import nibabel_image_to_ngff_image
+from ngff_zarr import nibabel_image_to_ngff_image, extract_omero_metadata_from_nibabel, to_multiscales
 from ngff_zarr.rfc4 import AnatomicalOrientation, AnatomicalOrientationValues
 
 from ._data import test_data_dir, input_images  # noqa: F401
@@ -378,3 +378,163 @@ def test_nibabel_image_to_ngff_image_ail_rip_orientation_disabled(input_images):
     # Check that no anatomical orientation is added when disabled
     assert ail_ngff.axes_orientations is None
     assert rip_ngff.axes_orientations is None
+
+
+def test_extract_omero_metadata_from_nibabel_with_cal_values():
+    """Test OMERO metadata extraction when cal_min and cal_max are set."""
+    # Create test data
+    data = np.random.randint(0, 100, size=(10, 10, 10), dtype=np.uint16)
+    affine = np.eye(4)
+    img = nib.Nifti1Image(data, affine)
+
+    # Set calibration values
+    img.header['cal_min'] = 10.0
+    img.header['cal_max'] = 90.0
+
+    omero_metadata = extract_omero_metadata_from_nibabel(img)
+
+    # Should have OMERO metadata
+    assert omero_metadata is not None
+    assert len(omero_metadata.channels) == 1
+
+    # Check the channel properties
+    channel = omero_metadata.channels[0]
+    assert channel.color == "FFFFFF"  # Default white
+    assert channel.label == ""  # Default empty label
+
+    # Check the windowing values
+    window = channel.window
+    assert window.start == 10.0  # cal_min
+    assert window.end == 90.0    # cal_max
+    assert window.min == float(np.min(data))  # Data minimum
+    assert window.max == float(np.max(data))  # Data maximum
+
+
+def test_extract_omero_metadata_from_nibabel_no_cal_values():
+    """Test OMERO metadata extraction when cal_min and cal_max are both 0.0."""
+    # Create test data
+    data = np.random.randint(0, 100, size=(10, 10, 10), dtype=np.uint16)
+    affine = np.eye(4)
+    img = nib.Nifti1Image(data, affine)
+
+    # Set calibration values to 0.0 (should not create OMERO metadata)
+    img.header['cal_min'] = 0.0
+    img.header['cal_max'] = 0.0
+
+    omero_metadata = extract_omero_metadata_from_nibabel(img)
+
+    # Should not have OMERO metadata
+    assert omero_metadata is None
+
+
+def test_extract_omero_metadata_from_nibabel_with_nan_values():
+    """Test OMERO metadata extraction when cal_min or cal_max is NaN."""
+    # Create test data
+    data = np.random.randint(0, 100, size=(10, 10, 10), dtype=np.uint16)
+    affine = np.eye(4)
+    img = nib.Nifti1Image(data, affine)
+
+    # Set calibration values with NaN (should not create OMERO metadata)
+    img.header['cal_min'] = np.nan
+    img.header['cal_max'] = 50.0
+
+    omero_metadata = extract_omero_metadata_from_nibabel(img)
+
+    # Should not have OMERO metadata
+    assert omero_metadata is None
+
+    # Test with other value as NaN
+    img.header['cal_min'] = 10.0
+    img.header['cal_max'] = np.nan
+
+    omero_metadata = extract_omero_metadata_from_nibabel(img)
+
+    # Should not have OMERO metadata
+    assert omero_metadata is None
+
+
+def test_extract_omero_metadata_from_nibabel_none_values():
+    """Test OMERO metadata extraction when cal_min and cal_max are None (default)."""
+    # Create test data
+    data = np.random.randint(0, 100, size=(10, 10, 10), dtype=np.uint16)
+    affine = np.eye(4)
+    img = nib.Nifti1Image(data, affine)
+
+    # Default header values are None, which should be treated as 0.0
+    omero_metadata = extract_omero_metadata_from_nibabel(img)
+
+    # Should not have OMERO metadata (both None -> 0.0)
+    assert omero_metadata is None
+
+
+def test_extract_omero_metadata_from_nibabel_one_zero_value():
+    """Test OMERO metadata extraction when only one cal value is 0.0."""
+    # Create test data
+    data = np.random.randint(0, 100, size=(10, 10, 10), dtype=np.uint16)
+    affine = np.eye(4)
+    img = nib.Nifti1Image(data, affine)
+
+    # Set one value to 0.0, other to non-zero (should create OMERO metadata)
+    img.header['cal_min'] = 0.0
+    img.header['cal_max'] = 75.0
+
+    omero_metadata = extract_omero_metadata_from_nibabel(img)
+
+    # Should have OMERO metadata
+    assert omero_metadata is not None
+    assert len(omero_metadata.channels) == 1
+
+    # Check the windowing values
+    window = omero_metadata.channels[0].window
+    assert window.start == 0.0
+    assert window.end == 75.0
+
+    # Test the reverse case
+    img.header['cal_min'] = 25.0
+    img.header['cal_max'] = 0.0
+
+    omero_metadata = extract_omero_metadata_from_nibabel(img)
+
+    # Should have OMERO metadata
+    assert omero_metadata is not None
+    assert len(omero_metadata.channels) == 1
+
+    # Check the windowing values
+    window = omero_metadata.channels[0].window
+    assert window.start == 25.0
+    assert window.end == 0.0
+
+
+def test_extract_omero_metadata_integration_with_multiscales():
+    """Test integration of OMERO metadata with multiscales workflow."""
+    # Create test data
+    data = np.random.randint(0, 255, size=(32, 32, 32), dtype=np.uint8)
+    affine = np.eye(4)
+    img = nib.Nifti1Image(data, affine)
+
+    # Set calibration values
+    img.header['cal_min'] = 50.0
+    img.header['cal_max'] = 200.0
+
+    # Convert to NgffImage
+    ngff_image = nibabel_image_to_ngff_image(img)
+
+    # Extract OMERO metadata
+    omero_metadata = extract_omero_metadata_from_nibabel(img)
+
+    # Create multiscales
+    multiscales = to_multiscales(ngff_image, scale_factors=[2])
+
+    # Add OMERO metadata to multiscales
+    if omero_metadata is not None:
+        multiscales.metadata.omero = omero_metadata
+
+    # Verify the integration
+    assert multiscales.metadata.omero is not None
+    assert len(multiscales.metadata.omero.channels) == 1
+
+    channel = multiscales.metadata.omero.channels[0]
+    assert channel.window.start == 50.0
+    assert channel.window.end == 200.0
+    assert channel.window.min == float(np.min(data))
+    assert channel.window.max == float(np.max(data))
