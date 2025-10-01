@@ -208,3 +208,6 @@ pooch = ">=1.8.2,<2"
 
 [tool.pixi.feature.data.tasks]
 hash-data = { cmd = "tar cvf ../data.tar * && gzip -9 -f ../data.tar && echo 'New SHA256:' && python3 -c 'import pooch; print(pooch.file_hash(\"../data.tar.gz\"))'", cwd = "test/data", description = "Update the testing data tarball and get its sha256 hash" }
+
+[tool.pixi.dependencies]
+matplotlib = ">=3.10.6,<4"

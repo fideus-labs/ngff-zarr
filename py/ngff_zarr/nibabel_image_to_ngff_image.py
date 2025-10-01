@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple
 import numpy as np
 
 from .ngff_image import NgffImage
@@ -155,23 +155,17 @@ def nibabel_image_to_ngff_image(
     # Create anatomical orientations for spatial dimensions (RAS) only if matrices are identity
     axes_orientations = None
     if add_anatomical_orientation:
-        # Decompose the affine to check if orientation and shear are identity
-        decomposition = decompose_affine_with_shear(affine)
-        orientation_matrix = decomposition["orientation"]
+        from nibabel.orientations import io_orientation, ornt2axcodes
+        labels = (
+        (AnatomicalOrientationValues.right_to_left, AnatomicalOrientationValues.left_to_right),
+        (AnatomicalOrientationValues.anterior_to_posterior, AnatomicalOrientationValues.posterior_to_anterior),
+        (AnatomicalOrientationValues.superior_to_inferior, AnatomicalOrientationValues.inferior_to_superior),
+        )
+        orientation = ornt2axcodes(io_orientation(affine), labels)
+        orientation = {dim: ornt for  dim, ornt in zip(['x', 'y', 'z'], orientation)}
 
-        # Check if orientation is identity (within tolerance)
-        identity_orientation = np.allclose(orientation_matrix, np.eye(3), atol=1e-6)
-        if identity_orientation:
-            axes_orientations = {}
-            spatial_dims = [dim for dim in dims if dim in ['x', 'y', 'z']]
-
-            for dim in spatial_dims:
-                if dim == 'x':
-                    axes_orientations[dim] = AnatomicalOrientation(value=AnatomicalOrientationValues.left_to_right)
-                elif dim == 'y':
-                    axes_orientations[dim] = AnatomicalOrientation(value=AnatomicalOrientationValues.posterior_to_anterior)
-                elif dim == 'z':
-                    axes_orientations[dim] = AnatomicalOrientation(value=AnatomicalOrientationValues.inferior_to_superior)
+        spatial_dims = [dim for dim in dims if dim in ['x', 'y', 'z']]
+        axes_orientations = {dim: orientation[dim] for dim in spatial_dims}
 
     # Create NgffImage
     ngff_img = NgffImage(

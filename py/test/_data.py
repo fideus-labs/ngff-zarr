@@ -16,8 +16,8 @@ from ngff_zarr._zarr_kwargs import zarr_kwargs
 from zarr.storage import MemoryStore
 from deepdiff import DeepDiff
 
-test_data_ipfs_cid = "bafybeigkjwg2dr7lvjgpns5nt65kfqfse2qdzqpohe4dvcvwj7j4xf3xbe"
-test_data_sha256 = "ae6a3aa6e6c0faf4ec8c628c125e1125226ef0b6743158a121d22d7ab2e1d0e8"
+test_data_ipfs_cid = "bafybeif7tln62tvom3dzmqlr7y5rhdfgbdqmahuh5wdmz5ppmmgpkaboqu"
+test_data_sha256 = "4cdb01e49261348a37b38893f1607dfaac7378449c38420c824098064687ee66"
 
 test_dir = Path(__file__).resolve().parent
 extract_dir = "data"

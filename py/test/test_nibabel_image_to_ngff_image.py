@@ -34,9 +34,6 @@ def test_nibabel_image_to_ngff_image_basic():
     assert "y" in ngff_image.translation
     assert "z" in ngff_image.translation
 
-    # Check that no anatomical orientation is added due to non-identity transform
-    assert ngff_image.axes_orientations is None
-
     # Test memory optimization - check that data is equivalent to get_fdata()
     reference_data = img.get_fdata()
     assert np.allclose(ngff_image.data, reference_data)
@@ -48,11 +45,11 @@ def test_nibabel_image_to_ngff_image_basic():
     scl_inter = header.get('scl_inter')
 
     # Process scaling parameters same as our function
-    if scl_slope is None or scl_slope == 0:
+    if scl_slope is None or scl_slope == 0 or np.isnan(scl_slope):
         slope = 1.0
     else:
         slope = float(scl_slope)
-    if scl_inter is None:
+    if scl_inter is None or np.isnan(scl_inter):
         inter = 0.0
     else:
         inter = float(scl_inter)
@@ -133,30 +130,6 @@ def test_nibabel_image_to_ngff_image_scaled_transform():
     assert ngff_image.translation["x"] == 10.0
     assert ngff_image.translation["y"] == 20.0
     assert ngff_image.translation["z"] == 30.0
-
-
-def test_nibabel_image_to_ngff_image_rotated_transform():
-    """Test that anatomical orientations are NOT added for rotated transform."""
-    # Create a simple 3D image with rotated transform
-    data = np.random.rand(10, 10, 10).astype(np.float32)
-
-    # Create rotated affine (90 degree rotation around z-axis)
-    cos_90 = 0.0
-    sin_90 = 1.0
-    affine = np.array([
-        [cos_90, -sin_90, 0.0, 0.0],
-        [sin_90,  cos_90, 0.0, 0.0],
-        [0.0,     0.0,    1.0, 0.0],
-        [0.0,     0.0,    0.0, 1.0]
-    ])
-
-    # Create nibabel image
-    img = nib.Nifti1Image(data, affine)
-
-    ngff_image = nibabel_image_to_ngff_image(img, add_anatomical_orientation=True)
-
-    # Check that anatomical orientations are NOT added for rotated transform
-    assert ngff_image.axes_orientations is None
 
 
 def test_nibabel_image_to_ngff_image_4d():
@@ -253,7 +226,7 @@ def test_nibabel_image_to_ngff_image_memory_optimization_with_scaling():
 
     # Should use float32 for scaled data
     assert ngff_image.data.dtype == np.float32
-    
+
     # Compare with nibabel's own scaling (which is the correct reference)
     expected_data = img.get_fdata(dtype=np.float32)
     np.testing.assert_array_equal(ngff_image.data, expected_data)
@@ -296,7 +269,7 @@ def test_nibabel_image_to_ngff_image_memory_optimization_slope_only():
 
     # Should use float32 due to non-identity slope
     assert ngff_image.data.dtype == np.float32
-    
+
     # Compare with nibabel's own scaling (which is the correct reference)
     expected_data = img.get_fdata(dtype=np.float32)
     np.testing.assert_array_equal(ngff_image.data, expected_data)
@@ -319,7 +292,89 @@ def test_nibabel_image_to_ngff_image_memory_optimization_intercept_only():
 
     # Should use float32 due to non-zero intercept
     assert ngff_image.data.dtype == np.float32
-    
+
     # Compare with nibabel's own scaling (which is the correct reference)
     expected_data = img.get_fdata(dtype=np.float32)
     np.testing.assert_array_equal(ngff_image.data, expected_data)
+
+
+def test_nibabel_image_to_ngff_image_ail_orientation():
+    """Test that AIL.nii.gz generates the expected anatomical orientation."""
+    input_path = test_data_dir / "input" / "AIL.nii.gz"
+    img = nib.load(str(input_path))
+
+    ngff_image = nibabel_image_to_ngff_image(img, add_anatomical_orientation=True)
+
+    # Check basic properties
+    assert tuple(ngff_image.dims) == ("x", "y", "z")
+    assert ngff_image.data.shape == (79, 67, 64)
+
+    # Check that anatomical orientations are detected correctly for AIL image
+    assert ngff_image.axes_orientations is not None
+    assert "x" in ngff_image.axes_orientations
+    assert "y" in ngff_image.axes_orientations
+    assert "z" in ngff_image.axes_orientations
+
+    # Verify the specific orientations for AIL (Anterior-Inferior-Left)
+    # Based on nibabel output: Orientation: ('A', 'I', 'L')
+    # Actual detected orientations from the function:
+    assert ngff_image.axes_orientations["x"].value == AnatomicalOrientationValues.posterior_to_anterior
+    assert ngff_image.axes_orientations["y"].value == AnatomicalOrientationValues.superior_to_inferior
+    assert ngff_image.axes_orientations["z"].value == AnatomicalOrientationValues.right_to_left
+
+    # Verify spatial metadata exists
+    assert "x" in ngff_image.scale
+    assert "y" in ngff_image.scale
+    assert "z" in ngff_image.scale
+    assert "x" in ngff_image.translation
+    assert "y" in ngff_image.translation
+    assert "z" in ngff_image.translation
+
+
+def test_nibabel_image_to_ngff_image_rip_orientation():
+    """Test that RIP.nii.gz generates the expected anatomical orientation."""
+    input_path = test_data_dir / "input" / "RIP.nii.gz"
+    img = nib.load(str(input_path))
+
+    ngff_image = nibabel_image_to_ngff_image(img, add_anatomical_orientation=True)
+
+    # Check basic properties
+    assert tuple(ngff_image.dims) == ("x", "y", "z")
+    assert ngff_image.data.shape == (64, 67, 79)
+
+    # Check that anatomical orientations are detected correctly for RIP image
+    assert ngff_image.axes_orientations is not None
+    assert "x" in ngff_image.axes_orientations
+    assert "y" in ngff_image.axes_orientations
+    assert "z" in ngff_image.axes_orientations
+
+    # Verify the specific orientations for RIP (Right-Inferior-Posterior)
+    # Based on nibabel output: Orientation: ('R', 'I', 'P')
+    # Actual detected orientations from the function:
+    assert ngff_image.axes_orientations["x"].value == AnatomicalOrientationValues.left_to_right
+    assert ngff_image.axes_orientations["y"].value == AnatomicalOrientationValues.superior_to_inferior
+    assert ngff_image.axes_orientations["z"].value == AnatomicalOrientationValues.anterior_to_posterior
+
+    # Verify spatial metadata exists
+    assert "x" in ngff_image.scale
+    assert "y" in ngff_image.scale
+    assert "z" in ngff_image.scale
+    assert "x" in ngff_image.translation
+    assert "y" in ngff_image.translation
+    assert "z" in ngff_image.translation
+
+
+def test_nibabel_image_to_ngff_image_ail_rip_orientation_disabled():
+    """Test that AIL and RIP orientations are not added when disabled."""
+    ail_path = test_data_dir / "input" / "AIL.nii.gz"
+    rip_path = test_data_dir / "input" / "RIP.nii.gz"
+
+    ail_img = nib.load(str(ail_path))
+    rip_img = nib.load(str(rip_path))
+
+    ail_ngff = nibabel_image_to_ngff_image(ail_img, add_anatomical_orientation=False)
+    rip_ngff = nibabel_image_to_ngff_image(rip_img, add_anatomical_orientation=False)
+
+    # Check that no anatomical orientation is added when disabled
+    assert ail_ngff.axes_orientations is None
+    assert rip_ngff.axes_orientations is None
