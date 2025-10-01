@@ -6,13 +6,13 @@ import pytest
 from ngff_zarr import nibabel_image_to_ngff_image
 from ngff_zarr.rfc4 import AnatomicalOrientation, AnatomicalOrientationValues
 
-from ._data import test_data_dir
+from ._data import test_data_dir, input_images  # noqa: F401
 
 pytest.importorskip("nibabel")
 import nibabel as nib
 
 
-def test_nibabel_image_to_ngff_image_basic():
+def test_nibabel_image_to_ngff_image_basic(input_images):  # noqa: ARG001
     """Test basic conversion from nibabel to NgffImage with the test file."""
     input_path = test_data_dir / "input" / "mri_denoised.nii.gz"
     img = nib.load(str(input_path))
@@ -88,7 +88,7 @@ def test_nibabel_image_to_ngff_image_identity_transform():
     assert ngff_image.axes_orientations["z"].value == AnatomicalOrientationValues.inferior_to_superior
 
 
-def test_nibabel_image_to_ngff_image_no_anatomical_orientation():
+def test_nibabel_image_to_ngff_image_no_anatomical_orientation(input_images):  # noqa: ARG001
     """Test that anatomical orientations are not added when disabled."""
     input_path = test_data_dir / "input" / "mri_denoised.nii.gz"
     img = nib.load(str(input_path))
@@ -179,7 +179,7 @@ def test_nibabel_image_to_ngff_image_unsupported_dimensions():
         nibabel_image_to_ngff_image(img)
 
 
-def test_nibabel_image_to_ngff_image_name():
+def test_nibabel_image_to_ngff_image_name(input_images):  # noqa: ARG001
     """Test that the image gets the expected name."""
     input_path = test_data_dir / "input" / "mri_denoised.nii.gz"
     img = nib.load(str(input_path))
@@ -298,7 +298,7 @@ def test_nibabel_image_to_ngff_image_memory_optimization_intercept_only():
     np.testing.assert_array_equal(ngff_image.data, expected_data)
 
 
-def test_nibabel_image_to_ngff_image_ail_orientation():
+def test_nibabel_image_to_ngff_image_ail_orientation(input_images):  # noqa: ARG001 
     """Test that AIL.nii.gz generates the expected anatomical orientation."""
     input_path = test_data_dir / "input" / "AIL.nii.gz"
     img = nib.load(str(input_path))
@@ -331,7 +331,7 @@ def test_nibabel_image_to_ngff_image_ail_orientation():
     assert "z" in ngff_image.translation
 
 
-def test_nibabel_image_to_ngff_image_rip_orientation():
+def test_nibabel_image_to_ngff_image_rip_orientation(input_images):  # noqa: ARG001
     """Test that RIP.nii.gz generates the expected anatomical orientation."""
     input_path = test_data_dir / "input" / "RIP.nii.gz"
     img = nib.load(str(input_path))
@@ -364,7 +364,7 @@ def test_nibabel_image_to_ngff_image_rip_orientation():
     assert "z" in ngff_image.translation
 
 
-def test_nibabel_image_to_ngff_image_ail_rip_orientation_disabled():
+def test_nibabel_image_to_ngff_image_ail_rip_orientation_disabled(input_images):  # noqa: ARG001
     """Test that AIL and RIP orientations are not added when disabled."""
     ail_path = test_data_dir / "input" / "AIL.nii.gz"
     rip_path = test_data_dir / "input" / "RIP.nii.gz"
