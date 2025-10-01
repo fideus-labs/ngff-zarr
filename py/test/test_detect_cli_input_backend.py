@@ -33,6 +33,26 @@ def test_detect_tifffile_input_backend():
     assert backend == ConversionBackend.TIFFFILE
 
 
+def test_detect_nibabel_input_backend():
+    extension = ".nii.gz"
+    backend = detect_cli_io_backend(
+        [
+            f"file{extension}",
+        ]
+    )
+    assert backend == ConversionBackend.NIBABEL
+
+
+def test_detect_nibabel_input_backend_nii():
+    extension = ".nii"
+    backend = detect_cli_io_backend(
+        [
+            f"file{extension}",
+        ]
+    )
+    assert backend == ConversionBackend.NIBABEL
+
+
 def test_detect_imageio_input_backend():
     extension = ".webm"
     backend = detect_cli_io_backend(

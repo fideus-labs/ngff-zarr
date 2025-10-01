@@ -8,6 +8,7 @@ from typing import List
 conversion_backends = [
     ("NGFF_ZARR", "ngff_zarr"),
     ("ZARR_ARRAY", "zarr"),
+    ("NIBABEL", "nibabel"),
     ("ITKWASM", "itkwasm_image_io"),
     ("ITK", "itk"),
     ("TIFFFILE", "tifffile"),
@@ -26,6 +27,11 @@ def detect_cli_io_backend(input: List[str]) -> ConversionBackend:
     ngff_zarr_supported_extensions = (".zarr", ".ome.zarr")
     if extension in ngff_zarr_supported_extensions:
         return ConversionBackend.NGFF_ZARR
+
+    # Prioritize NIBABEL for NIfTI files
+    nibabel_supported_extensions = (".nii", ".nii.gz")
+    if extension in nibabel_supported_extensions:
+        return ConversionBackend.NIBABEL
 
     itkwasm_supported_extensions = (
         ".bmp",

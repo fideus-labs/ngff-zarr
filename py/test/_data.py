@@ -16,8 +16,8 @@ from ngff_zarr._zarr_kwargs import zarr_kwargs
 from zarr.storage import MemoryStore
 from deepdiff import DeepDiff
 
-test_data_ipfs_cid = "bafybeigw2k646xjmv2dawaaaeykwiisqgtipu57n2hnspwuoq6e5xlex6m"
-test_data_sha256 = "cdec3245c0d109c3f2f26a9fafb92d4a2b3119f0d467f7b9853b07ca9dd4bfbf"
+test_data_ipfs_cid = "bafybeif7tln62tvom3dzmqlr7y5rhdfgbdqmahuh5wdmz5ppmmgpkaboqu"
+test_data_sha256 = "4cdb01e49261348a37b38893f1607dfaac7378449c38420c824098064687ee66"
 
 test_dir = Path(__file__).resolve().parent
 extract_dir = "data"
@@ -33,8 +33,8 @@ def input_images():
     pooch.retrieve(
         fname="data.tar.gz",
         path=test_dir,
-        url="https://github.com/thewtex/ngff-zarr/releases/download/v0.15.0/ngff-zarr-0.15.0-test-data.tar.gz",
-        # url=f"https://itk.mypinata.cloud/ipfs/{test_data_ipfs_cid}/data.tar.gz",
+        # url="https://github.com/thewtex/ngff-zarr/releases/download/v0.15.0/ngff-zarr-0.15.0-test-data.tar.gz",
+        url=f"https://itk.mypinata.cloud/ipfs/{test_data_ipfs_cid}/data.tar.gz",
         # url=f"https://{test_data_ipfs_cid}.ipfs.w3s.link/ipfs/{test_data_ipfs_cid}/data.tar.gz",
         known_hash=f"sha256:{test_data_sha256}",
         processor=untar,
