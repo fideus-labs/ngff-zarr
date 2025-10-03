@@ -39,7 +39,7 @@ from .multiscales import Multiscales
 from .ngff_image import NgffImage
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
 from .to_ngff_image import to_ngff_image
-from .v04.zarr_metadata import Axis, Dataset, Metadata, Scale, Translation
+from .v06.zarr_metadata import Axis, Dataset, Metadata, Scale, Translation, TransformSequence
 
 
 def _ngff_image_scale_factors(ngff_image, min_length, out_chunks):
@@ -358,45 +358,27 @@ def to_multiscales(
             ngff_image, default_chunks, out_chunks, scale_factors, label="mode"
         )
 
-    axes = []
-    for dim in ngff_image.dims:
-        unit = None
-        if ngff_image.axes_units and dim in ngff_image.axes_units:
-            unit = ngff_image.axes_units[dim]
-
-        orientation = None
-        if ngff_image.axes_orientations and dim in ngff_image.axes_orientations:
-            orientation = ngff_image.axes_orientations[dim]
-
-        if dim in {"x", "y", "z"}:
-            axis = Axis(name=dim, type="space", unit=unit, orientation=orientation)
-        elif dim == "c":
-            axis = Axis(name=dim, type="channel", unit=unit)
-        elif dim == "t":
-            axis = Axis(name=dim, type="time", unit=unit)
-        else:
-            msg = f"Dimension identifier is not valid: {dim}"
-            raise KeyError(msg)
-        axes.append(axis)
+    # Collect unique coordinate systems by name
+    all_coordinate_systems = [cs for img in images for cs in ([img.coordinateSystems] if not isinstance(img.coordinateSystems, list) else img.coordinateSystems) if cs is not None]
+    unique_coordinate_systems = list({cs.name: cs for cs in all_coordinate_systems}.values())
 
     datasets = []
     for index, image in enumerate(images):
         path = f"scale{index}/{ngff_image.name}"
-        scale = []
-        for dim in image.dims:
-            if dim in image.scale:
-                scale.append(image.scale[dim])
-            else:
-                scale.append(1.0)
-        translation = []
-        for dim in image.dims:
-            if dim in image.translation:
-                translation.append(image.translation[dim])
-            else:
-                translation.append(0.0)
-        coordinateTransformations = [Scale(scale), Translation(translation)]
+
+        # get transformations and replace input/output with string references to coordinate systems
+        transformations = TransformSequence(
+            sequence=[
+                Scale(list(image.scale.values())),
+                Translation(list(image.translation.values()))
+            ],
+            name=f"scale{index}",
+            input='',
+            output=image.coordinateTransformations.output.name if image.coordinateTransformations.output else ""
+        )
+
         dataset = Dataset(
-            path=path, coordinateTransformations=coordinateTransformations
+            path=path, coordinateTransformations=transformations
         )
         datasets.append(dataset)
     # Convert method enum to lowercase string for the type field
@@ -405,12 +387,12 @@ def to_multiscales(
     if method is not None:
         method_type = method.value
         method_metadata = get_method_metadata(method)
-    
+
     metadata = Metadata(
-        axes=axes,
+        coordinateSystems=unique_coordinate_systems,
+        coordinateTransformations=datasets[0].coordinateTransformations,
         datasets=datasets,
         name=ngff_image.name,
-        coordinateTransformations=None,
         type=method_type,
         metadata=method_metadata,
     )

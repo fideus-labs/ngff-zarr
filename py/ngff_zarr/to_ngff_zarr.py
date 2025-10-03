@@ -46,19 +46,23 @@ zarr_version_major = zarr_version.major
 
 
 def _pop_metadata_optionals(metadata_dict, enabled_rfcs: Optional[List[int]] = None):
-    for ax in metadata_dict["axes"]:
-        if ax["unit"] is None:
-            ax.pop("unit")
 
-        # Handle RFC 4: Remove orientation if RFC 4 is not enabled
-        if not is_rfc4_enabled(enabled_rfcs) and "orientation" in ax:
-            ax.pop("orientation")
+    if "axes" in metadata_dict:
+        for ax in metadata_dict["axes"]:
+            if ax["unit"] is None:
+                ax.pop("unit")
 
-    if metadata_dict["coordinateTransformations"] is None:
-        metadata_dict.pop("coordinateTransformations")
+            # Handle RFC 4: Remove orientation if RFC 4 is not enabled
+            if not is_rfc4_enabled(enabled_rfcs) and "orientation" in ax:
+                ax.pop("orientation")
 
-    if metadata_dict["omero"] is None:
-        metadata_dict.pop("omero")
+    if "coordinateTransformations" in metadata_dict:
+        if metadata_dict["coordinateTransformations"] is None:
+            metadata_dict.pop("coordinateTransformations")
+
+    if "omero" in metadata_dict:
+        if metadata_dict["omero"] is None:
+            metadata_dict.pop("omero")
 
     return metadata_dict
 
@@ -335,7 +339,7 @@ def _validate_ngff_parameters(
     store: StoreLike,
 ) -> None:
     """Validate the parameters for the NGFF Zarr generation."""
-    if version != "0.4" and version != "0.5":
+    if version not in ["0.4", "0.5", "0.6.dev1"]:
         raise ValueError(f"Unsupported version: {version}")
 
     if chunks_per_shard is not None:
@@ -401,7 +405,6 @@ def _create_zarr_root(
     chunk_store: Optional[StoreLike],
     version: str,
     overwrite: bool,
-    metadata_dict: Dict,
 ) -> zarr.Group:
     """Create and configure the root Zarr group with proper attributes."""
     zarr_format = 2 if version == "0.4" else 3
@@ -430,15 +433,6 @@ def _create_zarr_root(
             chunk_store=chunk_store,
             **format_kwargs,
         )
-
-    if "omero" in metadata_dict:
-        root.attrs["omero"] = metadata_dict.pop("omero")
-
-    if version != "0.4":
-        # RFC 2, Zarr 3
-        root.attrs["ome"] = {"version": version, "multiscales": [metadata_dict]}
-    else:
-        root.attrs["multiscales"] = [metadata_dict]
 
     return root
 
@@ -1033,6 +1027,12 @@ def to_ngff_zarr(
     # Setup and validation
     store_path = str(store) if isinstance(store, (str, Path)) else None
 
+    # Create Zarr root
+    root = _create_zarr_root(store, chunk_store, version, overwrite)
+
+
+    # inject recursion here
+
     _validate_ngff_parameters(version, chunks_per_shard, use_tensorstore, store)
     metadata, dimension_names, dimension_names_kwargs = _prepare_metadata(
         multiscales, version, enabled_rfcs
@@ -1041,8 +1041,15 @@ def to_ngff_zarr(
     metadata_dict = _pop_metadata_optionals(metadata_dict, enabled_rfcs)
     metadata_dict["@type"] = "ngff:Image"
 
-    # Create Zarr root
-    root = _create_zarr_root(store, chunk_store, version, overwrite, metadata_dict)
+
+    if "omero" in metadata_dict:
+        root.attrs["omero"] = metadata_dict.pop("omero")
+
+    if version != "0.4":
+        # RFC 2, Zarr 3
+        root.attrs["ome"] = {"version": version, "multiscales": [metadata_dict]}
+    else:
+        root.attrs["multiscales"] = [metadata_dict]
 
     # Format parameters
     zarr_format = 2 if version == "0.4" else 3
