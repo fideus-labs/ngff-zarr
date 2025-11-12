@@ -356,7 +356,11 @@ def main():
         )
     output_store = None
     if args.output and output_backend is ConversionBackend.NGFF_ZARR:
-        output_store = LocalStore(args.output, **zarr_kwargs)
+        # Handle .ozx files - just pass the path, to_ngff_zarr will handle it
+        if args.output.endswith('.ozx'):
+            output_store = args.output
+        else:
+            output_store = LocalStore(args.output, **zarr_kwargs)
 
     subtitle = "[red]generation"
     if not args.output:

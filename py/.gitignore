@@ -3,6 +3,7 @@ dist/
 
 test/data/
 test/data.tar.gz
+test/output/
 
 *__pycache__*
 

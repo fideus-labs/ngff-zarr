@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 import sys
+import tempfile
 from collections.abc import MutableMapping
 from dataclasses import asdict
 from pathlib import Path, PurePosixPath
@@ -25,6 +26,7 @@ from ._zarr_open_array import open_array
 from .v04.zarr_metadata import Metadata as Metadata_v04
 from .v05.zarr_metadata import Metadata as Metadata_v05
 from .rfc4 import is_rfc4_enabled
+from .rfc9_zip import is_ozx_path, write_store_to_zip
 
 # Zarr Python 3
 if hasattr(zarr.storage, "StoreLike"):
@@ -1070,13 +1072,13 @@ def to_ngff_zarr(
     """
     Write an image pixel array and metadata to a Zarr store with the OME-NGFF standard data model.
 
-    :param store: Store or path to directory in file system.
+    :param store: Store or path to directory in file system. If the path ends with .ozx, writes an RFC-9 compliant zipped OME-Zarr file.
     :type  store: StoreLike
 
     :param multiscales: Multiscales OME-NGFF image pixel data and metadata. Can be generated with ngff_zarr.to_multiscales.
     :type  multiscales: Multiscales
 
-    :param version: OME-Zarr specification version.
+    :param version: OME-Zarr specification version. For .ozx files, version 0.5 is required.
     :type  version: str, optional
 
     :param overwrite: If True, delete any pre-existing data in `store` before creating groups.
@@ -1092,13 +1094,104 @@ def to_ngff_zarr(
     :param progress: Optional progress logger
     :type  progress: RichDaskProgress
 
-    :param chunks_per_shard: Number of chunks along each axis in a shard. If None, no sharding. Requires OME-Zarr version >= 0.5.
+    :param chunks_per_shard: Number of chunks along each axis in a shard. If None, no sharding. For .ozx files, defaults to 2 if not specified. Requires OME-Zarr version >= 0.5.
     :type  chunks_per_shard: int, tuple, or dict, optional
 
     :param enabled_rfcs: List of RFC numbers to enable. If RFC 4 is included, anatomical orientation metadata will be preserved in the output.
     :type  enabled_rfcs: list of int, optional
 
     :param **kwargs: Passed to the zarr.create_array() or zarr.creation.create() function, e.g., compression options.
+    """
+    # RFC-9: Handle .ozx (zipped OME-Zarr) files
+    if isinstance(store, (str, Path)) and is_ozx_path(store):
+        if version != "0.5":
+            raise ValueError("RFC-9 zipped OME-Zarr (.ozx) requires OME-Zarr version 0.5")
+        
+        # Default chunks_per_shard to 2 for .ozx files if not specified
+        if chunks_per_shard is None:
+            chunks_per_shard = 2
+        
+        # Determine if we should use memory or disk for intermediate storage
+        total_memory_usage = sum(memory_usage(img) for img in multiscales.images)
+        use_memory_store = total_memory_usage <= config.memory_target
+        
+        if use_memory_store:
+            # Small dataset: use memory store
+            from zarr.storage import MemoryStore
+            temp_store = MemoryStore()
+        else:
+            # Large dataset: use temporary directory store in cache
+            if hasattr(zarr.storage, "DirectoryStore"):
+                LocalStore = zarr.storage.DirectoryStore
+            else:
+                LocalStore = zarr.storage.LocalStore
+            
+            temp_dir = tempfile.mkdtemp(dir=config.cache_store.path if hasattr(config.cache_store, 'path') else None)
+            temp_store = LocalStore(temp_dir)
+        
+        try:
+            # Write to temporary store first
+            _to_ngff_zarr_impl(
+                temp_store,
+                multiscales,
+                version=version,
+                overwrite=overwrite,
+                use_tensorstore=False,  # Can't use tensorstore with memory/temp stores
+                chunk_store=None,
+                progress=progress,
+                chunks_per_shard=chunks_per_shard,
+                enabled_rfcs=enabled_rfcs,
+                **kwargs,
+            )
+            
+            # Write temp store to .ozx file
+            write_store_to_zip(temp_store, store, version=version)
+        finally:
+            # Clean up temporary directory if used
+            if not use_memory_store:
+                import shutil
+                if hasattr(zarr.storage, "DirectoryStore") and isinstance(temp_store, zarr.storage.DirectoryStore):
+                    shutil.rmtree(temp_store.dir_path(), ignore_errors=True)
+                elif hasattr(zarr.storage, "LocalStore") and isinstance(temp_store, zarr.storage.LocalStore):
+                    shutil.rmtree(temp_store.root, ignore_errors=True)
+        
+        return
+    
+    # Standard (non-.ozx) path
+    _to_ngff_zarr_impl(
+        store,
+        multiscales,
+        version=version,
+        overwrite=overwrite,
+        use_tensorstore=use_tensorstore,
+        chunk_store=chunk_store,
+        progress=progress,
+        chunks_per_shard=chunks_per_shard,
+        enabled_rfcs=enabled_rfcs,
+        **kwargs,
+    )
+
+
+def _to_ngff_zarr_impl(
+    store: StoreLike,
+    multiscales: Multiscales,
+    version: str = "0.4",
+    overwrite: bool = True,
+    use_tensorstore: bool = False,
+    chunk_store: Optional[StoreLike] = None,
+    progress: Optional[Union[NgffProgress, NgffProgressCallback]] = None,
+    chunks_per_shard: Optional[
+        Union[
+            int,
+            Tuple[int, ...],
+            Dict[str, int],
+        ]
+    ] = None,
+    enabled_rfcs: Optional[List[int]] = None,
+    **kwargs,
+) -> None:
+    """
+    Internal implementation of to_ngff_zarr without .ozx handling.
     """
     # Setup and validation
     store_path = str(store) if isinstance(store, (str, Path)) else None

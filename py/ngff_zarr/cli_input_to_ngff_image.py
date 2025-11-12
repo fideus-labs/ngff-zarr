@@ -18,9 +18,16 @@ def cli_input_to_ngff_image(
     backend: ConversionBackend, input, output_scale: int = 0
 ) -> NgffImage:
     if backend is ConversionBackend.NGFF_ZARR:
-        store = zarr.storage.DirectoryStore(input[0])
-        multiscales = from_ngff_zarr(store)
-        return multiscales.images[output_scale]
+        # Handle both .ozx and .zarr files
+        if isinstance(input[0], str) and input[0].endswith('.ozx'):
+            # Use from_ngff_zarr which now handles .ozx files
+            multiscales = from_ngff_zarr(input[0])
+            return multiscales.images[output_scale]
+        else:
+            # Standard .zarr directory
+            store = zarr.storage.DirectoryStore(input[0])
+            multiscales = from_ngff_zarr(store)
+            return multiscales.images[output_scale]
     if backend is ConversionBackend.ZARR_ARRAY:
         arr = zarr.open_array(input[0], mode="r")
         return to_ngff_image(arr)

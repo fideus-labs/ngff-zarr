@@ -320,7 +320,7 @@ def test_hcs_image_axes_and_dims(hcs_data_path):
     ngff_image = image.images[0]
 
     # Should have t, c, z, y, x dimensions based on the test data
-    expected_dims = ["t", "c", "z", "y", "x"]
+    expected_dims = ("t", "c", "z", "y", "x")
     assert ngff_image.dims == expected_dims
 
     # Check that the data has the right number of dimensions

@@ -20,6 +20,7 @@ from .ngff_image import NgffImage
 from .to_multiscales import Multiscales
 from .methods import Methods
 from .rfc4_validation import validate_rfc4_orientation, has_rfc4_orientation_metadata
+from .rfc9_zip import is_ozx_path, read_ozx_version
 from .v04.zarr_metadata import (
     Axis,
     Dataset,
@@ -46,13 +47,15 @@ def from_ngff_zarr(
 
     store : StoreLike
         Store or path to directory in file system. Can be a string URL
-        (e.g., 's3://bucket/path') for remote storage.
+        (e.g., 's3://bucket/path') for remote storage. For .ozx files,
+        provide the path to the .ozx file.
 
     validate : bool
         If True, validate the NGFF metadata against the schema.
 
     version : string, optional
-        OME-Zarr version, if known.
+        OME-Zarr version, if known. For .ozx files, the version will be
+        read from the ZIP comment if not provided.
 
     storage_options : dict, optional
         Storage options to pass to the store if store is a string URL.
@@ -65,6 +68,17 @@ def from_ngff_zarr(
     multiscales: multiscale ngff image with dask-chunked arrays for data
 
     """
+
+    # RFC-9: Handle .ozx (zipped OME-Zarr) files
+    if isinstance(store, (str, Path)) and is_ozx_path(store):
+        # Read version from .ozx comment if not provided
+        if version is None:
+            version = read_ozx_version(store)
+            if version is None:
+                version = "0.5"  # Default to 0.5 for .ozx files
+        
+        # For zarr v3, create ZipStore directly with the path
+        store = zarr.storage.ZipStore(str(store), mode='r')
 
     # Handle string URLs with storage options (zarr-python 3+ only)
     if isinstance(store, str) and storage_options is not None:
@@ -106,9 +120,9 @@ def from_ngff_zarr(
     if "axes" not in metadata:
         from .v04.zarr_metadata import supported_dims
 
-        dims = list(reversed(supported_dims))
+        dims = tuple(reversed(supported_dims))
     else:
-        dims = [a["name"] if "name" in a else a for a in metadata["axes"]]
+        dims = tuple(a["name"] if "name" in a else a for a in metadata["axes"])
 
     name = "image"
     if name in metadata:
