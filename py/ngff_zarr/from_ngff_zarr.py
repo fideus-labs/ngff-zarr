@@ -134,3 +134,15 @@ def from_ngff_zarr(
     metadata_obj.metadata = method_metadata
 
     return Multiscales(images, metadata_obj, method=method)
+
+
+def _detect_version(root_attrs: dict) -> NgffVersion:
+    """Detect NGFF version from root attributes."""
+    if "ome" in root_attrs:
+        version_str = root_attrs["ome"].get("version")
+    else:
+        multiscales = root_attrs.get("multiscales", [])
+        if multiscales and isinstance(multiscales, list):
+            version_str = multiscales[0].get("version", "0.4")
+
+    return NgffVersion(version_str)
