@@ -8,7 +8,7 @@ import re
 
 # Import RFC 4 support
 from ..rfc4 import AnatomicalOrientation
-from .._supported_versions import SUPPORTED_VERSIONS
+from .._supported_versions import SUPPORTED_VERSIONS, NgffVersion
 
 SupportedDims = Union[
     Literal["c"], Literal["x"], Literal["y"], Literal["z"], Literal["t"]
@@ -267,12 +267,17 @@ class Metadata:
 
 
     def to_version(self, version: str) -> "Metadata":
-        if version not in SUPPORTED_VERSIONS:
-            raise ValueError(f"Unsupported version conversion: 0.4 -> {version}")
-        if version == "0.5":
-            return self.to_v05()
-        elif version == "0.4":
-            return self
+        if isinstance(version, str):
+            # raise error for invalid version string
+            version = NgffVersion(version)
+
+        match version:
+            case NgffVersion.V05:
+                return self._to_v05()
+            case NgffVersion.V04:
+                return self
+            case _:
+                raise ValueError(f"Unsupported version conversion: 0.4 -> {version}")
             
         
     @classmethod
@@ -280,11 +285,11 @@ class Metadata:
         from ..v05.zarr_metadata import Metadata as Metadata_v05
         
         if isinstance(metadata, Metadata_v05):
-            return cls.from_v05(metadata)
+            return cls._from_v05(metadata)
         else:
             raise ValueError(f"Unsupported metadata type: {type(metadata)}")
 
-    def to_v05(self) -> "Metadata":
+    def _to_v05(self) -> "Metadata":
         from ..v05.zarr_metadata import Metadata as Metadata_v05
         
         metadata = Metadata_v05(
@@ -299,7 +304,7 @@ class Metadata:
         return metadata
     
     @classmethod
-    def from_v05(cls, metadata_v05: "Metadata") -> "Metadata":
+    def _from_v05(cls, metadata_v05: "Metadata") -> "Metadata":
         
         metadata = cls(
             axes=metadata_v05.axes,
