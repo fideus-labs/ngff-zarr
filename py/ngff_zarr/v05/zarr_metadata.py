@@ -22,13 +22,12 @@ class Metadata:
         if isinstance(version, str):
             version = NgffVersion(version)
 
-        match version:
-            case NgffVersion.V04:
-                return self._to_v04()
-            case NgffVersion.V05:
-                return self
-            case _:
-                raise ValueError(f"Unsupported version conversion: 0.5 -> {version}")
+        if version == NgffVersion.V04:
+            return self._to_v04()
+        elif version == NgffVersion.V05:
+            return self
+        else:
+            raise ValueError(f"Unsupported version conversion: 0.5 -> {version}")
             
         
     @classmethod

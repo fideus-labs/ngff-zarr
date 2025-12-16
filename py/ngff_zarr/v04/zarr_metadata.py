@@ -271,13 +271,12 @@ class Metadata:
             # raise error for invalid version string
             version = NgffVersion(version)
 
-        match version:
-            case NgffVersion.V05:
-                return self._to_v05()
-            case NgffVersion.V04:
-                return self
-            case _:
-                raise ValueError(f"Unsupported version conversion: 0.4 -> {version}")
+        if version ==NgffVersion.V04:
+            return self
+        elif version == NgffVersion.V05:
+            return self._to_v05()
+        else:
+            raise ValueError(f"Unsupported version conversion: 0.4 -> {version}")
             
         
     @classmethod
