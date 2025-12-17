@@ -29,7 +29,7 @@ classifiers = [
   "Topic :: Scientific/Engineering",
 ]
 dependencies = [
-  "dask[array]",
+  "dask[array] <= 2024.11.0",
   "importlib_resources",
   "itkwasm >= 1.0b183",
   "itkwasm-downsample >= 1.8.0",
