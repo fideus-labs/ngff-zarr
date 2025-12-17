@@ -7277,10 +7277,10 @@ packages:
   timestamp: 1738196177597
 - pypi: ./
   name: ngff-zarr
-  version: 0.19.0
-  sha256: dff31971d15bf1cec565d3175fb9e7fcaf6c1126896655244845ef79365963d5
+  version: 0.20.0
+  sha256: a77ee0d19a95367418779a9507c160ce457e19105ce6a3b3c29ba1b4153d0254
   requires_dist:
-  - dask[array]
+  - dask[array]<=2025.11.0
   - importlib-resources
   - itkwasm-downsample>=1.8.0
   - itkwasm>=1.0b183
