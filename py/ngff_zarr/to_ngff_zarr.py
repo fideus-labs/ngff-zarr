@@ -28,6 +28,7 @@ from .rfc4 import is_rfc4_enabled
 from .rfc9_zip import is_ozx_path, write_store_to_zip
 from ._zarr_types import StoreLike
 from ._zarr_kwargs import zarr_kwargs
+from ._supported_versions import NgffVersion
 
 
 from .config import config
@@ -44,14 +45,21 @@ DASK_SUPPORTS_SHARDING = Version(dask_version) >= Version("2025.12.0")
 
 
 def _pop_metadata_optionals(metadata_dict, enabled_rfcs: Optional[List[int]] = None):
-    for ax in metadata_dict["axes"]:
-        if ax["unit"] is None:
-            ax.pop("unit")
+    if "axes" in metadata_dict:
+        for ax in metadata_dict["axes"]:
+            if ax["unit"] is None:
+                ax.pop("unit")
+    elif "coordinateSystems" in metadata_dict:
+        for cs in metadata_dict["coordinateSystems"]:
+            for ax in cs["axes"]:
+                if ax["unit"] is None:
+                    ax.pop("unit")
 
         # Handle RFC 4: Remove orientation if RFC 4 is not enabled
         if not is_rfc4_enabled(enabled_rfcs) and "orientation" in ax:
             ax.pop("orientation")
 
+    # pop empty coordinateTransformations on top-level only if they are None
     if metadata_dict["coordinateTransformations"] is None:
         metadata_dict.pop("coordinateTransformations")
 
@@ -324,17 +332,20 @@ def _write_with_tensorstore(
 
 
 def _validate_ngff_parameters(
-    version: str,
+    version: Union[str, NgffVersion],
     chunks_per_shard: Optional[Union[int, Tuple[int, ...], Dict[str, int]]],
     use_tensorstore: bool,
     store: StoreLike,
 ) -> None:
     """Validate the parameters for the NGFF Zarr generation."""
-    if version != "0.4" and version != "0.5":
+    if isinstance(version, str):
+        version = NgffVersion(version)
+    
+    if version not in [NgffVersion.V04, NgffVersion.V05, NgffVersion.V06]:
         raise ValueError(f"Unsupported version: {version}")
 
     if chunks_per_shard is not None:
-        if version == "0.4":
+        if version == NgffVersion.V04:
             raise ValueError(
                 "Sharding is only supported for OME-Zarr version 0.5 and later"
             )

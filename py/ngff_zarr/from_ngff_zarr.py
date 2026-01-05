@@ -96,7 +96,15 @@ def from_ngff_zarr(
             "within the plate (e.g., 'plate.zarr/A/1/0' for well A1, field 0)."
         )
 
-    if version == "0.5":
+    if version == "0.6":
+        from .v06.zarr_metadata import Metadata
+        # TODO: Restore validation for v0.6
+        metadata_obj, images = Metadata._from_zarr_attrs(
+            root_attrs, store, validate=False)
+        method, method_type, method_metadata = _extract_method_metadata(
+            root_attrs['ome']['multiscales'][0])
+
+    elif version == "0.5":
         from .v05.zarr_metadata import Metadata
 
         # Validate v0.5 structure before accessing
@@ -134,15 +142,3 @@ def from_ngff_zarr(
     metadata_obj.metadata = method_metadata
 
     return Multiscales(images, metadata_obj, method=method)
-
-
-def _detect_version(root_attrs: dict) -> NgffVersion:
-    """Detect NGFF version from root attributes."""
-    if "ome" in root_attrs:
-        version_str = root_attrs["ome"].get("version")
-    else:
-        multiscales = root_attrs.get("multiscales", [])
-        if multiscales and isinstance(multiscales, list):
-            version_str = multiscales[0].get("version", "0.4")
-
-    return NgffVersion(version_str)

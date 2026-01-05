@@ -124,11 +124,3 @@ def test_rfc4_validation_no_orientation():
     multiscales_back = from_ngff_zarr(store, validate=True)
     assert multiscales_back is not None
     assert len(multiscales_back.images) == 1
-
-
-if __name__ == "__main__":
-    test_rfc4_validation_integration_with_lps()
-    test_rfc4_validation_integration_with_ras()
-    test_rfc4_validation_integration_mixed_axes()
-    test_rfc4_validation_no_orientation()
-    print("All integration tests passed!")
