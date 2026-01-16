@@ -4,15 +4,18 @@ import pytest
 import tempfile
 import numpy as np
 import ngff_zarr as nz
-from ngff_zarr.v06.zarr_metadata import Scale, Translation, Rotation, Affine, Identity, TransformSequence, Transform, CoordinateSystem, Axis
+from ngff_zarr.v06.zarr_metadata import Scale, Translation, Rotation, Affine, Identity, TransformSequence, CoordinateSystem, Axis
 
 rng = np.random.default_rng(12345)
 
+def identity_transform() -> Identity:
+    return Identity()
+
 def scale_transform() -> Scale:
-    return Scale(scale=(2.0, 2.0, 2.0))
+    return Scale(scale=[2.0, 2.0, 2.0])
 
 def translation_transform() -> Translation:
-    return Translation(translation=(10.0, 20.0, 30.0))
+    return Translation(translation=[10.0, 20.0, 30.0])
 
 def rotation_transform() -> Rotation:
     return Rotation(
@@ -43,6 +46,7 @@ def transform_sequence() -> TransformSequence:
 @pytest.mark.parametrize(
     "transform",
     [
+        identity_transform(),
         scale_transform(),
         translation_transform(),
         rotation_transform(),
@@ -89,3 +93,6 @@ def test_transform_serialization(transform):
         assert imported_transforms[0].type == transform.type
         assert imported_transforms[0].input == input_cs.name
         assert imported_transforms[0].output == output_cs.name
+
+if __name__ == "__main__":
+    pytest.main([__file__])

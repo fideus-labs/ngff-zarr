@@ -19,24 +19,27 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_convert_0_4_to_0_5():
+@pytest.mark.parametrize(
+        "input_version, output_version",
+        [
+            ("0.4", "0.5"),
+            ("0.5", "0.4"),
+            ("0.5", "0.6"),
+            ("0.6", "0.5"),
+        ],
+)
+def test_conversion(input_version, output_version):
     test_store = Path(__file__).parent / "data" / "input" / "v04" / "6001240.zarr"
     multiscales = from_ngff_zarr(test_store, validate=True, version="0.4")
+
     store = zarr.storage.MemoryStore()
-    version = "0.5"
-    to_ngff_zarr(store, multiscales, version=version)
-    from_ngff_zarr(store, validate=True, version=version)
+    to_ngff_zarr(store, multiscales, version=input_version)
+    from_ngff_zarr(store, validate=True, version=input_version)
 
-
-def test_convert_0_5_to_0_4():
-    test_store = Path(__file__).parent / "data" / "input" / "v04" / "6001240.zarr"
-    multiscales = from_ngff_zarr(test_store, validate=True, version="0.4")
-    store = zarr.storage.MemoryStore()
-    version = "0.5"
-    to_ngff_zarr(store, multiscales, version=version)
-    multiscales = from_ngff_zarr(store, validate=True, version=version)
-
-    version = "0.4"
     new_store = zarr.storage.MemoryStore()
-    to_ngff_zarr(new_store, multiscales, version=version)
-    from_ngff_zarr(new_store, validate=True, version=version)
+    to_ngff_zarr(new_store, multiscales, version=output_version)
+    from_ngff_zarr(new_store, validate=True, version=output_version)
+
+
+if __name__ == "__main__":
+    pytest.main([__file__])
