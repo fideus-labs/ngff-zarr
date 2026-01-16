@@ -45,19 +45,19 @@ DASK_SUPPORTS_SHARDING = Version(dask_version) >= Version("2025.12.0")
 
 
 def _pop_metadata_optionals(metadata_dict, enabled_rfcs: Optional[List[int]] = None):
+    # Collect all axes that need cleaning
+    axes_to_clean = []
     if "axes" in metadata_dict:
-        for ax in metadata_dict["axes"]:
-            if ax["unit"] is None:
-                ax.pop("unit")
+        axes_to_clean = metadata_dict["axes"]
     elif "coordinateSystems" in metadata_dict:
-        for cs in metadata_dict["coordinateSystems"]:
-            for ax in cs["axes"]:
-                if ax["unit"] is None:
-                    ax.pop("unit")
-
-        # Handle RFC 4: Remove orientation if RFC 4 is not enabled
-        if not is_rfc4_enabled(enabled_rfcs) and "orientation" in ax:
-            ax.pop("orientation")
+        axes_to_clean = [ax for cs in metadata_dict["coordinateSystems"] for ax in cs["axes"]]
+    
+    # Clean axes
+    for ax in axes_to_clean:
+        if not ax["unit"]:
+            ax.pop("unit")
+        if not is_rfc4_enabled(enabled_rfcs):
+            ax.pop("orientation", None)
 
     # pop empty coordinateTransformations on top-level only if they are None
     if metadata_dict["coordinateTransformations"] is None:
