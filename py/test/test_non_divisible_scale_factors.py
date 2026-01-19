@@ -3,9 +3,9 @@
 """Test that scale factors that are not powers of 2 work correctly."""
 import pytest
 import numpy as np
-import shutil
 from pathlib import Path
 from ngff_zarr import to_ngff_image, to_multiscales, to_ngff_zarr, from_ngff_zarr
+
 
 
 def test_non_divisible_scale_factors_2_3_4(tmp_path):

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 import sys
 import tempfile
+from copy import copy
 from dataclasses import asdict
 from pathlib import Path, PurePosixPath
 from typing import Optional, Union, Tuple, Dict, List
@@ -1036,7 +1037,6 @@ def _prepare_next_scale(
         
         # If we need to downsample from original, load it from zarr
         if use_original and index > 0:
-            from copy import copy
             original_path = multiscales.metadata.datasets[0].path
             # Create a copy to avoid mutating the original image
             source_image = copy(multiscales.images[0])
