@@ -1022,18 +1022,23 @@ def _prepare_next_scale(
                     next_multiscales_factor = next_multiscales_factor // previous_factor
             else:
                 # For dict factors, check all dimensions
-                all_divisible = all(
-                    next_multiscales_factor[d] % previous_factor[d] == 0
-                    for d in next_multiscales_factor
-                )
-                if not all_divisible:
-                    # Not evenly divisible, need to downsample from original
+                # Ensure both dictionaries have the same keys
+                if set(next_multiscales_factor.keys()) != set(previous_factor.keys()):
+                    # Keys don't match, need to downsample from original
                     use_original = True
                 else:
-                    updated_factors = {}
-                    for d, f in next_multiscales_factor.items():
-                        updated_factors[d] = f // previous_factor[d]
-                    next_multiscales_factor = updated_factors
+                    all_divisible = all(
+                        next_multiscales_factor[d] % previous_factor[d] == 0
+                        for d in next_multiscales_factor
+                    )
+                    if not all_divisible:
+                        # Not evenly divisible, need to downsample from original
+                        use_original = True
+                    else:
+                        updated_factors = {}
+                        for d, f in next_multiscales_factor.items():
+                            updated_factors[d] = f // previous_factor[d]
+                        next_multiscales_factor = updated_factors
         
         # If we need to downsample from original, load it from zarr
         if use_original and index > 0:
