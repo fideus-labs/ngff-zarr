@@ -1002,21 +1002,47 @@ def _prepare_next_scale(
         # Fetch scale factor for this index; used directly for index 0,
         # converted to a relative factor for index > 0
         next_multiscales_factor = multiscales.scale_factors[index]
-
-        # For subsequent levels (index > 0), compute relative scale factor
+        
+        # Determine if we should downsample from original or from previous level
+        source_image = image
+        use_original = False
+        
+        # For subsequent levels (index > 0), check if incremental downsampling is viable
         if index > 0:
-            # If scales have been passed as list of integers
+            previous_factor = multiscales.scale_factors[index - 1]
+            
+            # Check if the scale factors divide evenly
             if isinstance(next_multiscales_factor, int):
-                next_multiscales_factor = next_multiscales_factor // multiscales.scale_factors[index - 1]
-            # If scales have been passed as dict of per-dimension factors
+                # For integer factors, check if they divide evenly
+                if next_multiscales_factor % previous_factor != 0:
+                    # Not evenly divisible, need to downsample from original
+                    use_original = True
+                else:
+                    next_multiscales_factor = next_multiscales_factor // previous_factor
             else:
-                updated_factors = {}
-                for d, f in next_multiscales_factor.items():
-                    updated_factors[d] = f // multiscales.scale_factors[index - 1][d]
-                next_multiscales_factor = updated_factors
+                # For dict factors, check all dimensions
+                all_divisible = all(
+                    next_multiscales_factor[d] % previous_factor[d] == 0
+                    for d in next_multiscales_factor
+                )
+                if not all_divisible:
+                    # Not evenly divisible, need to downsample from original
+                    use_original = True
+                else:
+                    updated_factors = {}
+                    for d, f in next_multiscales_factor.items():
+                        updated_factors[d] = f // previous_factor[d]
+                    next_multiscales_factor = updated_factors
+        
+        # If we need to downsample from original, load it from zarr
+        if use_original and index > 0:
+            original_path = multiscales.metadata.datasets[0].path
+            original_image = multiscales.images[0]
+            original_image.data = dask.array.from_zarr(store, component=original_path)
+            source_image = original_image
 
         next_multiscales = to_multiscales(
-            image,
+            source_image,
             scale_factors=[
                 next_multiscales_factor,
             ],
