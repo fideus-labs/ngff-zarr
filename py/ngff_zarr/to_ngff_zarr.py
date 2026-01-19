@@ -1036,10 +1036,11 @@ def _prepare_next_scale(
         
         # If we need to downsample from original, load it from zarr
         if use_original and index > 0:
+            from copy import copy
             original_path = multiscales.metadata.datasets[0].path
-            original_image = multiscales.images[0]
-            original_image.data = dask.array.from_zarr(store, component=original_path)
-            source_image = original_image
+            # Create a copy to avoid mutating the original image
+            source_image = copy(multiscales.images[0])
+            source_image.data = dask.array.from_zarr(store, component=original_path)
 
         next_multiscales = to_multiscales(
             source_image,
