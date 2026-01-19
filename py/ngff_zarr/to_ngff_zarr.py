@@ -1023,10 +1023,12 @@ def _prepare_next_scale(
             else:
                 # For dict factors, check all dimensions
                 # Ensure both dictionaries have the same keys
-                if set(next_multiscales_factor.keys()) != set(previous_factor.keys()):
+                keys_mismatch = set(next_multiscales_factor.keys()) != set(previous_factor.keys())
+                if keys_mismatch:
                     # Keys don't match, need to downsample from original
                     use_original = True
                 else:
+                    # Keys match, safe to check divisibility
                     all_divisible = all(
                         next_multiscales_factor[d] % previous_factor[d] == 0
                         for d in next_multiscales_factor
