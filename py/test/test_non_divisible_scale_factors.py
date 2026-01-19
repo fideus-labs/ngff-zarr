@@ -7,7 +7,6 @@ from pathlib import Path
 from ngff_zarr import to_ngff_image, to_multiscales, to_ngff_zarr, from_ngff_zarr
 
 
-
 def test_non_divisible_scale_factors_2_3_4(tmp_path):
     """Test scale factors [2, 3, 4] produce correct shapes."""
     # Generate pixel data
