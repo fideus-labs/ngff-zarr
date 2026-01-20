@@ -264,6 +264,10 @@ class Metadata:
         from ..rfc4_validation import validate_rfc4_orientation, has_rfc4_orientation_metadata
         from ..ngff_image import NgffImage
 
+        # make sure root_attrs['ome]['multiscales'] exists
+        if "ome" not in root_attrs or "multiscales" not in root_attrs["ome"]:
+            raise ValueError("Invalid OME-Zarr metadata: missing 'ome' or 'multiscales' field.")
+
         if validate:
             validate_ngff(root_attrs, version=root_attrs['ome']['multiscales'][0].get("version", "0.6"))
 
@@ -301,28 +305,23 @@ class Metadata:
             ):
                 data = data.astype(data.dtype.newbyteorder())
 
-            scale = {d: 1.0 for d in dims}
-            translation = {d: 0.0 for d in dims}
+
+            # parse dataset coordinate transformations if present
+            dims = [ax.name for ax in coordinate_systems[0].axes]
+            scale = Scale(scale=[1.0 for d in dims])
+            translation = Translation(translation=[0.0 for d in dims])
+            coordinateTransformations: List[Transform] = [
+                TransformSequence(
+                    transformations=[scale, translation],
+                    input=dataset["path"],
+                    output=coordinate_systems[0].name,
+                    name=f"scale_{index}_to_{coordinate_systems[0].name}",
+                )
+            ]
             if "coordinateTransformations" in dataset:
-                for transformation in dataset["coordinateTransformations"]:
-                    if transformation["type"] == "sequence":
-                        for seq_transform in transformation["transforms"]:
-                            if seq_transform["type"] == "scale":
-                                scale = seq_transform["scale"]
-                            elif seq_transform["type"] == "translation":
-                                translation = seq_transform["translation"]
-                    
-                    if "scale" in transformation:
-                        scale = transformation["scale"]
-                    elif "translation" in transformation:
-                        translation = transformation["translation"]
-                    
-                    output_cs = [c for c in coordinate_systems if c.name == transformation.get("output")][0]
-                    sequence = TransformSequence(
-                        transformations=[Scale(scale), Translation(translation)],
-                        input=transformation.get("input", dataset["path"]),
-                        name=transformation.get("name", f"scale{index}_to_intrinsic"),
-                        output=output_cs
+                coordinateTransformations = cls._parse_transforms(
+                    dataset["coordinateTransformations"],
+                    coordinate_systems
                     )
                 
                 # extract scale and translation for ngff_image convenience
@@ -350,34 +349,36 @@ class Metadata:
             datasets.append(
                 Dataset(
                     path=dataset["path"],
-                    coordinateTransformations=[sequence],
+                    coordinateTransformations=coordinateTransformations,
                 )
             )
 
             ngff_image = NgffImage(
                 data=data,
                 dims=dims,
-                scale=dict(zip(dims, scale)),
-                translation=dict(zip(dims, translation)),
+                scale=dict(zip(dims, scale.scale)),
+                translation=dict(zip(dims, translation.translation)),
                 name=root_attrs.get("name", "image"),
                 axes_units=dict(zip(dims, [ax.unit for ax in cs_intrinsic.axes]))
                 )
             images.append(ngff_image)
 
-        coordinateTransformations = root_attrs.get("coordinateTransformations", None)
-        if coordinateTransformations is not None:
-            coordinateTransformations = cls._parse_transforms(coordinateTransformations, coordinate_systems)
+        additionalTransformations = root_attrs.get("coordinateTransformations", None)
+        if additionalTransformations is not None:
+            additionalTransformations = cls._parse_transforms(additionalTransformations, coordinate_systems)
+
         metadata = cls(
             coordinateSystems=coordinate_systems,
             datasets=datasets,
             name=root_attrs.get("name", "image"),
             omero=omero,
-            coordinateTransformations=coordinateTransformations,
+            coordinateTransformations=additionalTransformations,
         )
 
         return metadata, images
 
-    def _parse_transforms(self, transforms: List[dict], coordinateSystems: List[CoordinateSystem]) -> List[Transform]:
+    @classmethod
+    def _parse_transforms(cls, transforms: List[dict], coordinateSystems: List[CoordinateSystem]) -> List[Transform]:
         """
         Parse a list of possibly nested transformation dictionaries into Transform instances.
         """
@@ -386,15 +387,16 @@ class Metadata:
             if transform["type"] == "identity":
                 transformation = Identity()
             elif transform["type"] == "scale":
-                transformation = Scale.from_dict(transform["scale"])
+                transformation = Scale.from_dict(transform)
             elif transform["type"] == "translation":
-                transformation = Translation.from_dict(transform["translation"])
+                transformation = Translation.from_dict(transform)
             elif transform["type"] == "rotation":
-                transformation = Rotation.from_dict(transform["rotation"])
+                transformation = Rotation.from_dict(transform)
             elif transform["type"] == "affine":
-                transformation = Affine.from_dict(transform["affine"])
+                transformation = Affine.from_dict(transform)
             elif transform["type"] == "sequence":
-                sub_transforms = self._parse_transforms(transform["transforms"], coordinateSystems)
+                # TODO: Undo nested sequences on import?
+                sub_transforms = cls._parse_transforms(transform["transformations"], coordinateSystems)
                 transformation = TransformSequence(
                     transformations=sub_transforms
                 )
