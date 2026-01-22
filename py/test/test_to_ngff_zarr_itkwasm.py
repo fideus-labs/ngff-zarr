@@ -192,9 +192,7 @@ def test_gaussian_isotropic_scale_factors(input_images):
     else:
         baseline_name = "2_3/ITKWASM_GAUSSIAN.zarr"
     multiscales = to_multiscales(image, [2, 3], method=Methods.ITKWASM_GAUSSIAN)
-    # TODO: Regenerate baseline after fix for non-divisible scale factors
-    # Baseline was created with buggy behavior, now produces correct shapes
-    # store_new_multiscales(dataset_name, baseline_name, multiscales)
+    store_new_multiscales(dataset_name, baseline_name, multiscales)
     # verify_against_baseline(dataset_name, baseline_name, multiscales)
 
     dataset_name = "MR-head"
@@ -204,10 +202,8 @@ def test_gaussian_isotropic_scale_factors(input_images):
     else:
         baseline_name = "2_3_4/ITKWASM_GAUSSIAN.zarr"
     multiscales = to_multiscales(image, [2, 3, 4], method=Methods.ITKWASM_GAUSSIAN)
-    # TODO: Regenerate baseline after fix for non-divisible scale factors
-    # Baseline was created with buggy behavior, now produces correct shapes
-    # from ._data import store_new_multiscales
-    # store_new_multiscales(dataset_name, baseline_name, multiscales)
+    from ._data import store_new_multiscales
+    store_new_multiscales(dataset_name, baseline_name, multiscales)
     # verify_against_baseline(dataset_name, baseline_name, multiscales)
 
 
