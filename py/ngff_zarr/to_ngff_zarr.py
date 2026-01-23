@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 import sys
 import tempfile
+from copy import copy
 from dataclasses import asdict
 from pathlib import Path, PurePosixPath
 from typing import Optional, Union, Tuple, Dict, List
@@ -1002,21 +1003,56 @@ def _prepare_next_scale(
         # Fetch scale factor for this index; used directly for index 0,
         # converted to a relative factor for index > 0
         next_multiscales_factor = multiscales.scale_factors[index]
-
-        # For subsequent levels (index > 0), compute relative scale factor
+        
+        # Determine if we should downsample from original or from previous level
+        source_image = image
+        
+        # For subsequent levels (index > 0), check if incremental downsampling will work
         if index > 0:
-            # If scales have been passed as list of integers
+            previous_factor = multiscales.scale_factors[index - 1]
+            
+            # Check if the scale factors divide evenly
             if isinstance(next_multiscales_factor, int):
-                next_multiscales_factor = next_multiscales_factor // multiscales.scale_factors[index - 1]
-            # If scales have been passed as dict of per-dimension factors
+                # For integer factors, check if they divide evenly
+                if next_multiscales_factor % previous_factor == 0:
+                    # Evenly divisible - use incremental downsampling
+                    next_multiscales_factor = next_multiscales_factor // previous_factor
+                else:
+                    # Not evenly divisible - must downsample from original
+                    # Load the original image from zarr
+                    original_path = multiscales.metadata.datasets[0].path
+                    source_image = copy(multiscales.images[0])
+                    source_image.data = dask.array.from_zarr(store, component=original_path)
+                    # Keep next_multiscales_factor as the absolute factor
             else:
-                updated_factors = {}
-                for d, f in next_multiscales_factor.items():
-                    updated_factors[d] = f // multiscales.scale_factors[index - 1][d]
-                next_multiscales_factor = updated_factors
+                # For dict factors, check all dimensions
+                keys_match = set(next_multiscales_factor.keys()) == set(previous_factor.keys())
+                if keys_match:
+                    all_divisible = all(
+                        next_multiscales_factor[d] % previous_factor[d] == 0
+                        for d in next_multiscales_factor
+                    )
+                    if all_divisible:
+                        # All dimensions evenly divisible - use incremental downsampling
+                        updated_factors = {}
+                        for d, f in next_multiscales_factor.items():
+                            updated_factors[d] = f // previous_factor[d]
+                        next_multiscales_factor = updated_factors
+                    else:
+                        # Some dimensions not evenly divisible - downsample from original
+                        original_path = multiscales.metadata.datasets[0].path
+                        source_image = copy(multiscales.images[0])
+                        source_image.data = dask.array.from_zarr(store, component=original_path)
+                        # Keep next_multiscales_factor as the absolute factor
+                else:
+                    # Keys don't match - downsample from original
+                    original_path = multiscales.metadata.datasets[0].path
+                    source_image = copy(multiscales.images[0])
+                    source_image.data = dask.array.from_zarr(store, component=original_path)
+                    # Keep next_multiscales_factor as the absolute factor
 
         next_multiscales = to_multiscales(
-            image,
+            source_image,
             scale_factors=[
                 next_multiscales_factor,
             ],
