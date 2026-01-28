@@ -192,8 +192,8 @@ def test_gaussian_isotropic_scale_factors(input_images):
     else:
         baseline_name = "2_3/ITKWASM_GAUSSIAN.zarr"
     multiscales = to_multiscales(image, [2, 3], method=Methods.ITKWASM_GAUSSIAN)
-    store_new_multiscales(dataset_name, baseline_name, multiscales)
-    # verify_against_baseline(dataset_name, baseline_name, multiscales)
+    # store_new_multiscales(dataset_name, baseline_name, multiscales)
+    verify_against_baseline(dataset_name, baseline_name, multiscales)
 
     dataset_name = "MR-head"
     image = input_images[dataset_name]
