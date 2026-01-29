@@ -189,7 +189,7 @@ The `.ozx` extension is automatically detected and handled appropriately.
 To write an OME-Zarr dataset as a `.ozx` file, simply use the `.ozx` extension:
 
 ```python
->>> nz.to_ngff_zarr('cthead1.ozx', multiscales)
+>>> nz.to_ngff_zarr('cthead1.ozx', multiscales, version='0.5')
 ```
 
 All RFC-9 recommendations are followed. By default, `.ozx` files are written using OME-Zarr version 0.5 (Zarr v3 format), which is recommended for the ZIP-based format.
