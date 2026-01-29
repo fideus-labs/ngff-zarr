@@ -210,7 +210,14 @@ def write_store_to_zip(
             zf.writestr(file_path, data)
 
         # Add OME-Zarr version comment as per RFC-9
-        comment_dict = {"ome": {"version": version}}
+        # Include jsonFirst flag to indicate zarr.json files are ordered
+        # breadth-first and precede other content
+        comment_dict = {
+            "ome": {
+                "version": version,
+                "zipFile": {"centralDirectory": {"jsonFirst": True}},
+            }
+        }
         comment_json = json.dumps(comment_dict)
         zf.comment = comment_json.encode("utf-8")
 
@@ -244,3 +251,42 @@ def read_ozx_version(zip_path: Union[str, Path]) -> Optional[str]:
         # File is not a valid ZIP or doesn't exist
         pass
     return None
+
+
+def read_ozx_json_first(zip_path: Union[str, Path]) -> bool:
+    """
+    Read the jsonFirst flag from a .ozx file's ZIP comment.
+
+    The jsonFirst flag indicates that zarr.json files are ordered
+    breadth-first in the central directory and precede other content.
+
+    Parameters
+    ----------
+    zip_path : str or Path
+        Path to the .ozx file
+
+    Returns
+    -------
+    bool
+        True if jsonFirst is set to true in the ZIP comment, False otherwise
+    """
+    try:
+        with zipfile.ZipFile(str(zip_path), "r") as zf:
+            if zf.comment:
+                try:
+                    comment_str = zf.comment.decode("utf-8")
+                    comment_dict = json.loads(comment_str)
+                    if "ome" in comment_dict:
+                        ome = comment_dict["ome"]
+                        if "zipFile" in ome:
+                            zip_file = ome["zipFile"]
+                            if "centralDirectory" in zip_file:
+                                central_dir = zip_file["centralDirectory"]
+                                return central_dir.get("jsonFirst", False)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    # ZIP comment is not valid JSON or not UTF-8 encoded
+                    pass
+    except (zipfile.BadZipFile, FileNotFoundError):
+        # File is not a valid ZIP or doesn't exist
+        pass
+    return False
