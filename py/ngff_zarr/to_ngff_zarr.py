@@ -988,6 +988,13 @@ def _prepare_next_scale(
     # No next scale if we're at the last one
     if index >= nscales - 1:
         return None
+    
+    # Check if the next scale already exists in multiscales
+    # If it does, use it directly instead of regenerating
+    if len(multiscales.images) > index + 1 and multiscales.images[index + 1] is not None:
+        # Next scale already exists, return it directly
+        return multiscales.images[index + 1]
+    
     # Minimize task graph depth
     if (
         multiscales.scale_factors
