@@ -21,6 +21,10 @@ import { NgffImage } from "../types/ngff_image.ts";
 import type { AxesType, SupportedDims, Units } from "../types/units.ts";
 import { parseOmero } from "./parse_metadata.ts";
 import type { MemoryStore } from "../io/from_ngff_zarr.ts";
+import {
+  hasRfc4OrientationMetadata,
+  validateRfc4Orientation,
+} from "./rfc4_validation.ts";
 
 /**
  * Parse Metadata and NgffImages from OME-Zarr v0.4 root attributes.
@@ -30,7 +34,7 @@ import type { MemoryStore } from "../io/from_ngff_zarr.ts";
 export async function fromZarrAttrsV04(
   rootAttrs: Record<string, unknown>,
   store: MemoryStore | zarr.FetchStore | zarr.Readable,
-  _validate = false,
+  validate = false,
 ): Promise<FromZarrAttrsResult> {
   // Extract the multiscales metadata
   const multiscalesArray = rootAttrs.multiscales as unknown[];
@@ -39,6 +43,48 @@ export async function fromZarrAttrsV04(
   }
 
   const multiscalesMetadata = multiscalesArray[0] as Record<string, unknown>;
+
+  // Validate the root attributes against the OME-Zarr v0.4 schema
+  if (validate) {
+    // Basic structural validation
+    if (!("multiscales" in rootAttrs)) {
+      throw new Error("Invalid OME-Zarr metadata: missing 'multiscales' key");
+    }
+    if (
+      !Array.isArray(rootAttrs.multiscales) ||
+      rootAttrs.multiscales.length === 0
+    ) {
+      throw new Error(
+        "Invalid OME-Zarr metadata: 'multiscales' must be a non-empty array",
+      );
+    }
+
+    // Validate datasets exist
+    const datasets = multiscalesMetadata.datasets;
+    if (!Array.isArray(datasets) || datasets.length === 0) {
+      throw new Error(
+        "Invalid OME-Zarr metadata: 'datasets' must be a non-empty array",
+      );
+    }
+
+    // RFC 4 validation for anatomical orientation
+    if (
+      "axes" in multiscalesMetadata &&
+      Array.isArray(multiscalesMetadata.axes)
+    ) {
+      const axesData = multiscalesMetadata.axes as Array<
+        Record<string, unknown>
+      >;
+      // Filter to only dict-style axes for RFC4 validation
+      const axesDicts = axesData.filter(
+        (axis): axis is Record<string, unknown> =>
+          typeof axis === "object" && axis !== null,
+      );
+      if (axesDicts.length > 0 && hasRfc4OrientationMetadata(axesDicts)) {
+        validateRfc4Orientation(axesDicts);
+      }
+    }
+  }
 
   // Parse OMERO metadata
   const omero: Omero | undefined = parseOmero(
