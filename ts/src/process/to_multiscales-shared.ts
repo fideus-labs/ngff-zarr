@@ -78,13 +78,15 @@ export async function toMultiscalesCore(
     images = [image];
   }
 
-  // Create axes from image dimensions
+  // Create axes from image dimensions, including orientation if present
   const axes = image.dims.map((dim) => {
     if (dim === "x" || dim === "y" || dim === "z") {
+      const orientation = image.axesOrientations?.[dim];
       return createAxis(
         dim as "x" | "y" | "z",
         "space",
         image.axesUnits?.[dim],
+        orientation,
       );
     } else if (dim === "c") {
       return createAxis(dim as "c", "channel");

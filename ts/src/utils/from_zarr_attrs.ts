@@ -25,6 +25,70 @@ import {
   hasRfc4OrientationMetadata,
   validateRfc4Orientation,
 } from "./rfc4_validation.ts";
+import type { AnatomicalOrientation } from "../types/rfc4.ts";
+import { AnatomicalOrientationValues } from "../types/rfc4.ts";
+
+/**
+ * Map string orientation values to enum values
+ */
+const ORIENTATION_VALUE_MAP: Record<string, AnatomicalOrientationValues> = {
+  "left-to-right": AnatomicalOrientationValues.LeftToRight,
+  "right-to-left": AnatomicalOrientationValues.RightToLeft,
+  "anterior-to-posterior": AnatomicalOrientationValues.AnteriorToPosterior,
+  "posterior-to-anterior": AnatomicalOrientationValues.PosteriorToAnterior,
+  "inferior-to-superior": AnatomicalOrientationValues.InferiorToSuperior,
+  "superior-to-inferior": AnatomicalOrientationValues.SuperiorToInferior,
+  "dorsal-to-ventral": AnatomicalOrientationValues.DorsalToVentral,
+  "ventral-to-dorsal": AnatomicalOrientationValues.VentralToDorsal,
+  "dorsal-to-palmar": AnatomicalOrientationValues.DorsalToPalmar,
+  "palmar-to-dorsal": AnatomicalOrientationValues.PalmarToDorsal,
+  "dorsal-to-plantar": AnatomicalOrientationValues.DorsalToPlantar,
+  "plantar-to-dorsal": AnatomicalOrientationValues.PlantarToDorsal,
+  "rostral-to-caudal": AnatomicalOrientationValues.RostralToCaudal,
+  "caudal-to-rostral": AnatomicalOrientationValues.CaudalToRostral,
+  "cranial-to-caudal": AnatomicalOrientationValues.CranialToCaudal,
+  "caudal-to-cranial": AnatomicalOrientationValues.CaudalToCranial,
+  "proximal-to-distal": AnatomicalOrientationValues.ProximalToDistal,
+  "distal-to-proximal": AnatomicalOrientationValues.DistalToProximal,
+};
+
+/**
+ * Extract anatomical orientations from axes metadata.
+ * Returns a record mapping axis names to their orientations, or undefined if no orientations.
+ */
+function extractOrientationsFromAxes(
+  axesData: Array<Record<string, unknown> | string>,
+): Record<string, AnatomicalOrientation> | undefined {
+  const orientations: Record<string, AnatomicalOrientation> = {};
+  let hasOrientation = false;
+
+  for (const axis of axesData) {
+    if (typeof axis === "object" && axis !== null) {
+      const axisObj = axis as Record<string, unknown>;
+      const name = axisObj.name as string;
+      const orientation = axisObj.orientation as
+        | { type: string; value: string }
+        | undefined;
+
+      if (
+        orientation &&
+        typeof orientation === "object" &&
+        orientation.type === "anatomical"
+      ) {
+        const enumValue = ORIENTATION_VALUE_MAP[orientation.value];
+        if (enumValue) {
+          orientations[name] = {
+            type: "anatomical" as const,
+            value: enumValue,
+          };
+          hasOrientation = true;
+        }
+      }
+    }
+  }
+
+  return hasOrientation ? orientations : undefined;
+}
 
 /**
  * Parse Metadata and NgffImages from OME-Zarr v0.4 root attributes.
@@ -174,6 +238,17 @@ export async function fromZarrAttrsV04(
     }
   }
 
+  // Extract anatomical orientations from axes (RFC 4)
+  let axesOrientations: Record<string, AnatomicalOrientation> | undefined;
+  if (
+    "axes" in multiscalesMetadata && Array.isArray(multiscalesMetadata.axes)
+  ) {
+    const axesData = multiscalesMetadata.axes as Array<
+      Record<string, unknown> | string
+    >;
+    axesOrientations = extractOrientationsFromAxes(axesData);
+  }
+
   // Parse datasets and create NgffImages
   const images: NgffImage[] = [];
   const datasets: Dataset[] = [];
@@ -275,6 +350,7 @@ export async function fromZarrAttrsV04(
       axesUnits: Object.keys(filteredUnits).length > 0
         ? filteredUnits
         : undefined,
+      axesOrientations,
       computedCallbacks: undefined,
     });
 

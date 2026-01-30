@@ -3,11 +3,22 @@
 import type { AxesType, SupportedDims, Units } from "./units.ts";
 import { NgffVersion } from "./supported_versions.ts";
 import type { NgffImage } from "./ngff_image.ts";
+import type { AnatomicalOrientation } from "./rfc4.ts";
+
+/**
+ * Orientation metadata for spatial axes (RFC 4).
+ * This interface represents the serialized form in the zarr metadata.
+ */
+export interface AxisOrientation {
+  type: string;
+  value: string;
+}
 
 export interface Axis {
   name: SupportedDims;
   type: AxesType;
   unit: Units | undefined;
+  orientation?: AxisOrientation | AnatomicalOrientation | undefined;
 }
 
 export interface Identity {
