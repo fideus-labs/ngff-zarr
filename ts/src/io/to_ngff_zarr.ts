@@ -5,8 +5,6 @@ import type { Multiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { MemoryStore } from "./from_ngff_zarr.ts";
 import { createQueue } from "../utils/create_queue.ts";
-import type { Axis } from "../types/zarr_metadata.ts";
-import { isRfc4Enabled } from "../types/rfc4.ts";
 import { isOzxPath, memoryStoreToZip } from "./rfc9_zip.ts";
 import {
   processAxesForRfcs,

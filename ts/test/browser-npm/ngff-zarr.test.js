@@ -487,7 +487,14 @@ test.describe("RFC-9 Browser Tests", () => {
   test("toNgffZarrOzx should reject conflicting metadata version", async ({ page }) => {
     const versionResult = await page.evaluate(async () => {
       try {
-        const { toNgffZarrOzx, NgffImage, createAxis, createDataset, createMetadata, createMultiscales } = await import(
+        const {
+          toNgffZarrOzx,
+          NgffImage,
+          createAxis,
+          createDataset,
+          createMetadata,
+          createMultiscales,
+        } = await import(
           "./ngff-zarr.bundle.js"
         );
         const zarr = await import("npm:zarrita@0.1.0-next.19");
@@ -513,7 +520,9 @@ test.describe("RFC-9 Browser Tests", () => {
         });
 
         const axes = [createAxis("y", "space"), createAxis("x", "space")];
-        const datasets = [createDataset("scale0/image", [1.0, 1.0], [0.0, 0.0])];
+        const datasets = [
+          createDataset("scale0/image", [1.0, 1.0], [0.0, 0.0]),
+        ];
         // Create metadata with version "0.4" - this should conflict with RFC-9
         const metadata = createMetadata(axes, datasets, "test", "0.4");
         const multiscales = createMultiscales([image], metadata);
@@ -526,7 +535,9 @@ test.describe("RFC-9 Browser Tests", () => {
           return {
             success: true,
             errorMessage: error.message,
-            hasExpectedError: error.message.includes("Inconsistent NGFF version in Multiscales metadata"),
+            hasExpectedError: error.message.includes(
+              "Inconsistent NGFF version in Multiscales metadata",
+            ),
           };
         }
       } catch (error) {

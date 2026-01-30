@@ -6,14 +6,9 @@ import * as zarr from "zarrita";
 import type { Multiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { MemoryStore } from "./from_ngff_zarr-browser.ts";
-import type { Axis } from "../types/zarr_metadata.ts";
 import { createQueue } from "../utils/create_queue.ts";
 import { memoryStoreToZip } from "./rfc9_zip.ts";
-import { isRfc4Enabled } from "../types/rfc4.ts";
-import {
-  processAxesForRfcs,
-  writeMultiscalesToMemoryStore,
-} from "./to_ngff_zarr_ozx_common.ts";
+import { writeMultiscalesToMemoryStore } from "./to_ngff_zarr_ozx_common.ts";
 export { isOzxPath } from "./rfc9_zip.ts";
 
 export interface ToNgffZarrOptions {
