@@ -621,7 +621,7 @@ def _write_array_direct(
                 overwrite=False,
                 compute=True,
                 return_stored=False,
-                zarr_array_kwargs=to_zarr_kwargs,
+                **to_zarr_kwargs,
             )
         else:
             dask.array.to_zarr(
