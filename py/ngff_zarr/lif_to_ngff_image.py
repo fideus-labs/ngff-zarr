@@ -194,6 +194,9 @@ def _reshape_for_flattened_channels(
 
     This handles the case where LIF has multiple channel-like dimensions
     (C, λ, Λ, S) that need to be flattened into a single channel dimension.
+    
+    The function ensures channel dimensions are moved to be adjacent before
+    flattening, regardless of their original positions in the array.
     """
     channel_like_dims = {"C", "λ", "Λ", "S"}
 
@@ -207,11 +210,63 @@ def _reshape_for_flattened_channels(
         return data
 
     # Need to flatten multiple channel dimensions
-    # First, move all channel dims to be adjacent, then reshape
-
-    # For simplicity, we'll compute the flattened result
-    # This requires moving axes and then reshaping
-    return data.reshape(ngff_shape)
+    # Strategy:
+    # 1. Move all channel dimensions to be contiguous
+    # 2. Reshape to flatten them into a single dimension
+    # 3. Move the flattened channel dimension to its target position
+    
+    # Check if channel dimensions are already contiguous
+    are_contiguous = all(
+        channel_dim_indices[i] + 1 == channel_dim_indices[i + 1]
+        for i in range(len(channel_dim_indices) - 1)
+    )
+    
+    if are_contiguous:
+        # Dimensions are contiguous, safe to use reshape directly
+        return data.reshape(ngff_shape)
+    
+    # Move channel dimensions to be adjacent
+    # Move them to the position of the first channel dimension
+    first_channel_pos = channel_dim_indices[0]
+    
+    # Calculate new axis order: non-channel dims + channel dims
+    non_channel_indices = [i for i in range(len(lif_dims)) if i not in channel_dim_indices]
+    
+    # Insert channel dims at the position where the first one was
+    new_axis_order = (
+        non_channel_indices[:first_channel_pos] +
+        channel_dim_indices +
+        non_channel_indices[first_channel_pos:]
+    )
+    
+    # Transpose to new order
+    data = data.transpose(new_axis_order)
+    
+    # Now reshape to flatten the channel dimensions
+    # Calculate the intermediate shape after transposing
+    intermediate_shape = [lif_shape[i] for i in new_axis_order]
+    
+    # Calculate flattened shape: replace the channel dimensions with their product
+    flattened_shape = (
+        intermediate_shape[:first_channel_pos] +
+        [reduce(lambda x, y: x * y, [intermediate_shape[i] for i in range(first_channel_pos, first_channel_pos + len(channel_dim_indices))])] +
+        intermediate_shape[first_channel_pos + len(channel_dim_indices):]
+    )
+    
+    data = data.reshape(flattened_shape)
+    
+    # Now the data has the right shape, but might not match ngff_shape dimension order
+    # Find where 'c' is in ngff_dims
+    if "c" in ngff_dims:
+        target_c_pos = list(ngff_dims).index("c")
+        if target_c_pos != first_channel_pos:
+            # Move channel dimension to target position
+            current_order = list(range(len(flattened_shape)))
+            current_order.pop(first_channel_pos)
+            current_order.insert(target_c_pos, first_channel_pos)
+            data = data.transpose(current_order)
+    
+    return data
 
 
 def lif_to_ngff_image(
@@ -274,10 +329,6 @@ def lif_to_ngff_image(
     if name is None:
         name = getattr(lif_image, "name", "image")
 
-    # Store timestamps in the image (will be preserved as metadata)
-    # Note: timestamps are stored but not directly used in NgffImage
-    # They could be added as attributes in a future enhancement
-
     return NgffImage(
         data=data,
         dims=ngff_dims,
@@ -335,6 +386,10 @@ def lif_file_to_ngff_images(
         if series is None or series == "all":
             indices_to_convert = list(range(len(all_images)))
         elif isinstance(series, int):
+            # Explicit index - validate it exists
+            if series < 0 or series >= len(all_images):
+                msg = f"Series index {series} is out of bounds. File has {len(all_images)} series (indices 0-{len(all_images)-1})."
+                raise IndexError(msg)
             indices_to_convert = [series]
         elif isinstance(series, str):
             # Treat as regex pattern
@@ -346,6 +401,10 @@ def lif_file_to_ngff_images(
             indices_to_convert = []
             for s in series:
                 if isinstance(s, int):
+                    # Explicit index - validate it exists
+                    if s < 0 or s >= len(all_images):
+                        msg = f"Series index {s} is out of bounds. File has {len(all_images)} series (indices 0-{len(all_images)-1})."
+                        raise IndexError(msg)
                     indices_to_convert.append(s)
                 elif isinstance(s, str):
                     pattern = re.compile(s.replace("*", ".*"), re.IGNORECASE)
@@ -360,12 +419,11 @@ def lif_file_to_ngff_images(
 
         # Convert selected series
         for idx in indices_to_convert:
-            if 0 <= idx < len(all_images):
-                lif_image = all_images[idx]
-                ngff_image = lif_to_ngff_image(lif_image)
-                # Use path as name to preserve hierarchy
-                series_name = lif_image.path.replace("/", "_")
-                results.append((series_name, ngff_image))
+            lif_image = all_images[idx]
+            ngff_image = lif_to_ngff_image(lif_image)
+            # Use path as name to preserve hierarchy
+            series_name = lif_image.path.replace("/", "_")
+            results.append((series_name, ngff_image))
 
     return results
 
@@ -400,6 +458,7 @@ def has_mosaic_dimension(lif_image: Any) -> bool:
 def lif_to_hcs_plate(
     lif_image: Any,
     plate_name: str = "plate",
+    version: str = "0.4",
 ) -> Tuple[Plate, List[Tuple[str, str, int, NgffImage]]]:
     """
     Convert a LIF image with mosaic dimension to HCS plate structure.
@@ -413,6 +472,8 @@ def lif_to_hcs_plate(
         A LIF image with mosaic dimension (M > 1).
     plate_name : str, optional
         Name for the plate. Default is "plate".
+    version : str, optional
+        OME-Zarr version for the plate. Default is "0.4".
 
     Returns
     -------
@@ -462,7 +523,7 @@ def lif_to_hcs_plate(
         wells=wells,
         name=plate_name,
         field_count=1,  # 1 field per well (the mosaic position)
-        version="0.4",
+        version=version,
     )
 
     # Extract individual mosaic positions as separate images

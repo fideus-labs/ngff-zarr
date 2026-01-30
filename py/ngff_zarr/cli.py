@@ -495,7 +495,9 @@ def main():
 
                             if lif_image is not None:
                                 plate, well_images = lif_to_hcs_plate(
-                                    lif_image, plate_name=series_name
+                                    lif_image,
+                                    plate_name=series_name,
+                                    version=args.ome_zarr_version,
                                 )
 
                                 # Determine output path
