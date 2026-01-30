@@ -1047,36 +1047,83 @@ def _prepare_next_scale(
 
         image.data = dask.array.from_zarr(store, component=path)
 
-        # Fetch scale factor for this index; used directly for index 0,
-        # converted to a relative factor for index > 0
-        next_multiscales_factor = multiscales.scale_factors[index]
+        # Get the absolute scale factor for the next level
+        next_absolute_factor = multiscales.scale_factors[index]
+        original_image = multiscales.images[0]
+        spatial_dims = {"x", "y", "z"}
 
-        # For subsequent levels (index > 0), compute relative scale factor
+        # Track what scale factor was applied to reach current image
+        previous_dim_factors = {d: 1 for d in image.dims}
         if index > 0:
-            # If scales have been passed as list of integers
-            if isinstance(next_multiscales_factor, int):
-                next_multiscales_factor = (
-                    next_multiscales_factor // multiscales.scale_factors[index - 1]
-                )
-            # If scales have been passed as dict of per-dimension factors
+            prev_absolute_factor = multiscales.scale_factors[index - 1]
+            if isinstance(prev_absolute_factor, int):
+                for d in image.dims:
+                    if d in spatial_dims:
+                        previous_dim_factors[d] = prev_absolute_factor
             else:
-                updated_factors = {}
-                for d, f in next_multiscales_factor.items():
-                    updated_factors[d] = f // multiscales.scale_factors[index - 1][d]
-                next_multiscales_factor = updated_factors
+                for d in prev_absolute_factor:
+                    previous_dim_factors[d] = prev_absolute_factor[d]
 
-        next_multiscales = to_multiscales(
-            image,
-            scale_factors=[
-                next_multiscales_factor,
-            ],
-            method=multiscales.method,
-            chunks=multiscales.chunks,
-            progress=progress,
-            cache=False,
+        # Compute incremental factor from current image to next scale
+        dim_factors = _dim_scale_factors(
+            image.dims,
+            next_absolute_factor,
+            previous_dim_factors,
+            original_image=original_image,
+            previous_image=image,
         )
-        multiscales.images[index + 1] = next_multiscales.images[1]
-        return next_multiscales.images[1]
+
+        # Check if we can achieve exact target with incremental downsampling
+        # If not, we need to downsample from original instead
+        can_downsample_incrementally = True
+        for dim in dim_factors:
+            if dim in spatial_dims:
+                dim_index = original_image.dims.index(dim)
+                original_size = original_image.data.shape[dim_index]
+                # Handle both int and dict scale_factor
+                dim_scale_factor = (
+                    next_absolute_factor[dim]
+                    if isinstance(next_absolute_factor, dict)
+                    else next_absolute_factor
+                )
+                target_size = int(original_size / dim_scale_factor)
+
+                prev_dim_index = image.dims.index(dim)
+                previous_size = image.data.shape[prev_dim_index]
+
+                # Check if floor(previous_size / dim_factors[dim]) == target_size
+                if int(previous_size / dim_factors[dim]) != target_size:
+                    can_downsample_incrementally = False
+                    break
+
+        if can_downsample_incrementally:
+            # Downsample from current (previous) image
+            source_image = image
+            # Only include spatial dimensions in the scale factors dict
+            # to avoid KeyError in methods that look up scale/translation
+            next_multiscales_factor = {
+                d: f for d, f in dim_factors.items() if d in spatial_dims
+            }
+
+            next_multiscales = to_multiscales(
+                source_image,
+                scale_factors=[
+                    next_multiscales_factor,
+                ],
+                method=multiscales.method,
+                chunks=multiscales.chunks,
+                progress=progress,
+                cache=False,
+            )
+            multiscales.images[index + 1] = next_multiscales.images[1]
+            return next_multiscales.images[1]
+        else:
+            # Cannot downsample incrementally from the previous level.
+            # Use the already-computed image from multiscales.images[index + 1]
+            # which was computed correctly during the initial to_multiscales call.
+            # This avoids re-computing from original which could have shape
+            # mismatches due to lazy shape calculation in dask.
+            return multiscales.images[index + 1]
     else:
         return multiscales.images[index + 1]
 
