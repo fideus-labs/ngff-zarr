@@ -308,7 +308,7 @@ Deno.test("toNgffZarr - requires version 0.5 for .ozx", async () => {
 
   const axes = [createAxis("y", "space"), createAxis("x", "space")];
   const datasets = [createDataset("scale0/image", [1.0, 1.0], [0.0, 0.0])];
-  const metadata = createMetadata(axes, datasets, "test", "0.4");
+  const metadata = createMetadata(axes, datasets, "test", "0.5");
   const multiscales = createMultiscales([image], metadata);
 
   const ozxPath = join(OUTPUT_DIR, "test_version_error.ozx");

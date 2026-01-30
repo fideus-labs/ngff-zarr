@@ -36,7 +36,7 @@ export interface ToNgffZarrOzxOptions {
  *
  * This function automatically detects .ozx paths (RFC-9 zipped OME-Zarr format)
  * and handles them appropriately. For .ozx files:
- * - Version 0.5 is always used (the version option is ignored if undefined or "0.4")
+ * - Version 0.5 is always used when the version option is omitted (undefined)
  * - Sharding (chunksPerShard) is not supported
  * - An error is thrown if you explicitly specify a version other than "0.5"
  *
@@ -68,9 +68,8 @@ export async function toNgffZarr(
   // Handle .ozx paths (RFC-9)
   if (typeof store === "string" && isOzxPath(store)) {
     // Validate version - RFC-9 requires version 0.5
+    // If no version is specified (undefined), we silently default to 0.5
     // If a version is explicitly specified and it's not 0.5, throw an error
-    // If no version is specified (undefined) or the default 0.4 is used,
-    // we silently default to 0.5 since .ozx files always use version 0.5
     if (options.version !== undefined && options.version !== "0.5") {
       throw new Error(
         "RFC-9 (.ozx) requires OME-Zarr version 0.5. " +
