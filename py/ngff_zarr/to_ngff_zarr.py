@@ -403,13 +403,16 @@ def _create_zarr_root(
             **format_kwargs,
         )
 
-    if "omero" in metadata_dict:
-        root.attrs["omero"] = metadata_dict.pop("omero")
-
     if version != "0.4":
-        # RFC 2, Zarr 3
-        root.attrs["ome"] = {"version": version, "multiscales": [metadata_dict]}
+        # RFC 2, Zarr 3 - omero goes inside ome namespace
+        ome_dict = {"version": version, "multiscales": [metadata_dict]}
+        if "omero" in metadata_dict:
+            ome_dict["omero"] = metadata_dict.pop("omero")
+        root.attrs["ome"] = ome_dict
     else:
+        # v0.4 - omero is at root level
+        if "omero" in metadata_dict:
+            root.attrs["omero"] = metadata_dict.pop("omero")
         root.attrs["multiscales"] = [metadata_dict]
 
     return root

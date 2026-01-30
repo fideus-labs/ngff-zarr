@@ -1,7 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+from packaging import version
+
 import pytest
 import numpy as np
+import zarr
 from zarr.storage import MemoryStore
 from ngff_zarr import (
     Omero,
@@ -14,6 +17,8 @@ from ngff_zarr import (
 )
 
 from ._data import test_data_dir
+
+zarr_version = version.parse(zarr.__version__)
 
 
 def test_read_omero(input_images):  # noqa: ARG001
@@ -112,6 +117,75 @@ def test_write_omero():
     assert read_omero.channels[1].window.start == 30.0
     assert read_omero.channels[1].window.end == 200.0
     assert read_omero.channels[1].label == ""
+
+
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"), reason="zarr version < 3.0.0b2"
+)
+def test_write_omero_v05():
+    """Test that omero metadata is correctly written inside the ome namespace for v0.5.
+
+    This is a regression test for https://github.com/fideus-labs/ngff-zarr/issues/172
+    """
+
+    data = np.random.randint(0, 256, 262144).reshape((2, 32, 64, 64)).astype(np.uint8)
+    image = to_ngff_image(data, dims=["c", "z", "y", "x"])
+    multiscales = to_multiscales(image, scale_factors=[2, 4], chunks=32)
+
+    omero = Omero(
+        channels=[
+            OmeroChannel(
+                color="a52a2a",
+                window=OmeroWindow(min=0.0, max=255.0, start=0.0, end=255.0),
+                label="C1-DAPI",
+            ),
+            OmeroChannel(
+                color="00aeef",
+                window=OmeroWindow(min=0.0, max=255.0, start=0.0, end=255.0),
+                label="C2-Phalloidin",
+            ),
+        ]
+    )
+    multiscales.metadata.omero = omero
+
+    store = MemoryStore()
+    version = "0.5"
+    to_ngff_zarr(store, multiscales, version=version)
+
+    # Verify the zarr.json structure has omero inside the ome namespace
+    root = zarr.open_group(store, mode="r")
+    root_attrs = root.attrs.asdict()
+
+    # For v0.5, omero should be inside the ome namespace, not at root level
+    assert "ome" in root_attrs
+    assert (
+        "omero" in root_attrs["ome"]
+    ), "omero should be inside the ome namespace for v0.5"
+    assert "omero" not in root_attrs, "omero should NOT be at root level for v0.5"
+
+    # Verify the omero structure
+    ome_omero = root_attrs["ome"]["omero"]
+    assert "channels" in ome_omero
+    assert len(ome_omero["channels"]) == 2
+    assert ome_omero["channels"][0]["color"] == "a52a2a"
+    assert ome_omero["channels"][0]["label"] == "C1-DAPI"
+    assert ome_omero["channels"][1]["color"] == "00aeef"
+    assert ome_omero["channels"][1]["label"] == "C2-Phalloidin"
+
+    # Read back and verify omero metadata roundtrip
+    multiscales_read = from_ngff_zarr(store, validate=True, version=version)
+    read_omero = multiscales_read.metadata.omero
+
+    assert read_omero is not None
+    assert len(read_omero.channels) == 2
+    assert read_omero.channels[0].color == "a52a2a"
+    assert read_omero.channels[0].window.start == 0.0
+    assert read_omero.channels[0].window.end == 255.0
+    assert read_omero.channels[0].label == "C1-DAPI"
+    assert read_omero.channels[1].color == "00aeef"
+    assert read_omero.channels[1].window.start == 0.0
+    assert read_omero.channels[1].window.end == 255.0
+    assert read_omero.channels[1].label == "C2-Phalloidin"
 
 
 def test_validate_color():
