@@ -327,6 +327,164 @@ test.describe("fromNgffZarr Browser Tests", () => {
   });
 });
 
+test.describe("RFC-9 Browser Tests", () => {
+  test.beforeEach(async ({ page }) => {
+    // Navigate to the bundle test page (which has access to the bundle)
+    await page.goto("/bundle-test");
+
+    // Wait for the page to fully load
+    await page.waitForLoadState("networkidle");
+  });
+
+  test("should have RFC-9 functions available in browser bundle", async ({ page }) => {
+    const loadResult = await page.evaluate(async () => {
+      try {
+        const ngffZarr = await import("./ngff-zarr.bundle.js");
+        return {
+          success: true,
+          hasIsOzxPath: "isOzxPath" in ngffZarr,
+          hasToNgffZarrOzx: "toNgffZarrOzx" in ngffZarr,
+          hasMemoryStoreToZip: "memoryStoreToZip" in ngffZarr,
+          hasOrderFilesForRfc9: "orderFilesForRfc9" in ngffZarr,
+          hasReadOzxVersion: "readOzxVersion" in ngffZarr,
+          typeOfIsOzxPath: typeof ngffZarr.isOzxPath,
+          typeOfToNgffZarrOzx: typeof ngffZarr.toNgffZarrOzx,
+          typeOfMemoryStoreToZip: typeof ngffZarr.memoryStoreToZip,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    });
+
+    expect(loadResult.success).toBeTruthy();
+    expect(loadResult.hasIsOzxPath).toBeTruthy();
+    expect(loadResult.hasToNgffZarrOzx).toBeTruthy();
+    expect(loadResult.hasMemoryStoreToZip).toBeTruthy();
+    expect(loadResult.hasOrderFilesForRfc9).toBeTruthy();
+    expect(loadResult.hasReadOzxVersion).toBeTruthy();
+    expect(loadResult.typeOfIsOzxPath).toBe("function");
+    expect(loadResult.typeOfToNgffZarrOzx).toBe("function");
+    expect(loadResult.typeOfMemoryStoreToZip).toBe("function");
+  });
+
+  test("isOzxPath should correctly detect .ozx paths", async ({ page }) => {
+    const pathResult = await page.evaluate(async () => {
+      try {
+        const { isOzxPath } = await import("./ngff-zarr.bundle.js");
+        return {
+          success: true,
+          ozxPath: isOzxPath("test.ozx"),
+          ozxPathWithDir: isOzxPath("/path/to/file.ozx"),
+          zarrPath: isOzxPath("test.zarr"),
+          zipPath: isOzxPath("test.zip"),
+          noExtension: isOzxPath("ozx"),
+          upperCase: isOzxPath("test.OZX"),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    });
+
+    expect(pathResult.success).toBeTruthy();
+    expect(pathResult.ozxPath).toBe(true);
+    expect(pathResult.ozxPathWithDir).toBe(true);
+    expect(pathResult.zarrPath).toBe(false);
+    expect(pathResult.zipPath).toBe(false);
+    expect(pathResult.noExtension).toBe(false);
+    expect(pathResult.upperCase).toBe(false); // Case sensitive
+  });
+
+  test("memoryStoreToZip should create valid ZIP data", async ({ page }) => {
+    const zipResult = await page.evaluate(async () => {
+      try {
+        const { memoryStoreToZip, readOzxVersion } = await import(
+          "./ngff-zarr.bundle.js"
+        );
+
+        // Create a simple memory store
+        const store = new Map();
+        store.set("zarr.json", new TextEncoder().encode('{"zarr_format": 3}'));
+        store.set(
+          "scale0/zarr.json",
+          new TextEncoder().encode('{"zarr_format": 3}'),
+        );
+
+        // Convert to ZIP
+        const zipData = memoryStoreToZip(store, { version: "0.5" });
+
+        // Verify it's a Uint8Array
+        const isUint8Array = zipData instanceof Uint8Array;
+
+        // Verify ZIP magic number (PK\x03\x04)
+        const hasZipMagic = zipData[0] === 0x50 && zipData[1] === 0x4b &&
+          zipData[2] === 0x03 && zipData[3] === 0x04;
+
+        // Read back the version from the ZIP comment
+        const version = readOzxVersion(zipData);
+
+        return {
+          success: true,
+          isUint8Array,
+          hasZipMagic,
+          zipSize: zipData.length,
+          version,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    });
+
+    expect(zipResult.success).toBeTruthy();
+    expect(zipResult.isUint8Array).toBe(true);
+    expect(zipResult.hasZipMagic).toBe(true);
+    expect(zipResult.zipSize).toBeGreaterThan(0);
+    expect(zipResult.version).toBe("0.5");
+  });
+
+  test("orderFilesForRfc9 should order files correctly", async ({ page }) => {
+    const orderResult = await page.evaluate(async () => {
+      try {
+        const { orderFilesForRfc9 } = await import("./ngff-zarr.bundle.js");
+
+        // Test with files in wrong order
+        const files = [
+          "c/0/0",
+          "scale0/zarr.json",
+          "zarr.json",
+          "scale1/zarr.json",
+        ];
+        const ordered = orderFilesForRfc9(files);
+
+        return {
+          success: true,
+          ordered,
+          firstIsRootZarrJson: ordered[0] === "zarr.json",
+          zarrJsonsBeforeData: ordered.indexOf("c/0/0") >
+            ordered.indexOf("scale1/zarr.json"),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    });
+
+    expect(orderResult.success).toBeTruthy();
+    expect(orderResult.firstIsRootZarrJson).toBe(true);
+    expect(orderResult.zarrJsonsBeforeData).toBe(true);
+  });
+});
+
 test.describe("toNgffZarr Browser Tests", () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to the bundle test page (which has access to the bundle)

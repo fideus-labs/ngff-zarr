@@ -41,6 +41,7 @@
     "p-queue": "npm:p-queue@^8.1.0",
     "zod": "npm:zod@^4.0.2",
     "zarrita": "jsr:@zarrita/zarrita@^0.5.2",
+    "fflate": "npm:fflate@^0.8.2",
     "playwright/test": "npm:@playwright/test@^1.54.1"
   },
   "lint": {

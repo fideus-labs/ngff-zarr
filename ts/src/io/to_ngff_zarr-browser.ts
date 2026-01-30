@@ -7,11 +7,22 @@ import type { Multiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { MemoryStore } from "./from_ngff_zarr-browser.ts";
 import { createQueue } from "../utils/create_queue.ts";
+import { memoryStoreToZip } from "./rfc9_zip.ts";
+export { isOzxPath } from "./rfc9_zip.ts";
 
 export interface ToNgffZarrOptions {
   overwrite?: boolean;
   version?: "0.4" | "0.5";
   chunksPerShard?: number | number[] | Record<string, number>;
+}
+
+/**
+ * Options for writing to .ozx (RFC-9) format.
+ * Note: chunksPerShard is NOT supported for .ozx files and will throw an error.
+ */
+export interface ToNgffZarrOzxOptions {
+  /** List of RFC numbers to enable (e.g., [4] for RFC 4 anatomical orientation) */
+  enabledRfcs?: number[] | undefined;
 }
 
 /**
@@ -451,4 +462,88 @@ function calculateChunkStride(chunkShape: number[]): number[] {
   }
 
   return stride;
+}
+
+/**
+ * Create OME-Zarr .ozx ZIP data (RFC-9) - Browser version.
+ *
+ * This function creates an OME-Zarr hierarchy in memory and returns
+ * the ZIP data as a Uint8Array. This is the browser-compatible version
+ * that returns the raw ZIP data for download or further processing.
+ *
+ * Note: Sharding is NOT supported because zarrita does not currently
+ * support writing shards. If you need sharding, use the Python implementation.
+ *
+ * @param multiscales - Multiscales data to write
+ * @param options - Options for writing
+ * @returns ZIP file data as Uint8Array
+ *
+ * @see https://ngff.openmicroscopy.org/rfc/9/index.html
+ */
+export async function toNgffZarrOzx(
+  multiscales: Multiscales,
+  _options: ToNgffZarrOzxOptions = {},
+): Promise<Uint8Array> {
+  const _version = "0.5"; // RFC-9 always uses version 0.5
+  // Note: _options.enabledRfcs is reserved for future RFC support
+
+  // Create a memory store to hold the zarr data
+  const memoryStore: MemoryStore = new Map<string, Uint8Array>();
+
+  // Create root location and group with zarrita API
+  const root = zarr.root(memoryStore);
+
+  // Prepare multiscales metadata
+  const multiscalesMetadata = {
+    version: _version,
+    name: multiscales.metadata.name,
+    axes: multiscales.metadata.axes,
+    datasets: multiscales.metadata.datasets,
+    ...(multiscales.metadata.coordinateTransformations && {
+      coordinateTransformations: multiscales.metadata.coordinateTransformations,
+    }),
+    ...(multiscales.metadata.type && {
+      type: multiscales.metadata.type,
+    }),
+    ...(multiscales.metadata.metadata && {
+      metadata: multiscales.metadata.metadata,
+    }),
+  };
+
+  // Create the root group with OME-Zarr metadata
+  // Version 0.5 wraps metadata under "ome" property
+  const attributes: Record<string, unknown> = {
+    ome: {
+      version: _version,
+      multiscales: [multiscalesMetadata],
+    },
+  };
+
+  // Add OMERO metadata at root level if present
+  if (multiscales.metadata.omero) {
+    attributes.omero = multiscales.metadata.omero;
+  }
+
+  const rootGroup = await zarr.create(root, { attributes });
+
+  // Write each image in the multiscales
+  for (let i = 0; i < multiscales.images.length; i++) {
+    const image = multiscales.images[i];
+    const dataset = multiscales.metadata.datasets[i];
+
+    if (!dataset) {
+      throw new Error(`No dataset configuration found for image ${i}`);
+    }
+
+    await _writeImage(
+      rootGroup as zarr.Group<MemoryStore>,
+      image,
+      dataset.path,
+    );
+  }
+
+  // Convert the memory store to ZIP data
+  const zipData = memoryStoreToZip(memoryStore, { version: "0.5" });
+
+  return zipData;
 }
