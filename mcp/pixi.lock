@@ -6,6 +6,8 @@ environments:
     - url: https://conda.anaconda.org/pyconda/
     indexes:
     - https://pypi.org/simple
+    options:
+      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -713,6 +715,8 @@ environments:
     - url: https://conda.anaconda.org/pyconda/
     indexes:
     - https://pypi.org/simple
+    options:
+      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -1304,6 +1308,8 @@ environments:
     - url: https://conda.anaconda.org/pyconda/
     indexes:
     - https://pypi.org/simple
+    options:
+      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -1799,6 +1805,8 @@ environments:
     - url: https://conda.anaconda.org/pyconda/
     indexes:
     - https://pypi.org/simple
+    options:
+      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -4701,8 +4709,8 @@ packages:
   timestamp: 1738196177597
 - pypi: ../py
   name: ngff-zarr
-  version: 0.20.0
-  sha256: dff31971d15bf1cec565d3175fb9e7fcaf6c1126896655244845ef79365963d5
+  version: 0.20.3
+  sha256: 577c66ce0212d3bb42b9458ea80e46a75a6bd2912927bb47807c4b16bc056736
   requires_dist:
   - dask[array]
   - importlib-resources
@@ -4761,12 +4769,11 @@ packages:
   - pooch ; extra == 'test'
   - pytest>=6 ; extra == 'test'
   - jsonschema ; extra == 'validate'
-  requires_python: '>=3.9'
-  editable: true
+  requires_python: '>=3.10'
 - pypi: ./
   name: ngff-zarr-mcp
   version: 0.5.0
-  sha256: 0de3f56b4b53550b2f04c523044ceaa51b2304ff12fa84e3aa54ceb01ee6878a
+  sha256: 5811ee70d2fde8facf6e5ddb10adce1bbe150d81741b5d9e25e236f30c7672c5
   requires_dist:
   - aiofiles
   - aiohttp
@@ -4790,8 +4797,7 @@ packages:
   - ruff>=0.0.243 ; extra == 'dev'
   - types-aiofiles ; extra == 'dev'
   - types-psutil ; extra == 'dev'
-  requires_python: '>=3.9'
-  editable: true
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/b8/f5/7f6aa3bbff013c0bf993129cbb2b1505790091f812accbe85cf001514737/nibabel-5.3.3-py3-none-any.whl
   name: nibabel
   version: 5.3.3

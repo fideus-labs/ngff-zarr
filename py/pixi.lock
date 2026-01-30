@@ -7406,7 +7406,7 @@ packages:
 - pypi: ./
   name: ngff-zarr
   version: 0.20.3
-  sha256: dff31971d15bf1cec565d3175fb9e7fcaf6c1126896655244845ef79365963d5
+  sha256: 577c66ce0212d3bb42b9458ea80e46a75a6bd2912927bb47807c4b16bc056736
   requires_dist:
   - dask[array]
   - importlib-resources
@@ -7465,7 +7465,7 @@ packages:
   - pooch ; extra == 'test'
   - pytest>=6 ; extra == 'test'
   - jsonschema ; extra == 'validate'
-  requires_python: '>=3.9'
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/b8/f5/7f6aa3bbff013c0bf993129cbb2b1505790091f812accbe85cf001514737/nibabel-5.3.3-py3-none-any.whl
   name: nibabel
   version: 5.3.3
