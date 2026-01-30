@@ -13,8 +13,8 @@ export interface ToNgffZarrOptions {
   overwrite?: boolean;
   /**
    * OME-Zarr version to write. Defaults to "0.4".
-   * Note: For .ozx files (RFC-9), version 0.5 is always used regardless of this setting.
-   * If you explicitly specify a version other than "0.5" for a .ozx file, an error will be thrown.
+   * For .ozx files (RFC-9), version 0.5 is required. If omitted, it defaults to 0.5.
+   * If explicitly set to any other value, an error will be thrown.
    */
   version?: "0.4" | "0.5";
   chunksPerShard?: number | number[] | Record<string, number>;
