@@ -7,11 +7,23 @@ import type { Multiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { MemoryStore } from "./from_ngff_zarr-browser.ts";
 import { createQueue } from "../utils/create_queue.ts";
+import { memoryStoreToZip } from "./rfc9_zip.ts";
+import { writeMultiscalesToMemoryStore } from "./to_ngff_zarr_ozx_common.ts";
+export { isOzxPath } from "./rfc9_zip.ts";
 
 export interface ToNgffZarrOptions {
   overwrite?: boolean;
   version?: "0.4" | "0.5";
   chunksPerShard?: number | number[] | Record<string, number>;
+}
+
+/**
+ * Options for writing to .ozx (RFC-9) format.
+ * Note: chunksPerShard is NOT supported for .ozx files and will throw an error.
+ */
+export interface ToNgffZarrOzxOptions {
+  /** List of RFC numbers to enable (e.g., [4] for RFC 4 anatomical orientation) */
+  enabledRfcs?: number[] | undefined;
 }
 
 /**
@@ -226,7 +238,7 @@ function getChunksFromImage(image: NgffImage): number[] {
     return image.data.chunks;
   }
 
-  return image.data.shape.map((dim) => Math.min(dim, 1024));
+  return image.data.shape.map((dim: number) => Math.min(dim, 1024));
 }
 
 async function _writeArrayData(
@@ -451,4 +463,43 @@ function calculateChunkStride(chunkShape: number[]): number[] {
   }
 
   return stride;
+}
+
+/**
+ * Create OME-Zarr .ozx ZIP data (RFC-9) - Browser version.
+ *
+ * This function creates an OME-Zarr hierarchy in memory and returns
+ * the ZIP data as a Uint8Array. This is the browser-compatible version
+ * that returns the raw ZIP data for download or further processing.
+ *
+ * Note: Sharding is NOT supported because zarrita does not currently
+ * support writing shards. If you need sharding, use the Python implementation.
+ *
+ * @param multiscales - Multiscales data to write
+ * @param options - Options for writing
+ * @returns ZIP file data as Uint8Array
+ *
+ * @see https://ngff.openmicroscopy.org/rfc/9/index.html
+ */
+export async function toNgffZarrOzx(
+  multiscales: Multiscales,
+  _options: ToNgffZarrOzxOptions = {},
+): Promise<Uint8Array> {
+  const enabledRfcs = _options.enabledRfcs;
+
+  // Create a memory store to hold the zarr data
+  const memoryStore: MemoryStore = new Map<string, Uint8Array>();
+
+  // Use the shared write function
+  await writeMultiscalesToMemoryStore(
+    memoryStore,
+    multiscales,
+    enabledRfcs,
+    _writeImage,
+  );
+
+  // Convert the memory store to ZIP data
+  const zipData = memoryStoreToZip(memoryStore, { version: "0.5" });
+
+  return zipData;
 }

@@ -41,9 +41,22 @@ export {
   type MemoryStore,
 } from "./io/from_ngff_zarr-browser.ts";
 export {
+  isOzxPath,
   toNgffZarr,
   type ToNgffZarrOptions,
+  toNgffZarrOzx,
+  type ToNgffZarrOzxOptions,
 } from "./io/to_ngff_zarr-browser.ts";
+
+// RFC-9 exports
+export {
+  getZipFileCompressionMethod,
+  getZipFileList,
+  memoryStoreToZip,
+  orderFilesForRfc9,
+  readOzxVersion,
+} from "./io/rfc9_zip.ts";
+export type { MemoryStoreToZipOptions } from "./io/rfc9_zip.ts";
 
 // Browser-compatible processing modules
 export * from "./process/to_multiscales-browser.ts";
