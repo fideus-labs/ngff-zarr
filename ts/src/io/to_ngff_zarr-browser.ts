@@ -10,6 +10,10 @@ import type { Axis } from "../types/zarr_metadata.ts";
 import { createQueue } from "../utils/create_queue.ts";
 import { memoryStoreToZip } from "./rfc9_zip.ts";
 import { isRfc4Enabled } from "../types/rfc4.ts";
+import {
+  processAxesForRfcs,
+  writeMultiscalesToMemoryStore,
+} from "./to_ngff_zarr_ozx_common.ts";
 export { isOzxPath } from "./rfc9_zip.ts";
 
 export interface ToNgffZarrOptions {
@@ -467,40 +471,6 @@ function calculateChunkStride(chunkShape: number[]): number[] {
 }
 
 /**
- * Process axes for RFC enablement.
- * If RFC 4 is enabled, include orientation metadata.
- * If RFC 4 is not enabled, strip orientation from axes.
- */
-function processAxesForRfcs(
-  axes: Axis[],
-  enabledRfcs?: number[],
-): Record<string, unknown>[] {
-  const rfc4Enabled = isRfc4Enabled(enabledRfcs);
-
-  return axes.map((axis) => {
-    const result: Record<string, unknown> = {
-      name: axis.name,
-      type: axis.type,
-    };
-
-    // Include unit if present
-    if (axis.unit !== undefined) {
-      result.unit = axis.unit;
-    }
-
-    // Include orientation only if RFC 4 is enabled and orientation exists
-    if (rfc4Enabled && axis.orientation) {
-      result.orientation = {
-        type: axis.orientation.type,
-        value: axis.orientation.value,
-      };
-    }
-
-    return result;
-  });
-}
-
-/**
  * Create OME-Zarr .ozx ZIP data (RFC-9) - Browser version.
  *
  * This function creates an OME-Zarr hierarchy in memory and returns
@@ -520,78 +490,18 @@ export async function toNgffZarrOzx(
   multiscales: Multiscales,
   _options: ToNgffZarrOzxOptions = {},
 ): Promise<Uint8Array> {
-  // RFC-9 always uses version 0.5. If the caller provided a different
-  // metadata.version on the Multiscales object, fail explicitly rather
-  // than silently overwriting it.
-  const providedVersion = multiscales.metadata.version;
-  if (providedVersion !== undefined && providedVersion !== "0.5") {
-    throw new Error(
-      `Incompatible multiscales.metadata.version: expected "0.5" for RFC-9 (.ozx) output, but got "${providedVersion}".`,
-    );
-  }
-  const _version = "0.5";
   const enabledRfcs = _options.enabledRfcs;
 
   // Create a memory store to hold the zarr data
   const memoryStore: MemoryStore = new Map<string, Uint8Array>();
 
-  // Create root location and group with zarrita API
-  const root = zarr.root(memoryStore);
-
-  // Process axes - filter orientation based on enabledRfcs
-  const processedAxes = processAxesForRfcs(
-    multiscales.metadata.axes,
+  // Use the shared write function
+  await writeMultiscalesToMemoryStore(
+    memoryStore,
+    multiscales,
     enabledRfcs,
+    _writeImage,
   );
-
-  // Prepare multiscales metadata
-  const multiscalesMetadata = {
-    version: _version,
-    name: multiscales.metadata.name,
-    axes: processedAxes,
-    datasets: multiscales.metadata.datasets,
-    ...(multiscales.metadata.coordinateTransformations && {
-      coordinateTransformations: multiscales.metadata.coordinateTransformations,
-    }),
-    ...(multiscales.metadata.type && {
-      type: multiscales.metadata.type,
-    }),
-    ...(multiscales.metadata.metadata && {
-      metadata: multiscales.metadata.metadata,
-    }),
-  };
-
-  // Create the root group with OME-Zarr metadata
-  // Version 0.5 wraps metadata under "ome" property
-  const attributes: Record<string, unknown> = {
-    ome: {
-      version: _version,
-      multiscales: [multiscalesMetadata],
-    },
-  };
-
-  // Add OMERO metadata at root level if present
-  if (multiscales.metadata.omero) {
-    attributes.omero = multiscales.metadata.omero;
-  }
-
-  const rootGroup = await zarr.create(root, { attributes });
-
-  // Write each image in the multiscales
-  for (let i = 0; i < multiscales.images.length; i++) {
-    const image = multiscales.images[i];
-    const dataset = multiscales.metadata.datasets[i];
-
-    if (!dataset) {
-      throw new Error(`No dataset configuration found for image ${i}`);
-    }
-
-    await _writeImage(
-      rootGroup as zarr.Group<MemoryStore>,
-      image,
-      dataset.path,
-    );
-  }
 
   // Convert the memory store to ZIP data
   const zipData = memoryStoreToZip(memoryStore, { version: "0.5" });
