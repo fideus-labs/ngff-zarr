@@ -5,11 +5,15 @@ import type { Multiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { MemoryStore } from "./from_ngff_zarr.ts";
 import { createQueue } from "../utils/create_queue.ts";
+import type { Axis } from "../types/zarr_metadata.ts";
+import { isRfc4Enabled } from "../types/rfc4.ts";
 
 export interface ToNgffZarrOptions {
   overwrite?: boolean;
   version?: "0.4" | "0.5";
   chunksPerShard?: number | number[] | Record<string, number>;
+  /** List of RFC numbers to enable (e.g., [4] for RFC 4 anatomical orientation) */
+  enabledRfcs?: number[];
 }
 
 export async function toNgffZarr(
@@ -19,6 +23,7 @@ export async function toNgffZarr(
 ): Promise<void> {
   const _overwrite = options.overwrite ?? true;
   const _version = options.version ?? "0.4";
+  const enabledRfcs = options.enabledRfcs;
 
   try {
     // Determine the appropriate store type based on the path
@@ -57,11 +62,17 @@ export async function toNgffZarr(
     // Create root location and group with zarrita v0.5.2 API
     const root = zarr.root(_resolvedStore as MemoryStore);
 
+    // Process axes - filter orientation based on enabledRfcs
+    const processedAxes = processAxesForRfcs(
+      multiscales.metadata.axes,
+      enabledRfcs,
+    );
+
     // Prepare multiscales metadata
     const multiscalesMetadata = {
       version: _version,
       name: multiscales.metadata.name,
-      axes: multiscales.metadata.axes,
+      axes: processedAxes,
       datasets: multiscales.metadata.datasets,
       ...(multiscales.metadata.coordinateTransformations && {
         coordinateTransformations:
@@ -458,4 +469,38 @@ function calculateChunkStride(chunkShape: number[]): number[] {
   }
 
   return stride;
+}
+
+/**
+ * Process axes for RFC enablement.
+ * If RFC 4 is enabled, include orientation metadata.
+ * If RFC 4 is not enabled, strip orientation from axes.
+ */
+function processAxesForRfcs(
+  axes: Axis[],
+  enabledRfcs?: number[],
+): Record<string, unknown>[] {
+  const rfc4Enabled = isRfc4Enabled(enabledRfcs);
+
+  return axes.map((axis) => {
+    const result: Record<string, unknown> = {
+      name: axis.name,
+      type: axis.type,
+    };
+
+    // Include unit if present
+    if (axis.unit !== undefined) {
+      result.unit = axis.unit;
+    }
+
+    // Include orientation only if RFC 4 is enabled and orientation exists
+    if (rfc4Enabled && axis.orientation) {
+      result.orientation = {
+        type: axis.orientation.type,
+        value: axis.orientation.value,
+      };
+    }
+
+    return result;
+  });
 }

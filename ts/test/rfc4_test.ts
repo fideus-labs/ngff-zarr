@@ -1,0 +1,163 @@
+// SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+// SPDX-License-Identifier: MIT
+/**
+ * Unit tests for RFC 4 anatomical orientation implementation.
+ * Ported from py/test/test_rfc4.py
+ */
+
+import { assertEquals } from "@std/assert";
+import {
+  addAnatomicalOrientationToAxis,
+  AnatomicalOrientationValues,
+  createAnatomicalOrientation,
+  isRfc4Enabled,
+  itkLpsToAnatomicalOrientation,
+  LPS,
+  RAS,
+  removeAnatomicalOrientationFromAxis,
+} from "../src/types/rfc4.ts";
+
+Deno.test("createAnatomicalOrientation - creates valid object", () => {
+  const orientation = createAnatomicalOrientation(
+    AnatomicalOrientationValues.LeftToRight,
+  );
+  assertEquals(orientation.type, "anatomical");
+  assertEquals(orientation.value, AnatomicalOrientationValues.LeftToRight);
+});
+
+Deno.test("itkLpsToAnatomicalOrientation - x axis returns right-to-left", () => {
+  const xOrientation = itkLpsToAnatomicalOrientation("x");
+  assertEquals(xOrientation !== undefined, true);
+  assertEquals(xOrientation?.type, "anatomical");
+  assertEquals(xOrientation?.value, AnatomicalOrientationValues.RightToLeft);
+});
+
+Deno.test("itkLpsToAnatomicalOrientation - y axis returns anterior-to-posterior", () => {
+  const yOrientation = itkLpsToAnatomicalOrientation("y");
+  assertEquals(yOrientation !== undefined, true);
+  assertEquals(yOrientation?.type, "anatomical");
+  assertEquals(
+    yOrientation?.value,
+    AnatomicalOrientationValues.AnteriorToPosterior,
+  );
+});
+
+Deno.test("itkLpsToAnatomicalOrientation - z axis returns inferior-to-superior", () => {
+  const zOrientation = itkLpsToAnatomicalOrientation("z");
+  assertEquals(zOrientation !== undefined, true);
+  assertEquals(zOrientation?.type, "anatomical");
+  assertEquals(
+    zOrientation?.value,
+    AnatomicalOrientationValues.InferiorToSuperior,
+  );
+});
+
+Deno.test("itkLpsToAnatomicalOrientation - non-spatial axis returns undefined", () => {
+  const cOrientation = itkLpsToAnatomicalOrientation("c");
+  assertEquals(cOrientation, undefined);
+
+  const tOrientation = itkLpsToAnatomicalOrientation("t");
+  assertEquals(tOrientation, undefined);
+});
+
+Deno.test("isRfc4Enabled - returns true when 4 is in list", () => {
+  assertEquals(isRfc4Enabled([4]), true);
+  assertEquals(isRfc4Enabled([1, 2, 4, 5]), true);
+});
+
+Deno.test("isRfc4Enabled - returns false when 4 is not in list", () => {
+  assertEquals(isRfc4Enabled([1, 2, 3]), false);
+  assertEquals(isRfc4Enabled([]), false);
+});
+
+Deno.test("isRfc4Enabled - returns false for undefined", () => {
+  assertEquals(isRfc4Enabled(undefined), false);
+});
+
+Deno.test("addAnatomicalOrientationToAxis - adds orientation to axis dict", () => {
+  const axisDict = { name: "x", type: "space", unit: "micrometer" };
+  const orientation = createAnatomicalOrientation(
+    AnatomicalOrientationValues.LeftToRight,
+  );
+
+  const result = addAnatomicalOrientationToAxis(axisDict, orientation);
+
+  assertEquals("orientation" in result, true);
+  assertEquals(
+    (result.orientation as { type: string; value: string }).type,
+    "anatomical",
+  );
+  assertEquals(
+    (result.orientation as { type: string; value: string }).value,
+    "left-to-right",
+  );
+});
+
+Deno.test("removeAnatomicalOrientationFromAxis - removes orientation from axis dict", () => {
+  const axisDict = {
+    name: "x",
+    type: "space",
+    unit: "micrometer",
+    orientation: { type: "anatomical", value: "left-to-right" },
+  };
+
+  const result = removeAnatomicalOrientationFromAxis(axisDict);
+
+  assertEquals("orientation" in result, false);
+  assertEquals(result.name, "x");
+  assertEquals(result.type, "space");
+  assertEquals(result.unit, "micrometer");
+});
+
+Deno.test("removeAnatomicalOrientationFromAxis - handles axis without orientation", () => {
+  const axisDict = { name: "y", type: "space" };
+
+  const result = removeAnatomicalOrientationFromAxis(axisDict);
+
+  assertEquals("orientation" in result, false);
+  assertEquals(result.name, "y");
+  assertEquals(result.type, "space");
+});
+
+Deno.test("AnatomicalOrientationValues enum - correct string values", () => {
+  assertEquals(AnatomicalOrientationValues.LeftToRight, "left-to-right");
+  assertEquals(AnatomicalOrientationValues.RightToLeft, "right-to-left");
+  assertEquals(
+    AnatomicalOrientationValues.AnteriorToPosterior,
+    "anterior-to-posterior",
+  );
+  assertEquals(
+    AnatomicalOrientationValues.PosteriorToAnterior,
+    "posterior-to-anterior",
+  );
+  assertEquals(
+    AnatomicalOrientationValues.InferiorToSuperior,
+    "inferior-to-superior",
+  );
+  assertEquals(
+    AnatomicalOrientationValues.SuperiorToInferior,
+    "superior-to-inferior",
+  );
+});
+
+Deno.test("LPS coordinate system - correct orientations", () => {
+  assertEquals(LPS.x.type, "anatomical");
+  assertEquals(LPS.x.value, AnatomicalOrientationValues.RightToLeft);
+
+  assertEquals(LPS.y.type, "anatomical");
+  assertEquals(LPS.y.value, AnatomicalOrientationValues.AnteriorToPosterior);
+
+  assertEquals(LPS.z.type, "anatomical");
+  assertEquals(LPS.z.value, AnatomicalOrientationValues.InferiorToSuperior);
+});
+
+Deno.test("RAS coordinate system - correct orientations", () => {
+  assertEquals(RAS.x.type, "anatomical");
+  assertEquals(RAS.x.value, AnatomicalOrientationValues.LeftToRight);
+
+  assertEquals(RAS.y.type, "anatomical");
+  assertEquals(RAS.y.value, AnatomicalOrientationValues.PosteriorToAnterior);
+
+  assertEquals(RAS.z.type, "anatomical");
+  assertEquals(RAS.z.value, AnatomicalOrientationValues.InferiorToSuperior);
+});
