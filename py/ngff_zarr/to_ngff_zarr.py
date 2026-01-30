@@ -1149,10 +1149,10 @@ def to_ngff_zarr(
     # RFC-9: Handle .ozx (zipped OME-Zarr) files
     if isinstance(store, (str, Path)) and is_ozx_path(store):
         if version != "0.5":
-            raise ValueError( 
-                "RFC-9 zipped OME-Zarr (.ozx) requires OME-Zarr version 0.5. " 
-                f"Got version '{version}'. Please set version='0.5'." 
-            ) 
+            raise ValueError(
+                "RFC-9 zipped OME-Zarr (.ozx) requires OME-Zarr version 0.5. "
+                f"Got version '{version}'. Please set version='0.5'."
+            )
 
         # Default chunks_per_shard to 2 for .ozx files if not specified
         if chunks_per_shard is None:

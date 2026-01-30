@@ -104,9 +104,11 @@ def _channel_dim_last(ngff_image: NgffImage) -> NgffImage:
     return result
 
 
-def _dim_scale_factors(dims, scale_factor, previous_dim_factors, original_image=None, previous_image=None):
+def _dim_scale_factors(
+    dims, scale_factor, previous_dim_factors, original_image=None, previous_image=None
+):
     """Calculate incremental scale factors to apply to previous image.
-    
+
     When original_image and previous_image are provided, calculates the exact
     incremental factor needed to reach the target size from the previous size.
     This ensures we get exact 1x, 2x, 3x, 4x sizes even with incremental downsampling.
@@ -121,10 +123,10 @@ def _dim_scale_factors(dims, scale_factor, previous_dim_factors, original_image=
                     dim_index = original_image.dims.index(dim)
                     original_size = original_image.data.shape[dim_index]
                     target_size = int(original_size / scale_factor)
-                    
+
                     prev_dim_index = previous_image.dims.index(dim)
                     previous_size = previous_image.data.shape[prev_dim_index]
-                    
+
                     # Calculate factor such that floor(previous_size / factor) = target_size
                     if target_size > 0:
                         # Start with the theoretical factor
@@ -137,7 +139,9 @@ def _dim_scale_factors(dims, scale_factor, previous_dim_factors, original_image=
                             actual_size = int(previous_size / factor)
                             # If still not exact, try factor+1
                             if actual_size != target_size:
-                                factor = max(1, int(np.ceil(previous_size / target_size)))
+                                factor = max(
+                                    1, int(np.ceil(previous_size / target_size))
+                                )
                         incremental_factor = max(1, factor)
                     else:
                         incremental_factor = 1
@@ -156,10 +160,10 @@ def _dim_scale_factors(dims, scale_factor, previous_dim_factors, original_image=
                 dim_index = original_image.dims.index(d)
                 original_size = original_image.data.shape[dim_index]
                 target_size = int(original_size / scale_factor[d])
-                
+
                 prev_dim_index = previous_image.dims.index(d)
                 previous_size = previous_image.data.shape[prev_dim_index]
-                
+
                 if target_size > 0:
                     factor = int(np.ceil(previous_size / (target_size + 0.5)))
                     actual_size = int(previous_size / factor)

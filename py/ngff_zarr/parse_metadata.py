@@ -4,14 +4,12 @@ from typing import Optional
 
 from .methods import Methods
 from ._supported_versions import NgffVersion
-from .v04.zarr_metadata import (
-    Omero,
-    OmeroChannel,
-    OmeroWindow,
-    MethodMetadata
-)
+from .v04.zarr_metadata import Omero, OmeroChannel, OmeroWindow, MethodMetadata
 
-def _extract_method_metadata(metadata_dict: dict) -> tuple[Optional[Methods], Optional[str], Optional[MethodMetadata]]:
+
+def _extract_method_metadata(
+    metadata_dict: dict,
+) -> tuple[Optional[Methods], Optional[str], Optional[MethodMetadata]]:
     method = None
     method_type = None
     method_metadata = None
@@ -98,6 +96,7 @@ def _parse_omero(omero_data: dict) -> Optional[Omero]:
 
     return omero
 
+
 def _detect_version(root_attrs: dict) -> NgffVersion:
     """Detect NGFF version from root attributes."""
     version_str: Optional[str] = None
@@ -107,7 +106,7 @@ def _detect_version(root_attrs: dict) -> NgffVersion:
         multiscales = root_attrs.get("multiscales", [])
         if multiscales and isinstance(multiscales, list):
             version_str = multiscales[0].get("version", "0.4")
-        
+
     if version_str is None:
         raise ValueError("Could not detect NGFF version from root attributes.")
 

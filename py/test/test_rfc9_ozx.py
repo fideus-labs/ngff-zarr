@@ -43,12 +43,12 @@ def _close_zipstore_handles(multiscales):
     causing PermissionError on Windows when trying to delete temp directories.
     """
     for img in multiscales.images:
-        if hasattr(img.data, '_meta_array'):
+        if hasattr(img.data, "_meta_array"):
             zarr_array = img.data._meta_array
-            if hasattr(zarr_array, 'store'):
+            if hasattr(zarr_array, "store"):
                 store = zarr_array.store
                 # Try to close the underlying ZipFile via various attribute names
-                for attr in ['zip_file', '_zfile', 'zf']:
+                for attr in ["zip_file", "_zfile", "zf"]:
                     if hasattr(store, attr):
                         zf = getattr(store, attr)
                         if zf is not None:
@@ -86,10 +86,11 @@ def test_write_small_ozx_file(input_images):
     # Verify file exists and is a valid ZIP
     assert ozx_path.exists()
     import zipfile
+
     assert zipfile.is_zipfile(ozx_path)
 
     # Verify ZIP structure
-    with zipfile.ZipFile(ozx_path, 'r') as zf:
+    with zipfile.ZipFile(ozx_path, "r") as zf:
         files = zf.namelist()
 
         # Root zarr.json should be first
@@ -150,17 +151,21 @@ def test_ozx_default_chunks_per_shard(input_images):
     to_ngff_zarr(str(ozx_path), multiscales, version="0.5")
 
     # Verify sharding is enabled
-    with zipfile.ZipFile(ozx_path, 'r') as zf:
+    with zipfile.ZipFile(ozx_path, "r") as zf:
         zarr_json_content = zf.read("zarr.json")
         zarr_metadata = json.loads(zarr_json_content)
 
         # Check consolidated metadata for scale0
         if "consolidated_metadata" in zarr_metadata:
-            scale0_metadata = zarr_metadata["consolidated_metadata"]["metadata"].get("scale0/image")
+            scale0_metadata = zarr_metadata["consolidated_metadata"]["metadata"].get(
+                "scale0/image"
+            )
             if scale0_metadata and "codecs" in scale0_metadata:
                 codecs = scale0_metadata["codecs"]
                 # Should have sharding codec
-                sharding_codecs = [c for c in codecs if c.get("name") == "sharding_indexed"]
+                sharding_codecs = [
+                    c for c in codecs if c.get("name") == "sharding_indexed"
+                ]
                 assert len(sharding_codecs) > 0, "Expected sharding codec in .ozx file"
 
 
@@ -275,13 +280,15 @@ def test_ozx_zip_comment():
     to_ngff_zarr(str(ozx_path), multiscales, version="0.5")
 
     # Check ZIP comment
-    with zipfile.ZipFile(ozx_path, 'r') as zf:
-        comment = zf.comment.decode('utf-8').rstrip('\0')
+    with zipfile.ZipFile(ozx_path, "r") as zf:
+        comment = zf.comment.decode("utf-8").rstrip("\0")
         comment_dict = json.loads(comment)
 
         assert "ome" in comment_dict
         assert "version" in comment_dict["ome"]
         assert comment_dict["ome"]["version"] == "0.5"
+
+
 def test_ozx_zarr_json_ordering():
     """Test that zarr.json files appear first in ZIP archive"""
     import zipfile
@@ -298,7 +305,7 @@ def test_ozx_zarr_json_ordering():
     to_ngff_zarr(str(ozx_path), multiscales, version="0.5")
 
     # Check file ordering
-    with zipfile.ZipFile(ozx_path, 'r') as zf:
+    with zipfile.ZipFile(ozx_path, "r") as zf:
         files = zf.namelist()
 
         # Find all zarr.json files
@@ -322,8 +329,9 @@ def test_ozx_zarr_json_ordering():
         if first_data_file_index is not None:
             # All zarr.json files should come before first data file
             for idx in zarr_json_indices:
-                assert idx < first_data_file_index, \
-                    f"zarr.json at index {idx} should come before data files at {first_data_file_index}"
+                assert (
+                    idx < first_data_file_index
+                ), f"zarr.json at index {idx} should come before data files at {first_data_file_index}"
 
 
 def test_ozx_no_compression():
@@ -342,11 +350,14 @@ def test_ozx_no_compression():
     to_ngff_zarr(str(ozx_path), multiscales, version="0.5")
 
     # Check compression method
-    with zipfile.ZipFile(ozx_path, 'r') as zf:
+    with zipfile.ZipFile(ozx_path, "r") as zf:
         for info in zf.infolist():
             # ZIP_STORED = 0, ZIP_DEFLATED = 8
-            assert info.compress_type == zipfile.ZIP_STORED, \
-                f"File {info.filename} uses compression type {info.compress_type}, expected ZIP_STORED (0)"
+            assert (
+                info.compress_type == zipfile.ZIP_STORED
+            ), f"File {info.filename} uses compression type {info.compress_type}, expected ZIP_STORED (0)"
+
+
 def test_roundtrip_ozx(input_images):
     """Test full roundtrip: write to .ozx, read back, verify data"""
     dataset_name = "cthead1"
@@ -383,4 +394,3 @@ def test_roundtrip_ozx(input_images):
 
     # Close ZipStore handles before cleanup
     _close_zipstore_handles(multiscales_read)
-

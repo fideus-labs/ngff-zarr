@@ -54,7 +54,7 @@ For direct browser usage via CDN:
 ```html
 <script type="module">
   import * as ngffZarr from "https://esm.sh/@fideus-labs/ngff-zarr";
-  
+
   // Your code here
 </script>
 ```
@@ -229,12 +229,12 @@ Works in modern browsers with ES modules:
 <body>
   <script type="module">
     import { fromNgffZarr } from "https://esm.sh/@fideus-labs/ngff-zarr";
-    
+
     // Load from remote URL
     const multiscales = await fromNgffZarr(
       "https://example.com/data.ome.zarr"
     );
-    
+
     console.log("Loaded:", multiscales.images.length, "scales");
   </script>
 </body>
@@ -676,11 +676,11 @@ import { fromNgffZarr, validateMetadata } from "@fideus-labs/ngff-zarr";
 // Type-safe function
 async function processImage(path: string): Promise<Multiscales> {
   const multiscales: Multiscales = await fromNgffZarr(path);
-  
+
   // TypeScript knows the structure
   const axes: Axis[] = multiscales.metadata.axes;
   const firstImage: NgffImage = multiscales.images[0];
-  
+
   return multiscales;
 }
 
