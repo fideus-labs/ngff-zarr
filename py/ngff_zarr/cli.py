@@ -541,7 +541,7 @@ def main():
                                     live.console.print(
                                         f"[green]Written HCS plate: {output_path}"
                                     )
-                            continue
+                                continue
 
                         # Standard image output
                         # Determine output path for this series
