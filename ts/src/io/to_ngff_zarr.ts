@@ -11,6 +11,12 @@ import { isOzxPath, memoryStoreToZip } from "./rfc9_zip.ts";
 
 export interface ToNgffZarrOptions {
   overwrite?: boolean;
+  /**
+   * OME-Zarr version to write. Defaults to "0.4" for regular Zarr files.
+   * For .ozx files (RFC-9), this must be version 0.5. If omitted for .ozx files,
+   * it defaults to 0.5. If explicitly set to any other value for .ozx files,
+   * an error will be thrown.
+   */
   version?: "0.4" | "0.5";
   chunksPerShard?: number | number[] | Record<string, number>;
   /** List of RFC numbers to enable (e.g., [4] for RFC 4 anatomical orientation) */
@@ -26,6 +32,31 @@ export interface ToNgffZarrOzxOptions {
   enabledRfcs?: number[] | undefined;
 }
 
+/**
+ * Write multiscales data to an OME-Zarr store.
+ *
+ * This function automatically detects .ozx paths (RFC-9 zipped OME-Zarr format)
+ * and handles them appropriately. For .ozx files:
+ * - Version 0.5 is always used when the version option is omitted (undefined)
+ * - Sharding (chunksPerShard) is not supported
+ * - An error is thrown if you explicitly specify a version other than "0.5"
+ *
+ * @param store - File path, MemoryStore, or FetchStore to write to
+ * @param multiscales - Multiscales data to write
+ * @param options - Writing options
+ *
+ * @example
+ * ```typescript
+ * // Writing to .ozx file - version 0.5 is used automatically
+ * await toNgffZarr("output.ozx", multiscales);
+ *
+ * // Writing to regular zarr with version 0.4 (default)
+ * await toNgffZarr("output.zarr", multiscales);
+ *
+ * // Writing to regular zarr with version 0.5
+ * await toNgffZarr("output.zarr", multiscales, { version: "0.5" });
+ * ```
+ */
 export async function toNgffZarr(
   store: string | MemoryStore | zarr.FetchStore,
   multiscales: Multiscales,
@@ -38,10 +69,13 @@ export async function toNgffZarr(
   // Handle .ozx paths (RFC-9)
   if (typeof store === "string" && isOzxPath(store)) {
     // Validate version - RFC-9 requires version 0.5
-    if (options.version && options.version !== "0.5") {
+    // If no version is specified (undefined), we silently default to 0.5
+    // If a version is explicitly specified and it's not 0.5, throw an error
+    if (options.version !== undefined && options.version !== "0.5") {
       throw new Error(
         "RFC-9 (.ozx) requires OME-Zarr version 0.5. " +
-          `Got version "${options.version}".`,
+          `Got version "${options.version}". ` +
+          "For .ozx files, either omit the version option or explicitly set it to '0.5'.",
       );
     }
 
@@ -53,7 +87,7 @@ export async function toNgffZarr(
       );
     }
 
-    // Delegate to toNgffZarrOzx
+    // Delegate to toNgffZarrOzx (which always uses version 0.5)
     await toNgffZarrOzx(store, multiscales, { enabledRfcs });
     return;
   }

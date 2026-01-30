@@ -308,7 +308,7 @@ Deno.test("toNgffZarr - requires version 0.5 for .ozx", async () => {
 
   const axes = [createAxis("y", "space"), createAxis("x", "space")];
   const datasets = [createDataset("scale0/image", [1.0, 1.0], [0.0, 0.0])];
-  const metadata = createMetadata(axes, datasets, "test", "0.4");
+  const metadata = createMetadata(axes, datasets, "test", "0.5");
   const multiscales = createMultiscales([image], metadata);
 
   const ozxPath = join(OUTPUT_DIR, "test_version_error.ozx");
@@ -321,6 +321,99 @@ Deno.test("toNgffZarr - requires version 0.5 for .ozx", async () => {
     Error,
     "RFC-9 (.ozx) requires OME-Zarr version 0.5",
   );
+});
+
+Deno.test("toNgffZarr - allows .ozx without specifying version", async () => {
+  // This test verifies that .ozx files work correctly when no version is specified
+  // The function should silently default to version 0.5
+  const store = new Map<string, Uint8Array>();
+  const root = zarr.root(store);
+  const array = await zarr.create(root.resolve("data"), {
+    shape: [4, 4],
+    chunk_shape: [4, 4],
+    data_type: "uint8",
+    fill_value: 0,
+  });
+
+  const testData = new Uint8Array(16).fill(42);
+  await zarr.set(array, null, {
+    data: testData,
+    shape: [4, 4],
+    stride: [4, 1],
+  });
+
+  const image = new NgffImage({
+    data: array,
+    dims: ["y", "x"],
+    scale: { y: 1.0, x: 1.0 },
+    translation: { y: 0.0, x: 0.0 },
+    name: "test",
+    axesUnits: undefined,
+    computedCallbacks: undefined,
+  });
+
+  const axes = [createAxis("y", "space"), createAxis("x", "space")];
+  const datasets = [createDataset("scale0/image", [1.0, 1.0], [0.0, 0.0])];
+  const metadata = createMetadata(axes, datasets, "test", "0.5");
+  const multiscales = createMultiscales([image], metadata);
+
+  const ozxPath = join(OUTPUT_DIR, "test_no_version.ozx");
+
+  // Should succeed without specifying version (defaults to 0.5 for .ozx)
+  await toNgffZarr(ozxPath, multiscales);
+
+  // Verify the file was created correctly
+  const zipData = await Deno.readFile(ozxPath);
+  const version = readOzxVersion(zipData);
+  assertEquals(version, "0.5");
+
+  console.log("  Created .ozx file without version option:", ozxPath);
+});
+
+Deno.test("toNgffZarr - allows .ozx with explicit version 0.5", async () => {
+  // This test verifies that explicitly specifying version 0.5 works correctly
+  const store = new Map<string, Uint8Array>();
+  const root = zarr.root(store);
+  const array = await zarr.create(root.resolve("data"), {
+    shape: [4, 4],
+    chunk_shape: [4, 4],
+    data_type: "uint8",
+    fill_value: 0,
+  });
+
+  const testData = new Uint8Array(16).fill(42);
+  await zarr.set(array, null, {
+    data: testData,
+    shape: [4, 4],
+    stride: [4, 1],
+  });
+
+  const image = new NgffImage({
+    data: array,
+    dims: ["y", "x"],
+    scale: { y: 1.0, x: 1.0 },
+    translation: { y: 0.0, x: 0.0 },
+    name: "test",
+    axesUnits: undefined,
+    computedCallbacks: undefined,
+  });
+
+  const axes = [createAxis("y", "space"), createAxis("x", "space")];
+  const datasets = [createDataset("scale0/image", [1.0, 1.0], [0.0, 0.0])];
+  const metadata = createMetadata(axes, datasets, "test", "0.5");
+  const multiscales = createMultiscales([image], metadata);
+
+  const ozxPath = join(OUTPUT_DIR, "test_explicit_version.ozx");
+
+  // Should succeed with explicit version 0.5
+  await toNgffZarr(ozxPath, multiscales, { version: "0.5" });
+
+  // Verify the file was created correctly
+  const zipData = await Deno.readFile(ozxPath);
+  const version = readOzxVersion(zipData);
+  assertEquals(version, "0.5");
+
+  console.log("  Created .ozx file with explicit version 0.5:", ozxPath);
 });
 
 Deno.test("toNgffZarr - throws error on chunksPerShard for .ozx", async () => {
