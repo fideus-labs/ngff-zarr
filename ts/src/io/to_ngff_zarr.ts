@@ -665,7 +665,16 @@ async function _writeToMemoryStore(
   multiscales: Multiscales,
   enabledRfcs?: number[],
 ): Promise<void> {
-  const _version = "0.5"; // RFC-9 always uses version 0.5
+  // RFC-9 always uses version 0.5. If the caller provided a different
+  // metadata.version on the Multiscales object, fail explicitly rather
+  // than silently overwriting it.
+  const providedVersion = multiscales.metadata.version;
+  if (providedVersion !== undefined && providedVersion !== "0.5") {
+    throw new Error(
+      `Inconsistent NGFF version in Multiscales metadata: expected "0.5" for RFC-9 OZX export, but got "${providedVersion}".`,
+    );
+  }
+  const _version = "0.5";
 
   // Create root location and group with zarrita API
   const root = zarr.root(store);

@@ -456,6 +456,46 @@ Deno.test("toNgffZarr - throws error on chunksPerShard for .ozx", async () => {
   );
 });
 
+Deno.test("toNgffZarrOzx - rejects conflicting metadata version", async () => {
+  // Test that toNgffZarrOzx throws an error when the Multiscales object
+  // has a metadata.version that doesn't match the required 0.5
+  const store = new Map<string, Uint8Array>();
+  const root = zarr.root(store);
+  const array = await zarr.create(root.resolve("data"), {
+    shape: [4, 4],
+    chunk_shape: [4, 4],
+    data_type: "uint8",
+    fill_value: 0,
+  });
+
+  const image = new NgffImage({
+    data: array,
+    dims: ["y", "x"],
+    scale: { y: 1.0, x: 1.0 },
+    translation: { y: 0.0, x: 0.0 },
+    name: "test",
+    axesUnits: undefined,
+    computedCallbacks: undefined,
+  });
+
+  const axes = [createAxis("y", "space"), createAxis("x", "space")];
+  const datasets = [createDataset("scale0/image", [1.0, 1.0], [0.0, 0.0])];
+  // Create metadata with version "0.4" - this should conflict with RFC-9
+  const metadata = createMetadata(axes, datasets, "test", "0.4");
+  const multiscales = createMultiscales([image], metadata);
+
+  const ozxPath = join(OUTPUT_DIR, "test_metadata_version_error.ozx");
+
+  // Should throw error because metadata.version is "0.4" but RFC-9 requires "0.5"
+  await assertRejects(
+    async () => {
+      await toNgffZarrOzx(ozxPath, multiscales);
+    },
+    Error,
+    "Inconsistent NGFF version in Multiscales metadata",
+  );
+});
+
 // ============================================================================
 // Integration tests with real Python test data
 // ============================================================================

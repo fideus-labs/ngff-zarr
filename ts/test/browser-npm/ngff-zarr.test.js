@@ -483,6 +483,64 @@ test.describe("RFC-9 Browser Tests", () => {
     expect(orderResult.firstIsRootZarrJson).toBe(true);
     expect(orderResult.zarrJsonsBeforeData).toBe(true);
   });
+
+  test("toNgffZarrOzx should reject conflicting metadata version", async ({ page }) => {
+    const versionResult = await page.evaluate(async () => {
+      try {
+        const { toNgffZarrOzx, NgffImage, createAxis, createDataset, createMetadata, createMultiscales } = await import(
+          "./ngff-zarr.bundle.js"
+        );
+        const zarr = await import("npm:zarrita@0.1.0-next.19");
+
+        // Create a simple test image
+        const store = new Map();
+        const root = zarr.root(store);
+        const array = await zarr.create(root.resolve("data"), {
+          shape: [4, 4],
+          chunk_shape: [4, 4],
+          data_type: "uint8",
+          fill_value: 0,
+        });
+
+        const image = new NgffImage({
+          data: array,
+          dims: ["y", "x"],
+          scale: { y: 1.0, x: 1.0 },
+          translation: { y: 0.0, x: 0.0 },
+          name: "test",
+          axesUnits: undefined,
+          computedCallbacks: undefined,
+        });
+
+        const axes = [createAxis("y", "space"), createAxis("x", "space")];
+        const datasets = [createDataset("scale0/image", [1.0, 1.0], [0.0, 0.0])];
+        // Create metadata with version "0.4" - this should conflict with RFC-9
+        const metadata = createMetadata(axes, datasets, "test", "0.4");
+        const multiscales = createMultiscales([image], metadata);
+
+        // Try to create .ozx with conflicting version
+        try {
+          await toNgffZarrOzx(multiscales);
+          return { success: false, error: "Expected error was not thrown" };
+        } catch (error) {
+          return {
+            success: true,
+            errorMessage: error.message,
+            hasExpectedError: error.message.includes("Incompatible multiscales.metadata.version"),
+          };
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    });
+
+    expect(versionResult.success).toBeTruthy();
+    expect(versionResult.hasExpectedError).toBe(true);
+    expect(versionResult.errorMessage).toContain("0.5");
+  });
 });
 
 test.describe("toNgffZarr Browser Tests", () => {
