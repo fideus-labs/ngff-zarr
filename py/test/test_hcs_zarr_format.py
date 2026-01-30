@@ -38,7 +38,7 @@ def basic_plate_metadata():
         wells=wells,
         name="Test Plate",
         field_count=2,
-        version="0.4"  # Default to 0.4 for testing
+        version="0.4",  # Default to 0.4 for testing
     )
 
 
@@ -54,7 +54,7 @@ def sample_multiscales():
         dims=["t", "c", "z", "y", "x"],
         scale={"t": 1.0, "c": 1.0, "z": 0.5, "y": 0.325, "x": 0.325},
         translation={"t": 0.0, "c": 0.0, "z": 0.0, "y": 0.0, "x": 0.0},
-        name="test_field"
+        name="test_field",
     )
 
     return to_multiscales(ngff_image, scale_factors=[2])
@@ -73,11 +73,17 @@ def test_to_hcs_zarr_uses_correct_zarr_format_v04(basic_plate_metadata):
 
         # Verify the zarr format by checking the store structure
         # Zarr format 2 should have .zgroup and .zattrs files
-        assert (output_path / ".zgroup").exists(), "Expected .zgroup file for zarr format 2"
-        assert (output_path / ".zattrs").exists(), "Expected .zattrs file for zarr format 2"
+        assert (
+            output_path / ".zgroup"
+        ).exists(), "Expected .zgroup file for zarr format 2"
+        assert (
+            output_path / ".zattrs"
+        ).exists(), "Expected .zattrs file for zarr format 2"
 
         # Zarr format 3 would have zarr.json instead
-        assert not (output_path / "zarr.json").exists(), "Should not have zarr.json for zarr format 2"
+        assert not (
+            output_path / "zarr.json"
+        ).exists(), "Should not have zarr.json for zarr format 2"
 
         # Verify the metadata structure
         root = zarr.open_group(str(output_path), mode="r")
@@ -114,9 +120,11 @@ def test_to_hcs_zarr_uses_correct_zarr_format_v05(basic_plate_metadata):
         assert attrs["ome"]["version"] == "0.5"
 
 
-@patch('ngff_zarr.hcs.zarr.open_group')
-@patch('ngff_zarr.hcs.pkg_version.parse')
-def test_to_hcs_zarr_zarr_format_parameter_v04(mock_version_parse, mock_open_group, basic_plate_metadata):
+@patch("ngff_zarr.hcs.zarr.open_group")
+@patch("ngff_zarr.hcs.pkg_version.parse")
+def test_to_hcs_zarr_zarr_format_parameter_v04(
+    mock_version_parse, mock_open_group, basic_plate_metadata
+):
     """Test that to_hcs_zarr passes the correct zarr_format parameter for v0.4."""
     # Mock zarr-python version 3+
     mock_version = MagicMock()
@@ -140,9 +148,11 @@ def test_to_hcs_zarr_zarr_format_parameter_v04(mock_version_parse, mock_open_gro
         mock_open_group.assert_called_once_with(test_path, mode="w", zarr_format=2)
 
 
-@patch('ngff_zarr.hcs.zarr.open_group')
-@patch('ngff_zarr.hcs.pkg_version.parse')
-def test_to_hcs_zarr_zarr_format_parameter_v05(mock_version_parse, mock_open_group, basic_plate_metadata):
+@patch("ngff_zarr.hcs.zarr.open_group")
+@patch("ngff_zarr.hcs.pkg_version.parse")
+def test_to_hcs_zarr_zarr_format_parameter_v05(
+    mock_version_parse, mock_open_group, basic_plate_metadata
+):
     """Test that to_hcs_zarr passes the correct zarr_format parameter for v0.5."""
     # Mock zarr-python version 3+
     mock_version = MagicMock()
@@ -166,9 +176,11 @@ def test_to_hcs_zarr_zarr_format_parameter_v05(mock_version_parse, mock_open_gro
         mock_open_group.assert_called_once_with(test_path, mode="w", zarr_format=3)
 
 
-@patch('ngff_zarr.hcs.zarr.open_group')
-@patch('ngff_zarr.hcs.pkg_version.parse')
-def test_to_hcs_zarr_legacy_zarr_version(mock_version_parse, mock_open_group, basic_plate_metadata):
+@patch("ngff_zarr.hcs.zarr.open_group")
+@patch("ngff_zarr.hcs.pkg_version.parse")
+def test_to_hcs_zarr_legacy_zarr_version(
+    mock_version_parse, mock_open_group, basic_plate_metadata
+):
     """Test that to_hcs_zarr handles legacy zarr-python versions correctly."""
     # Mock zarr-python version 2.x
     mock_version = MagicMock()
@@ -192,12 +204,18 @@ def test_to_hcs_zarr_legacy_zarr_version(mock_version_parse, mock_open_group, ba
         mock_open_group.assert_called_once_with(test_path, mode="w")
 
 
-@patch('ngff_zarr.hcs.zarr.open_group')
-@patch('ngff_zarr.hcs.pkg_version.parse')
-@patch('ngff_zarr.hcs.to_ngff_zarr')
-@patch('pathlib.Path.mkdir')
-def test_write_hcs_well_image_zarr_format_v04(mock_mkdir, mock_to_ngff_zarr, mock_version_parse, mock_open_group,
-                                              basic_plate_metadata, sample_multiscales):
+@patch("ngff_zarr.hcs.zarr.open_group")
+@patch("ngff_zarr.hcs.pkg_version.parse")
+@patch("ngff_zarr.hcs.to_ngff_zarr")
+@patch("pathlib.Path.mkdir")
+def test_write_hcs_well_image_zarr_format_v04(
+    mock_mkdir,
+    mock_to_ngff_zarr,
+    mock_version_parse,
+    mock_open_group,
+    basic_plate_metadata,
+    sample_multiscales,
+):
     """Test that write_hcs_well_image uses zarr format 2 for NGFF version 0.4."""
     # Mock zarr-python version 3+
     mock_version = MagicMock()
@@ -222,19 +240,25 @@ def test_write_hcs_well_image_zarr_format_v04(mock_mkdir, mock_to_ngff_zarr, moc
             row_name="A",
             column_name="1",
             field_index=0,
-            version="0.4"
+            version="0.4",
         )
 
         # Verify that zarr.open_group was called with zarr_format=2
         mock_open_group.assert_called_once_with(store_path, mode="a", zarr_format=2)
 
 
-@patch('ngff_zarr.hcs.zarr.open_group')
-@patch('ngff_zarr.hcs.pkg_version.parse')
-@patch('ngff_zarr.hcs.to_ngff_zarr')
-@patch('pathlib.Path.mkdir')
-def test_write_hcs_well_image_zarr_format_v05(mock_mkdir, mock_to_ngff_zarr, mock_version_parse, mock_open_group,
-                                              basic_plate_metadata, sample_multiscales):
+@patch("ngff_zarr.hcs.zarr.open_group")
+@patch("ngff_zarr.hcs.pkg_version.parse")
+@patch("ngff_zarr.hcs.to_ngff_zarr")
+@patch("pathlib.Path.mkdir")
+def test_write_hcs_well_image_zarr_format_v05(
+    mock_mkdir,
+    mock_to_ngff_zarr,
+    mock_version_parse,
+    mock_open_group,
+    basic_plate_metadata,
+    sample_multiscales,
+):
     """Test that write_hcs_well_image uses zarr format 3 for NGFF version 0.5."""
     # Mock zarr-python version 3+
     mock_version = MagicMock()
@@ -259,7 +283,7 @@ def test_write_hcs_well_image_zarr_format_v05(mock_mkdir, mock_to_ngff_zarr, moc
             row_name="A",
             column_name="1",
             field_index=0,
-            version="0.5"
+            version="0.5",
         )
 
         # Verify that zarr.open_group was called with zarr_format=3
@@ -271,17 +295,23 @@ def test_zarr_format_selection_logic():
     # Test version 0.4 -> zarr format 2
     version = "0.4"
     zarr_format = 2 if version == "0.4" else 3
-    assert zarr_format == 2, f"Expected zarr_format 2 for version 0.4, got {zarr_format}"
+    assert (
+        zarr_format == 2
+    ), f"Expected zarr_format 2 for version 0.4, got {zarr_format}"
 
     # Test version 0.5 -> zarr format 3
     version = "0.5"
     zarr_format = 2 if version == "0.4" else 3
-    assert zarr_format == 3, f"Expected zarr_format 3 for version 0.5, got {zarr_format}"
+    assert (
+        zarr_format == 3
+    ), f"Expected zarr_format 3 for version 0.5, got {zarr_format}"
 
     # Test other versions -> zarr format 3
     for version in ["0.3", "0.6", "1.0"]:
         zarr_format = 2 if version == "0.4" else 3
-        assert zarr_format == 3, f"Expected zarr_format 3 for version {version}, got {zarr_format}"
+        assert (
+            zarr_format == 3
+        ), f"Expected zarr_format 3 for version {version}, got {zarr_format}"
 
 
 def test_write_hcs_well_image_integration(basic_plate_metadata, sample_multiscales):
@@ -302,7 +332,7 @@ def test_write_hcs_well_image_integration(basic_plate_metadata, sample_multiscal
             row_name="A",
             column_name="1",
             field_index=0,
-            version="0.4"
+            version="0.4",
         )
 
         # Verify the structure was created correctly

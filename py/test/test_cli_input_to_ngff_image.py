@@ -58,6 +58,7 @@ def test_cli_input_to_ngff_image_nibabel(input_images):  # noqa: ARG001
     assert image.data.shape == (256, 256, 256)
     # Check that data is numpy array, not dask
     import numpy as np
+
     assert isinstance(image.data, np.ndarray)
 
 

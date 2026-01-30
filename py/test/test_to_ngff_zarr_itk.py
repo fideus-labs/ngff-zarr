@@ -3,7 +3,6 @@
 from ngff_zarr import Methods, to_multiscales, to_ngff_image
 
 from ._data import verify_against_baseline
-import platform
 
 
 def test_bin_shrink_isotropic_scale_factors(input_images):

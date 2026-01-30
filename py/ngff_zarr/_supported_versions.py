@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 """Constants for ngff-zarr package."""
+
 import sys
 from enum import Enum
 
@@ -12,12 +13,14 @@ else:
         """
         Enum where members are also (and must be) strings
         """
+
         def __new__(cls, value):
             if not isinstance(value, str):
                 raise TypeError(f"{cls.__name__} values must be strings")
             obj = str.__new__(cls, value)
             obj._value_ = value
             return obj
+
 
 class NgffVersion(StrEnum):
     V01 = "0.1"
@@ -26,6 +29,7 @@ class NgffVersion(StrEnum):
     V04 = "0.4"
     V05 = "0.5"
     LATEST = "0.5"
+
 
 # Supported NGFF specification versions
 SUPPORTED_VERSIONS = (

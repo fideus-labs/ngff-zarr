@@ -101,8 +101,11 @@ def _downsample_itkwasm(
     for scale_factor in scale_factors:
         # Calculate incremental factors to achieve exact target size
         dim_factors = _dim_scale_factors(
-            dims, scale_factor, previous_dim_factors,
-            original_image=ngff_image, previous_image=previous_image
+            dims,
+            scale_factor,
+            previous_dim_factors,
+            original_image=ngff_image,
+            previous_image=previous_image,
         )
 
         # Check if we can achieve exact target with incremental downsampling
@@ -113,7 +116,11 @@ def _downsample_itkwasm(
                 dim_index = ngff_image.dims.index(dim)
                 original_size = ngff_image.data.shape[dim_index]
                 # Handle both int and dict scale_factor
-                dim_scale_factor = scale_factor[dim] if isinstance(scale_factor, dict) else scale_factor
+                dim_scale_factor = (
+                    scale_factor[dim]
+                    if isinstance(scale_factor, dict)
+                    else scale_factor
+                )
                 target_size = int(original_size / dim_scale_factor)
 
                 prev_dim_index = previous_image.dims.index(dim)

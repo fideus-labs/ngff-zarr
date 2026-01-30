@@ -272,7 +272,6 @@ def main():
         help="Use the TensorStore library for I/O",
     )
 
-
     args = parser.parse_args()
 
     # Check that input and output are not the same
@@ -283,8 +282,8 @@ def main():
             parser.error("Input and output file/directory must not be the same.")
 
         # Set default OME-Zarr version to 0.5 for .ozx output files
-        if args.output.endswith('.ozx') and args.ome_zarr_version == '0.4':
-            args.ome_zarr_version = '0.5'
+        if args.output.endswith(".ozx") and args.ome_zarr_version == "0.4":
+            args.ome_zarr_version = "0.5"
 
     if args.memory_target:
         config.memory_target = dask.utils.parse_bytes(args.memory_target)
@@ -361,7 +360,7 @@ def main():
     output_store = None
     if args.output and output_backend is ConversionBackend.NGFF_ZARR:
         # Handle .ozx files - just pass the path, to_ngff_zarr will handle it
-        if args.output.endswith('.ozx'):
+        if args.output.endswith(".ozx"):
             output_store = args.output
         else:
             output_store = LocalStore(args.output, **zarr_kwargs)

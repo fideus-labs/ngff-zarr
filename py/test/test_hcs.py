@@ -8,9 +8,6 @@ from pathlib import Path
 from packaging import version
 
 import zarr
-
-zarr_version = version.parse(zarr.__version__)
-
 from ngff_zarr.hcs import from_hcs_zarr, to_hcs_zarr, HCSPlate, HCSWell
 from ngff_zarr.v04.zarr_metadata import (
     Plate,
@@ -21,6 +18,8 @@ from ngff_zarr.v04.zarr_metadata import (
     Well,
     WellImage,
 )
+
+zarr_version = version.parse(zarr.__version__)
 
 
 @pytest.fixture
@@ -413,7 +412,7 @@ def test_write_hcs_v05_complete():
 
         # Reopen to see the updates (the previous root was opened in read mode before writes)
         root = zarr.open_group(str(output_path), mode="r")
-        
+
         # Verify well metadata structure for v0.5
         well_path = "A/1"
         well_group = root[well_path]

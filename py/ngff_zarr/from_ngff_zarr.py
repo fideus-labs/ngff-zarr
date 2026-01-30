@@ -59,7 +59,7 @@ def from_ngff_zarr(
                 version = "0.5"  # Default to 0.5 for .ozx files
 
         # For zarr v3, create ZipStore directly with the path
-        store = zarr.storage.ZipStore(str(store), mode='r')
+        store = zarr.storage.ZipStore(str(store), mode="r")
 
     # Handle string URLs with storage options (zarr-python 3+ only)
     if isinstance(store, str) and storage_options is not None:
@@ -89,18 +89,24 @@ def from_ngff_zarr(
 
     if version == "0.5":
         from .v05.zarr_metadata import Metadata
+
         metadata_obj, images = Metadata._from_zarr_attrs(
-            root_attrs, store, validate=validate)
+            root_attrs, store, validate=validate
+        )
         method, method_type, method_metadata = _extract_method_metadata(
-            root_attrs['ome']['multiscales'][0])
+            root_attrs["ome"]["multiscales"][0]
+        )
 
     else:
         from .v04.zarr_metadata import Metadata
+
         metadata_obj, images = Metadata._from_zarr_attrs(
-            root_attrs, store, validate=validate)
+            root_attrs, store, validate=validate
+        )
         method, method_type, method_metadata = _extract_method_metadata(
-            root_attrs["multiscales"][0])
-    
+            root_attrs["multiscales"][0]
+        )
+
     metadata_obj.type = method_type
     metadata_obj.metadata = method_metadata
 

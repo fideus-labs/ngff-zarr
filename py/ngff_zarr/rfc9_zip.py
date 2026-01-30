@@ -37,7 +37,7 @@ def write_store_to_zip(
     source_store: Union[zarr.storage.StoreLike, str, Path],
     zip_path: Union[str, Path],
     version: str = "0.5",
-    compression: int = zipfile.ZIP_STORED
+    compression: int = zipfile.ZIP_STORED,
 ) -> None:
     """
     Write a zarr store to a ZIP archive following RFC-9 specification.
@@ -85,30 +85,34 @@ def write_store_to_zip(
         # For path strings, enumerate files directly from filesystem
         root_dir = Path(source_store)
         all_files = []
-        for file_path in root_dir.rglob('*'):
+        for file_path in root_dir.rglob("*"):
             if file_path.is_file():
                 # Get relative path from root
                 rel_path = file_path.relative_to(root_dir)
                 # Convert to forward slashes for ZIP
-                all_files.append(str(rel_path).replace('\\', '/'))
-    elif hasattr(zarr.storage, "LocalStore") and isinstance(source_store, zarr.storage.LocalStore):
+                all_files.append(str(rel_path).replace("\\", "/"))
+    elif hasattr(zarr.storage, "LocalStore") and isinstance(
+        source_store, zarr.storage.LocalStore
+    ):
         # Get the root directory from LocalStore
         root_dir = Path(source_store.root)
         all_files = []
-        for file_path in root_dir.rglob('*'):
+        for file_path in root_dir.rglob("*"):
             if file_path.is_file():
                 # Get relative path from root
                 rel_path = file_path.relative_to(root_dir)
                 # Convert to forward slashes for ZIP
-                all_files.append(str(rel_path).replace('\\', '/'))
-    elif hasattr(zarr.storage, "DirectoryStore") and isinstance(source_store, zarr.storage.DirectoryStore):
+                all_files.append(str(rel_path).replace("\\", "/"))
+    elif hasattr(zarr.storage, "DirectoryStore") and isinstance(
+        source_store, zarr.storage.DirectoryStore
+    ):
         # For DirectoryStore (zarr v2), use dir_path()
         root_dir = Path(source_store.dir_path())
         all_files = []
-        for file_path in root_dir.rglob('*'):
+        for file_path in root_dir.rglob("*"):
             if file_path.is_file():
                 rel_path = file_path.relative_to(root_dir)
-                all_files.append(str(rel_path).replace('\\', '/'))
+                all_files.append(str(rel_path).replace("\\", "/"))
     else:
         # For other store types, use async list()
         async def get_all_files():
@@ -123,13 +127,13 @@ def write_store_to_zip(
         raise ValueError(f"No files found in source store of type {type(source_store)}")
 
     # Get zarr.json files - root first, then in breadth-first order
-    zarr_jsons = [f for f in all_files if f.endswith('zarr.json')]
-    if 'zarr.json' in zarr_jsons:
-        zarr_jsons.remove('zarr.json')
-        zarr_jsons.insert(0, 'zarr.json')
+    zarr_jsons = [f for f in all_files if f.endswith("zarr.json")]
+    if "zarr.json" in zarr_jsons:
+        zarr_jsons.remove("zarr.json")
+        zarr_jsons.insert(0, "zarr.json")
 
     # Other files
-    other_files = [f for f in all_files if not f.endswith('zarr.json')]
+    other_files = [f for f in all_files if not f.endswith("zarr.json")]
 
     # Order: zarr.json files first, then everything else sorted
     ordered_files = zarr_jsons + sorted(other_files)
@@ -145,7 +149,9 @@ def write_store_to_zip(
                 file_data[file_path] = full_path.read_bytes()
             else:
                 raise ValueError(f"Could not read data for {file_path} from {root_dir}")
-    elif hasattr(zarr.storage, "LocalStore") and isinstance(source_store, zarr.storage.LocalStore):
+    elif hasattr(zarr.storage, "LocalStore") and isinstance(
+        source_store, zarr.storage.LocalStore
+    ):
         # Read files directly from filesystem
         root_dir = Path(source_store.root)
         file_data = {}
@@ -155,7 +161,9 @@ def write_store_to_zip(
                 file_data[file_path] = full_path.read_bytes()
             else:
                 raise ValueError(f"Could not read data for {file_path} from {root_dir}")
-    elif hasattr(zarr.storage, "DirectoryStore") and isinstance(source_store, zarr.storage.DirectoryStore):
+    elif hasattr(zarr.storage, "DirectoryStore") and isinstance(
+        source_store, zarr.storage.DirectoryStore
+    ):
         # Read files directly from filesystem
         root_dir = Path(source_store.dir_path())
         file_data = {}
@@ -188,16 +196,15 @@ def write_store_to_zip(
 
     # Create ZIP archive with ZIP64 support
     with zipfile.ZipFile(
-        zip_path,
-        mode='w',
-        compression=compression,
-        allowZip64=True
+        zip_path, mode="w", compression=compression, allowZip64=True
     ) as zf:
         # Write files in order
         for file_path in ordered_files:
             data = file_data[file_path]
             if data is None:
-                raise ValueError(f"Could not read data for {file_path} from source store")
+                raise ValueError(
+                    f"Could not read data for {file_path} from source store"
+                )
 
             # Write to ZIP
             zf.writestr(file_path, data)
@@ -205,7 +212,7 @@ def write_store_to_zip(
         # Add OME-Zarr version comment as per RFC-9
         comment_dict = {"ome": {"version": version}}
         comment_json = json.dumps(comment_dict)
-        zf.comment = comment_json.encode('utf-8')
+        zf.comment = comment_json.encode("utf-8")
 
 
 def read_ozx_version(zip_path: Union[str, Path]) -> Optional[str]:
@@ -223,13 +230,13 @@ def read_ozx_version(zip_path: Union[str, Path]) -> Optional[str]:
         OME-Zarr version string if found, None otherwise
     """
     try:
-        with zipfile.ZipFile(str(zip_path), 'r') as zf:
+        with zipfile.ZipFile(str(zip_path), "r") as zf:
             if zf.comment:
                 try:
-                    comment_str = zf.comment.decode('utf-8')
+                    comment_str = zf.comment.decode("utf-8")
                     comment_dict = json.loads(comment_str)
-                    if 'ome' in comment_dict and 'version' in comment_dict['ome']:
-                        return comment_dict['ome']['version']
+                    if "ome" in comment_dict and "version" in comment_dict["ome"]:
+                        return comment_dict["ome"]["version"]
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     # ZIP comment is not valid JSON or not UTF-8 encoded
                     pass

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 from dataclasses import dataclass
-from typing import List, Optional, Union
+from typing import TYPE_CHECKING, List, Optional, Union
 
 from typing_extensions import Literal
 import re
@@ -10,6 +10,9 @@ import re
 from ..rfc4 import AnatomicalOrientation
 from .._supported_versions import NgffVersion
 from .._zarr_types import StoreLike
+
+if TYPE_CHECKING:
+    from ..ngff_image import NgffImage
 
 SupportedDims = Union[
     Literal["c"], Literal["x"], Literal["y"], Literal["z"], Literal["t"]
@@ -266,7 +269,6 @@ class Metadata:
     type: Optional[str] = None
     metadata: Optional[MethodMetadata] = None
 
-
     def to_version(self, version: Union[str, NgffVersion]) -> "Metadata":
         if isinstance(version, str):
             # raise error for invalid version string
@@ -278,11 +280,11 @@ class Metadata:
             return self._to_v05()
         else:
             raise ValueError(f"Unsupported version conversion: 0.4 -> {version}")
-        
+
     @classmethod
     def from_version(cls, metadata: "Metadata") -> "Metadata":
         from ..v05.zarr_metadata import Metadata as Metadata_v05
-        
+
         if isinstance(metadata, Metadata_v05):
             return cls._from_v05(metadata)
         else:
@@ -290,7 +292,7 @@ class Metadata:
 
     def _to_v05(self) -> "Metadata":
         from ..v05.zarr_metadata import Metadata as Metadata_v05
-        
+
         metadata = Metadata_v05(
             axes=self.axes,
             datasets=self.datasets,
@@ -301,10 +303,9 @@ class Metadata:
             omero=self.omero,
         )
         return metadata
-    
+
     @classmethod
     def _from_v05(cls, metadata_v05: "Metadata") -> "Metadata":
-        
         metadata = cls(
             axes=metadata_v05.axes,
             datasets=metadata_v05.datasets,
@@ -315,38 +316,45 @@ class Metadata:
             omero=metadata_v05.omero,
         )
         return metadata
-    
+
     @classmethod
     def _from_zarr_attrs(
         cls,
         root_attrs: dict,
         store: StoreLike,
         validate: bool = False,
-        ) -> tuple["Metadata", list["NgffImage"]]:
+    ) -> tuple["Metadata", list["NgffImage"]]:
         """Create Metadata instance from ome-zarr metadata dictionary."""
         import sys
         import dask.array
         from ..validate import validate as validate_ngff
         from ..parse_metadata import _parse_omero
-        from ..rfc4_validation import validate_rfc4_orientation, has_rfc4_orientation_metadata
+        from ..rfc4_validation import (
+            validate_rfc4_orientation,
+            has_rfc4_orientation_metadata,
+        )
         from ..ngff_image import NgffImage
 
         if validate:
-            validate_ngff(root_attrs, version=root_attrs['multiscales'][0].get("version", "0.4"))
+            validate_ngff(
+                root_attrs, version=root_attrs["multiscales"][0].get("version", "0.4")
+            )
 
             # RFC 4 validation for anatomical orientation
-            if "axes" in root_attrs['multiscales'][0] and isinstance(root_attrs['multiscales'][0]["axes"], list):
+            if "axes" in root_attrs["multiscales"][0] and isinstance(
+                root_attrs["multiscales"][0]["axes"], list
+            ):
                 # Type cast each axis item to dict for validation
                 axes_dicts = []
-                for axis in root_attrs['multiscales'][0]["axes"]:
+                for axis in root_attrs["multiscales"][0]["axes"]:
                     if isinstance(axis, dict):
                         axes_dicts.append(axis)
                 if axes_dicts and has_rfc4_orientation_metadata(axes_dicts):
                     validate_rfc4_orientation(axes_dicts)
 
         omero = _parse_omero(root_attrs.get("omero", None))
-        root_attrs = root_attrs['multiscales'][0]
-        
+        root_attrs = root_attrs["multiscales"][0]
+
         # This handles backwards compatibility for version<=0.3
         if "axes" not in root_attrs:
             dims = tuple(reversed(supported_dims))
@@ -371,7 +379,9 @@ class Metadata:
                     "y": "space",
                     "x": "space",
                 }
-                axes = [Axis(name=axis, type=type_dict[axis]) for axis in root_attrs["axes"]]            
+                axes = [
+                    Axis(name=axis, type=type_dict[axis]) for axis in root_attrs["axes"]
+                ]
 
             units = {d: None for d in dims}
             for axis in root_attrs["axes"]:
@@ -421,8 +431,8 @@ class Metadata:
                 scale=scale,
                 translation=translation,
                 name=root_attrs.get("name", "image"),
-                axes_units=units
-                )
+                axes_units=units,
+            )
             images.append(ngff_image)
 
         metadata = cls(
@@ -435,7 +445,6 @@ class Metadata:
         )
 
         return metadata, images
-
 
     @property
     def dimension_names(self) -> tuple:
