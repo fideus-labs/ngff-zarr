@@ -243,7 +243,7 @@ function getChunksFromImage(image: NgffImage): number[] {
     return image.data.chunks;
   }
 
-  return image.data.shape.map((dim) => Math.min(dim, 1024));
+  return image.data.shape.map((dim: number) => Math.min(dim, 1024));
 }
 
 async function _writeArrayData(
