@@ -526,7 +526,7 @@ test.describe("RFC-9 Browser Tests", () => {
           return {
             success: true,
             errorMessage: error.message,
-            hasExpectedError: error.message.includes("Incompatible multiscales.metadata.version"),
+            hasExpectedError: error.message.includes("Inconsistent NGFF version in Multiscales metadata"),
           };
         }
       } catch (error) {

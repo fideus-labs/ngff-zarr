@@ -7,6 +7,7 @@
 
 import * as zarr from "zarrita";
 import type { Multiscales } from "../types/multiscales.ts";
+import type { NgffImage } from "../types/ngff_image.ts";
 import type { Axis } from "../types/zarr_metadata.ts";
 import type { MemoryStore } from "./rfc9_zip.ts";
 import { isRfc4Enabled } from "../types/rfc4.ts";
@@ -141,7 +142,7 @@ export async function writeMultiscalesToMemoryStore(
   enabledRfcs: number[] | undefined,
   writeImage: (
     group: zarr.Group<MemoryStore>,
-    image: any,
+    image: NgffImage,
     path: string,
   ) => Promise<void>,
 ): Promise<void> {
