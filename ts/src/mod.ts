@@ -8,6 +8,7 @@ export * from "./types/ngff_image.ts";
 export * from "./types/multiscales.ts";
 export * from "./types/rfc4.ts";
 export * from "./types/hcs.ts";
+export * from "./types/supported_versions.ts";
 
 export * from "./schemas/units.ts";
 export * from "./schemas/methods.ts";
@@ -28,6 +29,12 @@ export {
   createNgffImage,
 } from "./utils/factory.ts";
 export { getMethodMetadata } from "./utils/method_metadata.ts";
+export {
+  detectVersion,
+  extractMethodMetadata,
+  parseOmero,
+} from "./utils/parse_metadata.ts";
+export { fromZarrAttrsV04, fromZarrAttrsV05 } from "./utils/from_zarr_attrs.ts";
 
 export * from "./io/from_ngff_zarr.ts";
 export * from "./io/to_ngff_zarr.ts";
