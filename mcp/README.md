@@ -59,7 +59,7 @@ library.
 
 ### Requirements
 
-- Python >= 3.9
+- Python >= 3.10
 - Cursor, Windsurf, Claude Desktop, VS Code, or another MCP Client
 
 ### Quick Install
@@ -766,7 +766,7 @@ ruff check .
 <details>
 <summary><b>Python Version Issues</b></summary>
 
-The ngff-zarr-mcp server requires Python 3.9 or higher. If you encounter version
+The ngff-zarr-mcp server requires Python 3.10 or higher. If you encounter version
 errors:
 
 ```bash
