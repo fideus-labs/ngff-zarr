@@ -518,6 +518,10 @@ Deno.test("RFC-9 roundtrip with cthead1.png", async () => {
     method: Methods.ITKWASM_GAUSSIAN,
   });
 
+  // RFC-9 requires version 0.5, so clear the default 0.4 version
+  // The toNgffZarrOzx function will set it to 0.5
+  multiscales.metadata.version = undefined;
+
   // Write to .ozx file
   const ozxPath = join(OUTPUT_DIR, "cthead1_rfc9.ozx");
   await toNgffZarrOzx(ozxPath, multiscales);
@@ -578,6 +582,10 @@ Deno.test("RFC-9 with MR-head.nrrd (3D data)", async () => {
     scaleFactors: [2],
     method: Methods.ITKWASM_GAUSSIAN,
   });
+
+  // RFC-9 requires version 0.5, so clear the default 0.4 version
+  // The toNgffZarrOzx function will set it to 0.5
+  multiscales.metadata.version = undefined;
 
   // Write to .ozx file
   const ozxPath = join(OUTPUT_DIR, "mr_head_rfc9.ozx");
