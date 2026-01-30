@@ -68,6 +68,21 @@ def cli_input_to_ngff_image(
             return itk_image_to_ngff_image(image)
         image = itk.imread(input)
         return itk_image_to_ngff_image(image)
+    if backend is ConversionBackend.LIFFILE:
+        try:
+            from liffile import LifFile
+        except ImportError:
+            print("[red]Please install the [i]liffile[/i] package.")
+            sys.exit(1)
+        from .lif_to_ngff_image import lif_to_ngff_image
+
+        with LifFile(input[0]) as lif:
+            # Default to first series for simple cli_input_to_ngff_image usage
+            # Multi-series handling is done in cli.py
+            if len(lif.images) == 0:
+                print("[red]No images found in LIF file.")
+                sys.exit(1)
+            return lif_to_ngff_image(lif.images[0])
     if backend is ConversionBackend.TIFFFILE:
         try:
             import tifffile

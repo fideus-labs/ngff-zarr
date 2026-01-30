@@ -224,6 +224,12 @@ def main():
         help="Enable specific RFC features. Can be used multiple times. Currently supported: 4 (anatomical orientation)",
         metavar="RFC_NUMBER",
     )
+    metadata_group.add_argument(
+        "--series",
+        help="Series to convert from multi-series files (e.g., LIF). "
+        "Can be: index (0, 1, 2), name pattern ('*area_1*'), or 'all' (default: all)",
+        default=None,
+    )
 
     processing_group = parser.add_argument_group("processing", "Processing options")
     processing_group.add_argument(
@@ -440,6 +446,140 @@ def main():
                     )
             except ImportError:
                 sys.stdout.write("[red]Please install the [i]tifffile[/i] package.\n")
+                sys.exit(1)
+        elif input_backend is ConversionBackend.LIFFILE:
+            try:
+                from liffile import LifFile
+
+                from .lif_to_ngff_image import (
+                    lif_file_to_ngff_images,
+                    lif_to_hcs_plate,
+                )
+                from .hcs import HCSPlateWriter
+
+                with LifFile(args.input[0]) as lif:
+                    # Get series to convert based on --series argument
+                    series_spec = args.series
+                    if series_spec is not None:
+                        # Try to parse as integer
+                        try:
+                            series_spec = int(series_spec)
+                        except ValueError:
+                            pass  # Keep as string (pattern or "all")
+
+                    series_list = lif_file_to_ngff_images(
+                        args.input[0], series=series_spec
+                    )
+
+                    if len(series_list) == 0:
+                        live.console.print("[red]No matching series found in LIF file.")
+                        sys.exit(1)
+
+                    for series_name, ngff_image in series_list:
+                        # Check for mosaic dimension (M > 1) - requires original lif_image
+                        # For now, check if 'm' dimension exists in ngff_image
+                        has_mosaic = (
+                            "m" in ngff_image.dims
+                            and ngff_image.data.shape[list(ngff_image.dims).index("m")]
+                            > 1
+                        )
+
+                        if has_mosaic and args.output:
+                            # HCS output for mosaic data
+                            # Find original LIF image to get mosaic info
+                            lif_image = None
+                            for img in lif.images:
+                                if img.path.replace("/", "_") == series_name:
+                                    lif_image = img
+                                    break
+
+                            if lif_image is not None:
+                                plate, well_images = lif_to_hcs_plate(
+                                    lif_image, plate_name=series_name
+                                )
+
+                                # Determine output path
+                                if len(series_list) > 1:
+                                    output_path = (
+                                        Path(args.output).parent
+                                        / f"{series_name}.ome.zarr"
+                                    )
+                                else:
+                                    output_path = Path(args.output)
+
+                                # Write HCS plate
+                                with HCSPlateWriter(
+                                    str(output_path),
+                                    plate,
+                                    version=args.ome_zarr_version,
+                                ) as writer:
+                                    for (
+                                        row_name,
+                                        column_name,
+                                        field_index,
+                                        field_image,
+                                    ) in well_images:
+                                        # Generate multiscales for this field
+                                        field_multiscales = _ngff_image_to_multiscales(
+                                            live,
+                                            field_image,
+                                            args,
+                                            progress,
+                                            rich_dask_progress,
+                                            subtitle,
+                                            method,
+                                        )
+                                        writer.write_well_image(
+                                            multiscales=field_multiscales,
+                                            row_name=row_name,
+                                            column_name=column_name,
+                                            field_index=field_index,
+                                        )
+                                if not args.quiet:
+                                    live.console.print(
+                                        f"[green]Written HCS plate: {output_path}"
+                                    )
+                            continue
+
+                        # Standard image output
+                        # Determine output path for this series
+                        if args.output:
+                            if len(series_list) > 1:
+                                # Create separate output per series
+                                output_path = (
+                                    Path(args.output).parent / f"{series_name}.ome.zarr"
+                                )
+                                series_store = LocalStore(
+                                    str(output_path), **zarr_kwargs
+                                )
+                            else:
+                                series_store = output_store
+                        else:
+                            series_store = None
+
+                        multiscales = _ngff_image_to_multiscales(
+                            live,
+                            ngff_image,
+                            args,
+                            progress,
+                            rich_dask_progress,
+                            subtitle,
+                            method,
+                        )
+                        _multiscales_to_ngff_zarr(
+                            live,
+                            args,
+                            series_store,
+                            rich_dask_progress,
+                            multiscales,
+                            chunks_per_shard=chunks_per_shard,
+                        )
+
+                        if len(series_list) > 1 and args.output and not args.quiet:
+                            live.console.print(f"[green]Written series: {series_name}")
+
+            except ImportError:
+                sys.stdout.write("[red]Please install the [i]liffile[/i] package.\n")
                 sys.exit(1)
         else:
             # Generate NgffImage

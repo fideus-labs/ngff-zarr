@@ -61,3 +61,58 @@ def test_detect_imageio_input_backend():
         ]
     )
     assert backend == ConversionBackend.IMAGEIO
+
+
+def test_detect_liffile_input_backend_lif():
+    """Test detection of .lif (Leica Image File) extension."""
+    extension = ".lif"
+    backend = detect_cli_io_backend(
+        [
+            f"file{extension}",
+        ]
+    )
+    assert backend == ConversionBackend.LIFFILE
+
+
+def test_detect_liffile_input_backend_lof():
+    """Test detection of .lof (Leica Object File) extension."""
+    extension = ".lof"
+    backend = detect_cli_io_backend(
+        [
+            f"file{extension}",
+        ]
+    )
+    assert backend == ConversionBackend.LIFFILE
+
+
+def test_detect_liffile_input_backend_xlif():
+    """Test detection of .xlif (XML Image File) extension."""
+    extension = ".xlif"
+    backend = detect_cli_io_backend(
+        [
+            f"file{extension}",
+        ]
+    )
+    assert backend == ConversionBackend.LIFFILE
+
+
+def test_detect_liffile_input_backend_xlef():
+    """Test detection of .xlef (XML Experiment File) extension."""
+    extension = ".xlef"
+    backend = detect_cli_io_backend(
+        [
+            f"file{extension}",
+        ]
+    )
+    assert backend == ConversionBackend.LIFFILE
+
+
+def test_detect_liffile_input_backend_xlcf():
+    """Test detection of .xlcf (XML Collection File) extension."""
+    extension = ".xlcf"
+    backend = detect_cli_io_backend(
+        [
+            f"file{extension}",
+        ]
+    )
+    assert backend == ConversionBackend.LIFFILE

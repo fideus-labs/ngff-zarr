@@ -32,6 +32,7 @@ A lean and kind
 - [Anatomical orientation metadata](./rfc4.md) (RFC-4)
 - **OME-Zarr Zip (.ozx) file support** for single-file OME-Zarr datasets (RFC-9)
 - **High Content Screening (HCS) support** for plate and well data
+- **Leica Image Format (LIF) support** for Leica microscopy data
 - **Model Context Protocol (MCP) server** for AI agent integration
 
 ```{toctree}
@@ -44,6 +45,7 @@ typescript.md
 cli.md
 mcp.md
 hcs.md
+lif.md
 spec_features.md
 itk.md
 methods.md

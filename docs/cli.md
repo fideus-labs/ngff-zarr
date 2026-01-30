@@ -19,7 +19,8 @@ pip install 'ngff-zarr[cli]'
 
 Convert any scientific image file format supported by either
 [itk](https://wasm.itk.org/docs/image_formats),
-[tifffile](https://pypi.org/project/tifffile/), or
+[tifffile](https://pypi.org/project/tifffile/),
+[liffile](https://pypi.org/project/liffile/) (Leica LIF), or
 [imageio](https://imageio.readthedocs.io/en/stable/formats/index.html).
 
 Example:
@@ -29,6 +30,28 @@ ngff-zarr -i ./MR-head.nrrd -o ./MR-head.ome.zarr
 ```
 
 ![ngff-zarr convert](https://i.imgur.com/I7gTG52.png)
+
+### Convert a Leica LIF file
+
+Convert all series from a LIF file:
+
+```shell
+ngff-zarr -i microscopy.lif -o output/
+```
+
+Convert a specific series by index:
+
+```shell
+ngff-zarr -i microscopy.lif -o output.ome.zarr --series 0
+```
+
+Convert series matching a pattern:
+
+```shell
+ngff-zarr -i microscopy.lif -o output/ --series "*GFP*"
+```
+
+For more details on LIF conversion, see [Leica LIF Support](./lif.md).
 
 ### Convert an image volume slice series
 
