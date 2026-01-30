@@ -544,9 +544,18 @@ test.describe("RFC-9 Browser Tests", () => {
         return {
           success: false,
           error: error.message,
+          errorStack: error.stack,
         };
       }
     });
+
+    // Log the actual error if the test failed
+    if (!versionResult.success) {
+      console.error("Test setup failed:", versionResult.error);
+      if (versionResult.errorStack) {
+        console.error("Stack:", versionResult.errorStack);
+      }
+    }
 
     expect(versionResult.success).toBeTruthy();
     expect(versionResult.hasExpectedError).toBe(true);
