@@ -609,33 +609,17 @@ def _write_array_direct(
         target = (
             zarr_array if (region is not None and zarr_array is not None) else store
         )
-        # TODO update this when dask 2026.2.0 comes out which would allow old **kwargs
-        if DASK_SUPPORTS_SHARDING:
-            dask.array.to_zarr(
-                arr,
-                target,
-                region=region
-                if (region is not None and zarr_array is not None)
-                else None,
-                component=path,
-                overwrite=False,
-                compute=True,
-                return_stored=False,
-                zarr_array_kwargs=to_zarr_kwargs,
-            )
-        else:
-            dask.array.to_zarr(
-                arr,
-                target,
-                region=region
-                if (region is not None and zarr_array is not None)
-                else None,
-                component=path,
-                overwrite=False,
-                compute=True,
-                return_stored=False,
-                **to_zarr_kwargs,
-            )
+
+        dask.array.to_zarr(
+            arr,
+            target,
+            region=region if (region is not None and zarr_array is not None) else None,
+            component=path,
+            overwrite=False,
+            compute=True,
+            return_stored=False,
+            **to_zarr_kwargs,
+        )
 
 
 def _handle_large_array_writing(
