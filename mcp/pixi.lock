@@ -4709,10 +4709,10 @@ packages:
   timestamp: 1738196177597
 - pypi: ../py
   name: ngff-zarr
-  version: 0.20.3
-  sha256: 577c66ce0212d3bb42b9458ea80e46a75a6bd2912927bb47807c4b16bc056736
+  version: 0.20.4
+  sha256: cada4c80c35617b30646173af1994530ab3096139ba55df3f328b03c5f6ac07b
   requires_dist:
-  - dask[array]
+  - dask[array]!=2025.12.0,!=2026.1.0,!=2026.1.1
   - importlib-resources
   - itkwasm-downsample>=1.8.0
   - itkwasm>=1.0b183
@@ -4773,7 +4773,7 @@ packages:
 - pypi: ./
   name: ngff-zarr-mcp
   version: 0.5.0
-  sha256: 5811ee70d2fde8facf6e5ddb10adce1bbe150d81741b5d9e25e236f30c7672c5
+  sha256: 815ba8d62fbd57a477abed5c2f96ee93bfa07cd6f1bd98a1beb1930eb4977a77
   requires_dist:
   - aiofiles
   - aiohttp
