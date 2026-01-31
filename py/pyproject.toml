@@ -193,16 +193,16 @@ pre-commit-run = { cmd = "pre-commit run --all", description = "Run pre-commit h
 lint = { depends-on = ["pre-commit-run"], description = "Run linters" }
 
 [tool.pixi.feature.docs.tasks]
-dev-docs = { cmd = "sphinx-autobuild docs docs/_build/html", description = "Build the documentation" }
+dev-docs = { cmd = "sphinx-autobuild . ./_build/html", cwd = "../docs", description = "Build the documentation" }
 
 [tool.pixi.feature.docs.target.linux-64.tasks]
-build-docs = { cmd = "make html", cwd = "docs", description = "Build the documentation" }
+build-docs = { cmd = "make html", cwd = "../docs", description = "Build the documentation" }
 
 [tool.pixi.feature.docs.target.osx-64.tasks]
-build-docs = { cmd = "make html", cwd = "docs", description = "Build the documentation" }
+build-docs = { cmd = "make html", cwd = "../docs", description = "Build the documentation" }
 
 [tool.pixi.feature.docs.target.osx-arm64.tasks]
-build-docs = { cmd = "make html", cwd = "docs", description = "Build the documentation" }
+build-docs = { cmd = "make html", cwd = "../docs", description = "Build the documentation" }
 
 [tool.pixi.feature.data.dependencies]
 python = ">=3.10,<4"
