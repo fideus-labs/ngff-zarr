@@ -161,7 +161,7 @@ function computeChannelStatistics(
     if (sample.length < QUANTILE_SAMPLE_SIZE) {
       sample.push(v);
     } else {
-      // Reservoir sampling: replace random element with probability SAMPLE_SIZE/count
+      // Reservoir sampling: replace random element with probability QUANTILE_SAMPLE_SIZE/(count+1)
       const j = Math.floor(Math.random() * (count + 1));
       if (j < QUANTILE_SAMPLE_SIZE) {
         sample[j] = v;

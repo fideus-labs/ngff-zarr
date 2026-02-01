@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 """Compute OMERO metadata from NgffImage data."""
 
+import re
 from typing import List, Optional, Sequence, Tuple, Union
 
 import dask.array as da
@@ -67,8 +68,6 @@ def _validate_color(color: str) -> None:
     Raises:
         ValueError: If color is invalid
     """
-    import re
-
     if not isinstance(color, str):
         raise ValueError(f"Color must be a string, got {type(color).__name__}")
     if not re.fullmatch(r"[0-9A-Fa-f]{6}", color):

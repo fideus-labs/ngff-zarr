@@ -7,6 +7,7 @@ if __name__ == "__main__" and __package__ is None:
 
 import argparse
 import atexit
+import re
 import signal
 import sys
 from pathlib import Path
@@ -85,8 +86,6 @@ def _apply_omero_metadata(live, args, multiscales):
 
     # Validate colors early if provided
     if args.omero_colors:
-        import re
-
         for color in args.omero_colors:
             if not re.fullmatch(r"[0-9A-Fa-f]{6}", color):
                 raise ValueError(
