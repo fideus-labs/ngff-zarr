@@ -70,6 +70,7 @@ from .rfc4 import (
 )
 from .rfc9_zip import (
     is_ozx_path,
+    read_ozx_json_first,
     read_ozx_version,
     write_store_to_zip,
 )
@@ -145,6 +146,7 @@ __all__ = [
     "remove_anatomical_orientation_from_axis",
     # RFC 9 - Zipped OME-Zarr (.ozx)
     "is_ozx_path",
+    "read_ozx_json_first",
     "read_ozx_version",
     "write_store_to_zip",
     # LIF (Leica Image Format) support

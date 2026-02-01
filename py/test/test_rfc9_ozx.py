@@ -19,7 +19,7 @@ from ngff_zarr import (
     to_ngff_zarr,
     config,
 )
-from ngff_zarr.rfc9_zip import is_ozx_path, read_ozx_version
+from ngff_zarr.rfc9_zip import is_ozx_path, read_ozx_json_first, read_ozx_version
 
 from ._data import verify_against_baseline
 
@@ -265,7 +265,7 @@ def test_read_ozx_file(input_images):
 
 
 def test_ozx_zip_comment():
-    """Test that .ozx files have proper ZIP comment with OME-Zarr version"""
+    """Test that .ozx files have proper ZIP comment with OME-Zarr version and jsonFirst"""
     import zipfile
 
     image = to_ngff_image(
@@ -287,6 +287,11 @@ def test_ozx_zip_comment():
         assert "ome" in comment_dict
         assert "version" in comment_dict["ome"]
         assert comment_dict["ome"]["version"] == "0.5"
+
+        # Verify jsonFirst flag per RFC-9
+        assert "zipFile" in comment_dict["ome"]
+        assert "centralDirectory" in comment_dict["ome"]["zipFile"]
+        assert comment_dict["ome"]["zipFile"]["centralDirectory"]["jsonFirst"] is True
 
 
 def test_ozx_zarr_json_ordering():
@@ -329,9 +334,9 @@ def test_ozx_zarr_json_ordering():
         if first_data_file_index is not None:
             # All zarr.json files should come before first data file
             for idx in zarr_json_indices:
-                assert (
-                    idx < first_data_file_index
-                ), f"zarr.json at index {idx} should come before data files at {first_data_file_index}"
+                assert idx < first_data_file_index, (
+                    f"zarr.json at index {idx} should come before data files at {first_data_file_index}"
+                )
 
 
 def test_ozx_no_compression():
@@ -353,9 +358,9 @@ def test_ozx_no_compression():
     with zipfile.ZipFile(ozx_path, "r") as zf:
         for info in zf.infolist():
             # ZIP_STORED = 0, ZIP_DEFLATED = 8
-            assert (
-                info.compress_type == zipfile.ZIP_STORED
-            ), f"File {info.filename} uses compression type {info.compress_type}, expected ZIP_STORED (0)"
+            assert info.compress_type == zipfile.ZIP_STORED, (
+                f"File {info.filename} uses compression type {info.compress_type}, expected ZIP_STORED (0)"
+            )
 
 
 def test_roundtrip_ozx(input_images):
@@ -394,3 +399,119 @@ def test_roundtrip_ozx(input_images):
 
     # Close ZipStore handles before cleanup
     _close_zipstore_handles(multiscales_read)
+
+
+def test_ozx_json_first_flag():
+    """Test that jsonFirst flag is set and zarr.json files actually come first"""
+    import zipfile
+
+    image = to_ngff_image(
+        data=np.array([[1, 2], [3, 4]]),
+        dims=("y", "x"),
+    )
+    multiscales = to_multiscales(image, [2])
+
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    ozx_path = OUTPUT_DIR / "test_json_first.ozx"
+
+    to_ngff_zarr(str(ozx_path), multiscales, version="0.5")
+
+    # Verify jsonFirst flag using helper function
+    assert read_ozx_json_first(ozx_path) is True
+
+    # Verify that when jsonFirst is True, all zarr.json files actually come
+    # before non-zarr.json files (validating the implementation matches the flag)
+    with zipfile.ZipFile(ozx_path, "r") as zf:
+        files = zf.namelist()
+
+        # Find the index of the last zarr.json file
+        last_json_index = -1
+        for i, f in enumerate(files):
+            if f.endswith("zarr.json"):
+                last_json_index = i
+
+        # Find the index of the first non-zarr.json file
+        first_non_json_index = None
+        for i, f in enumerate(files):
+            if not f.endswith("zarr.json"):
+                first_non_json_index = i
+                break
+
+        # All zarr.json files should come before any non-zarr.json files
+        if first_non_json_index is not None and last_json_index >= 0:
+            assert last_json_index < first_non_json_index, (
+                f"Last zarr.json at index {last_json_index} should come before "
+                f"first non-json file at index {first_non_json_index}"
+            )
+
+
+def test_read_ozx_json_first_missing(tmp_path):
+    """Test read_ozx_json_first returns False for files without the flag"""
+    import zipfile
+    
+    # Test with non-existent file
+    assert read_ozx_json_first("/nonexistent/path.ozx") is False
+    
+    # Test 1: Valid ZIP file without any comment
+    zip_no_comment = tmp_path / "no_comment.ozx"
+    with zipfile.ZipFile(zip_no_comment, "w") as zf:
+        zf.writestr("data.txt", "test data")
+    assert read_ozx_json_first(zip_no_comment) is False
+    
+    # Test 2: ZIP file with a comment but not valid JSON
+    zip_invalid_json = tmp_path / "invalid_json.ozx"
+    with zipfile.ZipFile(zip_invalid_json, "w") as zf:
+        zf.writestr("data.txt", "test data")
+        zf.comment = b"This is not JSON"
+    assert read_ozx_json_first(zip_invalid_json) is False
+    
+    # Test 3: ZIP file with valid JSON but missing the `ome` key
+    zip_no_ome = tmp_path / "no_ome.ozx"
+    with zipfile.ZipFile(zip_no_ome, "w") as zf:
+        zf.writestr("data.txt", "test data")
+        zf.comment = json.dumps({"other": "data"}).encode("utf-8")
+    assert read_ozx_json_first(zip_no_ome) is False
+    
+    # Test 4: ZIP file with `ome` but missing the `zipFile` key
+    zip_no_zipfile = tmp_path / "no_zipfile.ozx"
+    with zipfile.ZipFile(zip_no_zipfile, "w") as zf:
+        zf.writestr("data.txt", "test data")
+        zf.comment = json.dumps({"ome": {"version": "0.5"}}).encode("utf-8")
+    assert read_ozx_json_first(zip_no_zipfile) is False
+    
+    # Test 5: ZIP file with `zipFile` but missing the `centralDirectory` key
+    zip_no_central_dir = tmp_path / "no_central_dir.ozx"
+    with zipfile.ZipFile(zip_no_central_dir, "w") as zf:
+        zf.writestr("data.txt", "test data")
+        zf.comment = json.dumps({"ome": {"zipFile": {"compression": "stored"}}}).encode("utf-8")
+    assert read_ozx_json_first(zip_no_central_dir) is False
+    
+    # Test 6: ZIP file with `centralDirectory` but `jsonFirst` set to false
+    zip_json_first_false = tmp_path / "json_first_false.ozx"
+    with zipfile.ZipFile(zip_json_first_false, "w") as zf:
+        zf.writestr("data.txt", "test data")
+        zf.comment = json.dumps({
+            "ome": {
+                "zipFile": {
+                    "centralDirectory": {
+                        "jsonFirst": False
+                    }
+                }
+            }
+        }).encode("utf-8")
+    assert read_ozx_json_first(zip_json_first_false) is False
+    
+    # Test 7: ZIP file with `centralDirectory` and `jsonFirst` set to true (positive case)
+    zip_json_first_true = tmp_path / "json_first_true.ozx"
+    with zipfile.ZipFile(zip_json_first_true, "w") as zf:
+        zf.writestr("data.txt", "test data")
+        zf.comment = json.dumps({
+            "ome": {
+                "zipFile": {
+                    "centralDirectory": {
+                        "jsonFirst": True
+                    }
+                }
+            }
+        }).encode("utf-8")
+    assert read_ozx_json_first(zip_json_first_true) is True

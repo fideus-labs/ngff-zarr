@@ -263,3 +263,8 @@ def test_hcs_ozx_zip_comment():
         assert "ome" in comment_dict
         assert "version" in comment_dict["ome"]
         assert comment_dict["ome"]["version"] == "0.5"
+
+        # Verify jsonFirst flag per RFC-9
+        assert "zipFile" in comment_dict["ome"]
+        assert "centralDirectory" in comment_dict["ome"]["zipFile"]
+        assert comment_dict["ome"]["zipFile"]["centralDirectory"]["jsonFirst"] is True
