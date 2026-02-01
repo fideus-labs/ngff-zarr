@@ -73,6 +73,12 @@ from .rfc9_zip import (
     read_ozx_version,
     write_store_to_zip,
 )
+from .lif_to_ngff_image import (
+    lif_to_ngff_image,
+    lif_file_to_ngff_images,
+    lif_to_hcs_plate,
+    has_mosaic_dimension,
+)
 
 __all__ = [
     "__version__",
@@ -141,4 +147,9 @@ __all__ = [
     "is_ozx_path",
     "read_ozx_version",
     "write_store_to_zip",
+    # LIF (Leica Image Format) support
+    "lif_to_ngff_image",
+    "lif_file_to_ngff_images",
+    "lif_to_hcs_plate",
+    "has_mosaic_dimension",
 ]

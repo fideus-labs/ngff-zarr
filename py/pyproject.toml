@@ -66,6 +66,7 @@ cli = [
   "imageio",
   "nibabel",
   "tifffile>=2024.7.24",
+  "liffile",
   "imagecodecs",
 ]
 tensorstore = ["tensorstore"]

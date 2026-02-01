@@ -11,6 +11,7 @@ conversion_backends = [
     ("NIBABEL", "nibabel"),
     ("ITKWASM", "itkwasm_image_io"),
     ("ITK", "itk"),
+    ("LIFFILE", "liffile"),
     ("TIFFFILE", "tifffile"),
     ("IMAGEIO", "imageio"),
 ]
@@ -122,6 +123,11 @@ def detect_cli_io_backend(input: List[str]) -> ConversionBackend:
 
     if _matches_extension(extension, itk_supported_extensions):
         return ConversionBackend.ITK
+
+    # Leica image file formats (LIF, LOF, XLIF, XLEF, XLCF)
+    liffile_supported_extensions = (".lif", ".lof", ".xlif", ".xlef", ".xlcf")
+    if extension in liffile_supported_extensions:
+        return ConversionBackend.LIFFILE
 
     try:
         import tifffile
