@@ -5,7 +5,6 @@
 from typing import List, Optional, Sequence, Tuple, Union
 
 import dask.array as da
-import numpy as np
 
 from .ngff_image import NgffImage
 from .v04.zarr_metadata import Omero, OmeroChannel, OmeroWindow
@@ -36,7 +35,49 @@ GLASBEY_COLORS: List[str] = [
 ]
 
 
-def _get_default_colors(n_channels: int) -> List[str]:
+def _validate_quantiles(quantiles: Tuple[float, float]) -> None:
+    """Validate that quantiles are in valid range and properly ordered.
+
+    Args:
+        quantiles: Tuple of (low, high) quantile values
+
+    Raises:
+        ValueError: If quantiles are invalid
+    """
+    if len(quantiles) != 2:
+        raise ValueError(f"Expected 2 quantiles, got {len(quantiles)}")
+
+    low, high = quantiles
+    if not (0.0 <= low <= 1.0):
+        raise ValueError(f"Low quantile must be between 0 and 1, got {low}")
+    if not (0.0 <= high <= 1.0):
+        raise ValueError(f"High quantile must be between 0 and 1, got {high}")
+    if low >= high:
+        raise ValueError(
+            f"Low quantile must be less than high quantile, got ({low}, {high})"
+        )
+
+
+def _validate_color(color: str) -> None:
+    """Validate that a color is a valid 6-digit hexadecimal string.
+
+    Args:
+        color: Hex color string (without # prefix)
+
+    Raises:
+        ValueError: If color is invalid
+    """
+    import re
+
+    if not isinstance(color, str):
+        raise ValueError(f"Color must be a string, got {type(color).__name__}")
+    if not re.fullmatch(r"[0-9A-Fa-f]{6}", color):
+        raise ValueError(
+            f"Color must be a 6-digit hexadecimal string without # prefix, got '{color}'"
+        )
+
+
+def get_default_colors(n_channels: int) -> List[str]:
     """Get default colors for channels.
 
     For a single channel, returns white (FFFFFF).
@@ -110,11 +151,21 @@ def compute_omero_from_ngff_image(
     For multi-channel images (with 'c' dimension), statistics are computed
     separately for each channel, resulting in per-channel OMERO windows.
 
+    Memory requirements: This function loads the entire flattened channel data
+    into a single chunk for exact quantile computation. For large images,
+    use the lowest resolution image from a multiscales pyramid.
+
+    Edge cases:
+    - If all values in a channel are NaN, the statistics will be NaN.
+    - If a channel has constant values, min/max/start/end will all be the same.
+
     Args:
         ngff_image: The NgffImage to compute metadata for
         quantiles: Tuple of (low, high) quantile values for the display window.
+                   Must be between 0 and 1, with low < high.
                    Default is (0.02, 0.98) for 2% and 98% quantiles.
         colors: Optional list of hex color strings (without #) for each channel.
+                Must be 6-digit hexadecimal strings (e.g., "FF0000" for red).
                 If not provided, uses white for single channel or Glasbey
                 progression for multi-channel.
         labels: Optional list of label strings for each channel.
@@ -123,11 +174,18 @@ def compute_omero_from_ngff_image(
     Returns:
         Omero metadata with computed window parameters for each channel.
 
+    Raises:
+        ValueError: If quantiles are invalid, colors are invalid format,
+                    or not enough colors/labels provided.
+
     Example:
         >>> image = to_ngff_image(data, dims=["c", "z", "y", "x"])
         >>> omero = compute_omero_from_ngff_image(image)
         >>> multiscales.metadata.omero = omero
     """
+    # Validate quantiles
+    _validate_quantiles(quantiles)
+
     data = ngff_image.data
     dims = list(ngff_image.dims)
 
@@ -145,9 +203,12 @@ def compute_omero_from_ngff_image(
             raise ValueError(
                 f"Not enough colors provided. Got {len(colors)}, need {n_channels}."
             )
+        # Validate each color
+        for color in colors[:n_channels]:
+            _validate_color(color)
         channel_colors = list(colors[:n_channels])
     else:
-        channel_colors = _get_default_colors(n_channels)
+        channel_colors = get_default_colors(n_channels)
 
     # Get labels
     if labels is not None:

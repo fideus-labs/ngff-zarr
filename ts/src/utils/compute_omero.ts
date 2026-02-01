@@ -71,6 +71,36 @@ export interface ComputeOmeroOptions {
 }
 
 /**
+ * Validate that quantiles are in valid range and properly ordered.
+ */
+function validateQuantiles(quantiles: [number, number]): void {
+  const [low, high] = quantiles;
+  if (!(low >= 0.0 && low <= 1.0)) {
+    throw new Error(`Low quantile must be between 0 and 1, got ${low}`);
+  }
+  if (!(high >= 0.0 && high <= 1.0)) {
+    throw new Error(`High quantile must be between 0 and 1, got ${high}`);
+  }
+  if (low >= high) {
+    throw new Error(
+      `Low quantile must be less than high quantile, got (${low}, ${high})`,
+    );
+  }
+}
+
+/**
+ * Validate that a color is a valid 6-digit hexadecimal string.
+ */
+function validateColor(color: string): void {
+  const hexPattern = /^[0-9A-Fa-f]{6}$/;
+  if (!hexPattern.test(color)) {
+    throw new Error(
+      `Color must be a 6-digit hexadecimal string without # prefix, got '${color}'`,
+    );
+  }
+}
+
+/**
  * Helper function to compute quantile from a sorted array.
  */
 function computeQuantile(sortedValues: number[], q: number): number {
@@ -176,9 +206,27 @@ function extractChannel(
  * For multi-channel images (with 'c' dimension), statistics are computed
  * separately for each channel, resulting in per-channel OMERO windows.
  *
+ * Memory requirements: This function loads the entire image data into memory
+ * for statistics computation. For large images, use the lowest resolution
+ * image from a multiscales pyramid.
+ *
+ * Edge cases:
+ * - If all values in a channel are NaN, the statistics will be NaN.
+ * - If a channel has constant values, min/max/start/end will all be the same.
+ *
  * @param image - The NgffImage to compute metadata for
  * @param options - Optional configuration for quantiles, colors, and labels
+ *   - quantiles: Tuple of (low, high) quantile values. Must be between 0 and 1,
+ *                with low < high. Default is [0.02, 0.98] for 2% and 98% quantiles.
+ *   - colors: List of hex color strings (without #) for each channel.
+ *             Must be 6-digit hexadecimal strings (e.g., "FF0000" for red).
+ *             If not provided, uses white for single channel or Glasbey
+ *             progression for multi-channel.
+ *   - labels: List of label strings for each channel.
+ *             If not provided, uses empty strings.
  * @returns Promise resolving to Omero metadata with computed window parameters
+ * @throws {Error} If quantiles are invalid, colors are invalid format,
+ *                 or not enough colors/labels provided.
  *
  * @example
  * ```ts
@@ -191,6 +239,10 @@ export async function computeOmeroFromNgffImage(
   options: ComputeOmeroOptions = {},
 ): Promise<Omero> {
   const quantiles = options.quantiles ?? [0.02, 0.98];
+
+  // Validate quantiles
+  validateQuantiles(quantiles as [number, number]);
+
   const dims = image.dims;
   const shape = image.data.shape;
 
@@ -206,6 +258,10 @@ export async function computeOmeroFromNgffImage(
       throw new Error(
         `Not enough colors provided. Got ${options.colors.length}, need ${nChannels}.`,
       );
+    }
+    // Validate each color
+    for (const color of options.colors.slice(0, nChannels)) {
+      validateColor(color);
     }
     channelColors = options.colors.slice(0, nChannels);
   } else {

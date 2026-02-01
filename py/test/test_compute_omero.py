@@ -353,3 +353,70 @@ class TestGlasbeyColors:
         assert GLASBEY_COLORS[0] == "FF0000"  # Red
         assert GLASBEY_COLORS[1] == "00FF00"  # Green
         assert GLASBEY_COLORS[2] == "0000FF"  # Blue
+
+
+class TestValidation:
+    """Tests for input validation."""
+
+    def test_invalid_quantile_low_out_of_range(self):
+        """Test that invalid low quantile raises ValueError."""
+        data = np.ones((10, 10), dtype=np.float32)
+        image = to_ngff_image(data, dims=["y", "x"])
+
+        with pytest.raises(ValueError, match="Low quantile must be between 0 and 1"):
+            compute_omero_from_ngff_image(image, quantiles=(-0.1, 0.98))
+
+    def test_invalid_quantile_high_out_of_range(self):
+        """Test that invalid high quantile raises ValueError."""
+        data = np.ones((10, 10), dtype=np.float32)
+        image = to_ngff_image(data, dims=["y", "x"])
+
+        with pytest.raises(ValueError, match="High quantile must be between 0 and 1"):
+            compute_omero_from_ngff_image(image, quantiles=(0.02, 1.5))
+
+    def test_invalid_quantile_order(self):
+        """Test that reversed quantiles raise ValueError."""
+        data = np.ones((10, 10), dtype=np.float32)
+        image = to_ngff_image(data, dims=["y", "x"])
+
+        with pytest.raises(
+            ValueError, match="Low quantile must be less than high quantile"
+        ):
+            compute_omero_from_ngff_image(image, quantiles=(0.98, 0.02))
+
+    def test_invalid_color_format_too_short(self):
+        """Test that colors with wrong length raise ValueError."""
+        data = np.ones((10, 10), dtype=np.float32)
+        image = to_ngff_image(data, dims=["y", "x"])
+
+        with pytest.raises(ValueError, match="6-digit hexadecimal string"):
+            compute_omero_from_ngff_image(image, colors=["FFF"])
+
+    def test_invalid_color_format_with_hash(self):
+        """Test that colors with # prefix raise ValueError."""
+        data = np.ones((10, 10), dtype=np.float32)
+        image = to_ngff_image(data, dims=["y", "x"])
+
+        with pytest.raises(ValueError, match="6-digit hexadecimal string"):
+            compute_omero_from_ngff_image(image, colors=["#FF0000"])
+
+    def test_invalid_color_format_non_hex(self):
+        """Test that colors with non-hex characters raise ValueError."""
+        data = np.ones((10, 10), dtype=np.float32)
+        image = to_ngff_image(data, dims=["y", "x"])
+
+        with pytest.raises(ValueError, match="6-digit hexadecimal string"):
+            compute_omero_from_ngff_image(image, colors=["GGGGGG"])
+
+    def test_all_nan_channel(self):
+        """Test edge case where all values in a channel are NaN."""
+        data = np.full((10, 10), np.nan, dtype=np.float32)
+        image = to_ngff_image(data, dims=["y", "x"])
+
+        omero = compute_omero_from_ngff_image(image)
+
+        # Should return NaN statistics
+        assert np.isnan(omero.channels[0].window.min)
+        assert np.isnan(omero.channels[0].window.max)
+        assert np.isnan(omero.channels[0].window.start)
+        assert np.isnan(omero.channels[0].window.end)

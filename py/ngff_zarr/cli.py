@@ -64,6 +64,36 @@ def _apply_omero_metadata(live, args, multiscales):
     if args.no_omero:
         return
 
+    # Validate quantiles early
+    if args.omero_quantiles:
+        low, high = args.omero_quantiles
+        if not (0.0 <= low <= 1.0):
+            raise ValueError(
+                f"Low quantile must be between 0 and 1, got {low}. "
+                "Use --omero-quantiles LOW HIGH (e.g., --omero-quantiles 0.02 0.98)"
+            )
+        if not (0.0 <= high <= 1.0):
+            raise ValueError(
+                f"High quantile must be between 0 and 1, got {high}. "
+                "Use --omero-quantiles LOW HIGH (e.g., --omero-quantiles 0.02 0.98)"
+            )
+        if low >= high:
+            raise ValueError(
+                f"Low quantile must be less than high quantile, got ({low}, {high}). "
+                "Use --omero-quantiles LOW HIGH (e.g., --omero-quantiles 0.02 0.98)"
+            )
+
+    # Validate colors early if provided
+    if args.omero_colors:
+        import re
+
+        for color in args.omero_colors:
+            if not re.fullmatch(r"[0-9A-Fa-f]{6}", color):
+                raise ValueError(
+                    f"Color must be a 6-digit hexadecimal string without # prefix, got '{color}'. "
+                    "Use --omero-colors RRGGBB RRGGBB (e.g., --omero-colors FF0000 00FF00)"
+                )
+
     # If multiscales already has OMERO metadata and no manual override, keep it
     if multiscales.metadata.omero is not None and args.omero_window is None:
         return
@@ -75,22 +105,39 @@ def _apply_omero_metadata(live, args, multiscales):
 
         # Get colors (default to white for single, glasbey for multiple)
         if args.omero_colors:
+            # Validate we have enough colors
+            if len(args.omero_colors) < n_windows:
+                raise ValueError(
+                    f"Not enough colors provided for {n_windows} windows. "
+                    f"Got {len(args.omero_colors)} colors. "
+                    "Provide at least one color per --omero-window."
+                )
             colors = args.omero_colors
         else:
-            from .compute_omero import _get_default_colors
+            from .compute_omero import get_default_colors
 
-            colors = _get_default_colors(n_windows)
+            colors = get_default_colors(n_windows)
 
         # Get labels (default to empty)
-        labels = args.omero_labels if args.omero_labels else [""] * n_windows
+        if args.omero_labels:
+            # Validate we have enough labels
+            if len(args.omero_labels) < n_windows:
+                raise ValueError(
+                    f"Not enough labels provided for {n_windows} windows. "
+                    f"Got {len(args.omero_labels)} labels. "
+                    "Provide at least one label per --omero-window."
+                )
+            labels = args.omero_labels
+        else:
+            labels = [""] * n_windows
 
         for i, window_values in enumerate(args.omero_window):
             min_val, max_val, start_val, end_val = window_values
             window = OmeroWindow(
                 min=min_val, max=max_val, start=start_val, end=end_val
             )
-            color = colors[i] if i < len(colors) else "FFFFFF"
-            label = labels[i] if i < len(labels) else ""
+            color = colors[i]
+            label = labels[i]
             channel = OmeroChannel(color=color, window=window, label=label)
             channels.append(channel)
 
