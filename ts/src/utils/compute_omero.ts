@@ -101,6 +101,12 @@ function validateColor(color: string): void {
 }
 
 /**
+ * Maximum sample size for approximate quantile computation.
+ * For datasets larger than this, we use reservoir sampling for memory efficiency.
+ */
+const QUANTILE_SAMPLE_SIZE = 10_000;
+
+/**
  * Helper function to compute quantile from a sorted array.
  */
 function computeQuantile(sortedValues: number[], q: number): number {
@@ -125,37 +131,55 @@ function computeQuantile(sortedValues: number[], q: number): number {
 
 /**
  * Compute channel statistics (min, max, and quantiles) from array data.
+ * 
+ * For large datasets (>10,000 non-NaN values), uses reservoir sampling
+ * to compute approximate quantiles with reduced memory footprint.
+ * Min and max are always exact.
  */
 function computeChannelStatistics(
   data: ArrayLike<number>,
   quantiles: [number, number],
 ): { min: number; max: number; qLow: number; qHigh: number } {
-  // Filter out NaN values and convert to array
-  const values: number[] = [];
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+
+  // Reservoir sample for approximate quantile computation
+  const sample: number[] = [];
+  let count = 0;
+
   for (let i = 0; i < data.length; i++) {
     const v = data[i];
-    if (!Number.isNaN(v)) {
-      values.push(v);
+    if (Number.isNaN(v)) {
+      continue;
     }
+
+    // Update min and max (always exact)
+    if (v < min) min = v;
+    if (v > max) max = v;
+
+    // Update reservoir sample for quantiles
+    if (sample.length < QUANTILE_SAMPLE_SIZE) {
+      sample.push(v);
+    } else {
+      // Reservoir sampling: replace random element with probability SAMPLE_SIZE/count
+      const j = Math.floor(Math.random() * (count + 1));
+      if (j < QUANTILE_SAMPLE_SIZE) {
+        sample[j] = v;
+      }
+    }
+
+    count++;
   }
 
-  if (values.length === 0) {
+  if (count === 0) {
     return { min: NaN, max: NaN, qLow: NaN, qHigh: NaN };
   }
 
-  // Find min and max
-  let min = values[0];
-  let max = values[0];
-  for (let i = 1; i < values.length; i++) {
-    if (values[i] < min) min = values[i];
-    if (values[i] > max) max = values[i];
-  }
+  // Sort sample for quantile computation
+  sample.sort((a, b) => a - b);
 
-  // Sort for quantile computation
-  values.sort((a, b) => a - b);
-
-  const qLow = computeQuantile(values, quantiles[0]);
-  const qHigh = computeQuantile(values, quantiles[1]);
+  const qLow = computeQuantile(sample, quantiles[0]);
+  const qHigh = computeQuantile(sample, quantiles[1]);
 
   return { min, max, qLow, qHigh };
 }
