@@ -69,23 +69,24 @@ export async function toNgffZarr(
     };
 
     // Create the root group with OME-Zarr metadata
-    // For version 0.5, wrap metadata under "ome" property
-    // For version 0.4, place multiscales directly at root
+    // For version 0.5, wrap metadata under "ome" property (including omero)
+    // For version 0.4, place multiscales and omero directly at root
     const attributes: Record<string, unknown> = _version === "0.5"
       ? {
         ome: {
           version: _version,
           multiscales: [multiscalesMetadata],
+          ...(multiscales.metadata.omero && {
+            omero: multiscales.metadata.omero,
+          }),
         },
       }
       : {
         multiscales: [multiscalesMetadata],
+        ...(multiscales.metadata.omero && {
+          omero: multiscales.metadata.omero,
+        }),
       };
-
-    // Add OMERO metadata at root level if present (both versions)
-    if (multiscales.metadata.omero) {
-      attributes.omero = multiscales.metadata.omero;
-    }
 
     const rootGroup = await zarr.create(root, { attributes });
 
