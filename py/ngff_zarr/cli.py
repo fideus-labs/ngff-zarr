@@ -7,6 +7,7 @@ if __name__ == "__main__" and __package__ is None:
 
 import argparse
 import atexit
+import re
 import signal
 import sys
 from pathlib import Path
@@ -35,6 +36,7 @@ else:
     LocalStore = zarr.storage.LocalStore
 
 from .cli_input_to_ngff_image import cli_input_to_ngff_image
+from .compute_omero import compute_omero_from_multiscales
 from .config import config
 from .detect_cli_io_backend import (
     ConversionBackend,
@@ -48,13 +50,131 @@ from .rich_dask_progress import NgffProgress, NgffProgressCallback
 from .to_multiscales import to_multiscales
 from .to_ngff_image import to_ngff_image
 from .to_ngff_zarr import to_ngff_zarr
-from .v04.zarr_metadata import is_unit_supported
+from .v04.zarr_metadata import Omero, OmeroChannel, OmeroWindow, is_unit_supported
 from ._zarr_kwargs import zarr_kwargs
+
+
+def _apply_omero_metadata(live, args, multiscales):
+    """Apply OMERO metadata to multiscales based on CLI arguments.
+
+    If --no-omero is specified, skip OMERO computation.
+    If --omero-window is specified, use manual values.
+    Otherwise, compute OMERO metadata from the image data.
+    """
+    # Skip if --no-omero is specified
+    if args.no_omero:
+        return
+
+    # Validate quantiles early
+    if args.omero_quantiles:
+        low, high = args.omero_quantiles
+        if not (0.0 <= low <= 1.0):
+            raise ValueError(
+                f"Low quantile must be between 0 and 1, got {low}. "
+                "Use --omero-quantiles LOW HIGH (e.g., --omero-quantiles 0.02 0.98)"
+            )
+        if not (0.0 <= high <= 1.0):
+            raise ValueError(
+                f"High quantile must be between 0 and 1, got {high}. "
+                "Use --omero-quantiles LOW HIGH (e.g., --omero-quantiles 0.02 0.98)"
+            )
+        if low >= high:
+            raise ValueError(
+                f"Low quantile must be less than high quantile, got ({low}, {high}). "
+                "Use --omero-quantiles LOW HIGH (e.g., --omero-quantiles 0.02 0.98)"
+            )
+
+    # Validate colors early if provided
+    if args.omero_colors:
+        for color in args.omero_colors:
+            if not re.fullmatch(r"[0-9A-Fa-f]{6}", color):
+                raise ValueError(
+                    f"Color must be a 6-digit hexadecimal string without # prefix, got '{color}'. "
+                    "Use --omero-colors RRGGBB RRGGBB (e.g., --omero-colors FF0000 00FF00)"
+                )
+
+    # If multiscales already has OMERO metadata and no manual override, keep it
+    if multiscales.metadata.omero is not None and args.omero_window is None:
+        return
+
+    # If manual OMERO windows are specified, use them
+    if args.omero_window is not None:
+        channels = []
+        n_windows = len(args.omero_window)
+
+        # Get colors (default to white for single, glasbey for multiple)
+        if args.omero_colors:
+            # Validate we have enough colors
+            if len(args.omero_colors) < n_windows:
+                raise ValueError(
+                    f"Not enough colors provided for {n_windows} windows. "
+                    f"Got {len(args.omero_colors)} colors. "
+                    "Provide at least one color per --omero-window."
+                )
+            colors = args.omero_colors
+        else:
+            from .compute_omero import get_default_colors
+
+            colors = get_default_colors(n_windows)
+
+        # Get labels (default to empty)
+        if args.omero_labels:
+            # Validate we have enough labels
+            if len(args.omero_labels) < n_windows:
+                raise ValueError(
+                    f"Not enough labels provided for {n_windows} windows. "
+                    f"Got {len(args.omero_labels)} labels. "
+                    "Provide at least one label per --omero-window."
+                )
+            labels = args.omero_labels
+        else:
+            labels = [""] * n_windows
+
+        for i, window_values in enumerate(args.omero_window):
+            min_val, max_val, start_val, end_val = window_values
+            window = OmeroWindow(
+                min=min_val, max=max_val, start=start_val, end=end_val
+            )
+            color = colors[i]
+            label = labels[i]
+            channel = OmeroChannel(color=color, window=window, label=label)
+            channels.append(channel)
+
+        multiscales.metadata.omero = Omero(channels=channels)
+        return
+
+    # Compute OMERO metadata from image data
+    if not args.quiet:
+        live.console.log("[yellow]Computing OMERO visualization metadata...")
+
+    quantiles = tuple(args.omero_quantiles)
+    colors = args.omero_colors
+    labels = args.omero_labels
+
+    try:
+        omero = compute_omero_from_multiscales(
+            multiscales,
+            quantiles=quantiles,
+            colors=colors,
+            labels=labels,
+            use_lowest_resolution=True,  # Use lowest resolution for speed
+        )
+        multiscales.metadata.omero = omero
+        if not args.quiet:
+            live.console.log(
+                f"[green]Computed OMERO metadata for {len(omero.channels)} channel(s)"
+            )
+    except Exception as e:
+        if not args.quiet:
+            live.console.log(f"[yellow]Warning: Could not compute OMERO metadata: {e}")
 
 
 def _multiscales_to_ngff_zarr(
     live, args, output_store, rich_dask_progress, multiscales, chunks_per_shard=None
 ):
+    # Apply OMERO metadata before displaying or writing
+    _apply_omero_metadata(live, args, multiscales)
+
     if not args.output:
         if args.quiet:
             live.update(Pretty(multiscales))
@@ -223,6 +343,44 @@ def main():
         type=int,
         help="Enable specific RFC features. Can be used multiple times. Currently supported: 4 (anatomical orientation)",
         metavar="RFC_NUMBER",
+    )
+
+    # OMERO metadata options
+    omero_group = parser.add_argument_group(
+        "omero", "OMERO visualization metadata options"
+    )
+    omero_group.add_argument(
+        "--no-omero",
+        action="store_true",
+        help="Disable automatic OMERO metadata computation",
+    )
+    omero_group.add_argument(
+        "--omero-quantiles",
+        nargs=2,
+        type=float,
+        metavar=("LOW", "HIGH"),
+        default=[0.02, 0.98],
+        help="Quantiles for OMERO window start/end (default: 0.02 0.98)",
+    )
+    omero_group.add_argument(
+        "--omero-window",
+        nargs=4,
+        type=float,
+        action="append",
+        metavar=("MIN", "MAX", "START", "END"),
+        help="Manually specify OMERO window for a channel. Can be used multiple times for multi-channel images.",
+    )
+    omero_group.add_argument(
+        "--omero-colors",
+        nargs="+",
+        metavar="COLOR",
+        help="Hex colors for channels without # prefix (e.g., FF0000 00FF00 0000FF)",
+    )
+    omero_group.add_argument(
+        "--omero-labels",
+        nargs="+",
+        metavar="LABEL",
+        help="Labels for channels (e.g., DAPI GFP RFP)",
     )
 
     processing_group = parser.add_argument_group("processing", "Processing options")
