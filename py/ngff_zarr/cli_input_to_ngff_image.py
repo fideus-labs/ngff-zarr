@@ -93,12 +93,16 @@ def cli_input_to_ngff_image(
 
         props = iio.improps(str(input[0]))
         if props.spacing is not None:
+            # Only apply spacing to spatial dimensions (x, y, z)
+            spatial_dims = [d for d in ngff_image.dims if d in {"x", "y", "z"}]
             if len(props.spacing) == 1:
-                scale = {d: props.spacing for d in ngff_image.dims}
-                ngff_image.scale = scale
+                scale = {d: props.spacing[0] for d in spatial_dims}
             else:
-                scale = {d: props.spacing[i] for i, d in enumerate(ngff_image.dims)}
-                ngff_image.scale = scale
+                # Match spacing values to spatial dims
+                # Spacing from imageio may have fewer values than spatial dims
+                n_spatial = min(len(props.spacing), len(spatial_dims))
+                scale = {spatial_dims[i]: props.spacing[i] for i in range(n_spatial)}
+            ngff_image.scale = scale
 
         return ngff_image
     return None
