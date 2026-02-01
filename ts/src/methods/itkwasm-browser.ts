@@ -17,6 +17,7 @@ import {
   type DimFactors,
   dimScaleFactors,
   itkImageToZarr,
+  MAX_VECTOR_COMPONENTS,
   nextScaleMetadata,
   SPATIAL_DIMS,
   updatePreviousDimFactors,
@@ -137,7 +138,119 @@ async function downsampleGaussian(
     });
   }
 
-  const isVector = image.dims.includes("c");
+  // Determine if we should use vector mode for multi-channel images.
+  // Only use vector mode for small channel counts (≤ MAX_VECTOR_COMPONENTS)
+  // to avoid itkwasm limitations with VariableLengthVector images.
+  const cIndex = image.dims.indexOf("c");
+  const hasChannels = cIndex !== -1;
+  const numChannels = hasChannels ? image.data.shape[cIndex] : 1;
+  const isVector = hasChannels && numChannels <= MAX_VECTOR_COMPONENTS;
+
+  // Handle channel dimension by processing each channel independently when not using vector mode
+  if (hasChannels && !isVector) {
+    const cDimIndex = cIndex;
+    const cSize = numChannels;
+    const newDims = image.dims.filter((dim) => dim !== "c");
+
+    // Downsample each channel
+    const downsampledSlices: zarr.Array<zarr.DataType, zarr.Readable>[] = [];
+    for (let c = 0; c < cSize; c++) {
+      // Extract channel slice
+      const selection = new Array(image.data.shape.length).fill(null);
+      selection[cDimIndex] = c;
+      const sliceData = await zarr.get(image.data, selection);
+
+      // Create temporary zarr array for this slice
+      const sliceStore = new Map<string, Uint8Array>();
+      const sliceRoot = zarr.root(sliceStore);
+      const sliceShape = image.data.shape.filter((_, i) => i !== cDimIndex);
+      const sliceChunkShape = sliceShape.map((s) => Math.min(s, 256));
+
+      const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
+        shape: sliceShape,
+        chunk_shape: sliceChunkShape,
+        data_type: image.data.dtype,
+        fill_value: 0,
+      });
+
+      const fullSelection = new Array(sliceShape.length).fill(null);
+      await zarr.set(sliceArray, fullSelection, sliceData);
+
+      // Create NgffImage for this slice (without 'c' dimension)
+      const sliceImage = new NgffImage({
+        data: sliceArray,
+        dims: newDims,
+        scale: Object.fromEntries(
+          Object.entries(image.scale).filter(([dim]) => dim !== "c"),
+        ),
+        translation: Object.fromEntries(
+          Object.entries(image.translation).filter(([dim]) => dim !== "c"),
+        ),
+        name: image.name,
+        axesUnits: image.axesUnits
+          ? Object.fromEntries(
+            Object.entries(image.axesUnits).filter(([dim]) => dim !== "c"),
+          )
+          : undefined,
+        computedCallbacks: image.computedCallbacks,
+      });
+
+      // Recursively downsample this slice (without 'c', so no infinite loop)
+      const downsampledSlice = await downsampleGaussian(
+        sliceImage,
+        dimFactors,
+        spatialDims,
+      );
+      downsampledSlices.push(downsampledSlice.data);
+    }
+
+    // Combine downsampled slices back into a single array with 'c' dimension
+    const firstSlice = downsampledSlices[0];
+    const combinedShape = [...image.data.shape];
+    combinedShape[cDimIndex] = cSize;
+    // Update spatial dimensions based on downsampled size
+    for (let i = 0; i < image.dims.length; i++) {
+      if (i !== cDimIndex) {
+        const sliceIndex = i < cDimIndex ? i : i - 1;
+        combinedShape[i] = firstSlice.shape[sliceIndex];
+      }
+    }
+
+    // Create combined array
+    const combinedStore = new Map<string, Uint8Array>();
+    const combinedRoot = zarr.root(combinedStore);
+    const combinedArray = await zarr.create(combinedRoot.resolve("combined"), {
+      shape: combinedShape,
+      chunk_shape: combinedShape.map((s) => Math.min(s, 256)),
+      data_type: image.data.dtype,
+      fill_value: 0,
+    });
+
+    // Copy each downsampled slice into the combined array
+    for (let c = 0; c < cSize; c++) {
+      const sliceData = await zarr.get(downsampledSlices[c]);
+      const targetSelection = new Array(combinedShape.length).fill(null);
+      targetSelection[cDimIndex] = c;
+      await zarr.set(combinedArray, targetSelection, sliceData);
+    }
+
+    // Compute new metadata (channel dimension unchanged, spatial dimensions downsampled)
+    const [translation, scale] = nextScaleMetadata(
+      image,
+      dimFactors,
+      spatialDims,
+    );
+
+    return new NgffImage({
+      data: combinedArray,
+      dims: image.dims,
+      scale: { ...image.scale, ...scale },
+      translation: { ...image.translation, ...translation },
+      name: image.name,
+      axesUnits: image.axesUnits,
+      computedCallbacks: image.computedCallbacks,
+    });
+  }
 
   // Convert to ITK-Wasm format
   const itkImage = await zarrToItkImage(image.data, image.dims, isVector);
@@ -303,7 +416,119 @@ async function downsampleBinShrinkImpl(
     });
   }
 
-  const isVector = image.dims.includes("c");
+  // Determine if we should use vector mode for multi-channel images.
+  // Only use vector mode for small channel counts (≤ MAX_VECTOR_COMPONENTS)
+  // to avoid itkwasm limitations with VariableLengthVector images.
+  const cIndex = image.dims.indexOf("c");
+  const hasChannels = cIndex !== -1;
+  const numChannels = hasChannels ? image.data.shape[cIndex] : 1;
+  const isVector = hasChannels && numChannels <= MAX_VECTOR_COMPONENTS;
+
+  // Handle channel dimension by processing each channel independently when not using vector mode
+  if (hasChannels && !isVector) {
+    const cDimIndex = cIndex;
+    const cSize = numChannels;
+    const newDims = image.dims.filter((dim) => dim !== "c");
+
+    // Downsample each channel
+    const downsampledSlices: zarr.Array<zarr.DataType, zarr.Readable>[] = [];
+    for (let c = 0; c < cSize; c++) {
+      // Extract channel slice
+      const selection = new Array(image.data.shape.length).fill(null);
+      selection[cDimIndex] = c;
+      const sliceData = await zarr.get(image.data, selection);
+
+      // Create temporary zarr array for this slice
+      const sliceStore = new Map<string, Uint8Array>();
+      const sliceRoot = zarr.root(sliceStore);
+      const sliceShape = image.data.shape.filter((_, i) => i !== cDimIndex);
+      const sliceChunkShape = sliceShape.map((s) => Math.min(s, 256));
+
+      const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
+        shape: sliceShape,
+        chunk_shape: sliceChunkShape,
+        data_type: image.data.dtype,
+        fill_value: 0,
+      });
+
+      const fullSelection = new Array(sliceShape.length).fill(null);
+      await zarr.set(sliceArray, fullSelection, sliceData);
+
+      // Create NgffImage for this slice (without 'c' dimension)
+      const sliceImage = new NgffImage({
+        data: sliceArray,
+        dims: newDims,
+        scale: Object.fromEntries(
+          Object.entries(image.scale).filter(([dim]) => dim !== "c"),
+        ),
+        translation: Object.fromEntries(
+          Object.entries(image.translation).filter(([dim]) => dim !== "c"),
+        ),
+        name: image.name,
+        axesUnits: image.axesUnits
+          ? Object.fromEntries(
+            Object.entries(image.axesUnits).filter(([dim]) => dim !== "c"),
+          )
+          : undefined,
+        computedCallbacks: image.computedCallbacks,
+      });
+
+      // Recursively downsample this slice (without 'c', so no infinite loop)
+      const downsampledSlice = await downsampleBinShrinkImpl(
+        sliceImage,
+        dimFactors,
+        spatialDims,
+      );
+      downsampledSlices.push(downsampledSlice.data);
+    }
+
+    // Combine downsampled slices back into a single array with 'c' dimension
+    const firstSlice = downsampledSlices[0];
+    const combinedShape = [...image.data.shape];
+    combinedShape[cDimIndex] = cSize;
+    // Update spatial dimensions based on downsampled size
+    for (let i = 0; i < image.dims.length; i++) {
+      if (i !== cDimIndex) {
+        const sliceIndex = i < cDimIndex ? i : i - 1;
+        combinedShape[i] = firstSlice.shape[sliceIndex];
+      }
+    }
+
+    // Create combined array
+    const combinedStore = new Map<string, Uint8Array>();
+    const combinedRoot = zarr.root(combinedStore);
+    const combinedArray = await zarr.create(combinedRoot.resolve("combined"), {
+      shape: combinedShape,
+      chunk_shape: combinedShape.map((s) => Math.min(s, 256)),
+      data_type: image.data.dtype,
+      fill_value: 0,
+    });
+
+    // Copy each downsampled slice into the combined array
+    for (let c = 0; c < cSize; c++) {
+      const sliceData = await zarr.get(downsampledSlices[c]);
+      const targetSelection = new Array(combinedShape.length).fill(null);
+      targetSelection[cDimIndex] = c;
+      await zarr.set(combinedArray, targetSelection, sliceData);
+    }
+
+    // Compute new metadata (channel dimension unchanged, spatial dimensions downsampled)
+    const [translation, scale] = nextScaleMetadata(
+      image,
+      dimFactors,
+      spatialDims,
+    );
+
+    return new NgffImage({
+      data: combinedArray,
+      dims: image.dims,
+      scale: { ...image.scale, ...scale },
+      translation: { ...image.translation, ...translation },
+      name: image.name,
+      axesUnits: image.axesUnits,
+      computedCallbacks: image.computedCallbacks,
+    });
+  }
 
   // Convert to ITK-Wasm format
   const itkImage = await zarrToItkImage(image.data, image.dims, isVector);
@@ -465,7 +690,119 @@ async function downsampleLabelImageImpl(
     });
   }
 
-  const isVector = image.dims.includes("c");
+  // Determine if we should use vector mode for multi-channel images.
+  // Only use vector mode for small channel counts (≤ MAX_VECTOR_COMPONENTS)
+  // to avoid itkwasm limitations with VariableLengthVector images.
+  const cIndex = image.dims.indexOf("c");
+  const hasChannels = cIndex !== -1;
+  const numChannels = hasChannels ? image.data.shape[cIndex] : 1;
+  const isVector = hasChannels && numChannels <= MAX_VECTOR_COMPONENTS;
+
+  // Handle channel dimension by processing each channel independently when not using vector mode
+  if (hasChannels && !isVector) {
+    const cDimIndex = cIndex;
+    const cSize = numChannels;
+    const newDims = image.dims.filter((dim) => dim !== "c");
+
+    // Downsample each channel
+    const downsampledSlices: zarr.Array<zarr.DataType, zarr.Readable>[] = [];
+    for (let c = 0; c < cSize; c++) {
+      // Extract channel slice
+      const selection = new Array(image.data.shape.length).fill(null);
+      selection[cDimIndex] = c;
+      const sliceData = await zarr.get(image.data, selection);
+
+      // Create temporary zarr array for this slice
+      const sliceStore = new Map<string, Uint8Array>();
+      const sliceRoot = zarr.root(sliceStore);
+      const sliceShape = image.data.shape.filter((_, i) => i !== cDimIndex);
+      const sliceChunkShape = sliceShape.map((s) => Math.min(s, 256));
+
+      const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
+        shape: sliceShape,
+        chunk_shape: sliceChunkShape,
+        data_type: image.data.dtype,
+        fill_value: 0,
+      });
+
+      const fullSelection = new Array(sliceShape.length).fill(null);
+      await zarr.set(sliceArray, fullSelection, sliceData);
+
+      // Create NgffImage for this slice (without 'c' dimension)
+      const sliceImage = new NgffImage({
+        data: sliceArray,
+        dims: newDims,
+        scale: Object.fromEntries(
+          Object.entries(image.scale).filter(([dim]) => dim !== "c"),
+        ),
+        translation: Object.fromEntries(
+          Object.entries(image.translation).filter(([dim]) => dim !== "c"),
+        ),
+        name: image.name,
+        axesUnits: image.axesUnits
+          ? Object.fromEntries(
+            Object.entries(image.axesUnits).filter(([dim]) => dim !== "c"),
+          )
+          : undefined,
+        computedCallbacks: image.computedCallbacks,
+      });
+
+      // Recursively downsample this slice (without 'c', so no infinite loop)
+      const downsampledSlice = await downsampleLabelImageImpl(
+        sliceImage,
+        dimFactors,
+        spatialDims,
+      );
+      downsampledSlices.push(downsampledSlice.data);
+    }
+
+    // Combine downsampled slices back into a single array with 'c' dimension
+    const firstSlice = downsampledSlices[0];
+    const combinedShape = [...image.data.shape];
+    combinedShape[cDimIndex] = cSize;
+    // Update spatial dimensions based on downsampled size
+    for (let i = 0; i < image.dims.length; i++) {
+      if (i !== cDimIndex) {
+        const sliceIndex = i < cDimIndex ? i : i - 1;
+        combinedShape[i] = firstSlice.shape[sliceIndex];
+      }
+    }
+
+    // Create combined array
+    const combinedStore = new Map<string, Uint8Array>();
+    const combinedRoot = zarr.root(combinedStore);
+    const combinedArray = await zarr.create(combinedRoot.resolve("combined"), {
+      shape: combinedShape,
+      chunk_shape: combinedShape.map((s) => Math.min(s, 256)),
+      data_type: image.data.dtype,
+      fill_value: 0,
+    });
+
+    // Copy each downsampled slice into the combined array
+    for (let c = 0; c < cSize; c++) {
+      const sliceData = await zarr.get(downsampledSlices[c]);
+      const targetSelection = new Array(combinedShape.length).fill(null);
+      targetSelection[cDimIndex] = c;
+      await zarr.set(combinedArray, targetSelection, sliceData);
+    }
+
+    // Compute new metadata (channel dimension unchanged, spatial dimensions downsampled)
+    const [translation, scale] = nextScaleMetadata(
+      image,
+      dimFactors,
+      spatialDims,
+    );
+
+    return new NgffImage({
+      data: combinedArray,
+      dims: image.dims,
+      scale: { ...image.scale, ...scale },
+      translation: { ...image.translation, ...translation },
+      name: image.name,
+      axesUnits: image.axesUnits,
+      computedCallbacks: image.computedCallbacks,
+    });
+  }
 
   // Convert to ITK-Wasm format
   const itkImage = await zarrToItkImage(image.data, image.dims, isVector);
