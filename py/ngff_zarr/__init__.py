@@ -6,6 +6,11 @@
 from .__about__ import __version__
 from ._supported_versions import SUPPORTED_VERSIONS
 from .cli_input_to_ngff_image import cli_input_to_ngff_image
+from .compute_omero import (
+    GLASBEY_COLORS,
+    compute_omero_from_multiscales,
+    compute_omero_from_ngff_image,
+)
 from .config import config
 from .detect_cli_io_backend import ConversionBackend, detect_cli_io_backend
 from .from_ngff_zarr import from_ngff_zarr
@@ -78,6 +83,10 @@ __all__ = [
     "__version__",
     "SUPPORTED_VERSIONS",
     "config",
+    # OMERO computation
+    "compute_omero_from_ngff_image",
+    "compute_omero_from_multiscales",
+    "GLASBEY_COLORS",
     "NgffImage",
     "Multiscales",
     "to_ngff_image",

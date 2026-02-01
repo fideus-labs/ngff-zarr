@@ -31,6 +31,16 @@ export {
   createNgffImage,
 } from "./utils/factory.ts";
 export { getMethodMetadata } from "./utils/method_metadata.ts";
+export {
+  computeOmeroFromMultiscales,
+  computeOmeroFromNgffImage,
+  getDefaultColors,
+  GLASBEY_COLORS,
+} from "./utils/compute_omero.ts";
+export type {
+  ComputeOmeroFromMultiscalesOptions,
+  ComputeOmeroOptions,
+} from "./utils/compute_omero.ts";
 
 // Browser-compatible I/O modules
 // Note: Uses browser-specific versions that don't import @zarrita/storage
