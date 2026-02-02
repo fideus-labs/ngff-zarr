@@ -51,6 +51,7 @@
     "npm:@itk-wasm/image-io@^1.6.0": "1.6.0",
     "npm:@playwright/test@^1.54.1": "1.54.1",
     "npm:@types/node@*": "22.15.15",
+    "npm:fflate@~0.8.2": "0.8.2",
     "npm:itk-wasm@^1.0.0-b.196": "1.0.0-b.196",
     "npm:microdiff@^1.4.0": "1.5.0",
     "npm:numcodecs@~0.3.2": "0.3.2",
@@ -295,7 +296,7 @@
     "@itk-wasm/compare-images@5.4.1": {
       "integrity": "sha512-ocCaBMVLAavnB0NHFfDgjmeVvJdqGvZnCrVsxH8aeYsLE6KE+2tizN3qPDpGIdQ7xZGqL20fxpBEl7DLSN74xA==",
       "dependencies": [
-        "itk-wasm@1.0.0-b.196"
+        "itk-wasm"
       ]
     },
     "@itk-wasm/dam@1.1.1": {
@@ -313,14 +314,14 @@
     "@itk-wasm/downsample@1.8.1": {
       "integrity": "sha512-8j29GkeIECmMgS70DyLHnLMT81Ua5HZ28xSifhshEK2nERq6x4V8nm+CjJDpnKpNE3ZFe3cIY/MES5lr4iF/FQ==",
       "dependencies": [
-        "itk-wasm@1.0.0-b.196"
+        "itk-wasm"
       ]
     },
     "@itk-wasm/image-io@1.6.0": {
       "integrity": "sha512-cx+lHpTc3tmkfKMOMpuwGfQyhsYmac09NoOjeo5bOW45pp040boQiPow8Q/GQmjHUfI9c+H7SqeJCfKVS5SPRw==",
       "dependencies": [
         "axios",
-        "itk-wasm@1.0.0-b.195",
+        "itk-wasm",
         "mime-types"
       ]
     },
@@ -924,25 +925,6 @@
     "it-stream-types@2.0.2": {
       "integrity": "sha512-Rz/DEZ6Byn/r9+/SBCuJhpPATDF9D+dz5pbgSUyBsCDtza6wtNATrz/jz1gDyNanC3XdLboriHnOC925bZRBww=="
     },
-    "itk-wasm@1.0.0-b.195": {
-      "integrity": "sha512-UteObV3LlwRKBe4SfVseCzN371qXYZLC7raDKBEfP/SQ6CYgLPEYhCRYhu/vDsVxFs1pmg2UBUuW8l0LgSxLjg==",
-      "dependencies": [
-        "@emnapi/wasi-threads",
-        "@itk-wasm/dam",
-        "@thewtex/zstddec",
-        "@types/emscripten",
-        "axios",
-        "chalk",
-        "comlink",
-        "commander@11.1.0",
-        "fs-extra",
-        "glob",
-        "markdown-table",
-        "mime-types",
-        "wasm-feature-detect"
-      ],
-      "bin": true
-    },
     "itk-wasm@1.0.0-b.196": {
       "integrity": "sha512-LJoGEFQLgE2lKERTEOq9XFtMTnPUwR0TBWxTA/hI1QPqvXfVNHQGv+vzHTrRCq2GAM+vtWZuVt/XecTBBkN6Hg==",
       "dependencies": [
@@ -1221,7 +1203,8 @@
         "minizlib",
         "mkdirp",
         "yallist"
-      ]
+      ],
+      "deprecated": true
     },
     "through@2.3.8": {
       "integrity": "sha512-w89qg7PI8wAdvX60bMDP+bFoD5Dvhm9oLheFp5O4a2QF0cSBGsBX4qZmadPMvVqlLJBBci+WqGGOAPvcDeNSVg=="
@@ -1375,6 +1358,7 @@
       "npm:@itk-wasm/downsample@^1.8.1",
       "npm:@itk-wasm/image-io@^1.6.0",
       "npm:@playwright/test@^1.54.1",
+      "npm:fflate@~0.8.2",
       "npm:itk-wasm@^1.0.0-b.196",
       "npm:microdiff@^1.4.0",
       "npm:p-queue@^8.1.0",
