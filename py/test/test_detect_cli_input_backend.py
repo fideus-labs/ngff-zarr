@@ -77,6 +77,7 @@ def test_detect_nibabel_input_backend_with_extra_dots():
     backend = detect_cli_io_backend(["patient.scan.nii.gz"])
     assert backend == ConversionBackend.NIBABEL
 
+
 def test_detect_liffile_input_backend_lif():
     """Test detection of .lif (Leica Image File) extension."""
     extension = ".lif"

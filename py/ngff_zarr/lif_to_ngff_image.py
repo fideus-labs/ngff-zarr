@@ -194,7 +194,7 @@ def _reshape_for_flattened_channels(
 
     This handles the case where LIF has multiple channel-like dimensions
     (C, λ, Λ, S) that need to be flattened into a single channel dimension.
-    
+
     The function ensures channel dimensions are moved to be adjacent before
     flattening, regardless of their original positions in the array.
     """
@@ -214,47 +214,59 @@ def _reshape_for_flattened_channels(
     # 1. Move all channel dimensions to be contiguous
     # 2. Reshape to flatten them into a single dimension
     # 3. Move the flattened channel dimension to its target position
-    
+
     # Check if channel dimensions are already contiguous
     are_contiguous = all(
         channel_dim_indices[i] + 1 == channel_dim_indices[i + 1]
         for i in range(len(channel_dim_indices) - 1)
     )
-    
+
     if are_contiguous:
         # Dimensions are contiguous, safe to use reshape directly
         return data.reshape(ngff_shape)
-    
+
     # Move channel dimensions to be adjacent
     # Move them to the position of the first channel dimension
     first_channel_pos = channel_dim_indices[0]
-    
+
     # Calculate new axis order: non-channel dims + channel dims
-    non_channel_indices = [i for i in range(len(lif_dims)) if i not in channel_dim_indices]
-    
+    non_channel_indices = [
+        i for i in range(len(lif_dims)) if i not in channel_dim_indices
+    ]
+
     # Insert channel dims at the position where the first one was
     new_axis_order = (
-        non_channel_indices[:first_channel_pos] +
-        channel_dim_indices +
-        non_channel_indices[first_channel_pos:]
+        non_channel_indices[:first_channel_pos]
+        + channel_dim_indices
+        + non_channel_indices[first_channel_pos:]
     )
-    
+
     # Transpose to new order
     data = data.transpose(new_axis_order)
-    
+
     # Now reshape to flatten the channel dimensions
     # Calculate the intermediate shape after transposing
     intermediate_shape = [lif_shape[i] for i in new_axis_order]
-    
+
     # Calculate flattened shape: replace the channel dimensions with their product
     flattened_shape = (
-        intermediate_shape[:first_channel_pos] +
-        [reduce(lambda x, y: x * y, [intermediate_shape[i] for i in range(first_channel_pos, first_channel_pos + len(channel_dim_indices))])] +
-        intermediate_shape[first_channel_pos + len(channel_dim_indices):]
+        intermediate_shape[:first_channel_pos]
+        + [
+            reduce(
+                lambda x, y: x * y,
+                [
+                    intermediate_shape[i]
+                    for i in range(
+                        first_channel_pos, first_channel_pos + len(channel_dim_indices)
+                    )
+                ],
+            )
+        ]
+        + intermediate_shape[first_channel_pos + len(channel_dim_indices) :]
     )
-    
+
     data = data.reshape(flattened_shape)
-    
+
     # Now the data has the right shape, but might not match ngff_shape dimension order
     # Find where 'c' is in ngff_dims
     if "c" in ngff_dims:
@@ -265,7 +277,7 @@ def _reshape_for_flattened_channels(
             current_order.pop(first_channel_pos)
             current_order.insert(target_c_pos, first_channel_pos)
             data = data.transpose(current_order)
-    
+
     return data
 
 
