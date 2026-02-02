@@ -191,7 +191,7 @@ async function createPackageJson(): Promise<void> {
       "@itk-wasm/downsample": "^1.8.1",
       "itk-wasm": "^1.0.0-b.196",
       "p-queue": "^8.1.0",
-      "@zarrita/storage": "^0.1.1",
+      "@zarrita/storage": "^0.1.4",
       zod: "^4.0.2",
       zarrita: "^0.5.2",
     },
