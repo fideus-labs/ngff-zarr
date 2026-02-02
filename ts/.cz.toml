@@ -1,0 +1,13 @@
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.3.0"
+tag_format = "ts-v$version"
+update_changelog_on_bump = true
+changelog_file = "CHANGELOG.md"
+version_files = [
+    "deno.json:version",
+    "scripts/build_npm.ts:version"
+]
+bump_message = "chore(ts): bump @fideus-labs/ngff-zarr to version $new_version"
+annotated_tag = true
+major_version_zero = true

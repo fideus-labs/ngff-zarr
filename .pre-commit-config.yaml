@@ -1,5 +1,10 @@
 exclude: (^.pixi/|.snap|pixi.lock)
 
+default_install_hook_types:
+  - pre-commit
+  - commit-msg
+  - pre-push
+
 ci:
   autoupdate_commit_msg: "ENH: update pre-commit hooks"
   autofix_commit_msg: "STYLE: pre-commit fixes"
@@ -44,3 +49,11 @@ repos:
         args: [--fix, --exit-non-zero-on-fix]
         exclude: py/test/conftest.py
       - id: ruff-format
+
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: "v4.13.0"
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
+      - id: commitizen-branch
+        stages: [pre-push]

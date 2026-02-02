@@ -67,6 +67,96 @@ cd ts && pixi run --as-is test:browser  # Browser compatibility tests
 cd ts && pixi run --as-is check         # Type checking
 ```
 
+## Commit Message Format & Version Management
+
+This repository follows [Conventional Commits](https://www.conventionalcommits.org/)
+specification. All commit messages are validated by Commitizen pre-commit hooks.
+
+### Commit Message Format
+
+```
+<type>(<scope>): <subject>
+
+[optional body]
+
+[optional footer]
+```
+
+**Types:**
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation changes
+- `style`: Code style changes (formatting, etc.)
+- `refactor`: Code refactoring
+- `perf`: Performance improvements
+- `test`: Test changes
+- `build`: Build system changes
+- `ci`: CI/CD changes
+- `chore`: Other changes (dependencies, etc.)
+
+**Scopes (optional but recommended):**
+- `py`: Python package (ngff-zarr)
+- `mcp`: MCP server package (ngff-zarr-mcp)
+- `ts`: TypeScript package (@fideus-labs/ngff-zarr)
+
+**Examples:**
+```bash
+feat(py): add support for RFC-9 OME-Zarr format
+fix(ts): resolve memory leak in multiscale generation
+docs: update installation instructions
+chore(mcp): update dependencies
+```
+
+### Interactive Commit CLI
+
+For help writing compliant commit messages:
+
+```bash
+cd py && pixi run --as-is -e lint cz commit
+# or use the shortcut
+cd py && pixi run --as-is -e lint cz c
+```
+
+### Version Management
+
+Each package is versioned independently using Commitizen:
+
+**Python package (py/):**
+```bash
+cd py && pixi run --as-is -e lint cz bump
+```
+
+**MCP package (mcp/):**
+```bash
+cd mcp && pixi run --as-is -e lint cz bump
+```
+
+**TypeScript package (ts/):**
+```bash
+cd ts && pixi run --as-is -e lint cz bump
+```
+
+The `cz bump` command will:
+- Analyze commits since last tag
+- Determine appropriate version bump (major/minor/patch)
+- Update version files automatically
+- Generate/update CHANGELOG.md
+- Create a git tag (py-v*, mcp-v*, or ts-v*)
+
+### Pre-commit Hook Installation
+
+The pre-commit hooks are now configured to validate commit messages and branch
+names. Install them with:
+
+```bash
+cd py && pixi run pre-commit-install
+```
+
+This will install hooks for:
+- **commit-msg**: Validates commit message format
+- **pre-push**: Validates branch naming (if configured)
+- **pre-commit**: Standard linting and formatting checks
+
 ## Python Code Style Guidelines
 
 - **Line length**: 88 characters (Black/Ruff standard)
