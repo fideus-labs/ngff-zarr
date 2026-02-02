@@ -12,6 +12,13 @@ import { NgffImage } from "../types/ngff_image.ts";
 
 export const SPATIAL_DIMS = ["x", "y", "z"];
 
+/**
+ * Maximum number of components to use vector mode for itkwasm downsampling.
+ * Images with more components will iterate over channels individually to avoid
+ * itkwasm limitations with VariableLengthVector images.
+ */
+export const MAX_VECTOR_COMPONENTS = 8;
+
 export interface DimFactors {
   [key: string]: number;
 }

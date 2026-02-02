@@ -22,6 +22,11 @@ from ._support import (
 
 _image_dims: Tuple[str, str, str, str] = ("x", "y", "z", "t")
 
+# Maximum number of components to use vector mode for itkwasm downsampling.
+# Images with more components will iterate over channels individually to avoid
+# itkwasm limitations with VariableLengthVector images.
+_MAX_VECTOR_COMPONENTS = 8
+
 
 def _itkwasm_blur_and_downsample(
     image_data,
@@ -170,8 +175,16 @@ def _downsample_itkwasm(
             current_image, dim_factors, spatial_dims, block_neg1_input
         )
 
-        # Compute overlap for Gaussian blurring for all blocks
-        is_vector = current_image.dims[-1] == "c"
+        # Determine if we should use vector mode for multi-channel images.
+        # Only use vector mode for small channel counts (≤ _MAX_VECTOR_COMPONENTS)
+        # to avoid itkwasm limitations with VariableLengthVector images.
+        c_is_last = current_image.dims[-1] == "c"
+        if c_is_last:
+            c_index = current_image.dims.index("c")
+            num_channels = current_image.data.shape[c_index]
+            is_vector = num_channels <= _MAX_VECTOR_COMPONENTS
+        else:
+            is_vector = False
 
         # pixel units
         # Compute metadata for region splitting
@@ -199,7 +212,10 @@ def _downsample_itkwasm(
         output_chunks = tuple(output_chunks)
 
         non_spatial_dims = [d for d in dims if d not in _spatial_dims]
-        if "c" in non_spatial_dims and current_image.dims[-1] == "c":
+        # Only remove 'c' from non_spatial_dims when using vector mode.
+        # When not using vector mode (channels > _MAX_VECTOR_COMPONENTS),
+        # keep 'c' in non_spatial_dims so we iterate over channels individually.
+        if "c" in non_spatial_dims and c_is_last and is_vector:
             non_spatial_dims.remove("c")
 
         if output_chunks_start > 0:

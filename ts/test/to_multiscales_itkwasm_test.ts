@@ -319,4 +319,110 @@ Deno.test("label image isotropic scale factors", async () => {
   assertEquals(multiscales2.images.length, 3); // Original + 2 downsampled
 });
 
+Deno.test("itkwasm gaussian many channels (>8)", async () => {
+  // Test with 16 channels - should iterate over channels individually
+  // instead of using vector mode to avoid VariableLengthVector limitations
+  const numChannels = 16;
+  const data = new Uint16Array(numChannels * 32 * 32);
+  for (let i = 0; i < data.length; i++) {
+    data[i] = Math.floor(Math.random() * 65536);
+  }
+
+  const image = await toNgffImage(data, {
+    dims: ["c", "y", "x"],
+    shape: [numChannels, 32, 32],
+  });
+
+  const multiscales = await toMultiscales(image, {
+    scaleFactors: [2],
+    method: Methods.ITKWASM_GAUSSIAN,
+  });
+
+  assertExists(multiscales);
+  assertEquals(multiscales.images.length, 2); // Original + 1 downsampled
+  assertEquals(multiscales.images[0].dims[0], "c");
+  assertEquals(multiscales.images[1].data.shape[0], numChannels); // c unchanged
+  assertEquals(multiscales.images[1].data.shape[1], 16); // y: 32/2
+  assertEquals(multiscales.images[1].data.shape[2], 16); // x: 32/2
+});
+
+Deno.test("itkwasm gaussian few channels (<=8)", async () => {
+  // Test with 3 channels - should use vector mode for memory efficiency
+  const numChannels = 3;
+  const data = new Uint16Array(numChannels * 32 * 32);
+  for (let i = 0; i < data.length; i++) {
+    data[i] = Math.floor(Math.random() * 65536);
+  }
+
+  const image = await toNgffImage(data, {
+    dims: ["c", "y", "x"],
+    shape: [numChannels, 32, 32],
+  });
+
+  const multiscales = await toMultiscales(image, {
+    scaleFactors: [2],
+    method: Methods.ITKWASM_GAUSSIAN,
+  });
+
+  assertExists(multiscales);
+  assertEquals(multiscales.images.length, 2); // Original + 1 downsampled
+  assertEquals(multiscales.images[0].dims[0], "c");
+  assertEquals(multiscales.images[1].data.shape[0], numChannels); // c unchanged
+  assertEquals(multiscales.images[1].data.shape[1], 16); // y: 32/2
+  assertEquals(multiscales.images[1].data.shape[2], 16); // x: 32/2
+});
+
+Deno.test("itkwasm bin shrink many channels (>8)", async () => {
+  // Test with 12 channels - should iterate over channels individually
+  const numChannels = 12;
+  const data = new Uint16Array(numChannels * 32 * 32);
+  for (let i = 0; i < data.length; i++) {
+    data[i] = Math.floor(Math.random() * 65536);
+  }
+
+  const image = await toNgffImage(data, {
+    dims: ["c", "y", "x"],
+    shape: [numChannels, 32, 32],
+  });
+
+  const multiscales = await toMultiscales(image, {
+    scaleFactors: [2],
+    method: Methods.ITKWASM_BIN_SHRINK,
+  });
+
+  assertExists(multiscales);
+  assertEquals(multiscales.images.length, 2); // Original + 1 downsampled
+  assertEquals(multiscales.images[0].dims[0], "c");
+  assertEquals(multiscales.images[1].data.shape[0], numChannels); // c unchanged
+  assertEquals(multiscales.images[1].data.shape[1], 16); // y: 32/2
+  assertEquals(multiscales.images[1].data.shape[2], 16); // x: 32/2
+});
+
+Deno.test("itkwasm label image many channels (>8)", async () => {
+  // Test with 10 channels - should iterate over channels individually
+  const numChannels = 10;
+  const data = new Uint8Array(numChannels * 32 * 32);
+  for (let i = 0; i < data.length; i++) {
+    // Create label-like data with discrete values
+    data[i] = Math.floor(Math.random() * 5);
+  }
+
+  const image = await toNgffImage(data, {
+    dims: ["c", "y", "x"],
+    shape: [numChannels, 32, 32],
+  });
+
+  const multiscales = await toMultiscales(image, {
+    scaleFactors: [2],
+    method: Methods.ITKWASM_LABEL_IMAGE,
+  });
+
+  assertExists(multiscales);
+  assertEquals(multiscales.images.length, 2); // Original + 1 downsampled
+  assertEquals(multiscales.images[0].dims[0], "c");
+  assertEquals(multiscales.images[1].data.shape[0], numChannels); // c unchanged
+  assertEquals(multiscales.images[1].data.shape[1], 16); // y: 32/2
+  assertEquals(multiscales.images[1].data.shape[2], 16); // x: 32/2
+});
+
 console.log("✅ All ITK-Wasm downsampling tests completed!");
