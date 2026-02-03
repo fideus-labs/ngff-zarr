@@ -53,3 +53,15 @@ cmd = "deno run --allow-all scripts/build_npm.ts"
 # Build NPM package first, then bundle the browser module with esbuild
 # This ensures proper npm conditional exports are respected (e.g., browser vs node)
 cmd = "deno run --allow-all scripts/build_npm.ts && cd npm && npx esbuild esm/browser-mod.js --bundle --format=esm --platform=browser --minify --outfile=../test/browser-npm/ngff-zarr.bundle.js"
+
+[tasks.commit]
+cmd = "../py/.pixi/envs/lint/bin/cz c"
+description = "Interactive commit helper"
+
+[tasks.version-check]
+cmd = "../py/.pixi/envs/lint/bin/cz version -p"
+description = "Check current package version"
+
+[tasks.bump]
+cmd = "../py/.pixi/envs/lint/bin/cz bump"
+description = "Bump TypeScript package version"

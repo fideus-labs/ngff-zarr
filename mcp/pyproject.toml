@@ -180,6 +180,9 @@ format-check = "black --check --diff ."
 typecheck = "mypy ngff_zarr_mcp tests"
 build = "hatch build"
 all-checks = { depends-on = ["lint", "format-check", "typecheck"] }
+commit = { cmd = "../py/.pixi/envs/lint/bin/cz c", description = "Interactive commit helper" }
+version-check = { cmd = "../py/.pixi/envs/lint/bin/cz version -p", description = "Check current package version" }
+bump = { cmd = "../py/.pixi/envs/lint/bin/cz bump", description = "Bump MCP package version" }
 
 [tool.pixi.feature.cloud.pypi-dependencies]
 ngff-zarr-mcp = { path = ".", editable = true, extras = ["cloud"] }
@@ -206,3 +209,15 @@ version_files = [
 bump_message = "chore(mcp): bump ngff-zarr-mcp to $new_version"
 annotated_tag = true
 major_version_zero = true
+
+[tool.commitizen.change_type_map]
+feat = "Features"
+fix = "Bug Fixes"
+docs = "Documentation"
+style = "Style"
+refactor = "Refactoring"
+perf = "Performance"
+test = "Testing"
+build = "Build"
+ci = "CI/CD"
+chore = "Chores"

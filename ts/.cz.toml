@@ -11,3 +11,15 @@ version_files = [
 bump_message = "chore(ts): bump @fideus-labs/ngff-zarr to version $new_version"
 annotated_tag = true
 major_version_zero = true
+
+[tool.commitizen.change_type_map]
+feat = "Features"
+fix = "Bug Fixes"
+docs = "Documentation"
+style = "Style"
+refactor = "Refactoring"
+perf = "Performance"
+test = "Testing"
+build = "Build"
+ci = "CI/CD"
+chore = "Chores"

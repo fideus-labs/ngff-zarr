@@ -95,12 +95,31 @@ chore(ts): update dependencies
 If you need help writing compliant commit messages, use the interactive CLI:
 
 ```bash
-cd py && pixi run --as-is -e lint cz commit
-# or use the shortcut
-cd py && pixi run --as-is -e lint cz c
+cd py && pixi run commit
+# or from other directories:
+cd ts && pixi run commit
+cd mcp && pixi run commit
 ```
 
 This will guide you through creating a properly formatted commit message.
+
+### Version Management
+
+Check the current version of a package:
+
+```bash
+cd py && pixi run version-check   # Shows Python package version
+cd ts && pixi run version-check   # Shows TypeScript package version
+cd mcp && pixi run version-check  # Shows MCP package version
+```
+
+Bump the version (analyzes commits, updates changelog, creates tag):
+
+```bash
+cd py && pixi run bump   # Bump Python package
+cd ts && pixi run bump   # Bump TypeScript package
+cd mcp && pixi run bump  # Bump MCP package
+```
 
 ### Pre-commit Validation
 

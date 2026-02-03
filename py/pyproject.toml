@@ -193,6 +193,9 @@ commitizen = "*"
 pre-commit-install = { cmd = "pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre-push", description = "Install pre-commit hooks" }
 pre-commit-run = { cmd = "pre-commit run --all", description = "Run pre-commit hooks on all repository files" }
 lint = { depends-on = ["pre-commit-run"], description = "Run linters" }
+commit = { cmd = "cz c", description = "Interactive commit helper" }
+version-check = { cmd = "cz version -p", description = "Check current package version" }
+bump = { cmd = "cz bump", description = "Bump Python package version" }
 
 [tool.pixi.feature.docs.tasks]
 dev-docs = { cmd = "sphinx-autobuild . ./_build/html", cwd = "../docs", description = "Build the documentation" }
@@ -229,3 +232,15 @@ version_files = [
 bump_message = "chore(py): bump ngff-zarr to $new_version"
 annotated_tag = true
 major_version_zero = true
+
+[tool.commitizen.change_type_map]
+feat = "Features"
+fix = "Bug Fixes"
+docs = "Documentation"
+style = "Style"
+refactor = "Refactoring"
+perf = "Performance"
+test = "Testing"
+build = "Build"
+ci = "CI/CD"
+chore = "Chores"
