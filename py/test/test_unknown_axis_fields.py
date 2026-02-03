@@ -16,27 +16,32 @@ from ngff_zarr import from_ngff_zarr, to_multiscales, to_ngff_image, to_ngff_zar
 zarr_version = packaging.version.parse(zarr.__version__)
 
 
-async def get_store_attrs(store):
-    """Get attributes from a zarr store (v3 compatible)."""
-    from zarr.core.buffer import default_buffer_prototype
+@pytest.fixture
+def zarr_helpers():
+    """Fixture providing helper functions for accessing zarr store attributes."""
     
-    attrs_key = ".zattrs"
-    attrs_bytes = await store.get(attrs_key, default_buffer_prototype())
-    return json.loads(attrs_bytes.to_bytes().decode())
-
-
-async def set_store_attrs(store, attrs):
-    """Set attributes in a zarr store (v3 compatible)."""
-    from zarr.core.buffer import default_buffer_prototype
+    async def get_attrs(store):
+        """Get attributes from a zarr store (v3 compatible)."""
+        from zarr.core.buffer import default_buffer_prototype
+        
+        attrs_key = ".zattrs"
+        attrs_bytes = await store.get(attrs_key, default_buffer_prototype())
+        return json.loads(attrs_bytes.to_bytes().decode())
     
-    attrs_key = ".zattrs"
-    attrs_bytes = json.dumps(attrs).encode()
-    proto = default_buffer_prototype()
-    buffer = proto.buffer.from_bytes(attrs_bytes)
-    await store.set(attrs_key, buffer)
+    async def set_attrs(store, attrs):
+        """Set attributes in a zarr store (v3 compatible)."""
+        from zarr.core.buffer import default_buffer_prototype
+        
+        attrs_key = ".zattrs"
+        attrs_bytes = json.dumps(attrs).encode()
+        proto = default_buffer_prototype()
+        buffer = proto.buffer.from_bytes(attrs_bytes)
+        await store.set(attrs_key, buffer)
+    
+    return {"get": get_attrs, "set": set_attrs}
 
 
-def test_unknown_axis_fields_are_filtered(caplog):
+def test_unknown_axis_fields_are_filtered(caplog, zarr_helpers):
     """Test that non-standard axis fields are filtered out and a warning is logged."""
     # Create a basic image
     data = np.random.rand(10, 20, 30).astype(np.float32)
@@ -55,7 +60,7 @@ def test_unknown_axis_fields_are_filtered(caplog):
     to_ngff_zarr(store, multiscales, version=version)
     
     # Manually modify the metadata to add a non-standard field
-    attrs = asyncio.run(get_store_attrs(store))
+    attrs = asyncio.run(zarr_helpers["get"](store))
     
     # Add a non-standard "discrete" field to the time axis (like BigStitcher-Spark does)
     for axis in attrs["multiscales"][0]["axes"]:
@@ -63,7 +68,7 @@ def test_unknown_axis_fields_are_filtered(caplog):
             axis["discrete"] = False
             axis["custom_field"] = "custom_value"
     
-    asyncio.run(set_store_attrs(store, attrs))
+    asyncio.run(zarr_helpers["set"](store, attrs))
     
     # Try to load the data - it should succeed and log warnings
     with caplog.at_level(logging.WARNING):
@@ -88,7 +93,7 @@ def test_unknown_axis_fields_are_filtered(caplog):
     assert not hasattr(z_axis, "custom_field")
 
 
-def test_unknown_fields_multiple_axes(caplog):
+def test_unknown_fields_multiple_axes(caplog, zarr_helpers):
     """Test that unknown fields in multiple axes are all logged."""
     # Create a 4D image
     data = np.random.rand(2, 10, 20, 30).astype(np.float32)
@@ -107,7 +112,7 @@ def test_unknown_fields_multiple_axes(caplog):
     to_ngff_zarr(store, multiscales, version=version)
     
     # Manually modify the metadata to add non-standard fields to multiple axes
-    attrs = asyncio.run(get_store_attrs(store))
+    attrs = asyncio.run(zarr_helpers["get"](store))
     
     for axis in attrs["multiscales"][0]["axes"]:
         if axis["name"] == "t":
@@ -115,7 +120,7 @@ def test_unknown_fields_multiple_axes(caplog):
         elif axis["name"] == "z":
             axis["continuous"] = True
     
-    asyncio.run(set_store_attrs(store, attrs))
+    asyncio.run(zarr_helpers["set"](store, attrs))
     
     # Try to load the data
     with caplog.at_level(logging.WARNING):
@@ -130,7 +135,7 @@ def test_unknown_fields_multiple_axes(caplog):
     assert multiscales_back is not None
 
 
-def test_missing_required_name_field():
+def test_missing_required_name_field(zarr_helpers):
     """Test that missing 'name' field raises ValueError."""
     # Create a basic image
     data = np.random.rand(10, 20, 30).astype(np.float32)
@@ -149,19 +154,19 @@ def test_missing_required_name_field():
     to_ngff_zarr(store, multiscales, version=version)
     
     # Manually corrupt the metadata by removing 'name' field
-    attrs = asyncio.run(get_store_attrs(store))
+    attrs = asyncio.run(zarr_helpers["get"](store))
     
     # Remove the 'name' field from one axis
     del attrs["multiscales"][0]["axes"][0]["name"]
     
-    asyncio.run(set_store_attrs(store, attrs))
+    asyncio.run(zarr_helpers["set"](store, attrs))
     
     # Try to load the data - should raise ValueError
     with pytest.raises(ValueError, match="missing required field 'name'"):
         from_ngff_zarr(store, version=version)
 
 
-def test_missing_required_type_field():
+def test_missing_required_type_field(zarr_helpers):
     """Test that missing 'type' field raises ValueError."""
     # Create a basic image
     data = np.random.rand(10, 20, 30).astype(np.float32)
@@ -180,19 +185,19 @@ def test_missing_required_type_field():
     to_ngff_zarr(store, multiscales, version=version)
     
     # Manually corrupt the metadata by removing 'type' field
-    attrs = asyncio.run(get_store_attrs(store))
+    attrs = asyncio.run(zarr_helpers["get"](store))
     
     # Remove the 'type' field from one axis
     del attrs["multiscales"][0]["axes"][0]["type"]
     
-    asyncio.run(set_store_attrs(store, attrs))
+    asyncio.run(zarr_helpers["set"](store, attrs))
     
     # Try to load the data - should raise ValueError
     with pytest.raises(ValueError, match="missing required field 'type'"):
         from_ngff_zarr(store, version=version)
 
 
-def test_only_unknown_fields():
+def test_only_unknown_fields(zarr_helpers):
     """Test that an axis with only unknown fields (no valid fields) raises ValueError."""
     # Create a basic image
     data = np.random.rand(10, 20, 30).astype(np.float32)
@@ -211,7 +216,7 @@ def test_only_unknown_fields():
     to_ngff_zarr(store, multiscales, version=version)
     
     # Manually corrupt the metadata to have only unknown fields
-    attrs = asyncio.run(get_store_attrs(store))
+    attrs = asyncio.run(zarr_helpers["get"](store))
     
     # Replace one axis with only unknown fields
     attrs["multiscales"][0]["axes"][0] = {
@@ -219,14 +224,14 @@ def test_only_unknown_fields():
         "custom_field_2": "value2",
     }
     
-    asyncio.run(set_store_attrs(store, attrs))
+    asyncio.run(zarr_helpers["set"](store, attrs))
     
     # Try to load the data - should raise ValueError about missing required fields
     with pytest.raises(ValueError, match="missing required field"):
         from_ngff_zarr(store, version=version)
 
 
-def test_valid_optional_fields_preserved():
+def test_valid_optional_fields_preserved(zarr_helpers):
     """Test that valid optional fields (like 'unit') are preserved."""
     # Create a basic image with units
     data = np.random.rand(10, 20, 30).astype(np.float32)
@@ -247,13 +252,13 @@ def test_valid_optional_fields_preserved():
     to_ngff_zarr(store, multiscales, version=version)
     
     # Manually add a non-standard field alongside the valid 'unit' field
-    attrs = asyncio.run(get_store_attrs(store))
+    attrs = asyncio.run(zarr_helpers["get"](store))
     
     for axis in attrs["multiscales"][0]["axes"]:
         if axis["name"] == "z":
             axis["discrete"] = False  # Non-standard field
     
-    asyncio.run(set_store_attrs(store, attrs))
+    asyncio.run(zarr_helpers["set"](store, attrs))
     
     # Load the data
     multiscales_back = from_ngff_zarr(store, version=version)

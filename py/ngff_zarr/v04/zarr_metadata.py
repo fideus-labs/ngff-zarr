@@ -409,17 +409,21 @@ class Metadata:
             ]
             units = {d: None for d in dims}
         else:
+            axes_list = root_attrs["axes"]
+            if not axes_list:
+                raise ValueError("Axes list is empty in metadata")
+            
             # Determine if we have v0.4+ (dict-based axes) or v0.3 (string-based axes)
             # by checking if the first axis is a dict
-            first_axis_is_dict = isinstance(root_attrs["axes"][0], dict)
+            first_axis_is_dict = isinstance(axes_list[0], dict)
             
             if first_axis_is_dict:
                 # v0.4+ format with dict-based axes
-                dims = tuple(a["name"] if "name" in a else a for a in root_attrs["axes"])
-                axes = [Axis(**_filter_axis_dict(axis)) for axis in root_attrs["axes"]]
+                dims = tuple(a["name"] if "name" in a else a for a in axes_list)
+                axes = [Axis(**_filter_axis_dict(axis)) for axis in axes_list]
             else:
                 # v0.3 format with string-based axes
-                dims = tuple(root_attrs["axes"])
+                dims = tuple(axes_list)
                 type_dict = {
                     "t": "time",
                     "c": "channel",
@@ -428,11 +432,11 @@ class Metadata:
                     "x": "space",
                 }
                 axes = [
-                    Axis(name=axis, type=type_dict[axis]) for axis in root_attrs["axes"]
+                    Axis(name=axis, type=type_dict[axis]) for axis in axes_list
                 ]
 
             units = {d: None for d in dims}
-            for axis in root_attrs["axes"]:
+            for axis in axes_list:
                 # Only process unit information for dict-style axes that have both
                 # a name and a unit (v0.4+). For v0.3 string axes, this loop is a no-op.
                 if isinstance(axis, dict):
