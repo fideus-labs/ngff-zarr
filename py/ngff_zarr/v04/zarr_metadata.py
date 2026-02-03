@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+import functools
 import logging
 import re
 from dataclasses import dataclass, fields
@@ -146,8 +147,12 @@ def is_unit_supported(unit: str) -> bool:
     return (unit in time_units) or (unit in space_units)
 
 
+@functools.lru_cache(maxsize=1)
 def _get_axis_fields() -> Set[str]:
-    """Get the set of valid field names for the Axis dataclass."""
+    """Get the set of valid field names for the Axis dataclass.
+    
+    Cached to avoid repeated introspection.
+    """
     return {f.name for f in fields(Axis)}
 
 
@@ -155,7 +160,20 @@ def _filter_axis_dict(axis_dict: dict) -> dict:
     """Filter an axis dictionary to only include valid Axis fields.
 
     Logs a warning if unknown fields are encountered.
+    
+    Raises:
+        ValueError: If required fields 'name' or 'type' are missing from the axis dictionary.
     """
+    # Check for required fields before filtering
+    if "name" not in axis_dict:
+        raise ValueError(
+            f"Axis dictionary is missing required field 'name': {axis_dict}"
+        )
+    if "type" not in axis_dict:
+        raise ValueError(
+            f"Axis dictionary is missing required field 'type': {axis_dict}"
+        )
+    
     axis_fields = _get_axis_fields()
     unknown_fields = set(axis_dict.keys()) - axis_fields
     if unknown_fields:
@@ -391,11 +409,17 @@ class Metadata:
             ]
             units = {d: None for d in dims}
         else:
-            dims = tuple(a["name"] if "name" in a else a for a in root_attrs["axes"])
-            if "name" in root_attrs["axes"][0]:
+            # Determine if we have v0.4+ (dict-based axes) or v0.3 (string-based axes)
+            # by checking if the first axis is a dict
+            first_axis_is_dict = isinstance(root_attrs["axes"][0], dict)
+            
+            if first_axis_is_dict:
+                # v0.4+ format with dict-based axes
+                dims = tuple(a["name"] if "name" in a else a for a in root_attrs["axes"])
                 axes = [Axis(**_filter_axis_dict(axis)) for axis in root_attrs["axes"]]
             else:
-                # v0.3
+                # v0.3 format with string-based axes
+                dims = tuple(root_attrs["axes"])
                 type_dict = {
                     "t": "time",
                     "c": "channel",
