@@ -112,31 +112,28 @@ chore(mcp): update dependencies
 For help writing compliant commit messages:
 
 ```bash
-cd py && pixi run --as-is -e lint cz commit
-# or use the shortcut
-cd py && pixi run --as-is -e lint cz c
+cd py && pixi run commit
+cd ts && pixi run commit
+cd mcp && pixi run commit
 ```
 
 ### Version Management
 
 Each package is versioned independently using Commitizen:
 
-**Python package (py/):**
 ```bash
-cd py && pixi run --as-is -e lint cz bump
+# Check current version
+cd py && pixi run version-check
+cd ts && pixi run version-check
+cd mcp && pixi run version-check
+
+# Bump version (analyzes commits, updates changelog, creates tag)
+cd py && pixi run bump   # Python package
+cd ts && pixi run bump   # TypeScript package
+cd mcp && pixi run bump  # MCP package
 ```
 
-**MCP package (mcp/):**
-```bash
-cd mcp && pixi run --as-is -e lint cz bump
-```
-
-**TypeScript package (ts/):**
-```bash
-cd ts && pixi run --as-is -e lint cz bump
-```
-
-The `cz bump` command will:
+The `bump` task will:
 - Analyze commits since last tag
 - Determine appropriate version bump (major/minor/patch)
 - Update version files automatically
