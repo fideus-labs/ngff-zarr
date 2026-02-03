@@ -20,30 +20,46 @@ zarr_version = packaging.version.parse(zarr.__version__)
 def zarr_helpers():
     """Fixture providing helper functions for accessing zarr store attributes."""
     
-    async def _get_attrs_async(store):
-        """Get attributes from a zarr store (v3 compatible)."""
-        from zarr.core.buffer import default_buffer_prototype
+    # Check zarr version to determine the appropriate API
+    zarr_version_major = zarr_version.major
+    
+    if zarr_version_major >= 3:
+        # Zarr v3 API
+        async def _get_attrs_async(store):
+            """Get attributes from a zarr store (v3 compatible)."""
+            from zarr.core.buffer import default_buffer_prototype
+            
+            attrs_key = ".zattrs"
+            attrs_bytes = await store.get(attrs_key, default_buffer_prototype())
+            return json.loads(attrs_bytes.to_bytes().decode())
         
-        attrs_key = ".zattrs"
-        attrs_bytes = await store.get(attrs_key, default_buffer_prototype())
-        return json.loads(attrs_bytes.to_bytes().decode())
-    
-    async def _set_attrs_async(store, attrs):
-        """Set attributes in a zarr store (v3 compatible)."""
-        from zarr.core.buffer import default_buffer_prototype
+        async def _set_attrs_async(store, attrs):
+            """Set attributes in a zarr store (v3 compatible)."""
+            from zarr.core.buffer import default_buffer_prototype
+            
+            attrs_key = ".zattrs"
+            attrs_bytes = json.dumps(attrs).encode()
+            proto = default_buffer_prototype()
+            buffer = proto.buffer.from_bytes(attrs_bytes)
+            await store.set(attrs_key, buffer)
         
-        attrs_key = ".zattrs"
-        attrs_bytes = json.dumps(attrs).encode()
-        proto = default_buffer_prototype()
-        buffer = proto.buffer.from_bytes(attrs_bytes)
-        await store.set(attrs_key, buffer)
-    
-    # Return sync wrappers to avoid repeated asyncio.run() calls in tests
-    def get_attrs(store):
-        return asyncio.run(_get_attrs_async(store))
-    
-    def set_attrs(store, attrs):
-        return asyncio.run(_set_attrs_async(store, attrs))
+        # Return sync wrappers to avoid repeated asyncio.run() calls in tests
+        def get_attrs(store):
+            return asyncio.run(_get_attrs_async(store))
+        
+        def set_attrs(store, attrs):
+            return asyncio.run(_set_attrs_async(store, attrs))
+    else:
+        # Zarr v2 API
+        def get_attrs(store):
+            """Get attributes from a zarr store (v2 compatible)."""
+            attrs_key = ".zattrs"
+            return json.loads(store[attrs_key].decode())
+        
+        def set_attrs(store, attrs):
+            """Set attributes in a zarr store (v2 compatible)."""
+            attrs_key = ".zattrs"
+            store[attrs_key] = json.dumps(attrs).encode()
     
     return {"get": get_attrs, "set": set_attrs}
 
