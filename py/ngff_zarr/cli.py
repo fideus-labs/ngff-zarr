@@ -132,9 +132,7 @@ def _apply_omero_metadata(live, args, multiscales):
 
         for i, window_values in enumerate(args.omero_window):
             min_val, max_val, start_val, end_val = window_values
-            window = OmeroWindow(
-                min=min_val, max=max_val, start=start_val, end=end_val
-            )
+            window = OmeroWindow(min=min_val, max=max_val, start=start_val, end=end_val)
             color = colors[i]
             label = labels[i]
             channel = OmeroChannel(color=color, window=window, label=label)
