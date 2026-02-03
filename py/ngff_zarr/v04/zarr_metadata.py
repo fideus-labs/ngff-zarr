@@ -411,7 +411,10 @@ class Metadata:
         else:
             axes_list = root_attrs["axes"]
             if not axes_list:
-                raise ValueError("Axes list is empty in metadata")
+                raise ValueError(
+                    "Multiscale metadata contains empty axes list. "
+                    "At least one axis must be defined."
+                )
             
             # Determine if we have v0.4+ (dict-based axes) or v0.3 (string-based axes)
             # by checking if the first axis is a dict
