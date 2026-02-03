@@ -50,31 +50,63 @@ We use the standard GitHub pull request workflow:
 ## Commit Messages
 
 We follow the [Conventional Commits](https://www.conventionalcommits.org/)
-standard:
+standard. All commit messages are validated by pre-commit hooks using Commitizen.
+
+### Format
 
 ```
 <type>(<scope>): <description>
 
 [optional body]
+
+[optional footer]
 ```
 
-**Types:**
+### Types
 
 - `feat` - New feature
 - `fix` - Bug fix
 - `docs` - Documentation changes
 - `style` - Code style changes (formatting, etc.)
 - `refactor` - Code refactoring
+- `perf` - Performance improvements
 - `test` - Adding or updating tests
+- `build` - Build system changes
+- `ci` - CI/CD changes
 - `chore` - Maintenance tasks
 
-**Examples:**
+### Scopes (optional but recommended)
 
-```
+- `py` - Python package (ngff-zarr)
+- `mcp` - MCP server package (ngff-zarr-mcp)
+- `ts` - TypeScript package (@fideus-labs/ngff-zarr)
+
+### Examples
+
+```bash
 feat(py): add support for zarr v3 sharding
 fix(mcp): handle missing metadata gracefully
 docs: update installation instructions
+chore(ts): update dependencies
 ```
+
+### Interactive Commit Helper
+
+If you need help writing compliant commit messages, use the interactive CLI:
+
+```bash
+cd py && pixi run --as-is -e lint cz commit
+# or use the shortcut
+cd py && pixi run --as-is -e lint cz c
+```
+
+This will guide you through creating a properly formatted commit message.
+
+### Pre-commit Validation
+
+The pre-commit hooks will automatically validate your commit messages. If a
+commit message doesn't follow the Conventional Commits format, the commit will
+be rejected with helpful error messages.
 
 ## Project Overview
 

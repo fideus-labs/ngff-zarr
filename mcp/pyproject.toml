@@ -192,3 +192,17 @@ default = { solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
 cloud = { features = ["cloud"], solve-group = "default" }
 all = { features = ["all"], solve-group = "default" }
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.5.0"
+version_provider = "commitizen"
+tag_format = "mcp-v$version"
+update_changelog_on_bump = true
+changelog_file = "CHANGELOG.md"
+version_files = [
+    "ngff_zarr_mcp/__about__.py:__version__"
+]
+bump_message = "chore(mcp): bump ngff-zarr-mcp to $new_version"
+annotated_tag = true
+major_version_zero = true
