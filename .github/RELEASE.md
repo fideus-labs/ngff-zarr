@@ -109,7 +109,7 @@ git push origin py-v0.22.0
 Each project type includes specific artifacts:
 
 #### Python Package (`py-v*`)
-- `ngff-zarr-{version}-py3-none-any.whl` - Python wheel
+- `ngff_zarr-{version}-py3-none-any.whl` - Python wheel
 - `ngff-zarr-{version}.tar.gz` - Source distribution
 
 #### TypeScript Package (`ts-v*`)
@@ -196,7 +196,7 @@ The workflow expects changelogs to follow the [Keep a Changelog](https://keepach
 Or with tag prefixes (higher priority):
 
 ```markdown
-## tag-vVERSION (YYYY-MM-DD)
+## py-v0.22.0 (2024-01-15)
 
 ### Features
 - New features
@@ -205,7 +205,7 @@ Or with tag prefixes (higher priority):
 - Bug fixes
 ```
 
-**Note**: The workflow prioritizes the tag format (e.g., `## py-v0.22.0`) over the bracket format (e.g., `## [0.22.0]`) when both exist.
+**Note**: Replace `py-v0.22.0` with the appropriate tag prefix for your project (`py-v*`, `ts-v*`, or `mcp-v*`). The workflow prioritizes the tag format (e.g., `## py-v0.22.0`) over the bracket format (e.g., `## [0.22.0]`) when both exist.
 
 ## Troubleshooting
 
