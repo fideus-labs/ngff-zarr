@@ -34,6 +34,16 @@ export {
   extractMethodMetadata,
   parseOmero,
 } from "./utils/parse_metadata.ts";
+export {
+  computeOmeroFromMultiscales,
+  computeOmeroFromNgffImage,
+  getDefaultColors,
+  GLASBEY_COLORS,
+} from "./utils/compute_omero.ts";
+export type {
+  ComputeOmeroFromMultiscalesOptions,
+  ComputeOmeroOptions,
+} from "./utils/compute_omero.ts";
 export { fromZarrAttrsV04, fromZarrAttrsV05 } from "./utils/from_zarr_attrs.ts";
 
 export * from "./io/from_ngff_zarr.ts";
