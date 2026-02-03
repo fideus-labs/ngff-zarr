@@ -85,6 +85,9 @@ from .lif_to_ngff_image import (
     lif_to_hcs_plate,
     has_mosaic_dimension,
 )
+from .tiff_to_ngff_image import (
+    tiff_file_to_ngff_images,
+)
 
 __all__ = [
     "__version__",
@@ -163,4 +166,6 @@ __all__ = [
     "lif_file_to_ngff_images",
     "lif_to_hcs_plate",
     "has_mosaic_dimension",
+    # TIFF support
+    "tiff_file_to_ngff_images",
 ]
