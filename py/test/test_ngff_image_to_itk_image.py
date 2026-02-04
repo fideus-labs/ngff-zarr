@@ -128,3 +128,63 @@ def test_c_index(input_images):  # noqa: ARG001
     assert len(itk_image.origin) == 3
     assert len(itk_image.direction) == 3
     assert itk_image.data.shape == (12, 223, 198)
+
+
+def test_t_index_with_none_axes_units():
+    """Test t_index extraction when axes_units is None."""
+    import dask.array as da
+    from ngff_zarr import NgffImage
+
+    # Create a 4D image with t, z, y, x dimensions
+    data = da.zeros((2, 4, 8, 8), dtype=np.uint8)
+    ngff_image = NgffImage(
+        data=data,
+        dims=("t", "z", "y", "x"),
+        scale={"t": 1.0, "z": 1.0, "y": 1.0, "x": 1.0},
+        translation={"t": 0.0, "z": 0.0, "y": 0.0, "x": 0.0},
+        axes_units=None,  # This is the key part - axes_units is None
+    )
+
+    # This should not raise TypeError
+    itk_image = ngff_image_to_itk_image(ngff_image, t_index=0)
+    assert itk_image is not None
+
+
+def test_c_index_with_none_axes_units():
+    """Test c_index extraction when axes_units is None."""
+    import dask.array as da
+    from ngff_zarr import NgffImage
+
+    # Create a 4D image with c, z, y, x dimensions
+    data = da.zeros((3, 4, 8, 8), dtype=np.uint8)
+    ngff_image = NgffImage(
+        data=data,
+        dims=("c", "z", "y", "x"),
+        scale={"c": 1.0, "z": 1.0, "y": 1.0, "x": 1.0},
+        translation={"c": 0.0, "z": 0.0, "y": 0.0, "x": 0.0},
+        axes_units=None,  # This is the key part - axes_units is None
+    )
+
+    # This should not raise TypeError
+    itk_image = ngff_image_to_itk_image(ngff_image, c_index=0)
+    assert itk_image is not None
+
+
+def test_t_and_c_index_with_none_axes_units():
+    """Test both t_index and c_index extraction when axes_units is None."""
+    import dask.array as da
+    from ngff_zarr import NgffImage
+
+    # Create a 5D image with t, c, z, y, x dimensions
+    data = da.zeros((2, 3, 4, 8, 8), dtype=np.uint8)
+    ngff_image = NgffImage(
+        data=data,
+        dims=("t", "c", "z", "y", "x"),
+        scale={"t": 1.0, "c": 1.0, "z": 1.0, "y": 1.0, "x": 1.0},
+        translation={"t": 0.0, "c": 0.0, "z": 0.0, "y": 0.0, "x": 0.0},
+        axes_units=None,  # This is the key part - axes_units is None
+    )
+
+    # This should not raise TypeError
+    itk_image = ngff_image_to_itk_image(ngff_image, t_index=0, c_index=0)
+    assert itk_image is not None

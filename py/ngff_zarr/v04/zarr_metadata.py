@@ -150,7 +150,7 @@ def is_unit_supported(unit: str) -> bool:
 @functools.lru_cache(maxsize=1)
 def _get_axis_fields() -> Set[str]:
     """Get the set of valid field names for the Axis dataclass.
-    
+
     Cached to avoid repeated introspection.
     """
     return {f.name for f in fields(Axis)}
@@ -160,7 +160,7 @@ def _filter_axis_dict(axis_dict: dict) -> dict:
     """Filter an axis dictionary to only include valid Axis fields.
 
     Logs a warning if unknown fields are encountered.
-    
+
     Raises:
         ValueError: If required fields 'name' or 'type' are missing from the axis dictionary.
     """
@@ -173,7 +173,7 @@ def _filter_axis_dict(axis_dict: dict) -> dict:
         raise ValueError(
             f"Axis dictionary is missing required field 'type': {axis_dict}"
         )
-    
+
     axis_fields = _get_axis_fields()
     unknown_fields = set(axis_dict.keys()) - axis_fields
     if unknown_fields:
@@ -415,11 +415,11 @@ class Metadata:
                     "Multiscale metadata contains empty axes list. "
                     "At least one axis must be defined."
                 )
-            
+
             # Determine if we have v0.4+ (dict-based axes) or v0.3 (string-based axes)
             # by checking if the first axis is a dict
             first_axis_is_dict = isinstance(axes_list[0], dict)
-            
+
             if first_axis_is_dict:
                 # v0.4+ format with dict-based axes
                 dims = tuple(a["name"] if "name" in a else a for a in axes_list)
@@ -434,9 +434,7 @@ class Metadata:
                     "y": "space",
                     "x": "space",
                 }
-                axes = [
-                    Axis(name=axis, type=type_dict[axis]) for axis in axes_list
-                ]
+                axes = [Axis(name=axis, type=type_dict[axis]) for axis in axes_list]
 
             units = {d: None for d in dims}
             for axis in axes_list:
