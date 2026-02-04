@@ -25,6 +25,14 @@ export interface ItkImageToNgffImageOptions {
    * @default "image"
    */
   path?: string;
+
+  /**
+   * Chunk size for the zarr array. Can be:
+   * - A single number (applied to all dimensions, capped at dimension size)
+   * - An array of numbers (one per dimension)
+   * @default 256
+   */
+  chunks?: number | number[];
 }
 
 /**
@@ -42,7 +50,8 @@ export async function itkImageToNgffImage(
   itkImage: Image,
   options: ItkImageToNgffImageOptions = {},
 ): Promise<NgffImage> {
-  const { addAnatomicalOrientation = true, path = "image" } = options;
+  const { addAnatomicalOrientation = true, path = "image", chunks = 256 } =
+    options;
 
   // Extract image properties from ITK-Wasm Image
   const _data = itkImage.data;
@@ -106,8 +115,10 @@ export async function itkImageToNgffImage(
   const store = new Map<string, Uint8Array>();
   const root = zarr.root(store);
 
-  // Determine appropriate chunk size
-  const chunkShape = shape.map((s) => Math.min(s, 256));
+  // Determine appropriate chunk size based on options
+  const chunkShape = typeof chunks === "number"
+    ? shape.map((s) => Math.min(s, chunks))
+    : shape.map((s, i) => Math.min(s, chunks[i] ?? 256));
 
   const zarrArray = await zarr.create(root.resolve(path), {
     shape: shape,

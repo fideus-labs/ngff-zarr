@@ -31,6 +31,7 @@ export type DownsampleFunction = (
   image: NgffImage,
   scaleFactors: (Record<string, number> | number)[],
   smoothing: "gaussian" | "bin_shrink" | "label_image",
+  chunks?: number | number[] | Record<string, number>,
 ) => Promise<NgffImage[]>;
 
 /**
@@ -72,6 +73,7 @@ export async function toMultiscalesCore(
       image,
       scaleFactors as (Record<string, number> | number)[],
       smoothing,
+      _chunks,
     );
   } else {
     // Fallback: create only the base image (no actual downsampling)
