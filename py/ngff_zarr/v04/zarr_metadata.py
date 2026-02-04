@@ -377,6 +377,14 @@ class Metadata:
         )
         from ..ngff_image import NgffImage
 
+        # Validate structure before any processing to avoid cryptic KeyError
+        if "multiscales" not in root_attrs or not root_attrs["multiscales"]:
+            raise ValueError(
+                "Invalid OME-Zarr v0.4 format: 'multiscales' key is missing or empty in root attributes. "
+                "This may be a v0.5 file (which has 'ome' key instead of 'multiscales'). "
+                f"Available keys: {list(root_attrs.keys())}"
+            )
+
         if validate:
             validate_ngff(
                 root_attrs, version=root_attrs["multiscales"][0].get("version", "0.4")

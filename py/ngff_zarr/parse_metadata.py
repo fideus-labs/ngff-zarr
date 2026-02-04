@@ -101,8 +101,14 @@ def _detect_version(root_attrs: dict) -> NgffVersion:
     """Detect NGFF version from root attributes."""
     version_str: Optional[str] = None
     if "ome" in root_attrs:
+        # v0.5+ format has metadata under "ome" key
         version_str = root_attrs["ome"].get("version")
+        # If version is not specified in ome dict, default to 0.5
+        # since the presence of "ome" key indicates v0.5+ format
+        if version_str is None:
+            version_str = "0.5"
     else:
+        # v0.4 format has "multiscales" at root level
         multiscales = root_attrs.get("multiscales", [])
         if multiscales and isinstance(multiscales, list):
             version_str = multiscales[0].get("version", "0.4")
