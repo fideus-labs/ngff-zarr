@@ -148,6 +148,10 @@ def test_t_index_with_none_axes_units():
     # This should not raise TypeError
     itk_image = ngff_image_to_itk_image(ngff_image, t_index=0)
     assert itk_image is not None
+    # Verify that t_index actually reduced dimensions (from 4D to 3D)
+    assert itk_image.imageType.dimension == 3
+    assert len(itk_image.size) == 3
+    assert itk_image.data.shape == (4, 8, 8)  # (z, y, x) after removing t
 
 
 def test_c_index_with_none_axes_units():
@@ -168,6 +172,11 @@ def test_c_index_with_none_axes_units():
     # This should not raise TypeError
     itk_image = ngff_image_to_itk_image(ngff_image, c_index=0)
     assert itk_image is not None
+    # Verify that c_index actually reduced components (from 3 to 1)
+    assert itk_image.imageType.dimension == 3
+    assert itk_image.imageType.components == 1
+    assert len(itk_image.size) == 3
+    assert itk_image.data.shape == (4, 8, 8)  # (z, y, x) after removing c
 
 
 def test_t_and_c_index_with_none_axes_units():
@@ -188,3 +197,58 @@ def test_t_and_c_index_with_none_axes_units():
     # This should not raise TypeError
     itk_image = ngff_image_to_itk_image(ngff_image, t_index=0, c_index=0)
     assert itk_image is not None
+    # Verify that both t_index and c_index reduced dimensions (from 5D to 3D)
+    assert itk_image.imageType.dimension == 3
+    assert itk_image.imageType.components == 1
+    assert len(itk_image.size) == 3
+    assert itk_image.data.shape == (4, 8, 8)  # (z, y, x) after removing t and c
+
+
+def test_t_index_with_partial_axes_units():
+    """Test t_index extraction when axes_units has only some dimensions."""
+    import dask.array as da
+    from ngff_zarr import NgffImage
+
+    # Create a 4D image with t, z, y, x dimensions
+    # axes_units only has 'z', missing 't', 'y', 'x'
+    data = da.zeros((2, 4, 8, 8), dtype=np.uint8)
+    ngff_image = NgffImage(
+        data=data,
+        dims=("t", "z", "y", "x"),
+        scale={"t": 1.0, "z": 1.0, "y": 1.0, "x": 1.0},
+        translation={"t": 0.0, "z": 0.0, "y": 0.0, "x": 0.0},
+        axes_units={"z": "micrometer"},  # Partial mapping - only 'z' has units
+    )
+
+    # This should not raise KeyError
+    itk_image = ngff_image_to_itk_image(ngff_image, t_index=0)
+    assert itk_image is not None
+    # Verify that t_index actually reduced dimensions (from 4D to 3D)
+    assert itk_image.imageType.dimension == 3
+    assert len(itk_image.size) == 3
+    assert itk_image.data.shape == (4, 8, 8)  # (z, y, x) after removing t
+
+
+def test_c_index_with_empty_axes_units():
+    """Test c_index extraction when axes_units is an empty dict."""
+    import dask.array as da
+    from ngff_zarr import NgffImage
+
+    # Create a 4D image with c, z, y, x dimensions
+    data = da.zeros((3, 4, 8, 8), dtype=np.uint8)
+    ngff_image = NgffImage(
+        data=data,
+        dims=("c", "z", "y", "x"),
+        scale={"c": 1.0, "z": 1.0, "y": 1.0, "x": 1.0},
+        translation={"c": 0.0, "z": 0.0, "y": 0.0, "x": 0.0},
+        axes_units={},  # Empty dict - should be preserved as empty dict
+    )
+
+    # This should not raise KeyError
+    itk_image = ngff_image_to_itk_image(ngff_image, c_index=0)
+    assert itk_image is not None
+    # Verify that c_index actually reduced components (from 3 to 1)
+    assert itk_image.imageType.dimension == 3
+    assert itk_image.imageType.components == 1
+    assert len(itk_image.size) == 3
+    assert itk_image.data.shape == (4, 8, 8)  # (z, y, x) after removing c
