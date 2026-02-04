@@ -90,6 +90,18 @@ def from_ngff_zarr(
     if version == "0.5":
         from .v05.zarr_metadata import Metadata
 
+        # Validate v0.5 structure before accessing
+        if "ome" not in root_attrs:
+            raise ValueError(
+                f"Expected OME-Zarr v{version} format with 'ome' key in root attributes, "
+                "but 'ome' key is missing. The store may not be a valid OME-Zarr or may be v0.4 format."
+            )
+        if "multiscales" not in root_attrs["ome"]:
+            raise ValueError(
+                f"Expected OME-Zarr v{version} format with 'multiscales' under 'ome' key, "
+                "but 'multiscales' key is missing."
+            )
+
         metadata_obj, images = Metadata._from_zarr_attrs(
             root_attrs, store, validate=validate
         )
@@ -99,6 +111,14 @@ def from_ngff_zarr(
 
     else:
         from .v04.zarr_metadata import Metadata
+
+        # Validate v0.4 structure before accessing
+        if "multiscales" not in root_attrs:
+            raise ValueError(
+                f"Expected OME-Zarr v{version} format with 'multiscales' key in root attributes, "
+                "but 'multiscales' key is missing. The store may not be a valid OME-Zarr or may be v0.5 format. "
+                f"Available keys: {list(root_attrs.keys())}"
+            )
 
         metadata_obj, images = Metadata._from_zarr_attrs(
             root_attrs, store, validate=validate

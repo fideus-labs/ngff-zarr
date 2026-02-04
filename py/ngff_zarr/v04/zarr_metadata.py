@@ -378,6 +378,12 @@ class Metadata:
         from ..ngff_image import NgffImage
 
         if validate:
+            # Validate that required keys exist before accessing
+            if "multiscales" not in root_attrs or not root_attrs["multiscales"]:
+                raise ValueError(
+                    "Invalid OME-Zarr v0.4 format: 'multiscales' key is missing or empty. "
+                    "This may be a v0.5 file (which has 'ome' key instead of 'multiscales')."
+                )
             validate_ngff(
                 root_attrs, version=root_attrs["multiscales"][0].get("version", "0.4")
             )
@@ -393,6 +399,14 @@ class Metadata:
                         axes_dicts.append(axis)
                 if axes_dicts and has_rfc4_orientation_metadata(axes_dicts):
                     validate_rfc4_orientation(axes_dicts)
+
+        # Validate structure even without validate flag to avoid cryptic KeyError
+        if "multiscales" not in root_attrs or not root_attrs["multiscales"]:
+            raise ValueError(
+                "Invalid OME-Zarr v0.4 format: 'multiscales' key is missing or empty in root attributes. "
+                "This may be a v0.5 file (which has 'ome' key instead of 'multiscales'). "
+                f"Available keys: {list(root_attrs.keys())}"
+            )
 
         omero = _parse_omero(root_attrs.get("omero", None))
         root_attrs = root_attrs["multiscales"][0]
