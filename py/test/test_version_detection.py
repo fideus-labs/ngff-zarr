@@ -141,12 +141,16 @@ def test_from_ngff_zarr_v05_auto_detect():
 
 
 def test_from_ngff_zarr_v04_wrong_structure():
-    """Test that v0.4 format with wrong structure gives helpful error."""
-    # Create a store with v0.5 structure but claim it's v0.4
+    """Test that claiming v0.4 with v0.5 structure (ome key) gives helpful error.
+    
+    When a file has the 'ome' key (v0.5 structure) but we try to load it as v0.4,
+    it should fail because v0.4 expects 'multiscales' at root level, not under 'ome'.
+    """
+    # Create a store with v0.5 structure (has 'ome' key)
     store = MemoryStore()
     root = zarr.open_group(store, mode="w")
     root.attrs["ome"] = {
-        "version": "0.4",  # Wrong! v0.4 shouldn't have 'ome' key
+        "version": "0.4",  # Incorrect: v0.4 files have multiscales at root, not under 'ome'
         "multiscales": [
             {
                 "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}],
@@ -155,8 +159,7 @@ def test_from_ngff_zarr_v04_wrong_structure():
         ],
     }
     
-    # This should detect as v0.5 (due to 'ome' key) but version string says 0.4
-    # The code should handle this by detecting structure over version string
+    # When loading with version="0.4", should fail because 'multiscales' is not at root level
     with pytest.raises(ValueError, match="multiscales"):
         from_ngff_zarr(store, version="0.4")
 
