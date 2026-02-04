@@ -488,6 +488,103 @@ test.describe("RFC-9 Browser Tests", () => {
   // Browser tests cannot easily create zarr arrays without zarrita import
 });
 
+test.describe("OMERO WebWorker Computation Tests", () => {
+  test.beforeEach(async ({ page }) => {
+    // Navigate to the bundle test page
+    await page.goto("/bundle-test");
+
+    // Wait for the page to fully load
+    await page.waitForLoadState("networkidle");
+  });
+
+  test("should have OMERO computation functions available", async ({ page }) => {
+    const loadResult = await page.evaluate(async () => {
+      try {
+        const ngffZarr = await import("./ngff-zarr.bundle.js");
+        return {
+          success: true,
+          hasComputeOmeroFromNgffImage: "computeOmeroFromNgffImage" in ngffZarr,
+          hasComputeOmeroFromMultiscales: "computeOmeroFromMultiscales" in
+            ngffZarr,
+          hasTerminateOmeroWorker: "terminateOmeroWorker" in ngffZarr,
+          hasIsUsingWorker: "isUsingWorker" in ngffZarr,
+          hasGetDefaultColors: "getDefaultColors" in ngffZarr,
+          hasGLASBEY_COLORS: "GLASBEY_COLORS" in ngffZarr,
+          typeOfComputeOmero: typeof ngffZarr.computeOmeroFromNgffImage,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    });
+
+    expect(loadResult.success).toBeTruthy();
+    expect(loadResult.hasComputeOmeroFromNgffImage).toBeTruthy();
+    expect(loadResult.hasComputeOmeroFromMultiscales).toBeTruthy();
+    expect(loadResult.hasTerminateOmeroWorker).toBeTruthy();
+    expect(loadResult.hasIsUsingWorker).toBeTruthy();
+    expect(loadResult.hasGetDefaultColors).toBeTruthy();
+    expect(loadResult.hasGLASBEY_COLORS).toBeTruthy();
+    expect(loadResult.typeOfComputeOmero).toBe("function");
+  });
+
+  test("getDefaultColors should return correct colors", async ({ page }) => {
+    const colorsResult = await page.evaluate(async () => {
+      try {
+        const { getDefaultColors, GLASBEY_COLORS } = await import(
+          "./ngff-zarr.bundle.js"
+        );
+
+        return {
+          success: true,
+          singleChannel: getDefaultColors(1),
+          twoChannels: getDefaultColors(2),
+          threeChannels: getDefaultColors(3),
+          glasbeyLength: GLASBEY_COLORS.length,
+          firstGlasbey: GLASBEY_COLORS[0],
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    });
+
+    expect(colorsResult.success).toBeTruthy();
+    // Single channel should be white
+    expect(colorsResult.singleChannel).toEqual(["FFFFFF"]);
+    // Multiple channels use Glasbey colors
+    expect(colorsResult.twoChannels.length).toBe(2);
+    expect(colorsResult.threeChannels.length).toBe(3);
+    expect(colorsResult.glasbeyLength).toBe(256);
+    expect(colorsResult.firstGlasbey).toBe("30A2DA");
+  });
+
+  test("terminateOmeroWorker should not throw", async ({ page }) => {
+    const terminateResult = await page.evaluate(async () => {
+      try {
+        const { terminateOmeroWorker } = await import("./ngff-zarr.bundle.js");
+
+        // Should not throw even if worker was never created
+        terminateOmeroWorker();
+        terminateOmeroWorker(); // Call twice to ensure idempotent
+
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    });
+
+    expect(terminateResult.success).toBeTruthy();
+  });
+});
+
 test.describe("toNgffZarr Browser Tests", () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to the bundle test page (which has access to the bundle)

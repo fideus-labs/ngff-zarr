@@ -31,16 +31,19 @@ export {
   createNgffImage,
 } from "./utils/factory.ts";
 export { getMethodMetadata } from "./utils/method_metadata.ts";
+// Browser-specific OMERO computation with WebWorker support
 export {
   computeOmeroFromMultiscales,
   computeOmeroFromNgffImage,
   getDefaultColors,
   GLASBEY_COLORS,
-} from "./utils/compute_omero.ts";
+  isUsingWorker,
+  terminateOmeroWorker,
+} from "./utils/compute_omero-browser.ts";
 export type {
   ComputeOmeroFromMultiscalesOptions,
   ComputeOmeroOptions,
-} from "./utils/compute_omero.ts";
+} from "./utils/compute_omero-browser.ts";
 
 // Browser-compatible I/O modules
 // Note: Uses browser-specific versions that don't import @zarrita/storage

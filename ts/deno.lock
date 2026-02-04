@@ -47,6 +47,7 @@
     "npm:@itk-wasm/image-io@^1.6.0": "1.6.0",
     "npm:@playwright/test@^1.58.1": "1.58.1",
     "npm:@types/node@*": "22.15.15",
+    "npm:comlink@^4.4.2": "4.4.2",
     "npm:fflate@~0.8.2": "0.8.2",
     "npm:itk-wasm@^1.0.0-b.196": "1.0.0-b.196",
     "npm:microdiff@^1.5.0": "1.5.0",
@@ -838,7 +839,7 @@
         "it-pipe",
         "it-pushable",
         "multiformats",
-        "p-queue@8.1.0",
+        "p-queue",
         "progress-events"
       ]
     },
@@ -1035,13 +1036,6 @@
     },
     "p-defer@4.0.1": {
       "integrity": "sha512-Mr5KC5efvAK5VUptYEIopP1bakB85k2IWXaRC0rsh1uwn1L6M0LVml8OIQ4Gudg4oyZakf7FmeRLkMMtZW1i5A=="
-    },
-    "p-queue@8.1.0": {
-      "integrity": "sha512-mxLDbbGIBEXTJL0zEx8JIylaj3xQ7Z/7eEVjcF9fJX4DBiH9oqe+oahYnlKKxm0Ci9TlWTyhSHgygxMxjIB2jw==",
-      "dependencies": [
-        "eventemitter3",
-        "p-timeout"
-      ]
     },
     "p-queue@8.1.1": {
       "integrity": "sha512-aNZ+VfjobsWryoiPnEApGGmf5WmNsCo9xu8dfaYamG5qaLP7ClhLN6NgsFe6SwJ2UbLEBK5dv9x8Mn5+RVhMWQ==",
@@ -1365,6 +1359,7 @@
       "npm:@itk-wasm/downsample@^1.8.1",
       "npm:@itk-wasm/image-io@^1.6.0",
       "npm:@playwright/test@^1.58.1",
+      "npm:comlink@^4.4.2",
       "npm:fflate@~0.8.2",
       "npm:itk-wasm@^1.0.0-b.196",
       "npm:microdiff@^1.5.0",
