@@ -70,3 +70,9 @@ export type { MemoryStoreToZipOptions } from "./io/rfc9_zip.ts";
 
 // Browser-compatible processing modules
 export * from "./process/to_multiscales-browser.ts";
+
+// ITK-Wasm conversion utilities
+export {
+  itkImageToNgffImage,
+  type ItkImageToNgffImageOptions,
+} from "./io/itk_image_to_ngff_image.ts";
