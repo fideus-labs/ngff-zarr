@@ -25,12 +25,42 @@ import {
 } from "./itkwasm-shared.ts";
 
 /**
+ * Compute chunk shape from configurable chunks option
+ * @param shape - The array shape
+ * @param chunks - Optional chunk configuration (number, array, or record)
+ * @param dims - Optional dimension names for record-based chunks
+ * @param defaultChunk - Default chunk size if not specified (256)
+ */
+function computeChunkShape(
+  shape: number[],
+  chunks?: number | number[] | Record<string, number>,
+  dims?: string[],
+  defaultChunk = 256,
+): number[] {
+  if (chunks === undefined) {
+    return shape.map((s) => Math.min(s, defaultChunk));
+  }
+  if (typeof chunks === "number") {
+    return shape.map((s) => Math.min(s, chunks));
+  }
+  if (Array.isArray(chunks)) {
+    return shape.map((s, i) => Math.min(s, chunks[i] ?? defaultChunk));
+  }
+  // Record<string, number> - use dims to look up
+  if (dims) {
+    return shape.map((s, i) => Math.min(s, chunks[dims[i]] ?? defaultChunk));
+  }
+  return shape.map((s) => Math.min(s, defaultChunk));
+}
+
+/**
  * Perform Gaussian downsampling using ITK-Wasm (browser version)
  */
 async function downsampleGaussian(
   image: NgffImage,
   dimFactors: DimFactors,
   spatialDims: string[],
+  chunks?: number | number[] | Record<string, number>,
 ): Promise<NgffImage> {
   // Handle time dimension by processing each time slice independently
   if (image.dims.includes("t")) {
@@ -50,7 +80,14 @@ async function downsampleGaussian(
       const sliceStore = new Map<string, Uint8Array>();
       const sliceRoot = zarr.root(sliceStore);
       const sliceShape = image.data.shape.filter((_, i) => i !== tDimIndex);
-      const sliceChunkShape = sliceShape.map((s) => Math.min(s, 256));
+      const sliceChunks = Array.isArray(chunks)
+        ? chunks.filter((_, i) => i !== tDimIndex)
+        : chunks;
+      const sliceChunkShape = computeChunkShape(
+        sliceShape,
+        sliceChunks,
+        newDims,
+      );
 
       const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
         shape: sliceShape,
@@ -86,6 +123,7 @@ async function downsampleGaussian(
         sliceImage,
         dimFactors,
         spatialDims,
+        sliceChunks,
       );
       downsampledSlices.push(downsampledSlice.data);
     }
@@ -107,7 +145,7 @@ async function downsampleGaussian(
     const combinedRoot = zarr.root(combinedStore);
     const combinedArray = await zarr.create(combinedRoot.resolve("combined"), {
       shape: combinedShape,
-      chunk_shape: combinedShape.map((s) => Math.min(s, 256)),
+      chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
       data_type: image.data.dtype,
       fill_value: 0,
     });
@@ -164,7 +202,14 @@ async function downsampleGaussian(
       const sliceStore = new Map<string, Uint8Array>();
       const sliceRoot = zarr.root(sliceStore);
       const sliceShape = image.data.shape.filter((_, i) => i !== cDimIndex);
-      const sliceChunkShape = sliceShape.map((s) => Math.min(s, 256));
+      const sliceChunks = Array.isArray(chunks)
+        ? chunks.filter((_, i) => i !== cDimIndex)
+        : chunks;
+      const sliceChunkShape = computeChunkShape(
+        sliceShape,
+        sliceChunks,
+        newDims,
+      );
 
       const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
         shape: sliceShape,
@@ -200,6 +245,7 @@ async function downsampleGaussian(
         sliceImage,
         dimFactors,
         spatialDims,
+        sliceChunks,
       );
       downsampledSlices.push(downsampledSlice.data);
     }
@@ -221,7 +267,7 @@ async function downsampleGaussian(
     const combinedRoot = zarr.root(combinedStore);
     const combinedArray = await zarr.create(combinedRoot.resolve("combined"), {
       shape: combinedShape,
-      chunk_shape: combinedShape.map((s) => Math.min(s, 256)),
+      chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
       data_type: image.data.dtype,
       fill_value: 0,
     });
@@ -282,7 +328,9 @@ async function downsampleGaussian(
 
   // Convert back to zarr array in a new in-memory store
   const store = new Map<string, Uint8Array>();
-  const chunkShape = downsampled.size.map((s) => Math.min(s, 256)).reverse();
+  // downsampled.size is in ITK order [x, y, z], reverse to get array order [z, y, x]
+  const reversedShape = [...downsampled.size].reverse();
+  const chunkShape = computeChunkShape(reversedShape, chunks, image.dims);
   const array = await itkImageToZarr(
     downsampled,
     store,
@@ -309,6 +357,7 @@ async function downsampleBinShrinkImpl(
   image: NgffImage,
   dimFactors: DimFactors,
   spatialDims: string[],
+  chunks?: number | number[] | Record<string, number>,
 ): Promise<NgffImage> {
   // Handle time dimension by processing each time slice independently
   if (image.dims.includes("t")) {
@@ -328,7 +377,14 @@ async function downsampleBinShrinkImpl(
       const sliceStore = new Map<string, Uint8Array>();
       const sliceRoot = zarr.root(sliceStore);
       const sliceShape = image.data.shape.filter((_, i) => i !== tDimIndex);
-      const sliceChunkShape = sliceShape.map((s) => Math.min(s, 256));
+      const sliceChunks = Array.isArray(chunks)
+        ? chunks.filter((_, i) => i !== tDimIndex)
+        : chunks;
+      const sliceChunkShape = computeChunkShape(
+        sliceShape,
+        sliceChunks,
+        newDims,
+      );
 
       const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
         shape: sliceShape,
@@ -364,6 +420,7 @@ async function downsampleBinShrinkImpl(
         sliceImage,
         dimFactors,
         spatialDims,
+        sliceChunks,
       );
       downsampledSlices.push(downsampledSlice.data);
     }
@@ -385,7 +442,7 @@ async function downsampleBinShrinkImpl(
     const combinedRoot = zarr.root(combinedStore);
     const combinedArray = await zarr.create(combinedRoot.resolve("combined"), {
       shape: combinedShape,
-      chunk_shape: combinedShape.map((s) => Math.min(s, 256)),
+      chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
       data_type: image.data.dtype,
       fill_value: 0,
     });
@@ -442,7 +499,14 @@ async function downsampleBinShrinkImpl(
       const sliceStore = new Map<string, Uint8Array>();
       const sliceRoot = zarr.root(sliceStore);
       const sliceShape = image.data.shape.filter((_, i) => i !== cDimIndex);
-      const sliceChunkShape = sliceShape.map((s) => Math.min(s, 256));
+      const sliceChunks = Array.isArray(chunks)
+        ? chunks.filter((_, i) => i !== cDimIndex)
+        : chunks;
+      const sliceChunkShape = computeChunkShape(
+        sliceShape,
+        sliceChunks,
+        newDims,
+      );
 
       const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
         shape: sliceShape,
@@ -478,6 +542,7 @@ async function downsampleBinShrinkImpl(
         sliceImage,
         dimFactors,
         spatialDims,
+        sliceChunks,
       );
       downsampledSlices.push(downsampledSlice.data);
     }
@@ -499,7 +564,7 @@ async function downsampleBinShrinkImpl(
     const combinedRoot = zarr.root(combinedStore);
     const combinedArray = await zarr.create(combinedRoot.resolve("combined"), {
       shape: combinedShape,
-      chunk_shape: combinedShape.map((s) => Math.min(s, 256)),
+      chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
       data_type: image.data.dtype,
       fill_value: 0,
     });
@@ -556,7 +621,9 @@ async function downsampleBinShrinkImpl(
 
   // Convert back to zarr array in a new in-memory store
   const store = new Map<string, Uint8Array>();
-  const chunkShape = downsampled.size.map((s) => Math.min(s, 256)).reverse();
+  // downsampled.size is in ITK order [x, y, z], reverse to get array order [z, y, x]
+  const reversedShape = [...downsampled.size].reverse();
+  const chunkShape = computeChunkShape(reversedShape, chunks, image.dims);
   const array = await itkImageToZarr(
     downsampled,
     store,
@@ -583,6 +650,7 @@ async function downsampleLabelImageImpl(
   image: NgffImage,
   dimFactors: DimFactors,
   spatialDims: string[],
+  chunks?: number | number[] | Record<string, number>,
 ): Promise<NgffImage> {
   // Handle time dimension by processing each time slice independently
   if (image.dims.includes("t")) {
@@ -602,7 +670,14 @@ async function downsampleLabelImageImpl(
       const sliceStore = new Map<string, Uint8Array>();
       const sliceRoot = zarr.root(sliceStore);
       const sliceShape = image.data.shape.filter((_, i) => i !== tDimIndex);
-      const sliceChunkShape = sliceShape.map((s) => Math.min(s, 256));
+      const sliceChunks = Array.isArray(chunks)
+        ? chunks.filter((_, i) => i !== tDimIndex)
+        : chunks;
+      const sliceChunkShape = computeChunkShape(
+        sliceShape,
+        sliceChunks,
+        newDims,
+      );
 
       const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
         shape: sliceShape,
@@ -638,6 +713,7 @@ async function downsampleLabelImageImpl(
         sliceImage,
         dimFactors,
         spatialDims,
+        sliceChunks,
       );
       downsampledSlices.push(downsampledSlice.data);
     }
@@ -659,7 +735,7 @@ async function downsampleLabelImageImpl(
     const combinedRoot = zarr.root(combinedStore);
     const combinedArray = await zarr.create(combinedRoot.resolve("combined"), {
       shape: combinedShape,
-      chunk_shape: combinedShape.map((s) => Math.min(s, 256)),
+      chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
       data_type: image.data.dtype,
       fill_value: 0,
     });
@@ -716,7 +792,14 @@ async function downsampleLabelImageImpl(
       const sliceStore = new Map<string, Uint8Array>();
       const sliceRoot = zarr.root(sliceStore);
       const sliceShape = image.data.shape.filter((_, i) => i !== cDimIndex);
-      const sliceChunkShape = sliceShape.map((s) => Math.min(s, 256));
+      const sliceChunks = Array.isArray(chunks)
+        ? chunks.filter((_, i) => i !== cDimIndex)
+        : chunks;
+      const sliceChunkShape = computeChunkShape(
+        sliceShape,
+        sliceChunks,
+        newDims,
+      );
 
       const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
         shape: sliceShape,
@@ -752,6 +835,7 @@ async function downsampleLabelImageImpl(
         sliceImage,
         dimFactors,
         spatialDims,
+        sliceChunks,
       );
       downsampledSlices.push(downsampledSlice.data);
     }
@@ -773,7 +857,7 @@ async function downsampleLabelImageImpl(
     const combinedRoot = zarr.root(combinedStore);
     const combinedArray = await zarr.create(combinedRoot.resolve("combined"), {
       shape: combinedShape,
-      chunk_shape: combinedShape.map((s) => Math.min(s, 256)),
+      chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
       data_type: image.data.dtype,
       fill_value: 0,
     });
@@ -836,7 +920,9 @@ async function downsampleLabelImageImpl(
 
   // Convert back to zarr array in a new in-memory store
   const store = new Map<string, Uint8Array>();
-  const chunkShape = downsampled.size.map((s) => Math.min(s, 256)).reverse();
+  // downsampled.size is in ITK order [x, y, z], reverse to get array order [z, y, x]
+  const reversedShape = [...downsampled.size].reverse();
+  const chunkShape = computeChunkShape(reversedShape, chunks, image.dims);
   const array = await itkImageToZarr(
     downsampled,
     store,
@@ -863,6 +949,7 @@ export async function downsampleItkWasm(
   ngffImage: NgffImage,
   scaleFactors: (Record<string, number> | number)[],
   smoothing: "gaussian" | "bin_shrink" | "label_image",
+  chunks?: number | number[] | Record<string, number>,
 ): Promise<NgffImage[]> {
   const multiscales: NgffImage[] = [ngffImage];
   const dims = ngffImage.dims;
@@ -941,18 +1028,21 @@ export async function downsampleItkWasm(
         sourceImage,
         sourceDimFactors,
         spatialDims,
+        chunks,
       );
     } else if (smoothing === "bin_shrink") {
       downsampled = await downsampleBinShrinkImpl(
         sourceImage,
         sourceDimFactors,
         spatialDims,
+        chunks,
       );
     } else if (smoothing === "label_image") {
       downsampled = await downsampleLabelImageImpl(
         sourceImage,
         sourceDimFactors,
         spatialDims,
+        chunks,
       );
     } else {
       throw new Error(`Unknown smoothing method: ${smoothing}`);

@@ -32,7 +32,7 @@ export interface NgffImageToItkImageOptions {
 /**
  * Convert the data type from zarr DataType to ITK-Wasm component type
  */
-function dataTypeToComponentType(
+export function dataTypeToComponentType(
   dataType: zarr.DataType,
 ):
   | (typeof IntTypes)[keyof typeof IntTypes]
