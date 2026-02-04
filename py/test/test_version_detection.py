@@ -149,10 +149,18 @@ def test_from_ngff_zarr_v04_wrong_structure():
     # Create a store with v0.5 structure (has 'ome' key)
     store = MemoryStore()
     # Use zarr_format=2 to match what from_ngff_zarr will use for v0.4
-    root = zarr.open_group(store, mode="w", zarr_format=2)
+    # (zarr_format parameter only exists in zarr 3.x)
+    if zarr_version_major >= 3:
+        root = zarr.open_group(store, mode="w", zarr_format=2)
+    else:
+        root = zarr.open_group(store, mode="w")
     # Create the array data that the metadata references
     data_array = np.random.randint(0, 255, size=(64, 64), dtype=np.uint8)
-    root.create_array("0", data=data_array, chunks=(32, 32))
+    # zarr 2.x uses create_dataset, zarr 3.x uses create_array
+    if zarr_version_major >= 3:
+        root.create_array("0", data=data_array, chunks=(32, 32))
+    else:
+        root.create_dataset("0", data=data_array, chunks=(32, 32))
     
     root.attrs["ome"] = {
         "version": "0.4",  # Incorrect: v0.4 files have multiscales at root, not under 'ome'
@@ -199,10 +207,18 @@ def test_from_ngff_zarr_empty_multiscales():
     """Test that empty multiscales list gives helpful error."""
     store = MemoryStore()
     # Use zarr_format=2 for v0.4 style
-    root = zarr.open_group(store, mode="w", zarr_format=2)
+    # (zarr_format parameter only exists in zarr 3.x)
+    if zarr_version_major >= 3:
+        root = zarr.open_group(store, mode="w", zarr_format=2)
+    else:
+        root = zarr.open_group(store, mode="w")
     # Create a dummy array so the group is valid
     data_array = np.random.randint(0, 255, size=(64, 64), dtype=np.uint8)
-    root.create_array("0", data=data_array, chunks=(32, 32))
+    # zarr 2.x uses create_dataset, zarr 3.x uses create_array
+    if zarr_version_major >= 3:
+        root.create_array("0", data=data_array, chunks=(32, 32))
+    else:
+        root.create_dataset("0", data=data_array, chunks=(32, 32))
     root.attrs["multiscales"] = []  # Empty list
     
     with pytest.raises(ValueError, match="Could not detect NGFF version"):
