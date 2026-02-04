@@ -453,7 +453,6 @@ export function extractChannel(
   channelDimIndex: number,
 ): number[] {
   const nChannels = shape[channelDimIndex];
-  const result: number[] = [];
 
   // Calculate the stride for the channel dimension
   let channelStride = 1;
@@ -467,12 +466,17 @@ export function extractChannel(
     outerSize *= shape[i];
   }
 
+  // Pre-allocate array with known size for better performance
+  const totalSize = outerSize * channelStride;
+  const result = new Array<number>(totalSize);
+  let resultIndex = 0;
+
   // Extract all values for this channel
   for (let outer = 0; outer < outerSize; outer++) {
     const outerOffset = outer * nChannels * channelStride;
     const channelOffset = outerOffset + channelIndex * channelStride;
     for (let inner = 0; inner < channelStride; inner++) {
-      result.push(data[channelOffset + inner]);
+      result[resultIndex++] = data[channelOffset + inner];
     }
   }
 
@@ -579,5 +583,4 @@ export interface ComputeOmeroWorkerInput {
  */
 export interface ComputeOmeroChunkInput {
   chunkData: ArrayLike<number>;
-  totalElements: number;
 }

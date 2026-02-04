@@ -583,6 +583,91 @@ test.describe("OMERO WebWorker Computation Tests", () => {
 
     expect(terminateResult.success).toBeTruthy();
   });
+
+  test("should compute OMERO metadata with WebWorker", async ({ page }) => {
+    const computeResult = await page.evaluate(async () => {
+      try {
+        // Dynamic import zarrita from CDN
+        const zarr = await import("https://cdn.jsdelivr.net/npm/zarrita@0.7.4/+esm");
+        const { computeOmeroFromNgffImage, isUsingWorker, terminateOmeroWorker } = 
+          await import("./ngff-zarr.bundle.js");
+
+        // Create a simple test image with known data
+        // 2x2 image with 2 channels
+        const shape = [2, 2, 2]; // [c, y, x]
+        const dims = ["c", "y", "x"];
+        const data = new Float32Array([
+          // Channel 0: values 0, 10, 20, 30
+          0, 10, 20, 30,
+          // Channel 1: values 100, 110, 120, 130
+          100, 110, 120, 130
+        ]);
+
+        // Create zarr array in memory
+        const store = new Map();
+        const root = zarr.root(store);
+        const zarrArray = await zarr.create(root.resolve("test"), {
+          shape,
+          chunk_shape: shape,
+          data_type: "float32",
+        });
+        await zarr.set(zarrArray, data);
+
+        // Create NgffImage
+        const image = {
+          data: zarrArray,
+          dims,
+          scale: { c: 1, y: 1, x: 1 },
+          translation: { c: 0, y: 0, x: 0 },
+        };
+
+        // Compute OMERO metadata
+        const omero = await computeOmeroFromNgffImage(image);
+
+        // Clean up worker
+        terminateOmeroWorker();
+
+        return {
+          success: true,
+          usedWorker: isUsingWorker(),
+          hasChannels: omero?.channels != null,
+          channelCount: omero?.channels?.length,
+          channel0Window: omero?.channels?.[0]?.window,
+          channel1Window: omero?.channels?.[1]?.window,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error.message,
+          stack: error.stack,
+        };
+      }
+    });
+
+    expect(computeResult.success).toBeTruthy();
+    if (!computeResult.success) {
+      console.log("Compute error:", computeResult.error);
+      console.log("Stack:", computeResult.stack);
+    }
+    
+    // Verify the computation produced valid results
+    expect(computeResult.hasChannels).toBeTruthy();
+    expect(computeResult.channelCount).toBe(2);
+    
+    // Channel 0 should have values in range [0, 30]
+    expect(computeResult.channel0Window).toBeDefined();
+    expect(computeResult.channel0Window.min).toBeGreaterThanOrEqual(0);
+    expect(computeResult.channel0Window.max).toBeLessThanOrEqual(30);
+    expect(computeResult.channel0Window.start).toBeDefined();
+    expect(computeResult.channel0Window.end).toBeDefined();
+    
+    // Channel 1 should have values in range [100, 130]
+    expect(computeResult.channel1Window).toBeDefined();
+    expect(computeResult.channel1Window.min).toBeGreaterThanOrEqual(100);
+    expect(computeResult.channel1Window.max).toBeLessThanOrEqual(130);
+    expect(computeResult.channel1Window.start).toBeDefined();
+    expect(computeResult.channel1Window.end).toBeDefined();
+  });
 });
 
 test.describe("toNgffZarr Browser Tests", () => {

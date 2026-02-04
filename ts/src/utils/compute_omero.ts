@@ -168,9 +168,6 @@ export async function computeOmeroFromNgffImage(
   return { channels };
 }
 
-// Import the options type from shared module
-import type { ComputeOmeroFromMultiscalesOptions } from "./compute_omero-shared.ts";
-
 /**
  * Compute OMERO metadata from a Multiscales object.
  *

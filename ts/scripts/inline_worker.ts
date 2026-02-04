@@ -24,9 +24,10 @@ const ESM_DIR = join(NPM_DIR, "esm");
 async function bundleWorker(): Promise<string> {
   // Use esbuild to bundle the worker with all its dependencies
   // Note: Run from NPM_DIR, use relative path to worker
+  // Using pinned esbuild version for supply-chain security
   const command = new Deno.Command("npx", {
     args: [
-      "esbuild",
+      "esbuild@0.24.2",
       "esm/workers/compute_omero_worker.js",
       "--bundle",
       "--format=esm",
@@ -84,7 +85,9 @@ async function inlineWorkerCode(workerCode: string): Promise<void> {
   const inlineWorkerCreation = `(() => {
     const workerCode = \`${escapedWorkerCode}\`;
     const blob = new Blob([workerCode], { type: "application/javascript" });
-    return new Worker(URL.createObjectURL(blob), { type: "module" });
+    const url = URL.createObjectURL(blob);
+    workerBlobUrl = url;
+    return new Worker(url, { type: "module" });
   })()`;
 
   // Replace the pattern

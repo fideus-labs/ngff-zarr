@@ -46,6 +46,17 @@ let workerBlobUrl: string | null = null;
 // Chunk size for streaming (256K elements = ~1MB for float32)
 const CHUNK_SIZE = 256 * 1024;
 
+// Type alias for all possible typed arrays returned by zarrita
+type ZarrTypedArray =
+  | Int8Array
+  | Uint8Array
+  | Int16Array
+  | Uint16Array
+  | Int32Array
+  | Uint32Array
+  | Float32Array
+  | Float64Array;
+
 /**
  * Check if WebWorkers are supported in this environment.
  */
@@ -76,6 +87,8 @@ function getWorkerProxy(): Comlink.Remote<ComputeOmeroWorkerApi> | null {
     try {
       // Create worker using module URL
       // In bundled builds, this will be replaced with inline Blob URL
+      // that also assigns workerBlobUrl for cleanup
+      workerBlobUrl = null; // No Blob URL in non-bundled mode
       worker = new Worker(
         new URL("../workers/compute_omero_worker.ts", import.meta.url),
         { type: "module" },
@@ -181,7 +194,7 @@ export async function computeOmeroFromNgffImage(
     // For small datasets, use single-call API
     if (totalSize <= CHUNK_SIZE * 2) {
       // Transfer the data buffer to the worker
-      const typedArray = fullData as Float32Array | Float64Array | Int32Array;
+      const typedArray = fullData as ZarrTypedArray;
       // Create a copy of the buffer that we can transfer
       const buffer = new ArrayBuffer(typedArray.byteLength);
       const view = new Uint8Array(buffer);
@@ -218,7 +231,7 @@ export async function computeOmeroFromNgffImage(
     });
 
     // Stream data in chunks
-    const typedArray = fullData as Float32Array | Float64Array | Int32Array;
+    const typedArray = fullData as ZarrTypedArray;
     for (let offset = 0; offset < totalSize; offset += CHUNK_SIZE) {
       const end = Math.min(offset + CHUNK_SIZE, totalSize);
       const chunk = typedArray.slice(offset, end);
@@ -237,7 +250,6 @@ export async function computeOmeroFromNgffImage(
         chunkData: Comlink.transfer(new ChunkConstructor(chunkBuffer), [
           chunkBuffer,
         ]),
-        totalElements: totalSize,
       });
     }
 

@@ -31,11 +31,24 @@ let currentState: ComputationState | null = null;
 
 /**
  * Worker API exposed via Comlink.
+ *
+ * IMPORTANT: This worker maintains global state and does not support
+ * concurrent computations. Only one computation can be active at a time.
+ * If initializeComputation is called while another computation is in
+ * progress, the previous computation state will be lost.
+ *
+ * The typical workflow is:
+ * 1. initializeComputation() - Start a new computation
+ * 2. processChunk() - Call multiple times to stream data
+ * 3. finalizeComputation() - Get results and reset state
  */
 const workerApi = {
   /**
    * Initialize a new OMERO computation.
    * Must be called before processChunk.
+   *
+   * WARNING: This will overwrite any existing computation state.
+   * Do not call this if another computation is in progress.
    */
   initializeComputation(input: ComputeOmeroWorkerInput): void {
     validateQuantiles(input.quantiles);
