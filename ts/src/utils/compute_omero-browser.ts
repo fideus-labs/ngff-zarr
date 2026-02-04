@@ -85,10 +85,10 @@ function getWorkerProxy(): Comlink.Remote<ComputeOmeroWorkerApi> | null {
 
   if (!workerProxy) {
     try {
-      // Create worker using module URL
-      // In bundled builds, this will be replaced with inline Blob URL
-      // that also assigns workerBlobUrl for cleanup
-      workerBlobUrl = null; // No Blob URL in non-bundled mode
+      // In bundled builds, the Worker constructor line below is replaced with
+      // inline Blob URL code that assigns workerBlobUrl. In non-bundled mode,
+      // we use a module URL and there's no Blob URL to clean up.
+      workerBlobUrl = null; // Will be overwritten in bundled mode
       worker = new Worker(
         new URL("../workers/compute_omero_worker.ts", import.meta.url),
         { type: "module" },
