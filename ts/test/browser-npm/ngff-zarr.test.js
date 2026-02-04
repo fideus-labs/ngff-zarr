@@ -588,9 +588,14 @@ test.describe("OMERO WebWorker Computation Tests", () => {
     const computeResult = await page.evaluate(async () => {
       try {
         // Dynamic import zarrita from CDN
-        const zarr = await import("https://cdn.jsdelivr.net/npm/zarrita@0.7.4/+esm");
-        const { computeOmeroFromNgffImage, isUsingWorker, terminateOmeroWorker } = 
-          await import("./ngff-zarr.bundle.js");
+        const zarr = await import(
+          "https://cdn.jsdelivr.net/npm/zarrita@0.7.4/+esm"
+        );
+        const {
+          computeOmeroFromNgffImage,
+          isUsingWorker,
+          terminateOmeroWorker,
+        } = await import("./ngff-zarr.bundle.js");
 
         // Create a simple test image with known data
         // 2x2 image with 2 channels
@@ -598,9 +603,15 @@ test.describe("OMERO WebWorker Computation Tests", () => {
         const dims = ["c", "y", "x"];
         const data = new Float32Array([
           // Channel 0: values 0, 10, 20, 30
-          0, 10, 20, 30,
+          0,
+          10,
+          20,
+          30,
           // Channel 1: values 100, 110, 120, 130
-          100, 110, 120, 130
+          100,
+          110,
+          120,
+          130,
         ]);
 
         // Create zarr array in memory
@@ -649,11 +660,11 @@ test.describe("OMERO WebWorker Computation Tests", () => {
       console.log("Compute error:", computeResult.error);
       console.log("Stack:", computeResult.stack);
     }
-    
+
     // Verify the computation produced valid results
     expect(computeResult.hasChannels).toBeTruthy();
     expect(computeResult.channelCount).toBe(2);
-    
+
     // Channel 0 should have values in range [0, 30]
     expect(computeResult.channel0Window).toBeDefined();
     expect(computeResult.channel0Window.min).toBeGreaterThanOrEqual(0);

@@ -33,6 +33,7 @@ export {
 // Import for internal use
 import {
   computeChannelStatistics,
+  type ComputeOmeroFromMultiscalesOptions,
   type ComputeOmeroOptions,
   extractChannel,
   getDefaultColors,
