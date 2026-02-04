@@ -85,7 +85,10 @@ async function downsampleGaussian(
       const sliceStore = new Map<string, Uint8Array>();
       const sliceRoot = zarr.root(sliceStore);
       const sliceShape = image.data.shape.filter((_, i) => i !== tDimIndex);
-      const sliceChunkShape = computeChunkShape(sliceShape, chunks, newDims);
+      const sliceChunks = Array.isArray(chunks)
+        ? chunks.filter((_, i) => i !== tDimIndex)
+        : chunks;
+      const sliceChunkShape = computeChunkShape(sliceShape, sliceChunks, newDims);
 
       const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
         shape: sliceShape,
@@ -121,7 +124,7 @@ async function downsampleGaussian(
         sliceImage,
         dimFactors,
         spatialDims,
-        chunks,
+        sliceChunks,
       );
       downsampledSlices.push(downsampledSlice.data);
     }
@@ -200,7 +203,10 @@ async function downsampleGaussian(
       const sliceStore = new Map<string, Uint8Array>();
       const sliceRoot = zarr.root(sliceStore);
       const sliceShape = image.data.shape.filter((_, i) => i !== cDimIndex);
-      const sliceChunkShape = computeChunkShape(sliceShape, chunks, newDims);
+      const sliceChunks = Array.isArray(chunks)
+        ? chunks.filter((_, i) => i !== cDimIndex)
+        : chunks;
+      const sliceChunkShape = computeChunkShape(sliceShape, sliceChunks, newDims);
 
       const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
         shape: sliceShape,
@@ -236,7 +242,7 @@ async function downsampleGaussian(
         sliceImage,
         dimFactors,
         spatialDims,
-        chunks,
+        sliceChunks,
       );
       downsampledSlices.push(downsampledSlice.data);
     }
@@ -368,7 +374,10 @@ async function downsampleBinShrinkImpl(
       const sliceStore = new Map<string, Uint8Array>();
       const sliceRoot = zarr.root(sliceStore);
       const sliceShape = image.data.shape.filter((_, i) => i !== tDimIndex);
-      const sliceChunkShape = computeChunkShape(sliceShape, chunks, newDims);
+      const sliceChunks = Array.isArray(chunks)
+        ? chunks.filter((_, i) => i !== tDimIndex)
+        : chunks;
+      const sliceChunkShape = computeChunkShape(sliceShape, sliceChunks, newDims);
 
       const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
         shape: sliceShape,
@@ -404,7 +413,7 @@ async function downsampleBinShrinkImpl(
         sliceImage,
         dimFactors,
         spatialDims,
-        chunks,
+        sliceChunks,
       );
       downsampledSlices.push(downsampledSlice.data);
     }
@@ -483,7 +492,10 @@ async function downsampleBinShrinkImpl(
       const sliceStore = new Map<string, Uint8Array>();
       const sliceRoot = zarr.root(sliceStore);
       const sliceShape = image.data.shape.filter((_, i) => i !== cDimIndex);
-      const sliceChunkShape = computeChunkShape(sliceShape, chunks, newDims);
+      const sliceChunks = Array.isArray(chunks)
+        ? chunks.filter((_, i) => i !== cDimIndex)
+        : chunks;
+      const sliceChunkShape = computeChunkShape(sliceShape, sliceChunks, newDims);
 
       const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
         shape: sliceShape,
@@ -519,7 +531,7 @@ async function downsampleBinShrinkImpl(
         sliceImage,
         dimFactors,
         spatialDims,
-        chunks,
+        sliceChunks,
       );
       downsampledSlices.push(downsampledSlice.data);
     }
@@ -647,7 +659,10 @@ async function downsampleLabelImageImpl(
       const sliceStore = new Map<string, Uint8Array>();
       const sliceRoot = zarr.root(sliceStore);
       const sliceShape = image.data.shape.filter((_, i) => i !== tDimIndex);
-      const sliceChunkShape = computeChunkShape(sliceShape, chunks, newDims);
+      const sliceChunks = Array.isArray(chunks)
+        ? chunks.filter((_, i) => i !== tDimIndex)
+        : chunks;
+      const sliceChunkShape = computeChunkShape(sliceShape, sliceChunks, newDims);
 
       const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
         shape: sliceShape,
@@ -683,7 +698,7 @@ async function downsampleLabelImageImpl(
         sliceImage,
         dimFactors,
         spatialDims,
-        chunks,
+        sliceChunks,
       );
       downsampledSlices.push(downsampledSlice.data);
     }
@@ -762,7 +777,10 @@ async function downsampleLabelImageImpl(
       const sliceStore = new Map<string, Uint8Array>();
       const sliceRoot = zarr.root(sliceStore);
       const sliceShape = image.data.shape.filter((_, i) => i !== cDimIndex);
-      const sliceChunkShape = computeChunkShape(sliceShape, chunks, newDims);
+      const sliceChunks = Array.isArray(chunks)
+        ? chunks.filter((_, i) => i !== cDimIndex)
+        : chunks;
+      const sliceChunkShape = computeChunkShape(sliceShape, sliceChunks, newDims);
 
       const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
         shape: sliceShape,
@@ -798,7 +816,7 @@ async function downsampleLabelImageImpl(
         sliceImage,
         dimFactors,
         spatialDims,
-        chunks,
+        sliceChunks,
       );
       downsampledSlices.push(downsampledSlice.data);
     }
