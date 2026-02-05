@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial changelog setup with Commitizen
 
+## py-v0.24.0 (2026-02-05)
+
+### ♻️ Refactoring
+
+- **py**: extract HCS plate detection to helper function
+
+### ✨ Features
+
+- **py**: add HCS plate detection to NGFF version detection
+- add javascript omero computation benchmark
+- **ts**: add WebWorker-based OMERO computation with Comlink
+
+### 🐛 Bug Fixes
+
+- **py**: remove invalid zarr_kwargs from LocalStore instantiation
+- **py**: handle None axes_units in ngff_image_to_itk_image
+- **ts**: export dataTypeToComponentType in the package
+- **ts**: respect requested chunk size
+- **ts**: export itkImageToNgffImage from package
+
 ## py-v0.23.0 (2026-02-03)
 
 ### Bug Fixes
