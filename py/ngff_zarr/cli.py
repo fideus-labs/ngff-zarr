@@ -550,6 +550,28 @@ def main():
                 chunks_per_shard = args.chunks_per_shard[0]
             else:
                 chunks_per_shard = tuple(args.chunks_per_shard)
+        
+        # Handle TIFFFILE output: convert to numpy and write directly
+        if args.output and output_backend is ConversionBackend.TIFFFILE:
+            import tifffile
+            from dask.array.core import Array as DaskArray
+            
+            source_image = cli_input_to_ngff_image(
+                input_backend, args.input, args.output_scale
+            )
+            if isinstance(rich_dask_progress, NgffProgressCallback):
+                rich_dask_progress.add_callback_task(
+                    "[green]Computing array data for TIFF output"
+                )
+            
+            # Materialize dask array to numpy for writing
+            pixel_data = source_image.data
+            if isinstance(pixel_data, DaskArray):
+                pixel_data = pixel_data.compute()
+            
+            tifffile.imwrite(args.output, pixel_data)
+            return
+        
         if args.output and output_backend is ConversionBackend.ITK:
             import itk
 
