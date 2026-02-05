@@ -223,3 +223,59 @@ def test_from_ngff_zarr_empty_multiscales():
     
     with pytest.raises(ValueError, match="Could not detect NGFF version"):
         from_ngff_zarr(store)
+
+
+def test_detect_version_v04_hcs_plate():
+    """Test version detection for v0.4 HCS plate format.
+    
+    HCS plates with 'plate' key at root level use v0.4 format.
+    """
+    root_attrs = {
+        "plate": {
+            "name": "test_plate",
+            "columns": [{"name": "1"}],
+            "rows": [{"name": "A"}],
+            "wells": [{"path": "A/1"}]
+        }
+    }
+    version = _detect_version(root_attrs)
+    # HCS plates without explicit version should default to 0.4
+    assert version == NgffVersion.V04
+
+
+def test_detect_version_v05_hcs_plate():
+    """Test version detection for v0.5 HCS plate format."""
+    root_attrs = {
+        "ome": {
+            "version": "0.5",
+            "plate": {
+                "name": "test_plate",
+                "columns": [{"name": "1"}],
+                "rows": [{"name": "A"}],
+                "wells": [{"path": "A/1"}]
+            }
+        }
+    }
+    version = _detect_version(root_attrs)
+    assert version == NgffVersion.V05
+
+
+def test_from_ngff_zarr_hcs_plate_error():
+    """Test that trying to load HCS plate with from_ngff_zarr gives helpful error."""
+    store = MemoryStore()
+    if zarr_version_major >= 3:
+        root = zarr.open_group(store, mode="w", zarr_format=2)
+    else:
+        root = zarr.open_group(store, mode="w")
+    
+    # Create HCS plate structure
+    root.attrs["plate"] = {
+        "name": "test_plate",
+        "columns": [{"name": "1"}],
+        "rows": [{"name": "A"}],
+        "wells": [{"path": "A/1"}]
+    }
+    
+    # Should raise ValueError with helpful message about using from_hcs_zarr
+    with pytest.raises(ValueError, match="HCS.*from_hcs_zarr"):
+        from_ngff_zarr(store)
