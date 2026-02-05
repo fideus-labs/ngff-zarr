@@ -52,7 +52,13 @@ def ngff_image_to_itk_image(
         new_dims = tuple(new_dims)
         new_scale = {dim: ngff_image.scale[dim] for dim in new_dims}
         new_translation = {dim: ngff_image.translation[dim] for dim in new_dims}
-        new_axes_units = {dim: ngff_image.axes_units[dim] for dim in new_dims}
+        axes_units = ngff_image.axes_units
+        if axes_units is None:
+            new_axes_units = None
+        else:
+            new_axes_units = {
+                dim: axes_units.get(dim) for dim in new_dims if dim in axes_units
+            }
         if isinstance(ngff_image.data, DaskArray):
             from dask.array import take
 
@@ -75,7 +81,13 @@ def ngff_image_to_itk_image(
         new_dims = tuple(new_dims)
         new_scale = {dim: ngff_image.scale[dim] for dim in new_dims}
         new_translation = {dim: ngff_image.translation[dim] for dim in new_dims}
-        new_axes_units = {dim: ngff_image.axes_units[dim] for dim in new_dims}
+        axes_units = ngff_image.axes_units
+        if axes_units is None:
+            new_axes_units = None
+        else:
+            new_axes_units = {
+                dim: axes_units.get(dim) for dim in new_dims if dim in axes_units
+            }
         if isinstance(ngff_image.data, DaskArray):
             from dask.array import take
 
