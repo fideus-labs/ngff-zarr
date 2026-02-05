@@ -511,3 +511,27 @@ Deno.test("getDefaultColors cycles for many channels", () => {
   assertEquals(colors.length, nChannels);
   assertEquals(colors[GLASBEY_COLORS.length], GLASBEY_COLORS[0]);
 });
+
+// ============================================================================
+// Tests for explicit undefined values (exactOptionalPropertyTypes support)
+// ============================================================================
+
+Deno.test("undefined colors and labels are handled correctly", async () => {
+  const data = Array(300).fill(1); // 3 channels * 10*10
+  const image = await createTestImage(data, [3, 10, 10], ["c", "y", "x"]);
+
+  // Explicitly pass undefined to test type compatibility with exactOptionalPropertyTypes
+  const omero = await computeOmeroFromNgffImage(image, {
+    colors: undefined,
+    labels: undefined,
+  });
+
+  // Should use default behavior: glasbey colors for multi-channel
+  assertEquals(omero.channels.length, 3);
+  assertEquals(omero.channels[0].color, GLASBEY_COLORS[0]);
+  assertEquals(omero.channels[1].color, GLASBEY_COLORS[1]);
+  assertEquals(omero.channels[2].color, GLASBEY_COLORS[2]);
+  assertEquals(omero.channels[0].label, "");
+  assertEquals(omero.channels[1].label, "");
+  assertEquals(omero.channels[2].label, "");
+});
