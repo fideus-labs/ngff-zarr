@@ -22,7 +22,7 @@ from .v04.zarr_metadata import SupportedDims, Units
 
 
 def to_ngff_image(
-    data: Union[ArrayLike, MutableMapping, str, ZarrArray],
+    data: Union[ArrayLike, MutableMapping, str, ZarrArray, ZarrGroup],
     dims: Optional[Sequence[SupportedDims]] = None,
     scale: Optional[Union[Mapping[Hashable, float]]] = None,
     translation: Optional[Union[Mapping[Hashable, float]]] = None,

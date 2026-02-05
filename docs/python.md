@@ -344,6 +344,7 @@ for name, ngff_image in images:
     print(f"  Units: {ngff_image.axes_units}")
 
     # Generate multiscales and write to OME-Zarr
+    # Note: series names are automatically sanitized for filesystem safety
     multiscales = to_multiscales(ngff_image, scale_factors=[2, 4])
     to_ngff_zarr(f"{name}.ome.zarr", multiscales)
 ```
