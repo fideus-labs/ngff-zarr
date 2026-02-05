@@ -567,7 +567,21 @@ def main():
             # Materialize dask array to numpy for writing
             pixel_data = source_image.data
             if isinstance(pixel_data, DaskArray):
-                pixel_data = pixel_data.compute()
+                try:
+                    pixel_data = pixel_data.compute()
+                except MemoryError as mem_err:
+                    live.console.print(
+                        f"[red]Memory error during array computation: {mem_err}"
+                    )
+                    live.console.print(
+                        "[yellow]Try processing a smaller image or use a system with more RAM"
+                    )
+                    sys.exit(1)
+                except Exception as compute_err:
+                    live.console.print(
+                        f"[red]Failed to compute array data: {compute_err}"
+                    )
+                    sys.exit(1)
             
             tifffile.imwrite(args.output, pixel_data)
             return
