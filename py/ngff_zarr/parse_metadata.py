@@ -99,7 +99,7 @@ def _parse_omero(omero_data: dict) -> Optional[Omero]:
 
 def _is_hcs_plate(root_attrs: dict) -> bool:
     """Check if root attributes indicate an HCS plate structure.
-    
+
     Returns True if this is an HCS plate (not a regular image group).
     """
     # v0.5+ plate: has "ome" key with "plate" subkey but no "multiscales"
@@ -110,7 +110,7 @@ def _is_hcs_plate(root_attrs: dict) -> bool:
         and "multiscales" not in root_attrs["ome"]
     ):
         return True
-    
+
     # v0.4 plate: has "plate" key at root but no "multiscales"
     if (
         "plate" in root_attrs
@@ -118,13 +118,13 @@ def _is_hcs_plate(root_attrs: dict) -> bool:
         and "multiscales" not in root_attrs
     ):
         return True
-    
+
     return False
 
 
 def _detect_version(root_attrs: dict) -> NgffVersion:
     """Detect NGFF version from root attributes.
-    
+
     Handles both regular image groups and HCS plate structures.
     """
     version_str: Optional[str] = None

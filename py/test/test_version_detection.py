@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 """Tests for OME-Zarr version detection."""
+
 import pytest
 import numpy as np
 import packaging.version
@@ -105,36 +106,34 @@ def test_from_ngff_zarr_v04_auto_detect():
     data = np.random.randint(0, 255, size=(64, 64), dtype=np.uint8)
     image = to_ngff_image(data, dims=("y", "x"))
     multiscales = to_multiscales(image)
-    
+
     # Write to v0.4 format
     store = MemoryStore()
     to_ngff_zarr(store, multiscales, version="0.4")
-    
+
     # Load without specifying version (should auto-detect)
     loaded = from_ngff_zarr(store)
-    
+
     assert loaded is not None
     assert len(loaded.images) > 0
     assert loaded.images[0].data.shape == (64, 64)
 
 
-@pytest.mark.skipif(
-    zarr_version_major < 3, reason="v0.5 format requires zarr-python 3"
-)
+@pytest.mark.skipif(zarr_version_major < 3, reason="v0.5 format requires zarr-python 3")
 def test_from_ngff_zarr_v05_auto_detect():
     """Test loading v0.5 OME-Zarr with automatic version detection."""
     # Create test data
     data = np.random.randint(0, 255, size=(64, 64), dtype=np.uint8)
     image = to_ngff_image(data, dims=("y", "x"))
     multiscales = to_multiscales(image)
-    
+
     # Write to v0.5 format
     store = MemoryStore()
     to_ngff_zarr(store, multiscales, version="0.5")
-    
+
     # Load without specifying version (should auto-detect)
     loaded = from_ngff_zarr(store)
-    
+
     assert loaded is not None
     assert len(loaded.images) > 0
     assert loaded.images[0].data.shape == (64, 64)
@@ -142,7 +141,7 @@ def test_from_ngff_zarr_v05_auto_detect():
 
 def test_from_ngff_zarr_v04_wrong_structure():
     """Test that claiming v0.4 with v0.5 structure (ome key) gives helpful error.
-    
+
     When a file has the 'ome' key (v0.5 structure) but we try to load it as v0.4,
     it should fail because v0.4 expects 'multiscales' at root level, not under 'ome'.
     """
@@ -161,25 +160,26 @@ def test_from_ngff_zarr_v04_wrong_structure():
         root.create_array("0", data=data_array, chunks=(32, 32))
     else:
         root.create_dataset("0", data=data_array, chunks=(32, 32))
-    
+
     root.attrs["ome"] = {
         "version": "0.4",  # Incorrect: v0.4 files have multiscales at root, not under 'ome'
         "multiscales": [
             {
-                "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}],
+                "axes": [
+                    {"name": "y", "type": "space"},
+                    {"name": "x", "type": "space"},
+                ],
                 "datasets": [{"path": "0"}],
             }
         ],
     }
-    
+
     # When loading with version="0.4", should fail because 'multiscales' is not at root level
     with pytest.raises(ValueError, match="multiscales"):
         from_ngff_zarr(store, version="0.4")
 
 
-@pytest.mark.skipif(
-    zarr_version_major < 3, reason="v0.5 format requires zarr-python 3"
-)
+@pytest.mark.skipif(zarr_version_major < 3, reason="v0.5 format requires zarr-python 3")
 def test_from_ngff_zarr_v05_wrong_structure():
     """Test that v0.5 format with wrong structure gives helpful error."""
     # Create a store with v0.4 structure
@@ -189,7 +189,7 @@ def test_from_ngff_zarr_v05_wrong_structure():
     # Create the array data that the metadata references
     data_array = np.random.randint(0, 255, size=(64, 64), dtype=np.uint8)
     root.create_array("0", data=data_array, chunks=(32, 32))
-    
+
     root.attrs["multiscales"] = [
         {
             "version": "0.5",  # Claims v0.5 but has v0.4 structure
@@ -197,7 +197,7 @@ def test_from_ngff_zarr_v05_wrong_structure():
             "datasets": [{"path": "0"}],
         }
     ]
-    
+
     # When loading with version="0.5", should fail with helpful error
     with pytest.raises(ValueError, match="ome"):
         from_ngff_zarr(store, version="0.5")
@@ -220,14 +220,14 @@ def test_from_ngff_zarr_empty_multiscales():
     else:
         root.create_dataset("0", data=data_array, chunks=(32, 32))
     root.attrs["multiscales"] = []  # Empty list
-    
+
     with pytest.raises(ValueError, match="Could not detect NGFF version"):
         from_ngff_zarr(store)
 
 
 def test_detect_version_v04_hcs_plate():
     """Test version detection for v0.4 HCS plate format.
-    
+
     HCS plates with 'plate' key at root level use v0.4 format.
     """
     root_attrs = {
@@ -235,7 +235,7 @@ def test_detect_version_v04_hcs_plate():
             "name": "test_plate",
             "columns": [{"name": "1"}],
             "rows": [{"name": "A"}],
-            "wells": [{"path": "A/1"}]
+            "wells": [{"path": "A/1"}],
         }
     }
     version = _detect_version(root_attrs)
@@ -252,8 +252,8 @@ def test_detect_version_v05_hcs_plate():
                 "name": "test_plate",
                 "columns": [{"name": "1"}],
                 "rows": [{"name": "A"}],
-                "wells": [{"path": "A/1"}]
-            }
+                "wells": [{"path": "A/1"}],
+            },
         }
     }
     version = _detect_version(root_attrs)
@@ -267,15 +267,15 @@ def test_from_ngff_zarr_hcs_plate_error():
         root = zarr.open_group(store, mode="w", zarr_format=2)
     else:
         root = zarr.open_group(store, mode="w")
-    
+
     # Create HCS plate structure
     root.attrs["plate"] = {
         "name": "test_plate",
         "columns": [{"name": "1"}],
         "rows": [{"name": "A"}],
-        "wells": [{"path": "A/1"}]
+        "wells": [{"path": "A/1"}],
     }
-    
+
     # Should raise ValueError with helpful message about using from_hcs_zarr
     with pytest.raises(ValueError, match="HCS.*from_hcs_zarr"):
         from_ngff_zarr(store)

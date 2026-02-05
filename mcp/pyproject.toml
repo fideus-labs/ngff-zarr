@@ -208,6 +208,7 @@ version_files = [
 ]
 bump_message = "chore(mcp): bump ngff-zarr-mcp to $new_version"
 annotated_tag = true
+gpg_sign = true
 major_version_zero = true
 
 [tool.commitizen.change_type_map]
