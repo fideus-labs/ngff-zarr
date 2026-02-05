@@ -401,7 +401,11 @@ def _extract_ome_pixel_metadata(
             try:
                 scale[dim] = float(value)
             except (ValueError, TypeError):
-                pass
+                warnings.warn(
+                    f"Invalid physical size value '{value}' for dimension '{dim}' "
+                    "in OME-XML metadata; ignoring this value.",
+                    RuntimeWarning,
+                )
 
     for ome_attr, dim in unit_mapping.items():
         value = pixels.get(ome_attr)
@@ -414,6 +418,32 @@ def _extract_ome_pixel_metadata(
         return None, None
 
     return scale, units if units else None
+
+
+def _sanitize_series_name(name: str) -> str:
+    """
+    Sanitize a series name to prevent path traversal attacks.
+    
+    Removes path separators and parent directory references to ensure
+    the name is safe to use in filesystem paths.
+    
+    Parameters
+    ----------
+    name : str
+        Raw series name from TIFF metadata.
+        
+    Returns
+    -------
+    str
+        Sanitized series name safe for use in file paths.
+    """
+    # Remove path separators and parent directory references
+    name = name.replace("/", "_").replace("\\", "_")
+    name = name.replace("..", "_")
+    # Remove any leading/trailing whitespace or dots
+    name = name.strip().strip(".")
+    # If the name is empty after sanitization, use a default
+    return name if name else "unnamed"
 
 
 def tiff_file_to_ngff_images(
@@ -522,6 +552,9 @@ def tiff_file_to_ngff_images(
             msg = f"Invalid series specification: {series}"
             raise ValueError(msg)
 
+        # Deduplicate indices while preserving order
+        indices_to_convert = list(dict.fromkeys(indices_to_convert))
+
         # Convert selected series
         for idx in indices_to_convert:
             tiff_series = all_series[idx]
@@ -601,8 +634,9 @@ def tiff_file_to_ngff_images(
                     axes_units=ngff_image.axes_units,
                 )
 
-            # Generate series name
-            series_name = tiff_series.name if tiff_series.name else f"series_{idx}"
+            # Generate series name and sanitize it to prevent path traversal
+            raw_name = tiff_series.name if tiff_series.name else f"series_{idx}"
+            series_name = _sanitize_series_name(raw_name)
             results.append((series_name, ngff_image))
 
     return results

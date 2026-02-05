@@ -53,7 +53,11 @@ separate `.ome.zarr` directory:
 ngff-zarr -i multi_series.ome.tiff -o output/
 ```
 
-This creates `output_series_0.ome.zarr`, `output_series_1.ome.zarr`, etc.
+This creates one OME-Zarr store per series. For unnamed series, the default 
+filenames will be `output_series_0.ome.zarr`, `output_series_1.ome.zarr`, etc. 
+If the TIFF series have names (common for OME-TIFF), their names are used 
+instead of the index, for example `output_GFP.ome.zarr`, `output_DAPI.ome.zarr`, 
+and so on. Series names are automatically sanitized to ensure filesystem safety.
 
 ### Convert a specific series by index
 
@@ -99,6 +103,7 @@ for name, ngff_image in images:
     print(f"  Units: {ngff_image.axes_units}")
 
     # Generate multiscales and write to OME-Zarr
+    # Note: series names are automatically sanitized for filesystem safety
     multiscales = to_multiscales(ngff_image, scale_factors=[2, 4])
     to_ngff_zarr(f"{name}.ome.zarr", multiscales)
 ```
