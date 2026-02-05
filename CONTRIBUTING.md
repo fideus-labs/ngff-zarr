@@ -113,14 +113,6 @@ cd ts && pixi run version-check   # Shows TypeScript package version
 cd mcp && pixi run version-check  # Shows MCP package version
 ```
 
-Bump the version (analyzes commits, updates changelog, creates tag):
-
-```bash
-cd py && pixi run bump   # Bump Python package
-cd ts && pixi run bump   # Bump TypeScript package
-cd mcp && pixi run bump  # Bump MCP package
-```
-
 ### Pre-commit Validation
 
 The pre-commit hooks will automatically validate your commit messages. If a
