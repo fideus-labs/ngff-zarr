@@ -423,15 +423,15 @@ def _extract_ome_pixel_metadata(
 def _sanitize_series_name(name: str) -> str:
     """
     Sanitize a series name to prevent path traversal attacks.
-    
+
     Removes path separators and parent directory references to ensure
     the name is safe to use in filesystem paths.
-    
+
     Parameters
     ----------
     name : str
         Raw series name from TIFF metadata.
-        
+
     Returns
     -------
     str
