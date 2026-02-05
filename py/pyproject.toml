@@ -234,13 +234,13 @@ annotated_tag = true
 major_version_zero = true
 
 [tool.commitizen.change_type_map]
-feat = "Features"
-fix = "Bug Fixes"
-docs = "Documentation"
-style = "Style"
-refactor = "Refactoring"
-perf = "Performance"
-test = "Testing"
-build = "Build"
-ci = "CI/CD"
-chore = "Chores"
+feat = "✨ Features"
+fix = "🐛 Bug Fixes"
+docs = "📚 Documentation"
+style = "💎 Style"
+refactor = "♻️ Refactoring"
+perf = "⚡ Performance"
+test = "✅ Testing"
+build = "📦 Build"
+ci = "🔧 CI/CD"
+chore = "🧹 Chores"
