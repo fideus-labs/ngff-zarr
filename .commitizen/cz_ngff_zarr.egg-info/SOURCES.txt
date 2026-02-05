@@ -1,0 +1,8 @@
+cz_ngff_zarr.py
+setup.py
+cz_ngff_zarr.egg-info/PKG-INFO
+cz_ngff_zarr.egg-info/SOURCES.txt
+cz_ngff_zarr.egg-info/dependency_links.txt
+cz_ngff_zarr.egg-info/entry_points.txt
+cz_ngff_zarr.egg-info/requires.txt
+cz_ngff_zarr.egg-info/top_level.txt

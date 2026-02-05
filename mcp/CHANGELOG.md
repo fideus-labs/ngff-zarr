@@ -1,116 +1,32 @@
-<!-- SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC -->
-<!-- SPDX-License-Identifier: MIT -->
-# Changelog
+## Unreleased
 
-All notable changes to the ngff-zarr-mcp package will be documented in this
-file.
+### ♻️ Refactoring
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+- move re imports to module level for better performance ([43d0d0a](https://github.com/fideus-labs/ngff-zarr/commit/43d0d0a4302eb8cdfb08a7d70ab7f146e367c35f))
+- use descriptive CI workflow filenames ([777b70e](https://github.com/fideus-labs/ngff-zarr/commit/777b70e00cd4838cb9f30be4b087c374deac304d))
 
-## [0.5.0] - 2025-07-23
+### ✨ Features
 
-### Removed
+- **ci**: add automated GitHub Release workflow with Commitizen changelog integration ([af9d7c2](https://github.com/fideus-labs/ngff-zarr/commit/af9d7c25004f2cdbde2ba6b4a9672c4882fda620))
+- **py,ts**: add OMERO metadata computation from NgffImage ([43d0d0a](https://github.com/fideus-labs/ngff-zarr/commit/43d0d0a4302eb8cdfb08a7d70ab7f146e367c35f))
+- add input validation for OMERO metadata computation ([43d0d0a](https://github.com/fideus-labs/ngff-zarr/commit/43d0d0a4302eb8cdfb08a7d70ab7f146e367c35f))
+- add Leica Image Format (LIF) support ([3954a1c](https://github.com/fideus-labs/ngff-zarr/commit/3954a1c7e8cd24fccf9e9c8817c499792164cf13))
+- add support for dask>=2025.12.0 ([b8ee6ca](https://github.com/fideus-labs/ngff-zarr/commit/b8ee6ca15f296e94d21075169572a302013147a4))
+- add write_hcs_well_image ([709d310](https://github.com/fideus-labs/ngff-zarr/commit/709d310d2478b6d46e14dcd0e0db648542186905))
+- **mcp**: populate method_type, method_metadata ([7a54145](https://github.com/fideus-labs/ngff-zarr/commit/7a541458fcd53f2c65b6702e9b386cb766f97b72))
+- **mcp**: convert_to_ome_zarr support for store inputs ([68fb972](https://github.com/fideus-labs/ngff-zarr/commit/68fb972a658a24add46ddaeb4880a920f5085b67))
+- **mcp**: updates for ngff-zarr 0.14, 0.15 features ([f9e2c60](https://github.com/fideus-labs/ngff-zarr/commit/f9e2c60a6295fc913d885febf2a8e135a4afb528))
+- provide RAS, LPS convenience mappings ([81746be](https://github.com/fideus-labs/ngff-zarr/commit/81746bee6875c04e1837b5c51172cb728eb347c0))
+- **from_ngff_zarr**: add support for storage_options ([12d00f8](https://github.com/fideus-labs/ngff-zarr/commit/12d00f805f5e83f9c048ea9c7a51a3fd4b38eed1))
+- **from_ngff_zarr**: add support for storage_options ([d27fd19](https://github.com/fideus-labs/ngff-zarr/commit/d27fd19930e559b10916802d09c4762da9e8d39a))
 
-- **Memory Target Option**: Removed `memory_target` parameter from MCP interface
-  - Removed from `ConversionOptions` model
-  - Removed from `convert_images_to_ome_zarr` tool function
-  - Removed from `setup_dask_config` utility function
-  - Memory management now handled automatically by ngff-zarr library defaults
+### 🐛 Bug Fixes
 
-### Changed
-
-- **Simplified Memory Management**: Memory usage is now managed automatically
-  - Removed manual memory limit calculations for Dask LocalCluster
-  - Simplified caching logic to rely on system defaults
-  - LocalCluster now uses default memory management without explicit limits
-
-### Technical Details
-
-- **Breaking Change**: Applications using `memory_target` parameter will need to
-  be updated
-- Memory management delegated to underlying ngff-zarr library configuration
-- Improved code maintainability by removing manual memory management complexity
-- All existing tests updated and passing without memory_target references
-
-## [0.4.0] - 2025-07-22
-
-### Added
-
-- **Store Input Support**: Enhanced `convert_to_ome_zarr` tool to accept
-  existing OME-Zarr stores as input
-  - Enables conversion and optimization of existing OME-Zarr datasets
-  - Supports both local and remote store inputs with storage options
-- **Enhanced Metadata Population**: Improved metadata extraction and analysis
-  - Populate `method_type` and `method_metadata` fields in store analysis
-  - Better detection of multiscale generation methods
-- **TensorStore Integration**: Added comprehensive TensorStore support
-  - Added `tensorstore` dependency for enhanced performance
-  - Compression testing for TensorStore-based operations
-
-### Changed
-
-- **Dependency Updates**: Bumped ngff-zarr dependency to 0.15.2
-  - Compatibility with latest ngff-zarr features and improvements
-  - Enhanced support for RFC 4 and advanced storage options
-- **Improved Documentation**: Enhanced README and examples
-  - Updated usage patterns for new store input functionality
-
-### Fixed
-
-- **DANDI OMERO Compatibility**: Added workaround for DANDI OMERO dataset
-  compatibility issues
-  - Improved handling of legacy OMERO metadata structures
-  - Better error handling for malformed metadata
-- **Module Import Issues**: Fixed zarr module shadowing in utils.py
-  - Resolved import conflicts that could cause runtime errors
-  - Improved code clarity and maintainability
-- **Dependency Resolution**: Added missing remote storage dependencies
-  - Ensures proper functionality with cloud storage backends
-
-### Technical Details
-
-- Compatible with ngff-zarr Python package versions 0.15.0 and 0.15.2
-- Enhanced test coverage with TensorStore compression testing
-- Improved error handling and logging throughout the codebase
-- Better support for legacy OME-Zarr formats and OMERO datasets
-
-## [0.3.0] - 2025-01-18
-
-### Added
-
-- **RFC 4 - Anatomical Orientation Support**: Added parameters for medical
-  imaging orientation systems
-  - `anatomical_orientation` parameter for LPS/RAS coordinate system presets
-  - `enable_rfc4` parameter to enable RFC 4 support
-  - `enabled_rfcs` parameter to enable specific RFC features
-- **Enhanced Storage Support**: Added `storage_options` parameter for cloud
-  storage authentication
-  - Support for AWS S3, Google Cloud Storage, Azure Blob Storage
-  - Authentication and configuration options for remote storage
-- **New Tool**: `read_ome_zarr_store` for reading OME-Zarr data with remote
-  storage support
-- **Enhanced Metadata**: Extended StoreInfo model with new fields:
-  - `method_type`: Type of multiscale method used
-  - `method_metadata`: Detailed method information
-  - `anatomical_orientation`: Anatomical orientation information
-  - `rfc_support`: List of enabled RFC features
-
-### Changed
-
-- Updated `convert_images_to_ome_zarr` tool with new parameters for RFC 4 and
-  storage options
-- Enhanced documentation in README with new features
-- Improved type annotations and error handling
-
-### Technical Details
-
-- Compatible with ngff-zarr Python package versions 0.14.0 and 0.15.0
-- Maintains backward compatibility with existing MCP tool calls
-- Prepared infrastructure for future RFC 4 and method metadata integration
-- Added graceful fallbacks for features not yet available in the core library
-
-## [0.2.1] - Previous Release
-
-- Previous MCP server functionality
+- **deps**: pin dask to <2025.11.0 ([8402988](https://github.com/fideus-labs/ngff-zarr/commit/8402988650196b1417c5d4f4e7397d57a460f36d))
+- incremental downsampling to achieve exact 1x, 2x, 3x, 4x sizes ([a1a00cd](https://github.com/fideus-labs/ngff-zarr/commit/a1a00cd61ea7ee73d1de55a09f9a5b6411547a71))
+- **rfc4**: correct LPS RAS direction ([0c00023](https://github.com/fideus-labs/ngff-zarr/commit/0c000233cc28d8c4d45f4a62ce2ca8c4587d05bd))
+- **mcp**: remove memory_target option ([a846e4c](https://github.com/fideus-labs/ngff-zarr/commit/a846e4c5813762e8aa7a6680f8da996406005c6c))
+- **mcp**: add ngff-zarr tensorstore dep ([4746645](https://github.com/fideus-labs/ngff-zarr/commit/4746645d8468db9c7836b58fb4c0398d1c2294ec))
+- **mcp**: fix shadowing of zarr module in utils.py ([c709501](https://github.com/fideus-labs/ngff-zarr/commit/c709501e4316faf4c2d55d650ef7e96f9649bf2e))
+- **mcp**: workaround dandi omero compatibility ([317c982](https://github.com/fideus-labs/ngff-zarr/commit/317c982fb455d81d0b397ec8c583bfa1a9c9e037))
+- **rfc.py**: add missing values ([6f7ffca](https://github.com/fideus-labs/ngff-zarr/commit/6f7ffca93ee792d2d9da77a11072012f33d6f887))
