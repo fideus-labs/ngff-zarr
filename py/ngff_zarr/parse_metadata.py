@@ -98,7 +98,10 @@ def _parse_omero(omero_data: dict) -> Optional[Omero]:
 
 
 def _detect_version(root_attrs: dict) -> NgffVersion:
-    """Detect NGFF version from root attributes."""
+    """Detect NGFF version from root attributes.
+    
+    Handles both regular image groups and HCS plate structures.
+    """
     version_str: Optional[str] = None
     if "ome" in root_attrs:
         # v0.5+ format has metadata under "ome" key
@@ -112,6 +115,12 @@ def _detect_version(root_attrs: dict) -> NgffVersion:
         multiscales = root_attrs.get("multiscales", [])
         if multiscales and isinstance(multiscales, list):
             version_str = multiscales[0].get("version", "0.4")
+        # Handle HCS plate structures that don't have multiscales at root
+        # but have "plate" metadata instead
+        elif "plate" in root_attrs and isinstance(root_attrs["plate"], dict):
+            # HCS plates in v0.4 format have "plate" key at root level
+            # Default to 0.4 since this is the v0.4 plate structure
+            version_str = "0.4"
 
     if version_str is None:
         raise ValueError("Could not detect NGFF version from root attributes.")
