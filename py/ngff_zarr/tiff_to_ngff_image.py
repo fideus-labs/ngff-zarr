@@ -14,10 +14,13 @@ Requires the `tifffile` package: pip install tifffile
 """
 
 import re
+import warnings
 import xml.etree.ElementTree as ET
+from functools import reduce
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
+import dask.array as da
 import zarr
 
 from .ngff_image import NgffImage
@@ -25,6 +28,34 @@ from .to_ngff_image import to_ngff_image
 
 if TYPE_CHECKING:
     import tifffile
+
+# Mapping from TIFF axis characters to NGFF-compatible dimension names
+# Based on tifffile axis conventions:
+#   X: width, Y: height, Z: depth, S: sample (RGB), C: channel, T: time
+#   I: sequence, Q: other/unknown, R: reduction/tiles, etc.
+TIFF_AXIS_TO_NGFF: Dict[str, Optional[str]] = {
+    "x": "x",
+    "y": "y",
+    "z": "z",
+    "t": "t",
+    "c": "c",
+    "s": "c",  # Sample (RGB interleaved) -> channel
+    # Unsupported axes (will be dropped with warning)
+    "i": None,  # Sequence
+    "q": None,  # Other/unknown (often used for extra dimensions)
+    "r": None,  # Reduction/tiles
+    "a": None,  # Angle/rotation
+    "p": None,  # Position
+    "e": None,  # Exposure
+    "l": None,  # Lifetime
+    "h": None,  # Phase
+}
+
+# Channel-like dimensions that should be flattened into a single 'c' dimension
+TIFF_CHANNEL_AXES = {"c", "s"}
+
+# Spatial dimensions in NGFF
+SPATIAL_DIMS = {"x", "y", "z"}
 
 # Mapping from OME unit symbols/names to NGFF-compatible unit names
 # Based on OME-XML specification and UDUNITS-2
@@ -81,6 +112,204 @@ def _normalize_unit(ome_unit: Optional[str]) -> Optional[str]:
         return OME_UNIT_TO_NGFF[lower_unit]
     # Not recognized
     return None
+
+
+def _map_tiff_axes_to_ngff(
+    tiff_axes: str,
+    tiff_shape: Tuple[int, ...],
+) -> Tuple[Tuple[str, ...], Tuple[int, ...], List[int], List[int]]:
+    """
+    Map TIFF axes to NGFF-compatible dimensions, flattening channel-like dims.
+
+    Parameters
+    ----------
+    tiff_axes : str
+        TIFF axis string (e.g., 'ZYXS', 'TCYX').
+    tiff_shape : Tuple[int, ...]
+        Shape corresponding to the axes.
+
+    Returns
+    -------
+    ngff_dims : Tuple[str, ...]
+        NGFF-compatible dimension names.
+    ngff_shape : Tuple[int, ...]
+        Shape after processing (may flatten channel dims).
+    channel_indices : List[int]
+        Indices of channel-like dimensions in original axes.
+    dropped_indices : List[int]
+        Indices of dropped (unsupported) dimensions in original axes.
+
+    Warns
+    -----
+    UserWarning
+        If unsupported axes are encountered and dropped.
+    """
+    axes_lower = tiff_axes.lower()
+
+    # Track channel-like dimensions for potential flattening
+    channel_indices: List[int] = []
+    channel_sizes: List[int] = []
+    other_dims: List[Tuple[int, str, int]] = []  # (orig_idx, ngff_dim, size)
+    dropped_axes: List[str] = []
+    dropped_indices: List[int] = []
+
+    for i, (axis, size) in enumerate(zip(axes_lower, tiff_shape)):
+        ngff_dim = TIFF_AXIS_TO_NGFF.get(axis)
+
+        if axis in TIFF_CHANNEL_AXES:
+            channel_indices.append(i)
+            channel_sizes.append(size)
+        elif ngff_dim is not None:
+            other_dims.append((i, ngff_dim, size))
+        else:
+            # Unknown/unsupported axis - drop with warning
+            dropped_axes.append(axis.upper())
+            dropped_indices.append(i)
+
+    if dropped_axes:
+        warnings.warn(
+            f"Dropping unsupported TIFF axes: {', '.join(dropped_axes)}. "
+            f"Supported axes are: {', '.join(sorted(k.upper() for k in TIFF_AXIS_TO_NGFF.keys() if TIFF_AXIS_TO_NGFF[k] is not None))}",
+            UserWarning,
+            stacklevel=3,
+        )
+
+    # Build output dimensions and shape
+    ngff_dims_list: List[str] = []
+    ngff_shape_list: List[int] = []
+
+    # Sort other_dims by original index to maintain order
+    other_dims.sort(key=lambda x: x[0])
+
+    # Calculate total channel size (flatten multiple channel dims)
+    # Only add channel dimension if there were actual channel-like axes
+    has_channels = len(channel_sizes) > 0
+    total_channels = reduce(lambda x, y: x * y, channel_sizes, 1) if has_channels else 0
+
+    # Insert channel dimension at appropriate position
+    # We want to preserve the relative position of channels in the axis order
+    channel_inserted = False
+
+    # Find where the first channel dimension was in the original order
+    first_channel_pos = channel_indices[0] if channel_indices else -1
+
+    for orig_idx, ngff_name, size in other_dims:
+        # Insert channel at its original relative position
+        if not channel_inserted and has_channels:
+            # Insert channel if we've passed its original position
+            if first_channel_pos >= 0 and orig_idx > first_channel_pos:
+                ngff_dims_list.append("c")
+                ngff_shape_list.append(total_channels)
+                channel_inserted = True
+
+        ngff_dims_list.append(ngff_name)
+        ngff_shape_list.append(size)
+
+    # If we haven't inserted channels yet and we have them, append at end
+    if not channel_inserted and has_channels:
+        ngff_dims_list.append("c")
+        ngff_shape_list.append(total_channels)
+
+    return (
+        tuple(ngff_dims_list),
+        tuple(ngff_shape_list),
+        channel_indices,
+        dropped_indices,
+    )
+
+
+def _reshape_tiff_for_channels(
+    data: da.Array,
+    tiff_axes: str,
+    tiff_shape: Tuple[int, ...],
+    ngff_dims: Tuple[str, ...],
+    ngff_shape: Tuple[int, ...],
+    channel_indices: List[int],
+    dropped_indices: List[int],
+) -> da.Array:
+    """
+    Reshape TIFF data array to match NGFF dimensions.
+
+    Handles:
+    - Dropping unsupported dimensions (takes first slice)
+    - Flattening multiple channel-like dimensions (C, S) into single 'c'
+    - Moving/reordering dimensions as needed
+
+    Parameters
+    ----------
+    data : da.Array
+        Input dask array with original TIFF shape.
+    tiff_axes : str
+        Original TIFF axis string.
+    tiff_shape : Tuple[int, ...]
+        Original shape.
+    ngff_dims : Tuple[str, ...]
+        Target NGFF dimension names.
+    ngff_shape : Tuple[int, ...]
+        Target shape.
+    channel_indices : List[int]
+        Indices of channel dimensions in original data.
+    dropped_indices : List[int]
+        Indices of dimensions to drop.
+
+    Returns
+    -------
+    da.Array
+        Reshaped array matching ngff_shape.
+    """
+    # If shapes already match, nothing to do
+    if data.shape == ngff_shape:
+        return data
+
+    # Step 1: Handle dropped axes by selecting first slice
+    if dropped_indices:
+        slices: List[Union[int, slice]] = [slice(None)] * len(tiff_shape)
+        for idx in sorted(dropped_indices, reverse=True):
+            slices[idx] = 0  # Take first slice of dropped dimension
+        data = data[tuple(slices)]
+
+        # Update tracking: remove dropped indices from channel_indices
+        # and adjust remaining indices
+        new_channel_indices = []
+        for ci in channel_indices:
+            offset = sum(1 for di in dropped_indices if di < ci)
+            new_channel_indices.append(ci - offset)
+        channel_indices = new_channel_indices
+
+    # Step 2: If only one or zero channel dimensions, simple reshape suffices
+    if len(channel_indices) <= 1:
+        if data.shape != ngff_shape:
+            return data.reshape(ngff_shape)
+        return data
+
+    # Step 3: Multiple channel dimensions - need to flatten them
+    # Check if channel dimensions are contiguous
+    are_contiguous = all(
+        channel_indices[i] + 1 == channel_indices[i + 1]
+        for i in range(len(channel_indices) - 1)
+    )
+
+    if are_contiguous:
+        # Dimensions are contiguous, safe to use reshape directly
+        return data.reshape(ngff_shape)
+
+    # Non-contiguous channel dimensions: need to transpose first
+    # Move all channel dimensions to be adjacent at the first channel position
+    first_channel_pos = channel_indices[0]
+    non_channel_indices = [i for i in range(data.ndim) if i not in channel_indices]
+
+    # Build new axis order: dims before first channel, all channels, dims after
+    new_axis_order = (
+        non_channel_indices[:first_channel_pos]
+        + channel_indices
+        + non_channel_indices[first_channel_pos:]
+    )
+
+    # Transpose to new order
+    data = data.transpose(new_axis_order)
+
+    # Now reshape to flatten the channel dimensions
+    return data.reshape(ngff_shape)
 
 
 def _extract_ome_pixel_metadata(
@@ -305,12 +534,19 @@ def tiff_file_to_ngff_images(
             store = tif.aszarr(series=idx, level=0)
             root = zarr.open(store, mode="r")
 
-            # Get dims from the series axes
-            axes = tiff_series.axes.lower() if tiff_series.axes else None
-            dims = None
-            if axes:
-                # Map TIFF axes to NGFF dims
-                dims = tuple(axes)
+            # Get dims from the series axes with proper mapping
+            # TIFF axes like 'S' (sample/RGB) need to be mapped to NGFF 'c' (channel)
+            tiff_axes = tiff_series.axes if tiff_series.axes else None
+            dims: Optional[Tuple[str, ...]] = None
+            ngff_shape: Optional[Tuple[int, ...]] = None
+            channel_indices: List[int] = []
+            dropped_indices: List[int] = []
+
+            if tiff_axes:
+                # Map TIFF axes to NGFF dims (handles S->c, drops unsupported axes)
+                dims, ngff_shape, channel_indices, dropped_indices = (
+                    _map_tiff_axes_to_ngff(tiff_axes, tiff_series.shape)
+                )
 
             # Build scale dict from OME metadata, using defaults for missing dims
             scale = None
@@ -339,6 +575,31 @@ def tiff_file_to_ngff_images(
                 scale=scale,
                 axes_units=axes_units,
             )
+
+            # Reshape data if needed (for channel flattening, dropped axes, etc.)
+            if (
+                tiff_axes
+                and dims is not None
+                and ngff_shape is not None
+                and ngff_image.data.shape != ngff_shape
+            ):
+                reshaped_data = _reshape_tiff_for_channels(
+                    ngff_image.data,
+                    tiff_axes,
+                    tiff_series.shape,
+                    dims,
+                    ngff_shape,
+                    channel_indices,
+                    dropped_indices,
+                )
+                ngff_image = NgffImage(
+                    data=reshaped_data,
+                    dims=dims,
+                    scale=ngff_image.scale,
+                    translation=ngff_image.translation,
+                    name=ngff_image.name,
+                    axes_units=ngff_image.axes_units,
+                )
 
             # Generate series name
             series_name = tiff_series.name if tiff_series.name else f"series_{idx}"

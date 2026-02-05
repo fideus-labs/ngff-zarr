@@ -374,3 +374,93 @@ def test_tiff_file_to_ngff_images_unit_normalization():
 
     assert img.axes_units["x"] == "nanometer"
     assert img.axes_units["y"] == "nanometer"
+
+
+def test_tiff_file_to_ngff_images_with_sample_axis():
+    """Test handling of TIFF with S (sample/RGB) axis."""
+    try:
+        import tifffile
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    tmpdir = Path(tempfile.mkdtemp())
+    tiff_path = tmpdir / "rgb_zyxs.ome.tiff"
+
+    # Create ZYXS data (Z-stack of RGB images)
+    data = np.random.rand(5, 100, 100, 3).astype(np.uint8)
+
+    with tifffile.TiffWriter(tiff_path, ome=True) as tif:
+        tif.write(data, photometric="rgb", metadata={"axes": "ZYXS"})
+
+    images = tiff_file_to_ngff_images(tiff_path)
+    assert len(images) == 1
+
+    name, img = images[0]
+    # S axis should be mapped to c
+    assert img.dims == ("z", "y", "x", "c")
+    assert img.data.shape == (5, 100, 100, 3)
+
+
+def test_tiff_file_to_ngff_images_simple_rgb():
+    """Test handling of simple RGB TIFF (YXS -> yxc)."""
+    try:
+        import tifffile
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    tmpdir = Path(tempfile.mkdtemp())
+    tiff_path = tmpdir / "rgb_yxs.tiff"
+
+    # Create YXS data (2D RGB image)
+    data = np.random.rand(100, 100, 3).astype(np.uint8)
+
+    with tifffile.TiffWriter(tiff_path) as tif:
+        tif.write(data, photometric="rgb")
+
+    images = tiff_file_to_ngff_images(tiff_path)
+    assert len(images) == 1
+
+    name, img = images[0]
+    assert img.dims == ("y", "x", "c")
+    assert img.data.shape == (100, 100, 3)
+
+
+def test_tiff_file_to_ngff_images_unsupported_axis_warning():
+    """Test that unsupported axes produce warnings and are dropped."""
+    try:
+        import tifffile
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    import warnings
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    tmpdir = Path(tempfile.mkdtemp())
+    tiff_path = tmpdir / "with_q_axis.tiff"
+
+    # Create data with Q (unknown) axis
+    data = np.random.rand(2, 5, 100, 100).astype(np.uint8)
+
+    with tifffile.TiffWriter(tiff_path) as tif:
+        tif.write(data, photometric="minisblack", metadata={"axes": "QZYX"})
+
+    # Should produce warning about Q axis
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        images = tiff_file_to_ngff_images(tiff_path)
+
+        # Check warning was issued
+        assert len(w) == 1
+        assert "Dropping unsupported TIFF axes: Q" in str(w[0].message)
+
+    assert len(images) == 1
+    name, img = images[0]
+
+    # Q axis should be dropped (first slice taken)
+    assert img.dims == ("z", "y", "x")
+    assert img.data.shape == (5, 100, 100)
