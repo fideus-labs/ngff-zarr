@@ -519,6 +519,20 @@ def main():
                 args.output,
             ]
         )
+        
+        # Validate that output format is OME-Zarr
+        if output_backend is not ConversionBackend.NGFF_ZARR:
+            from rich import print
+            print("[red]Error: ngff-zarr only supports OME-Zarr output formats.[/red]")
+            print(f"[yellow]The specified output file '{args.output}' was detected as {output_backend.name} format.[/yellow]")
+            print("[cyan]Supported output formats:[/cyan]")
+            print("  • .zarr (OME-Zarr directory)")
+            print("  • .ome.zarr (OME-Zarr directory)")
+            print("  • .ozx (zipped OME-Zarr file, RFC-9)")
+            print("\n[cyan]Example usage:[/cyan]")
+            print(f"  ngff-zarr -i {args.input[0]} -o output.ome.zarr")
+            sys.exit(1)
+    
     output_store = None
     if args.output and output_backend is ConversionBackend.NGFF_ZARR:
         # Handle .ozx files - just pass the path, to_ngff_zarr will handle it
@@ -550,42 +564,6 @@ def main():
                 chunks_per_shard = args.chunks_per_shard[0]
             else:
                 chunks_per_shard = tuple(args.chunks_per_shard)
-        
-        # Handle TIFFFILE output: convert to numpy and write directly
-        if args.output and output_backend is ConversionBackend.TIFFFILE:
-            import tifffile
-            from dask.array.core import Array as DaskArray
-            
-            source_image = cli_input_to_ngff_image(
-                input_backend, args.input, args.output_scale
-            )
-            if isinstance(rich_dask_progress, NgffProgressCallback):
-                rich_dask_progress.add_callback_task(
-                    "[green]Computing array data for TIFF output"
-                )
-            
-            # Materialize dask array to numpy for writing
-            pixel_data = source_image.data
-            if isinstance(pixel_data, DaskArray):
-                try:
-                    pixel_data = pixel_data.compute()
-                except MemoryError as mem_err:
-                    live.console.print(
-                        f"[red]Memory error during array computation: {mem_err}"
-                    )
-                    live.console.print(
-                        "[yellow]Try processing a smaller image or use a system with more RAM"
-                    )
-                    sys.exit(1)
-                except Exception as compute_err:
-                    live.console.print(
-                        f"[red]Failed to compute array data: {compute_err}"
-                    )
-                    sys.exit(1)
-            
-            tifffile.imwrite(args.output, pixel_data)
-            return
-        
         if args.output and output_backend is ConversionBackend.ITK:
             import itk
 
