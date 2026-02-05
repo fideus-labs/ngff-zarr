@@ -24,7 +24,7 @@
     "check": "deno check src/mod.ts",
     "build": "deno run --allow-all scripts/build.ts",
     "build:npm": "deno run --allow-all scripts/build_npm.ts",
-    "build:bundle": "deno run --allow-all scripts/build_npm.ts && cd npm && npx esbuild esm/browser-mod.js --bundle --format=esm --platform=browser --minify --outfile=../test/browser-npm/ngff-zarr.bundle.js"
+    "build:bundle": "deno run --allow-all scripts/build_npm.ts && deno run --allow-all scripts/inline_worker.ts && cd npm && npx esbuild esm/browser-mod.js --bundle --format=esm --platform=browser --minify --outfile=../test/browser-npm/ngff-zarr.bundle.js"
   },
   "imports": {
     "@itk-wasm/compare-images": "npm:@itk-wasm/compare-images@^5.4.1",
@@ -41,6 +41,7 @@
     "p-queue": "npm:p-queue@^8.1.1",
     "zod": "npm:zod@^4.3.6",
     "zarrita": "jsr:@zarrita/zarrita@^0.5.3",
+    "comlink": "npm:comlink@^4.4.2",
     "fflate": "npm:fflate@^0.8.2",
     "playwright/test": "npm:@playwright/test@^1.58.1"
   },

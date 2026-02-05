@@ -46,6 +46,12 @@ function rewriteImports(content: string): string {
     "$1$2.js$3",
   );
 
+  // Replace .ts extensions in new URL() calls (for Worker imports)
+  content = content.replace(
+    /(new\s+URL\s*\(\s*["'])(\.[^"']+)\.ts(["'])/g,
+    "$1$2.js$3",
+  );
+
   // Replace jsr: imports with node-style module imports
   content = content.replace(
     /from\s+["']jsr:@std\/fs@[^"']*["']/g,
@@ -189,6 +195,7 @@ async function createPackageJson(): Promise<void> {
     files: ["esm/", "README.md", "LICENSE.txt"],
     dependencies: {
       "@itk-wasm/downsample": "^1.8.1",
+      comlink: "^4.4.2",
       "itk-wasm": "^1.0.0-b.196",
       "p-queue": "^8.1.0",
       "@zarrita/storage": "^0.1.4",

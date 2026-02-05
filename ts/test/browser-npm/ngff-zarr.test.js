@@ -488,6 +488,250 @@ test.describe("RFC-9 Browser Tests", () => {
   // Browser tests cannot easily create zarr arrays without zarrita import
 });
 
+test.describe("OMERO WebWorker Computation Tests", () => {
+  test.beforeEach(async ({ page }) => {
+    // Navigate to the bundle test page
+    await page.goto("/bundle-test");
+
+    // Wait for the page to fully load
+    await page.waitForLoadState("networkidle");
+  });
+
+  test("should have OMERO computation functions available", async ({ page }) => {
+    const loadResult = await page.evaluate(async () => {
+      try {
+        const ngffZarr = await import("./ngff-zarr.bundle.js");
+        return {
+          success: true,
+          hasComputeOmeroFromNgffImage: "computeOmeroFromNgffImage" in ngffZarr,
+          hasComputeOmeroFromMultiscales: "computeOmeroFromMultiscales" in
+            ngffZarr,
+          hasTerminateOmeroWorker: "terminateOmeroWorker" in ngffZarr,
+          hasIsUsingWorker: "isUsingWorker" in ngffZarr,
+          hasGetDefaultColors: "getDefaultColors" in ngffZarr,
+          hasGLASBEY_COLORS: "GLASBEY_COLORS" in ngffZarr,
+          typeOfComputeOmero: typeof ngffZarr.computeOmeroFromNgffImage,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    });
+
+    expect(loadResult.success).toBeTruthy();
+    expect(loadResult.hasComputeOmeroFromNgffImage).toBeTruthy();
+    expect(loadResult.hasComputeOmeroFromMultiscales).toBeTruthy();
+    expect(loadResult.hasTerminateOmeroWorker).toBeTruthy();
+    expect(loadResult.hasIsUsingWorker).toBeTruthy();
+    expect(loadResult.hasGetDefaultColors).toBeTruthy();
+    expect(loadResult.hasGLASBEY_COLORS).toBeTruthy();
+    expect(loadResult.typeOfComputeOmero).toBe("function");
+  });
+
+  test("getDefaultColors should return correct colors", async ({ page }) => {
+    const colorsResult = await page.evaluate(async () => {
+      try {
+        const { getDefaultColors, GLASBEY_COLORS } = await import(
+          "./ngff-zarr.bundle.js"
+        );
+
+        return {
+          success: true,
+          singleChannel: getDefaultColors(1),
+          twoChannels: getDefaultColors(2),
+          threeChannels: getDefaultColors(3),
+          glasbeyLength: GLASBEY_COLORS.length,
+          firstGlasbey: GLASBEY_COLORS[0],
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    });
+
+    expect(colorsResult.success).toBeTruthy();
+    // Single channel should be white
+    expect(colorsResult.singleChannel).toEqual(["FFFFFF"]);
+    // Multiple channels use Glasbey colors
+    expect(colorsResult.twoChannels.length).toBe(2);
+    expect(colorsResult.threeChannels.length).toBe(3);
+    expect(colorsResult.glasbeyLength).toBe(256);
+    expect(colorsResult.firstGlasbey).toBe("30A2DA");
+  });
+
+  test("terminateOmeroWorker should not throw", async ({ page }) => {
+    const terminateResult = await page.evaluate(async () => {
+      try {
+        const { terminateOmeroWorker } = await import("./ngff-zarr.bundle.js");
+
+        // Should not throw even if worker was never created
+        terminateOmeroWorker();
+        terminateOmeroWorker(); // Call twice to ensure idempotent
+
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    });
+
+    expect(terminateResult.success).toBeTruthy();
+  });
+
+  test("should verify WebWorker support detection", async ({ page }) => {
+    // This test verifies that the WebWorker support detection and initialization
+    // works correctly in the browser. We don't test actual OMERO computation here
+    // because it requires zarrita arrays, and dynamically importing zarrita from CDN
+    // in browser tests has CORS/security restrictions. The actual computation logic
+    // is thoroughly tested in Deno unit tests.
+    const workerResult = await page.evaluate(async () => {
+      try {
+        const { isUsingWorker, terminateOmeroWorker } = await import(
+          "./ngff-zarr.bundle.js"
+        );
+
+        // Check if worker support detection works
+        const workerSupported = isUsingWorker();
+
+        // Terminate should not throw even if worker was never started
+        terminateOmeroWorker();
+
+        // Check again after termination - should be able to reinitialize
+        const workerSupportedAfterTerminate = isUsingWorker();
+
+        // Clean up
+        terminateOmeroWorker();
+
+        return {
+          success: true,
+          workerSupported,
+          workerSupportedAfterTerminate,
+          // Both should be true in a browser environment that supports Workers
+          canDetectWorkerSupport: typeof workerSupported === "boolean",
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error.message,
+          stack: error.stack,
+        };
+      }
+    });
+
+    if (!workerResult.success) {
+      console.log("Worker test error:", workerResult.error);
+      console.log("Stack:", workerResult.stack);
+    }
+    expect(workerResult.success).toBeTruthy();
+    expect(workerResult.canDetectWorkerSupport).toBeTruthy();
+    // In browsers, Worker should be supported
+    expect(workerResult.workerSupported).toBeTruthy();
+    // After termination and re-check, worker should be re-initializable
+    expect(workerResult.workerSupportedAfterTerminate).toBeTruthy();
+  });
+
+  test("should have shared OMERO computation functions for benchmarking", async ({ page }) => {
+    const benchmarkFunctionsResult = await page.evaluate(async () => {
+      try {
+        const ngffZarr = await import("./ngff-zarr.bundle.js");
+
+        // Check for benchmark-related exports
+        const exports = {
+          hasCreateAccumulator: "createAccumulator" in ngffZarr,
+          hasUpdateAccumulator: "updateAccumulator" in ngffZarr,
+          hasFinalizeStatistics: "finalizeStatistics" in ngffZarr,
+          hasComputeChannelStatistics: "computeChannelStatistics" in ngffZarr,
+          hasExtractChannel: "extractChannel" in ngffZarr,
+          hasBuildOmeroFromAccumulators: "buildOmeroFromAccumulators" in
+            ngffZarr,
+          hasValidateQuantiles: "validateQuantiles" in ngffZarr,
+          hasQUANTILE_SAMPLE_SIZE: "QUANTILE_SAMPLE_SIZE" in ngffZarr,
+        };
+
+        // Test that the functions work correctly with synthetic data
+        const testData = new Float32Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+        // Test createAccumulator
+        const acc = ngffZarr.createAccumulator();
+        const accValid = acc &&
+          typeof acc.min === "number" &&
+          typeof acc.max === "number" &&
+          Array.isArray(acc.sample);
+
+        // Test updateAccumulator
+        ngffZarr.updateAccumulator(acc, testData);
+        const updateValid = acc.min === 1 && acc.max === 10 && acc.count === 10;
+
+        // Test finalizeStatistics
+        const stats = ngffZarr.finalizeStatistics(acc, [0.1, 0.9]);
+        const statsValid = stats.min === 1 && stats.max === 10 &&
+          typeof stats.qLow === "number";
+
+        // Test computeChannelStatistics (convenience function)
+        const directStats = ngffZarr.computeChannelStatistics(testData, [
+          0.1,
+          0.9,
+        ]);
+        const directStatsValid = directStats.min === 1 &&
+          directStats.max === 10;
+
+        return {
+          success: true,
+          exports,
+          accValid,
+          updateValid,
+          statsValid,
+          directStatsValid,
+          quantileSampleSize: ngffZarr.QUANTILE_SAMPLE_SIZE,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error.message,
+          stack: error.stack,
+        };
+      }
+    });
+
+    if (!benchmarkFunctionsResult.success) {
+      console.log(
+        "Benchmark functions test error:",
+        benchmarkFunctionsResult.error,
+      );
+      console.log("Stack:", benchmarkFunctionsResult.stack);
+    }
+
+    expect(benchmarkFunctionsResult.success).toBeTruthy();
+    // Verify all exports are available
+    expect(benchmarkFunctionsResult.exports.hasCreateAccumulator).toBeTruthy();
+    expect(benchmarkFunctionsResult.exports.hasUpdateAccumulator).toBeTruthy();
+    expect(benchmarkFunctionsResult.exports.hasFinalizeStatistics).toBeTruthy();
+    expect(
+      benchmarkFunctionsResult.exports.hasComputeChannelStatistics,
+    ).toBeTruthy();
+    expect(benchmarkFunctionsResult.exports.hasExtractChannel).toBeTruthy();
+    expect(
+      benchmarkFunctionsResult.exports.hasBuildOmeroFromAccumulators,
+    ).toBeTruthy();
+    expect(benchmarkFunctionsResult.exports.hasValidateQuantiles).toBeTruthy();
+    expect(
+      benchmarkFunctionsResult.exports.hasQUANTILE_SAMPLE_SIZE,
+    ).toBeTruthy();
+    // Verify the functions work correctly
+    expect(benchmarkFunctionsResult.accValid).toBeTruthy();
+    expect(benchmarkFunctionsResult.updateValid).toBeTruthy();
+    expect(benchmarkFunctionsResult.statsValid).toBeTruthy();
+    expect(benchmarkFunctionsResult.directStatsValid).toBeTruthy();
+    expect(benchmarkFunctionsResult.quantileSampleSize).toBe(10000);
+  });
+});
+
 test.describe("toNgffZarr Browser Tests", () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to the bundle test page (which has access to the bundle)
