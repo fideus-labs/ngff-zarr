@@ -439,11 +439,11 @@ def _sanitize_series_name(name: str) -> str:
     """
     # Remove path separators
     name = name.replace("/", "_").replace("\\", "_")
-    # Replace all dots with underscores to prevent any '..' sequences
-    # This is safer than trying to selectively replace '..'
-    name = name.replace(".", "_")
-    # Remove any leading/trailing whitespace
-    name = name.strip()
+    # Replace all occurrences of '..' with '_' in a loop to handle '....' etc.
+    while ".." in name:
+        name = name.replace("..", "_")
+    # Remove any leading/trailing whitespace or dots (avoid hidden files)
+    name = name.strip().lstrip(".")
     # If the name is empty after sanitization, use a default
     return name if name else "unnamed"
 
