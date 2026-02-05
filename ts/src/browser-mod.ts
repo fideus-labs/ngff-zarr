@@ -45,6 +45,19 @@ export type {
   ComputeOmeroOptions,
 } from "./utils/compute_omero-browser.ts";
 
+// Shared OMERO computation functions for benchmarking and direct use
+export {
+  buildOmeroFromAccumulators,
+  computeChannelStatistics,
+  createAccumulator,
+  extractChannel,
+  finalizeStatistics,
+  QUANTILE_SAMPLE_SIZE,
+  updateAccumulator,
+  validateQuantiles,
+} from "./utils/compute_omero-shared.ts";
+export type { ChannelStatisticsAccumulator } from "./utils/compute_omero-shared.ts";
+
 // Browser-compatible I/O modules
 // Note: Uses browser-specific versions that don't import @zarrita/storage
 // (which contains Node.js-specific modules like node:fs, node:buffer, node:path)
