@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cz-ngff-zarr"
+version = "1.0.0"
+description = "Custom Commitizen plugin for ngff-zarr monorepo with scope filtering"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    { name = "Matt McCormick", email = "matt@fideus.io" }
+]
+keywords = ["commitizen", "plugin", "changelog", "monorepo"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "commitizen",
+]
+
+[project.urls]
+Source = "https://github.com/fideus-labs/ngff-zarr"
+
+[project.entry-points."commitizen.plugin"]
+cz_ngff_zarr = "cz_ngff_zarr:NgffZarrCz"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+include = [
+    "templates/*.j2",
+]

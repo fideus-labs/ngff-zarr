@@ -1,5 +1,0 @@
-Metadata-Version: 2.4
-Name: cz_ngff_zarr
-Version: 1.0.0
-Requires-Dist: commitizen
-Dynamic: requires-dist

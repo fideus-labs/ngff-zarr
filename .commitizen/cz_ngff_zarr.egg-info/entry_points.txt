@@ -1,2 +1,0 @@
-[commitizen.plugin]
-cz_ngff_zarr = cz_ngff_zarr:NgffZarrCz

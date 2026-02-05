@@ -3295,9 +3295,10 @@ packages:
 - pypi: ../.commitizen
   name: cz-ngff-zarr
   version: 1.0.0
-  sha256: 79c7df70c122ef3d62cd542f11b43e5ae281c03079090053fd0b598de1acab34
+  sha256: b836f90d5e6fe22dc1c642a27bc031a9a7541a995e15c3ba0095f26292174e69
   requires_dist:
   - commitizen
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/e5/23/d39ccc4ed76222db31530b0a7d38876fdb7673e23f838e8d8f0ed4651a4f/dask-2026.1.2-py3-none-any.whl
   name: dask
   version: 2026.1.2
@@ -7742,7 +7743,7 @@ packages:
 - pypi: ./
   name: ngff-zarr
   version: 0.24.0
-  sha256: 0f6bc8cea06d541c236c239beef284b5ac6c96450a0b782def79714e6441b56a
+  sha256: 222a35a9c72dd0eff63a5e3fbc492acc40b484d145d8c29cb2fd018e677da70d
   requires_dist:
   - dask[array]!=2025.12.0,!=2026.1.0,!=2026.1.1
   - importlib-resources
