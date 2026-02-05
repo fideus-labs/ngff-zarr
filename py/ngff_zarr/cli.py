@@ -51,7 +51,6 @@ from .to_multiscales import to_multiscales
 from .to_ngff_image import to_ngff_image
 from .to_ngff_zarr import to_ngff_zarr
 from .v04.zarr_metadata import Omero, OmeroChannel, OmeroWindow, is_unit_supported
-from ._zarr_kwargs import zarr_kwargs
 
 
 def _apply_omero_metadata(live, args, multiscales):
@@ -454,7 +453,7 @@ def main():
         cache_dir = Path(args.cache_dir).resolve()
         if not cache_dir.exists():
             Path.makedirs(cache_dir, parents=True)
-        config.cache_store = LocalStore(cache_dir, **zarr_kwargs)
+        config.cache_store = LocalStore(cache_dir)
 
     console = Console()
     progress = RichProgress(
@@ -525,7 +524,7 @@ def main():
         if args.output.endswith(".ozx"):
             output_store = args.output
         else:
-            output_store = LocalStore(args.output, **zarr_kwargs)
+            output_store = LocalStore(args.output)
 
     subtitle = "[red]generation"
     if not args.output:
@@ -707,9 +706,7 @@ def main():
                                 output_path = (
                                     Path(args.output).parent / f"{series_name}.ome.zarr"
                                 )
-                                series_store = LocalStore(
-                                    str(output_path), **zarr_kwargs
-                                )
+                                series_store = LocalStore(str(output_path))
                             else:
                                 series_store = output_store
                         else:
