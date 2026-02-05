@@ -437,11 +437,13 @@ def _sanitize_series_name(name: str) -> str:
     str
         Sanitized series name safe for use in file paths.
     """
-    # Remove path separators and parent directory references
+    # Remove path separators
     name = name.replace("/", "_").replace("\\", "_")
-    name = name.replace("..", "_")
-    # Remove any leading/trailing whitespace or dots
-    name = name.strip().strip(".")
+    # Replace all dots with underscores to prevent any '..' sequences
+    # This is safer than trying to selectively replace '..'
+    name = name.replace(".", "_")
+    # Remove any leading/trailing whitespace
+    name = name.strip()
     # If the name is empty after sanitization, use a default
     return name if name else "unnamed"
 
