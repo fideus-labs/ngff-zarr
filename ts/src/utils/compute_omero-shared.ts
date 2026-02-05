@@ -490,9 +490,9 @@ export interface ComputeOmeroOptions {
   /** Tuple of (low, high) quantile values for the display window. Default is [0.02, 0.98]. */
   quantiles?: [number, number];
   /** Optional list of hex color strings (without #) for each channel. */
-  colors?: string[];
+  colors?: string[] | undefined;
   /** Optional list of label strings for each channel. */
-  labels?: string[];
+  labels?: string[] | undefined;
 }
 
 /**
@@ -574,8 +574,8 @@ export interface ComputeOmeroWorkerInput {
   shape: readonly number[];
   dims: string[];
   quantiles: [number, number];
-  colors?: string[];
-  labels?: string[];
+  colors?: string[] | undefined;
+  labels?: string[] | undefined;
 }
 
 /**
