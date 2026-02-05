@@ -97,6 +97,31 @@ def _parse_omero(omero_data: dict) -> Optional[Omero]:
     return omero
 
 
+def _is_hcs_plate(root_attrs: dict) -> bool:
+    """Check if root attributes indicate an HCS plate structure.
+    
+    Returns True if this is an HCS plate (not a regular image group).
+    """
+    # v0.5+ plate: has "ome" key with "plate" subkey but no "multiscales"
+    if (
+        "ome" in root_attrs
+        and isinstance(root_attrs["ome"], dict)
+        and "plate" in root_attrs["ome"]
+        and "multiscales" not in root_attrs["ome"]
+    ):
+        return True
+    
+    # v0.4 plate: has "plate" key at root but no "multiscales"
+    if (
+        "plate" in root_attrs
+        and isinstance(root_attrs["plate"], dict)
+        and "multiscales" not in root_attrs
+    ):
+        return True
+    
+    return False
+
+
 def _detect_version(root_attrs: dict) -> NgffVersion:
     """Detect NGFF version from root attributes.
     
@@ -116,8 +141,12 @@ def _detect_version(root_attrs: dict) -> NgffVersion:
         if multiscales and isinstance(multiscales, list):
             version_str = multiscales[0].get("version", "0.4")
         # Handle HCS plate structures that don't have multiscales at root
-        # but have "plate" metadata instead
-        elif "plate" in root_attrs and isinstance(root_attrs["plate"], dict):
+        # but have "plate" metadata instead (and no "multiscales" key)
+        elif (
+            "plate" in root_attrs
+            and isinstance(root_attrs["plate"], dict)
+            and "multiscales" not in root_attrs
+        ):
             # HCS plates in v0.4 format have "plate" key at root level
             # Default to 0.4 since this is the v0.4 plate structure
             version_str = "0.4"

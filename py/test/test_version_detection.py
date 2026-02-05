@@ -226,7 +226,10 @@ def test_from_ngff_zarr_empty_multiscales():
 
 
 def test_detect_version_v04_hcs_plate():
-    """Test version detection for v0.4 HCS plate format."""
+    """Test version detection for v0.4 HCS plate format.
+    
+    HCS plates with 'plate' key at root level use v0.4 format.
+    """
     root_attrs = {
         "plate": {
             "name": "test_plate",

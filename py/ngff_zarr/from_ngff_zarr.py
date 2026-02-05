@@ -48,7 +48,7 @@ def from_ngff_zarr(
     multiscales: multiscale ngff image with dask-chunked arrays for data
 
     """
-    from .parse_metadata import _extract_method_metadata, _detect_version
+    from .parse_metadata import _extract_method_metadata, _detect_version, _is_hcs_plate
 
     # RFC-9: Handle .ozx (zipped OME-Zarr) files
     if isinstance(store, (str, Path)) and is_ozx_path(store):
@@ -88,14 +88,7 @@ def from_ngff_zarr(
         version = _detect_version(root_attrs).value
 
     # Check if this is an HCS plate structure
-    is_plate_v04 = "plate" in root_attrs and isinstance(root_attrs["plate"], dict)
-    is_plate_v05 = (
-        "ome" in root_attrs
-        and isinstance(root_attrs["ome"], dict)
-        and "plate" in root_attrs["ome"]
-    )
-    
-    if is_plate_v04 or is_plate_v05:
+    if _is_hcs_plate(root_attrs):
         raise ValueError(
             "The input appears to be an HCS (High Content Screening) plate structure, "
             "which contains multiple wells and images. Use from_hcs_zarr() instead of from_ngff_zarr() "
