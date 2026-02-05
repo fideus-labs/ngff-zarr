@@ -520,18 +520,12 @@ def main():
             ]
         )
         
-        # Validate that output format is OME-Zarr
-        if output_backend is not ConversionBackend.NGFF_ZARR:
-            from rich import print
-            print("[red]Error: ngff-zarr only supports OME-Zarr output formats.[/red]")
-            print(f"[yellow]The specified output file '{args.output}' was detected as {output_backend.name} format.[/yellow]")
-            print("[cyan]Supported output formats:[/cyan]")
-            print("  • .zarr (OME-Zarr directory)")
-            print("  • .ome.zarr (OME-Zarr directory)")
-            print("  • .ozx (zipped OME-Zarr file, RFC-9)")
-            print("\n[cyan]Example usage:[/cyan]")
-            print(f"  ngff-zarr -i {args.input[0]} -o output.ome.zarr")
-            sys.exit(1)
+        # Reject non-OME-Zarr output backends
+        if output_backend != ConversionBackend.NGFF_ZARR:
+            allowed = "(.zarr, .ome.zarr, .ozx)"
+            console.print(f"[red]✗ {args.output}: unsupported format {output_backend.name}[/red]")
+            console.print(f"[cyan]→ Only OME-Zarr formats allowed {allowed}[/cyan]")
+            raise SystemExit(1)
     
     output_store = None
     if args.output and output_backend is ConversionBackend.NGFF_ZARR:
@@ -564,19 +558,6 @@ def main():
                 chunks_per_shard = args.chunks_per_shard[0]
             else:
                 chunks_per_shard = tuple(args.chunks_per_shard)
-        if args.output and output_backend is ConversionBackend.ITK:
-            import itk
-
-            ngff_image = cli_input_to_ngff_image(
-                input_backend, args.input, args.output_scale
-            )
-            if isinstance(rich_dask_progress, NgffProgressCallback):
-                rich_dask_progress.add_callback_task(
-                    "[green]Converting Zarr Array to NumPy Array"
-                )
-            itk_image = ngff_image_to_itk_image(ngff_image, wasm=False)
-            itk.imwrite(itk_image, args.output)
-            return
 
         if input_backend is ConversionBackend.NGFF_ZARR:
             # Pass the path directly to from_ngff_zarr to let it handle .ozx files
