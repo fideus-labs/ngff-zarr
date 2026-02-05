@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ngff.openmicroscopy.org/0.6.dev3/schemas/strict_well.schema",
+  "allOf": [
+    {
+      "$ref": "https://ngff.openmicroscopy.org/0.6.dev3/schemas/well.schema"
+    }
+  ]
+}

@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ngff.openmicroscopy.org/0.6.dev3/schemas/scene.schema",
+  "title": "Scene",
+  "description": "Scene metadata combining coordinate systems and coordinate transformations to define spatial relationships",
+  "type": "object",
+  "properties": {
+    "ome": {
+      "type": "object",
+      "properties": {
+        "scene":{
+          "properties": {
+            "coordinateSystems": {
+                "$ref": "coordinate_systems.schema",
+                "description": "Coordinate systems to combine with transforms to define spatial relationships"
+            },
+            "coordinateTransformations": {
+              "$comment": "Merge general coordinate transformations with constraints for scene metadata",
+              "allOf": [
+                {
+                  "$ref": "coordinate_transformations.schema",
+                  "description": "General coordinate transformations defining spatial relationships between coordinate systems"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "allOf": [
+                      {
+                        "properties": {
+                          "input": {
+                            "type": "object",
+                            "properties": {
+                              "name": {"type": "string"},
+                              "path": {"type": "string"}
+                            },
+                            "required": ["name"]
+                          },
+                          "output": {
+                            "type": "object",
+                            "properties": {
+                              "name": {"type": "string"},
+                              "path": {"type": "string"}
+                            },
+                            "required": ["name"]
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "description": "Constrained input/output for coordinate transformations in scene metadata"
+                }
+              ]
+                
+            },
+            "arrayCoordinateSystem": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Name of coordinate space"
+                },
+                "axes": {
+                  "allOf": [
+                    {
+                      "$ref": "axes.schema"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "const": "array"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "axes"
+              ]
+            }
+          },
+          "type": "object",
+          "required": ["coordinateTransformations"]
+        }
+      },
+    "required": ["scene"]
+    }
+  },
+  "required": ["ome"]
+}
