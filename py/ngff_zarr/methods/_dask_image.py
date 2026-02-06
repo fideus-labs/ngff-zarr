@@ -27,11 +27,11 @@ def _compute_next_scale(previous_image: NgffImage, dim_factors):
     return {
         dim: input_scale[dim] * dim_factors[dim]
         for dim in previous_image.dims
-        if dim in _spatial_dims
+        if dim in _spatial_dims and dim in dim_factors
     }
 
 
-def _compute_next_translation(previous_image, dim_factors):
+def _compute_next_translation(previous_image: NgffImage, dim_factors):
     """Helper method to manually compute output image physical offset.
         Note that this method does not account for an image direction matrix.
 
@@ -52,14 +52,14 @@ def _compute_next_translation(previous_image, dim_factors):
     input_index = {
         dim: 0.5 * (dim_factors[dim] - 1)
         for dim in previous_image.dims
-        if dim in dim_factors
+        if dim in dim_factors and dim in _spatial_dims
     }
     # Translate input index coordinate to offset in physical space
     # NOTE: This method fails to account for direction matrix
     return {
         dim: input_index[dim] * input_scale[dim] + input_translation[dim]
         for dim in previous_image.dims
-        if dim in dim_factors
+        if dim in dim_factors and dim in _spatial_dims
     }
 
 
@@ -120,7 +120,10 @@ def _downsample_dask_image(
             dims, scale_factor, previous_absolute_dim_factors
         )
         previous_absolute_dim_factors = {
-            d: v * previous_scale_factors[d] for d, v in dim_factors.items()
+            d: v * previous_scale_factors[d]
+            if d in previous_scale_factors
+            else 1.0
+            for d, v in dim_factors.items()
         }
         if isinstance(scale_factor, dict):
             previous_scale_factors = scale_factor
