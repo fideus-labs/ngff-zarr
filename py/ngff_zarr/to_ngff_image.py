@@ -21,6 +21,42 @@ from .ngff_image import NgffImage
 from .v04.zarr_metadata import SupportedDims, Units
 
 
+def _extract_array_from_group(group: ZarrGroup):
+    """Extract the full-resolution array from a zarr Group.
+
+    For multi-level TIFFs (e.g., pyramidal OME-TIFF), tifffile returns a zarr
+    Group containing multiple arrays (one per resolution level). This function
+    extracts the full-resolution array, using multiscales metadata if available.
+    """
+    # Try using multiscales metadata (OME-NGFF style)
+    if "multiscales" in group.attrs:
+        multiscales = group.attrs["multiscales"]
+        if multiscales and len(multiscales) > 0:
+            datasets = multiscales[0].get("datasets", [])
+            if datasets:
+                # First dataset is typically the full resolution
+                path = datasets[0].get("path", "0")
+                if path in group:
+                    return group[path]
+
+    # Fallback: find the largest array by size
+    largest_key = None
+    largest_size = 0
+    for key in group.keys():
+        item = group[key]
+        if isinstance(item, ZarrArray) and item.size > largest_size:
+            largest_size = item.size
+            largest_key = key
+
+    if largest_key is not None:
+        return group[largest_key]
+
+    raise ValueError(
+        "Cannot convert zarr.Group to NgffImage: no arrays found. "
+        "Pass a specific array from the Group instead."
+    )
+
+
 def to_ngff_image(
     data: Union[ArrayLike, MutableMapping, str, ZarrArray, ZarrGroup],
     dims: Optional[Sequence[SupportedDims]] = None,
@@ -61,14 +97,9 @@ def to_ngff_image(
     :rtype: NgffImage
     """
 
-    # Handle zarr.Group by selecting the first array
+    # Handle zarr Groups from multi-level TIFFs (e.g., pyramidal OME-TIFF)
     if isinstance(data, ZarrGroup):
-        keys = sorted(data.keys())
-        if not keys:
-            msg = "Zarr Group is empty, no arrays to convert"
-            raise ValueError(msg)
-        # Use the first array in the group (sorted to ensure consistent ordering)
-        data = data[keys[0]]
+        data = _extract_array_from_group(data)
 
     ndim = data.ndim
     if dims is None:
