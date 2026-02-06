@@ -23,7 +23,7 @@ cz-ngff-zarr = { path = "../.commitizen", editable = true }
 
 ### Per-Package Rules
 
-- **py**: Includes commits with scope `py`, `cli`, `hcs`, `nibabel`, or files in `py/`
+- **py**: Includes commits with scope `py` or files in `py/`
 - **mcp**: Includes commits with scope `mcp` or files in `mcp/`
 - **ts**: Includes commits with scope `ts` or files in `ts/`
 
