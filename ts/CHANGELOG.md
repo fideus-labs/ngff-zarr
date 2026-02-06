@@ -1,15 +1,4 @@
-# Changelog
-
-All notable changes to @fideus-labs/ngff-zarr will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [0.3.0] - 2026-02-02
-
-### Added
-
-- Initial changelog setup with Commitizen
+## Unreleased
 
 ## ts-v0.5.1 (2026-02-05)
 
@@ -19,164 +8,104 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## ts-v0.5.0 (2026-02-05)
 
-### ♻️ Refactoring
-
-- **py**: extract HCS plate detection to helper function
-
 ### ✨ Features
 
-- **py**: add HCS plate detection to NGFF version detection
-- add javascript omero computation benchmark
-- **ts**: add WebWorker-based OMERO computation with Comlink
-- **ci**: add automated GitHub Release workflow with Commitizen changelog integration
+- add javascript omero computation benchmark ([28c4a32](https://github.com/fideus-labs/ngff-zarr/commit/28c4a32f2ef76acca99e3f16c6e27e7519b4a2a6))
+- **ts**: add WebWorker-based OMERO computation with Comlink ([82f39a4](https://github.com/fideus-labs/ngff-zarr/commit/82f39a4a8d93c06eb338c8fd117cd7f6bf9ebaee))
+- **ci**: add automated GitHub Release workflow with Commitizen changelog integration ([af9d7c2](https://github.com/fideus-labs/ngff-zarr/commit/af9d7c25004f2cdbde2ba6b4a9672c4882fda620))
 
 ### 🐛 Bug Fixes
 
-- **py**: remove invalid zarr_kwargs from LocalStore instantiation
-- **py**: handle None axes_units in ngff_image_to_itk_image
-- **ts**: export dataTypeToComponentType in the package
-- **ts**: respect requested chunk size
-- **ts**: export itkImageToNgffImage from package
-- **py**: handle unknown axis fields in Zarr metadata gracefully
+- **ts**: export dataTypeToComponentType in the package ([e5b2d53](https://github.com/fideus-labs/ngff-zarr/commit/e5b2d5325d6f2af2c28d8b2c6cc1d012f30f241b))
+- **ts**: respect requested chunk size ([58fd0af](https://github.com/fideus-labs/ngff-zarr/commit/58fd0affde391103d6d5bfd583a6eee8c8492c1b))
+- **ts**: export itkImageToNgffImage from package ([c93b311](https://github.com/fideus-labs/ngff-zarr/commit/c93b31172c70761750c4acfee877f4e7859e1d99))
 
 ## ts-v0.4.0 (2026-02-03)
 
-### Bug Fixes
+### ♻️ Refactoring
 
-- **ts**: bump @zarrita/storage for ozx sharded store support
-- **ts**: add many channel to_multiscales support
-- **py**: better downsampling with many-channel inputs
-- **ts**: write omero metadata inside ome namespace for OME-Zarr 0.5
-- **py**: fix cwd for pixi build-docs command
-- **py**: omero metadata with OME-Zarr version 0.5
-- **cli**: only process spatial dims with IMAGEIO backend
-- update dask kwargs
-- improve error message for RFC-9 zipped OME-Zarr version check
-- prevent wasm imread error on windows
-- **py**: Remove debug print statements from _itkwasm.py
-- **ts**: detect ome property with version 0.5 data
-- Always use written data for next pyramid level
-- Always use written data for next pyramid level
-- **py**: remove duplicate .scale_factors check in to_ngff_zarr
-- **deps**: pin dask to <2025.11.0
-- **ts**: add back full component type support
-- **ts**: time and channel handling
-- **ts**: fix vector order indexing and bin-shrink isotroic scaling
-- incremental downsampling to achieve exact 1x, 2x, 3x, 4x sizes
-- **ts**: fix chunk size downsample rounding
-- **ts**: itk ngff image shape corrections
-- **ts**: add missing translation offset
-- **ts**: use a crop radius of zeros
-- **ts**: compute sigma correctly for gaussian filtering
-- **ts**: support all types, shape order in itkImageToZarr
-- **ts**: write images to `scale${index}`
-- **hcs**: better 0.5 metadata support
-- **cli**: default to OME-Zarr 0.5 for .ozx
-- **ts**: more direct typing for publish to JSR
-- **ts**: export explicit metadata types
-- **py**: improve sharding chunk shape
-- **py**: improved chunk sizes for dask/zarr
-- **ts**: bump downsample dep for Windows path support
-- **py**: multi-channel / component gaussian downsampling
-- **py**: update testing data hashes for nifti image input
-- **nibabel**: add 'c' scale_dict translation_dict values
-- **nibabel**: remove zero shear criteria to add anatomical orientation
-- **cli**: add check that input and output dirs are not the same
-- **hcs**: address writing to sparse plate layouts
-- **hcs.py**: use zarr format 2 with NGFF version 0.4
-- **hcs.py**: add missing to_ngff_zarr import
-- **ts**: use AnatomicalOrientation in OrientationSchema
-- **ts**: use anatomical value enum
-- **ts**: use zod anatomical literal for RFC-4
-- **verify_against_baseline.ts**: remove duplicate code
-- **verify_against_baseline.ts**: improve path normalization
-- **verify_against_baseline.ts**: use deno's path utilities
-- **rfc4**: correct LPS RAS direction
-- **to_ngff_zarr.ts**: remove unused targetTypedArrayConstructor
-- **py**: lps uses superior-to-inferior
-- **mcp**: remove memory_target option
-- **py**: sharding, compression codec, tensorstore
-- **py**: use _handle_large_array_writing without scale_factors
-- **py**: support compressor kwargs with _write_with_tensorstore
-- **mcp**: add ngff-zarr tensorstore dep
-- **mcp**: fix shadowing of zarr module in utils.py
-- **mcp**: workaround dandi omero compatibility
-- **from_ngff_zarr**: handle invalid OMERO metadata
-- **to_ngff_zarr**: throw with unknown dtype
-- **to_ngff_zarr**: use null to write full array
-- **rfc.py**: add missing values
-- **ts**: Windows FileSystemStore path normalization
-- **ts**: add zod schema types
-- **ts**: remove unused playwright.config.js
-- **ts**: remove unused dask_array.ts
-- **ts**: remove invalid methods from MethodsSchema
-- **ts**: fix deno task build
-- **ts**: remove ITK_* and DASK_IMAGE_* methods
+- move re imports to module level for better performance ([43d0d0a](https://github.com/fideus-labs/ngff-zarr/commit/43d0d0a4302eb8cdfb08a7d70ab7f146e367c35f))
+- **ts**: switch to glasbey_hv for omero colors ([43d0d0a](https://github.com/fideus-labs/ngff-zarr/commit/43d0d0a4302eb8cdfb08a7d70ab7f146e367c35f))
+- **ts**: metadata extract per Python PR #250 ([178dd11](https://github.com/fideus-labs/ngff-zarr/commit/178dd11a3a23728e3918bf85bf02fdee6b109da6))
+- **ts**: factor out calculateIncrementalFactor ([848580e](https://github.com/fideus-labs/ngff-zarr/commit/848580eadf3e33c17bb6d33e87ce533a04b81047))
+- remove LazyArray ([67c9b4b](https://github.com/fideus-labs/ngff-zarr/commit/67c9b4bf276c7f3e7d03f523613ae1784eb558df))
+- **ts**: use zarr.Array for NgffImage.data ([644ff17](https://github.com/fideus-labs/ngff-zarr/commit/644ff17f13ac43f459819a83f71c8f6159a21e1b))
+- **ts**: fromNgffZarr simplifications ([113ebfa](https://github.com/fideus-labs/ngff-zarr/commit/113ebfa85dcc3b6448fcb1972698cf46bb297ffe))
+- use descriptive CI workflow filenames ([777b70e](https://github.com/fideus-labs/ngff-zarr/commit/777b70e00cd4838cb9f30be4b087c374deac304d))
+- **ts**: simplify toNgffZarr, fromNgffZarr ([2bb93e7](https://github.com/fideus-labs/ngff-zarr/commit/2bb93e71e66988cdc551c7279bbbd93d532d5420))
+- **ts**: rename ZarrReader to OMEZarrReader ([b1d5f39](https://github.com/fideus-labs/ngff-zarr/commit/b1d5f39922748c4c8d1ae1c1f3bfea9b3ddc206c))
+- **ts**: use @std/cli package ([d71107d](https://github.com/fideus-labs/ngff-zarr/commit/d71107daff2d8fa299acddd03c00dab6d37a0cc8))
+- **ts**: rename DaskArray to LazyArray ([eb9dea5](https://github.com/fideus-labs/ngff-zarr/commit/eb9dea576674828719e623f93d85e39cc85228bf))
+- **ts**: update package org/name to @fideus-labs/ngff-zarr ([8161dba](https://github.com/fideus-labs/ngff-zarr/commit/8161dba4d4e437cd7a090a6bd30bb058c63a3086))
 
-### Features
+### ⚡ Performance
 
-- **py,ts**: add OMERO metadata computation from NgffImage
-- add input validation for OMERO metadata computation
-- **ts**: add RFC-9 (.ozx) zipped OME-Zarr support
-- **py**: jsonFirst flag in the ZIP comment for RFC-9 OZX files
-- add Leica Image Format (LIF) support
-- **ts**: add rfc4 support
-- **ts**: add RFC 4 validation
-- add support for dask>=2025.12.0
-- **hcs**: add helpers and docs for writing .ozx
-- **ts**: add path option to ItkImageToNgffImageOptions
-- **py**: implement RFC-9 Zip file support
-- **ts**: add support for downsampling more types
-- **ts**: add downsampleItkWasm method
-- **ts**: initial toMultiscales
-- **nibabel**: extract omero metadata from nibabel
-- **nibabel**: extract orientation from nifti header
-- **nibabel**: better pixel data typing
-- **py**: nibabel io backend
-- add write_hcs_well_image
-- **ts**: add basic hcs support
-- **ts**: add zod schemas based on spec json schemas
-- **ts**: add RFC-4 zod schema support
-- **ts**: add ngffImageToItkImage
-- **ts**: itk_image_to_ngff_image
-- **py**: add hcs caching support
-- **py**: add high content screening support
-- **py**: add RFC-4 validation
-- **ts**: write array data
-- **ts**: add BigInt64Array, BigUint64Array to TypedArray
-- **mcp**: populate method_type, method_metadata
-- **mcp**: convert_to_ome_zarr support for store inputs
-- **mcp**: updates for ngff-zarr 0.14, 0.15 features
-- **ts**: initial toNgffZarr implementation
-- **fromNgffZarr**: support store type inputs
-- add method metadata support
-- **py**: add method type metadata
-- provide RAS, LPS convenience mappings
-- **ts**: bump deno and zarrita
-- **from_ngff_zarr**: add support for storage_options
-- **from_ngff_zarr**: add support for storage_options
+- **ts**: use reservoir sampling for memory-efficient quantile computation ([43d0d0a](https://github.com/fideus-labs/ngff-zarr/commit/43d0d0a4302eb8cdfb08a7d70ab7f146e367c35f))
 
-### Performance
+### ✨ Features
 
-- **ts**: use reservoir sampling for memory-efficient quantile computation
-- **py**: avoid loading data into memory for omero computation
+- **py,ts**: add OMERO metadata computation from NgffImage ([43d0d0a](https://github.com/fideus-labs/ngff-zarr/commit/43d0d0a4302eb8cdfb08a7d70ab7f146e367c35f))
+- add input validation for OMERO metadata computation ([43d0d0a](https://github.com/fideus-labs/ngff-zarr/commit/43d0d0a4302eb8cdfb08a7d70ab7f146e367c35f))
+- **ts**: add RFC-9 (.ozx) zipped OME-Zarr support ([4130015](https://github.com/fideus-labs/ngff-zarr/commit/4130015de7418969c987275b1f574150fb5cea9d))
+- add Leica Image Format (LIF) support ([3954a1c](https://github.com/fideus-labs/ngff-zarr/commit/3954a1c7e8cd24fccf9e9c8817c499792164cf13))
+- **ts**: add rfc4 support ([3add9b7](https://github.com/fideus-labs/ngff-zarr/commit/3add9b71cdd300f2683e026e2eedd6ca72142bb4))
+- **ts**: add RFC 4 validation ([ebfc914](https://github.com/fideus-labs/ngff-zarr/commit/ebfc914193f529e485a09f3de848e43362108053))
+- add support for dask>=2025.12.0 ([b8ee6ca](https://github.com/fideus-labs/ngff-zarr/commit/b8ee6ca15f296e94d21075169572a302013147a4))
+- **ts**: add path option to ItkImageToNgffImageOptions ([0687f11](https://github.com/fideus-labs/ngff-zarr/commit/0687f11ff7c9f39b87fa9c8029fb2717d0bb0ee5))
+- **ts**: add support for downsampling more types ([107a129](https://github.com/fideus-labs/ngff-zarr/commit/107a12956d473e6a15a35cb20c409098ebb754b1))
+- **ts**: add downsampleItkWasm method ([3a7602c](https://github.com/fideus-labs/ngff-zarr/commit/3a7602c0166efb5f9b5deca72ddd1534b22b6640))
+- **ts**: initial toMultiscales ([c6c1a12](https://github.com/fideus-labs/ngff-zarr/commit/c6c1a12d5c26465926569e577cff45cb5414d7c7))
+- add write_hcs_well_image ([709d310](https://github.com/fideus-labs/ngff-zarr/commit/709d310d2478b6d46e14dcd0e0db648542186905))
+- **ts**: add basic hcs support ([5c4de7d](https://github.com/fideus-labs/ngff-zarr/commit/5c4de7d0ae1547d10257c0941c5671e8b3716055))
+- **ts**: add zod schemas based on spec json schemas ([41d7ecc](https://github.com/fideus-labs/ngff-zarr/commit/41d7ecc8a387266e98df4272b261a4b246e991c3))
+- **ts**: add RFC-4 zod schema support ([8157bc0](https://github.com/fideus-labs/ngff-zarr/commit/8157bc0c8e5a882171368892f6382c6128724c8c))
+- **ts**: add ngffImageToItkImage ([3f24317](https://github.com/fideus-labs/ngff-zarr/commit/3f2431708af12f4f4e53b755c21c992b9b1261ce))
+- **ts**: itk_image_to_ngff_image ([2545cab](https://github.com/fideus-labs/ngff-zarr/commit/2545cabe0420d25a9d51a55f45e7777fb082c36c))
+- **ts**: write array data ([583fc71](https://github.com/fideus-labs/ngff-zarr/commit/583fc7168b4b358fd21c12c665395a9f1fe79422))
+- **ts**: add BigInt64Array, BigUint64Array to TypedArray ([a5e8de8](https://github.com/fideus-labs/ngff-zarr/commit/a5e8de889c043a4cb7fcf4a459ed2d9968c97bd1))
+- **ts**: initial toNgffZarr implementation ([e3e3535](https://github.com/fideus-labs/ngff-zarr/commit/e3e353509a1db7a83febbd5d797f4b314e94e0ae))
+- **fromNgffZarr**: support store type inputs ([f347930](https://github.com/fideus-labs/ngff-zarr/commit/f347930f619d1a4a6ce4f2beb4aa211375c13280))
+- provide RAS, LPS convenience mappings ([81746be](https://github.com/fideus-labs/ngff-zarr/commit/81746bee6875c04e1837b5c51172cb728eb347c0))
+- **ts**: bump deno and zarrita ([eb6b828](https://github.com/fideus-labs/ngff-zarr/commit/eb6b82893097c0a89b0ba9a14d79190fcca97d4a))
+- **from_ngff_zarr**: add support for storage_options ([12d00f8](https://github.com/fideus-labs/ngff-zarr/commit/12d00f805f5e83f9c048ea9c7a51a3fd4b38eed1))
+- **from_ngff_zarr**: add support for storage_options ([d27fd19](https://github.com/fideus-labs/ngff-zarr/commit/d27fd19930e559b10916802d09c4762da9e8d39a))
 
-### Refactoring
+### 🐛 Bug Fixes
 
-- move re imports to module level for better performance
-- **ts**: switch to glasbey_hv for omero colors
-- deduplicate dask.array.to_zarr
-- **ts**: metadata extract per Python PR #250
-- refactor zarr_kwargs checks prior to da.array.to_zarr
-- add metadata reading into class methods
-- version converters for metadata classes
-- **ts**: factor out calculateIncrementalFactor
-- remove LazyArray
-- **ts**: use zarr.Array for NgffImage.data
-- **ts**: fromNgffZarr simplifications
-- use descriptive CI workflow filenames
-- **ts**: simplify toNgffZarr, fromNgffZarr
-- **ts**: rename ZarrReader to OMEZarrReader
-- **ts**: use @std/cli package
-- **ts**: rename DaskArray to LazyArray
-- **ts**: update package org/name to @fideus-labs/ngff-zarr
+- **ts**: bump @zarrita/storage for ozx sharded store support ([6bd3e51](https://github.com/fideus-labs/ngff-zarr/commit/6bd3e51df9b2fdb3b5e85b5be8c0b2f972bdfcc7))
+- **ts**: add many channel to_multiscales support ([6066741](https://github.com/fideus-labs/ngff-zarr/commit/6066741094d51b1bd1d26a4f52ccd5efc8cb2a23))
+- **ts**: write omero metadata inside ome namespace for OME-Zarr 0.5 ([cecb313](https://github.com/fideus-labs/ngff-zarr/commit/cecb3132b49aa8989ae8275a46e75dae6e1c7553))
+- **ts**: detect ome property with version 0.5 data ([cbab67a](https://github.com/fideus-labs/ngff-zarr/commit/cbab67ace270d02b0ed92b48eb79de170c8d977d))
+- **deps**: pin dask to <2025.11.0 ([8402988](https://github.com/fideus-labs/ngff-zarr/commit/8402988650196b1417c5d4f4e7397d57a460f36d))
+- **ts**: add back full component type support ([2f7d59f](https://github.com/fideus-labs/ngff-zarr/commit/2f7d59f2d7196ab2f9b8f02c67b78e2eac0a99fb))
+- **ts**: time and channel handling ([472f038](https://github.com/fideus-labs/ngff-zarr/commit/472f038ad7ddefe3f0da8849bf2751d07035e817))
+- **ts**: fix vector order indexing and bin-shrink isotroic scaling ([dc64bed](https://github.com/fideus-labs/ngff-zarr/commit/dc64beda247d588112c64fea6b40f22542432cc2))
+- incremental downsampling to achieve exact 1x, 2x, 3x, 4x sizes ([a1a00cd](https://github.com/fideus-labs/ngff-zarr/commit/a1a00cd61ea7ee73d1de55a09f9a5b6411547a71))
+- **ts**: fix chunk size downsample rounding ([51afc13](https://github.com/fideus-labs/ngff-zarr/commit/51afc130612201b4162f808aa464563e67e3047d))
+- **ts**: itk ngff image shape corrections ([67b7932](https://github.com/fideus-labs/ngff-zarr/commit/67b79326109bc5c6cbffcbbae713cc85f63dbafb))
+- **ts**: add missing translation offset ([8e020c4](https://github.com/fideus-labs/ngff-zarr/commit/8e020c483e2d05e9c86150e539d507b9bb9e7474))
+- **ts**: use a crop radius of zeros ([3194551](https://github.com/fideus-labs/ngff-zarr/commit/319455138b0e678de458af16876c58168e066023))
+- **ts**: compute sigma correctly for gaussian filtering ([811ab7f](https://github.com/fideus-labs/ngff-zarr/commit/811ab7f18b6a0e32157ee041a93b53c1b275d952))
+- **ts**: support all types, shape order in itkImageToZarr ([c024183](https://github.com/fideus-labs/ngff-zarr/commit/c024183c0eb26d3f87b97a0289887d2e98a904cd))
+- **ts**: write images to `scale${index}` ([fc6459a](https://github.com/fideus-labs/ngff-zarr/commit/fc6459a30b25a5b07a2f30a0babd1b7b3fbad951))
+- **ts**: more direct typing for publish to JSR ([96254c4](https://github.com/fideus-labs/ngff-zarr/commit/96254c4c7b82324acf62f5bed2683e2c1f29b83b))
+- **ts**: export explicit metadata types ([ef279da](https://github.com/fideus-labs/ngff-zarr/commit/ef279da5a9f981128c9a228b873bfa8c02f06b60))
+- **ts**: bump downsample dep for Windows path support ([c6cb628](https://github.com/fideus-labs/ngff-zarr/commit/c6cb62849a7332947e090657dca5fb764966027e))
+- **ts**: use AnatomicalOrientation in OrientationSchema ([63aa143](https://github.com/fideus-labs/ngff-zarr/commit/63aa1436dff1a66b2f8e5bb17a816ccb4dd0a4c8))
+- **ts**: use anatomical value enum ([fede698](https://github.com/fideus-labs/ngff-zarr/commit/fede698840193befd6db53496d47c28027e2d959))
+- **ts**: use zod anatomical literal for RFC-4 ([032e213](https://github.com/fideus-labs/ngff-zarr/commit/032e2137164f90811a94da606f086957b4206c63))
+- **verify_against_baseline.ts**: remove duplicate code ([15cf899](https://github.com/fideus-labs/ngff-zarr/commit/15cf899d15e4e6bde31706f0ad65f1223966483a))
+- **verify_against_baseline.ts**: improve path normalization ([037e08a](https://github.com/fideus-labs/ngff-zarr/commit/037e08ae499dbc02b24bcf2eef1e2e870726e8b0))
+- **verify_against_baseline.ts**: use deno's path utilities ([3480075](https://github.com/fideus-labs/ngff-zarr/commit/348007560ce06b48f6e343a71953ea845d75654e))
+- **rfc4**: correct LPS RAS direction ([0c00023](https://github.com/fideus-labs/ngff-zarr/commit/0c000233cc28d8c4d45f4a62ce2ca8c4587d05bd))
+- **to_ngff_zarr.ts**: remove unused targetTypedArrayConstructor ([1ecfc17](https://github.com/fideus-labs/ngff-zarr/commit/1ecfc17687eb7a383339cf87c209524396e223ad))
+- **to_ngff_zarr**: throw with unknown dtype ([f315a97](https://github.com/fideus-labs/ngff-zarr/commit/f315a977dd7a5cff86060c1d02fcec412bd4c153))
+- **to_ngff_zarr**: use null to write full array ([c16efbf](https://github.com/fideus-labs/ngff-zarr/commit/c16efbfd49fc55902111741f36f46ef3c3e5f19a))
+- **rfc.py**: add missing values ([6f7ffca](https://github.com/fideus-labs/ngff-zarr/commit/6f7ffca93ee792d2d9da77a11072012f33d6f887))
+- **ts**: Windows FileSystemStore path normalization ([f5d26b6](https://github.com/fideus-labs/ngff-zarr/commit/f5d26b62307eaa53922c0fbe5ca26008e59f437f))
+- **ts**: add zod schema types ([dc7549e](https://github.com/fideus-labs/ngff-zarr/commit/dc7549efed53d4bef932272c9b3ee1a255c23865))
+- **ts**: remove unused playwright.config.js ([bdf63a6](https://github.com/fideus-labs/ngff-zarr/commit/bdf63a692f325a8ad5c5641d165b3db3540d1d10))
+- **ts**: remove unused dask_array.ts ([a65c6d7](https://github.com/fideus-labs/ngff-zarr/commit/a65c6d7fa38c4de22caea0a1a3b40513d0568e10))
+- **ts**: remove invalid methods from MethodsSchema ([d7bd8cb](https://github.com/fideus-labs/ngff-zarr/commit/d7bd8cb64c2b661de928c052d01bcce90eec3728))
+- **ts**: fix deno task build ([ae150d0](https://github.com/fideus-labs/ngff-zarr/commit/ae150d09aeaa425244dc1d8f808398a09b0a8d00))
+- **ts**: remove ITK_* and DASK_IMAGE_* methods ([727f132](https://github.com/fideus-labs/ngff-zarr/commit/727f132f787b11c0a287e4a00a85b0da9ef03e4a))

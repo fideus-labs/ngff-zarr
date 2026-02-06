@@ -188,6 +188,10 @@ download-test-data = "pytest -k test_from_ngff_zarr --maxfail=1 -v"
 [tool.pixi.feature.lint.dependencies]
 pre-commit = "*"
 commitizen = "*"
+pip = "*"
+
+[tool.pixi.feature.lint.pypi-dependencies]
+cz-ngff-zarr = { path = "../.commitizen", editable = true }
 
 [tool.pixi.feature.lint.tasks]
 pre-commit-install = { cmd = "pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre-push", description = "Install pre-commit hooks" }
@@ -220,12 +224,13 @@ hash-data = { cmd = "tar cvf ../data.tar * && gzip -9 -f ../data.tar && echo 'Ne
 matplotlib = ">=3.10.6,<4"
 
 [tool.commitizen]
-name = "cz_conventional_commits"
+name = "cz_ngff_zarr"
 version = "0.24.0"
 version_provider = "commitizen"
 tag_format = "py-v$version"
 update_changelog_on_bump = true
 changelog_file = "CHANGELOG.md"
+template = ".commitizen/templates/py_changelog.md.j2"
 version_files = [
     "ngff_zarr/__about__.py:__version__"
 ]
@@ -233,6 +238,9 @@ bump_message = "chore(py): bump ngff-zarr to $new_version"
 annotated_tag = true
 gpg_sign = true
 major_version_zero = true
+
+[tool.commitizen.customize]
+path = "../.commitizen"
 
 [tool.commitizen.change_type_map]
 feat = "✨ Features"

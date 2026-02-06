@@ -1,9 +1,10 @@
 [tool.commitizen]
-name = "cz_conventional_commits"
+name = "cz_ngff_zarr"
 version = "0.5.1"
 tag_format = "ts-v$version"
 update_changelog_on_bump = true
 changelog_file = "CHANGELOG.md"
+template = ".commitizen/templates/ts_changelog.md.j2"
 version_files = [
     "deno.json:version",
     "scripts/build_npm.ts:version"
@@ -12,6 +13,9 @@ bump_message = "chore(ts): bump @fideus-labs/ngff-zarr to version $new_version"
 annotated_tag = true
 gpg_sign = true
 major_version_zero = true
+
+[tool.commitizen.customize]
+path = "../.commitizen"
 
 [tool.commitizen.change_type_map]
 feat = "✨ Features"

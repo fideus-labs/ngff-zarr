@@ -197,12 +197,13 @@ cloud = { features = ["cloud"], solve-group = "default" }
 all = { features = ["all"], solve-group = "default" }
 
 [tool.commitizen]
-name = "cz_conventional_commits"
+name = "cz_ngff_zarr"
 version = "0.5.0"
 version_provider = "commitizen"
 tag_format = "mcp-v$version"
 update_changelog_on_bump = true
 changelog_file = "CHANGELOG.md"
+template = ".commitizen/templates/mcp_changelog.md.j2"
 version_files = [
     "ngff_zarr_mcp/__about__.py:__version__"
 ]
@@ -210,6 +211,9 @@ bump_message = "chore(mcp): bump ngff-zarr-mcp to $new_version"
 annotated_tag = true
 gpg_sign = true
 major_version_zero = true
+
+[tool.commitizen.customize]
+path = "../.commitizen"
 
 [tool.commitizen.change_type_map]
 feat = "✨ Features"

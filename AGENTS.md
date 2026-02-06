@@ -137,8 +137,28 @@ The `bump` task will:
 - Analyze commits since last tag
 - Determine appropriate version bump (major/minor/patch)
 - Update version files automatically
-- Generate/update CHANGELOG.md
+- Generate/update CHANGELOG.md (filtered by package scope)
 - Create a git tag (py-v*, mcp-v*, or ts-v*)
+
+### Changelog Filtering
+
+Each package has its own changelog that only includes relevant commits:
+
+**Filtering Rules:**
+- **py**: Includes commits with scope `py` or files in `py/`
+- **mcp**: Includes commits with scope `mcp` or files in `mcp/`
+- **ts**: Includes commits with scope `ts` or files in `ts/`
+- **All packages**: Include commits affecting multiple packages (CI, docs, root-level files)
+
+**GitHub Links:**
+All changelog entries include clickable GitHub commit links with short hashes:
+```markdown
+- **py**: add feature ([abc1234](https://github.com/fideus-labs/ngff-zarr/commit/abc1234...))
+```
+
+**Custom Plugin:**
+The filtering is implemented via a custom Commitizen plugin in `.commitizen/cz_ngff_zarr.py`.
+To modify filtering logic, edit the `_should_include_for_*` methods in that file.
 
 ### Pre-commit Hook Installation
 
