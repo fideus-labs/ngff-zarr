@@ -48,7 +48,6 @@ from .methods import Methods, methods_values
 from .ngff_image_to_itk_image import ngff_image_to_itk_image
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
 from .to_multiscales import to_multiscales
-from .to_ngff_image import to_ngff_image
 from .to_ngff_zarr import to_ngff_zarr
 from .v04.zarr_metadata import Omero, OmeroChannel, OmeroWindow, is_unit_supported
 
@@ -343,7 +342,7 @@ def main():
     )
     metadata_group.add_argument(
         "--series",
-        help="Series to convert from multi-series files (e.g., LIF). "
+        help="Series to convert from multi-series files (e.g., LIF, TIFF). "
         "Can be: index (0, 1, 2), name pattern ('*area_1*'), or 'all' (default: all)",
         default=None,
     )
@@ -576,12 +575,46 @@ def main():
             )
         elif input_backend is ConversionBackend.TIFFFILE:
             try:
-                import tifffile
+                import importlib.util
 
-                files = args.input[0] if len(args.input) == 1 else args.input
-                with tifffile.imread(files, aszarr=True) as store:
-                    root = zarr.open(store, mode="r")
-                    ngff_image = to_ngff_image(root)
+                if importlib.util.find_spec("tifffile") is None:
+                    raise ImportError("tifffile not found")
+
+                from .tiff_to_ngff_image import tiff_file_to_ngff_images
+
+                # Get series to convert based on --series argument
+                series_spec = args.series
+                if series_spec is not None:
+                    # Try to parse as integer
+                    try:
+                        series_spec = int(series_spec)
+                    except ValueError:
+                        pass  # Keep as string (pattern or "all")
+
+                series_list = tiff_file_to_ngff_images(
+                    args.input[0], series=series_spec
+                )
+
+                if len(series_list) == 0:
+                    live.console.print("[red]No matching series found in TIFF file.")
+                    sys.exit(1)
+
+                for series_name, ngff_image in series_list:
+                    # Determine output path for this series
+                    if args.output:
+                        if len(series_list) > 1:
+                            # Create separate output per series, preserving original output name
+                            output_base = Path(args.output).stem
+                            output_path = (
+                                Path(args.output).parent
+                                / f"{output_base}_{series_name}.ome.zarr"
+                            )
+                            series_store = LocalStore(str(output_path), **zarr_kwargs)
+                        else:
+                            series_store = output_store
+                    else:
+                        series_store = None
+
                     multiscales = _ngff_image_to_multiscales(
                         live,
                         ngff_image,
@@ -594,11 +627,15 @@ def main():
                     _multiscales_to_ngff_zarr(
                         live,
                         args,
-                        output_store,
+                        series_store,
                         rich_dask_progress,
                         multiscales,
                         chunks_per_shard=chunks_per_shard,
                     )
+
+                    if len(series_list) > 1 and args.output and not args.quiet:
+                        live.console.print(f"[green]Written series: {series_name}")
+
             except ImportError:
                 sys.stdout.write("[red]Please install the [i]tifffile[/i] package.\n")
                 sys.exit(1)
@@ -657,9 +694,10 @@ def main():
 
                                 # Determine output path
                                 if len(series_list) > 1:
+                                    output_base = Path(args.output).stem
                                     output_path = (
                                         Path(args.output).parent
-                                        / f"{series_name}.ome.zarr"
+                                        / f"{output_base}_{series_name}.ome.zarr"
                                     )
                                 else:
                                     output_path = Path(args.output)
@@ -702,9 +740,11 @@ def main():
                         # Determine output path for this series
                         if args.output:
                             if len(series_list) > 1:
-                                # Create separate output per series
+                                # Create separate output per series, preserving original output name
+                                output_base = Path(args.output).stem
                                 output_path = (
-                                    Path(args.output).parent / f"{series_name}.ome.zarr"
+                                    Path(args.output).parent
+                                    / f"{output_base}_{series_name}.ome.zarr"
                                 )
                                 series_store = LocalStore(str(output_path))
                             else:

@@ -8,9 +8,13 @@ from dask.array.core import Array as DaskArray
 from numpy.typing import ArrayLike
 
 try:
-    from zarr.core import Array as ZarrArray
-except ImportError:
+    # Zarr v3 imports
     from zarr.core.array import Array as ZarrArray
+    from zarr.core.group import Group as ZarrGroup
+except ImportError:
+    # Zarr v2 imports
+    from zarr.core import Array as ZarrArray
+    from zarr.hierarchy import Group as ZarrGroup
 
 from .methods._support import _spatial_dims
 from .ngff_image import NgffImage
@@ -18,7 +22,7 @@ from .v04.zarr_metadata import SupportedDims, Units
 
 
 def to_ngff_image(
-    data: Union[ArrayLike, MutableMapping, str, ZarrArray],
+    data: Union[ArrayLike, MutableMapping, str, ZarrArray, ZarrGroup],
     dims: Optional[Sequence[SupportedDims]] = None,
     scale: Optional[Union[Mapping[Hashable, float]]] = None,
     translation: Optional[Union[Mapping[Hashable, float]]] = None,
@@ -31,8 +35,8 @@ def to_ngff_image(
     :param data: Multi-dimensional array that provides the image pixel values. It can be a numpy.ndarray
          or another type that behaves like a numpy.ndarray, i.e. an ArrayLike.
          If a ZarrArray, MutableMapping, or str, it will be loaded into Dask lazily
-         as a zarr Array.
-    :type  data: ArrayLike, ZarrArray, MutableMapping, str
+         as a zarr Array. If a ZarrGroup, the first array in the group will be used.
+    :type  data: ArrayLike, ZarrArray, ZarrGroup, MutableMapping, str
 
     :param dims: Tuple specifying the data dimensions.
         Values should drawn from: {'t', 'z', 'y', 'x', 'c'} for time, third spatial direction
@@ -56,6 +60,15 @@ def to_ngff_image(
     :return: Representation of an image (pixel data + metadata) for a single scale of an NGFF-OME-Zarr multiscale dataset
     :rtype: NgffImage
     """
+
+    # Handle zarr.Group by selecting the first array
+    if isinstance(data, ZarrGroup):
+        keys = sorted(data.keys())
+        if not keys:
+            msg = "Zarr Group is empty, no arrays to convert"
+            raise ValueError(msg)
+        # Use the first array in the group (sorted to ensure consistent ordering)
+        data = data[keys[0]]
 
     ndim = data.ndim
     if dims is None:
