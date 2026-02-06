@@ -765,7 +765,7 @@ def main():
                                 Path(args.output).parent
                                 / f"{output_base}_{series_name}.ome.zarr"
                             )
-                            series_store = LocalStore(str(output_path), **zarr_kwargs)
+                            series_store = LocalStore(str(output_path))
                         else:
                             series_store = output_store
                     else:
