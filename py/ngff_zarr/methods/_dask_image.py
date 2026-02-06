@@ -122,10 +122,16 @@ def _downsample_dask_image(
         dim_factors = _dim_scale_factors(
             dims, scale_factor, previous_absolute_dim_factors
         )
-        previous_absolute_dim_factors = {
-            d: v * previous_absolute_dim_factors.get(d, 1.0)
-            for d, v in dim_factors.items()
-        }
+        # Update absolute factors for all dims
+        new_absolute_dim_factors = {}
+        for d in dims:
+            if d in dim_factors:
+                # Multiply by incremental factor for dims being downsampled
+                new_absolute_dim_factors[d] = dim_factors[d] * previous_absolute_dim_factors.get(d, 1.0)
+            else:
+                # Keep existing absolute factor for dims not being downsampled
+                new_absolute_dim_factors[d] = previous_absolute_dim_factors.get(d, 1.0)
+        previous_absolute_dim_factors = new_absolute_dim_factors
         if isinstance(scale_factor, dict):
             previous_scale_factors = scale_factor
         elif isinstance(scale_factor, (int,)):

@@ -59,14 +59,21 @@ def test_non_spatial_dims_with_auto_scale_factors():
     # Verify that we got multiple scales
     assert len(ngff_multiscales.images) > 1
     
-    # Verify that all scales have the correct dims
-    for scale_image in ngff_multiscales.images:
+    # Verify that all scales have the correct dims and shapes
+    original_shape = (4, 15000, 15000)
+    for i, scale_image in enumerate(ngff_multiscales.images):
         assert scale_image.dims == ("c", "y", "x")
         # Verify that non-spatial scale is preserved
         assert scale_image.scale["c"] == 1.0
         # Verify that spatial scales are increasing
         assert scale_image.scale["y"] >= 0.65
         assert scale_image.scale["x"] >= 0.65
+        
+        # Verify shapes: channel dim should not change, spatial dims should decrease
+        c_dim, y_dim, x_dim = scale_image.data.shape
+        assert c_dim == original_shape[0], f"Channel dimension should not change at scale {i}"
+        assert y_dim <= original_shape[1], f"Y dimension should decrease or stay same at scale {i}"
+        assert x_dim <= original_shape[2], f"X dimension should decrease or stay same at scale {i}"
 
 
 def test_non_spatial_dims_with_caching():
@@ -99,10 +106,14 @@ def test_non_spatial_dims_with_caching():
         # Verify that we got the expected scales
         assert len(ngff_multiscales.images) == 3  # original + 2 downsampled
         
-        # Verify metadata preservation
-        for scale_image in ngff_multiscales.images:
+        # Verify metadata preservation and shapes
+        expected_shapes = [(2, 512, 512), (2, 256, 256), (2, 128, 128)]
+        for i, (scale_image, expected_shape) in enumerate(zip(ngff_multiscales.images, expected_shapes)):
             assert scale_image.dims == ("c", "y", "x")
             assert scale_image.scale["c"] == 1.0
+            # Verify shape
+            actual_shape = scale_image.data.shape
+            assert actual_shape == expected_shape, f"Scale {i}: expected {expected_shape}, got {actual_shape}"
     finally:
         # Restore original memory target
         config.memory_target = original_memory_target
