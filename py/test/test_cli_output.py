@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+import os
 import subprocess
 import sys
 import tempfile
@@ -16,7 +17,8 @@ def _run_ngff_zarr(*args):
         "-c",
         "from ngff_zarr.cli import main; main()",
     ] + list(args)
-    return subprocess.run(cmd, capture_output=True, text=True)
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    return subprocess.run(cmd, capture_output=True, text=True, env=env)
 
 
 def _temp_output_path(suffix):
