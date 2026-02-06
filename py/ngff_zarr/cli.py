@@ -655,8 +655,51 @@ def main():
             iio.imwrite(args.output, data)
             return
 
+        if args.output and output_backend is ConversionBackend.NIBABEL:
+            import nibabel as nib
+            import numpy as np
+
+            ngff_image = cli_input_to_ngff_image(
+                input_backend, args.input, args.output_scale
+            )
+            if isinstance(rich_dask_progress, NgffProgressCallback):
+                rich_dask_progress.add_callback_task("[green]Converting to NIfTI")
+
+            data = np.asarray(ngff_image.data)
+
+            # Build affine matrix from scale and translation
+            affine = np.eye(4)
+            for i, dim in enumerate(["x", "y", "z"]):
+                if dim in ngff_image.scale:
+                    affine[i, i] = ngff_image.scale[dim]
+                if dim in ngff_image.translation:
+                    affine[i, 3] = ngff_image.translation[dim]
+
+            # Apply orientation sign from axes_orientations
+            if ngff_image.axes_orientations:
+                from .rfc4 import AnatomicalOrientationValues
+
+                # In NIfTI RAS+ convention, positive direction is:
+                #   x: left-to-right, y: posterior-to-anterior,
+                #   z: inferior-to-superior
+                # Flip the sign for the opposite direction.
+                negative_orientations = {
+                    "x": AnatomicalOrientationValues.right_to_left,
+                    "y": AnatomicalOrientationValues.anterior_to_posterior,
+                    "z": AnatomicalOrientationValues.superior_to_inferior,
+                }
+                for i, dim in enumerate(["x", "y", "z"]):
+                    ornt = ngff_image.axes_orientations.get(dim)
+                    if ornt is not None:
+                        ornt_val = ornt.value if hasattr(ornt, "value") else ornt
+                        if ornt_val == negative_orientations.get(dim):
+                            affine[i, i] = -abs(affine[i, i])
+
+            nii_img = nib.Nifti1Image(data, affine)
+            nib.save(nii_img, args.output)
+            return
+
         if args.output and output_backend in (
-            ConversionBackend.NIBABEL,
             ConversionBackend.LIFFILE,
             ConversionBackend.ZARR_ARRAY,
         ):
@@ -666,6 +709,7 @@ def main():
             live.console.print(
                 "[yellow]→ Supported output formats:\n"
                 "  • OME-Zarr: .zarr, .ome.zarr, .ozx\n"
+                "  • NIfTI: .nii, .nii.gz\n"
                 "  • TIFF: .tif, .tiff, .ome.tif, .lsm, .stk, .svs,"
                 " .ndpi, etc.\n"
                 "  • ITK: .png, .jpg, .bmp, .nrrd, .mha, .mhd, .dcm,"
