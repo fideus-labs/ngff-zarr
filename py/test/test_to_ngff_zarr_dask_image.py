@@ -221,6 +221,6 @@ def test_non_spatial_translation_preservation():
 #     dataset_name = "2th_cthead1"
 #     image = input_images[dataset_name]
 #     scale_factors = [{"x": 2, "y": 4}, {"x": 1, "y": 2}]
-#     multiscale = to_multiscale(image, [2, 3], method=Methods.DASK_IMAGE_MODE)
+#     multiscale = to_multiscale(image, scale_factors, method=Methods.DASK_IMAGE_MODE)
 #     baseline_name = "x2y4_x1y2/DASK_IMAGE_MODE"
 #     verify_against_baseline(dataset_name, baseline_name, multiscale)
