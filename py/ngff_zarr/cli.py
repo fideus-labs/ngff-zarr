@@ -548,6 +548,81 @@ def main():
                 chunks_per_shard = args.chunks_per_shard[0]
             else:
                 chunks_per_shard = tuple(args.chunks_per_shard)
+        if args.output and output_backend is ConversionBackend.TIFFFILE:
+            import numpy as np
+            import tifffile
+
+            ngff_image = cli_input_to_ngff_image(
+                input_backend, args.input, args.output_scale
+            )
+            if isinstance(rich_dask_progress, NgffProgressCallback):
+                rich_dask_progress.add_callback_task("[green]Converting to TIFF")
+
+            from .methods._support import _channel_dim_last
+
+            ngff_image = _channel_dim_last(ngff_image)
+
+            data = np.asarray(ngff_image.data)
+
+            # Map ngff dims to TIFF/OME axes string
+            axes_map = {"t": "T", "c": "C", "z": "Z", "y": "Y", "x": "X"}
+            axes = "".join(axes_map.get(d, d.upper()) for d in ngff_image.dims)
+
+            # Determine photometric interpretation
+            if "c" in ngff_image.dims:
+                c_idx = ngff_image.dims.index("c")
+                c_size = data.shape[c_idx]
+                if c_size in (3, 4) and data.dtype == np.uint8:
+                    photometric = "rgb"
+                else:
+                    photometric = "minisblack"
+            else:
+                photometric = "minisblack"
+
+            # Build OME-TIFF resolution metadata
+            metadata = {"axes": axes}
+            resolution = None
+            resolutionunit = None
+
+            if "x" in ngff_image.scale and "y" in ngff_image.scale:
+                x_scale = ngff_image.scale["x"]
+                y_scale = ngff_image.scale["y"]
+                if x_scale > 0 and y_scale > 0:
+                    resolution = (1e4 / x_scale, 1e4 / y_scale)
+                    resolutionunit = "CENTIMETER"
+                    metadata["PhysicalSizeX"] = x_scale
+                    metadata["PhysicalSizeXUnit"] = "µm"
+                    metadata["PhysicalSizeY"] = y_scale
+                    metadata["PhysicalSizeYUnit"] = "µm"
+
+            if "z" in ngff_image.scale:
+                z_scale = ngff_image.scale["z"]
+                if z_scale > 0:
+                    metadata["PhysicalSizeZ"] = z_scale
+                    metadata["PhysicalSizeZUnit"] = "µm"
+
+            tifffile.imwrite(
+                args.output,
+                data,
+                photometric=photometric,
+                metadata=metadata,
+                resolution=resolution,
+                resolutionunit=resolutionunit,
+            )
+            return
+
+        if args.output and output_backend is ConversionBackend.ITKWASM:
+            import itkwasm_image_io
+
+            ngff_image = cli_input_to_ngff_image(
+                input_backend, args.input, args.output_scale
+            )
+            if isinstance(rich_dask_progress, NgffProgressCallback):
+                rich_dask_progress.add_callback_task("[green]Converting to image")
+            itkwasm_image = ngff_image_to_itk_image(ngff_image, wasm=True)
+            itkwasm_image_io.imwrite(itkwasm_image, args.output)
+            return
+
         if args.output and output_backend is ConversionBackend.ITK:
             import itk
 
@@ -561,6 +636,87 @@ def main():
             itk_image = ngff_image_to_itk_image(ngff_image, wasm=False)
             itk.imwrite(itk_image, args.output)
             return
+
+        if args.output and output_backend is ConversionBackend.IMAGEIO:
+            import numpy as np
+            import imageio.v3 as iio
+
+            ngff_image = cli_input_to_ngff_image(
+                input_backend, args.input, args.output_scale
+            )
+            if isinstance(rich_dask_progress, NgffProgressCallback):
+                rich_dask_progress.add_callback_task("[green]Converting to image")
+
+            from .methods._support import _channel_dim_last
+
+            ngff_image = _channel_dim_last(ngff_image)
+
+            data = np.asarray(ngff_image.data)
+            iio.imwrite(args.output, data)
+            return
+
+        if args.output and output_backend is ConversionBackend.NIBABEL:
+            import nibabel as nib
+            import numpy as np
+
+            ngff_image = cli_input_to_ngff_image(
+                input_backend, args.input, args.output_scale
+            )
+            if isinstance(rich_dask_progress, NgffProgressCallback):
+                rich_dask_progress.add_callback_task("[green]Converting to NIfTI")
+
+            data = np.asarray(ngff_image.data)
+
+            # Build affine matrix from scale and translation
+            affine = np.eye(4)
+            for i, dim in enumerate(["x", "y", "z"]):
+                if dim in ngff_image.scale:
+                    affine[i, i] = ngff_image.scale[dim]
+                if dim in ngff_image.translation:
+                    affine[i, 3] = ngff_image.translation[dim]
+
+            # Apply orientation sign from axes_orientations
+            if ngff_image.axes_orientations:
+                from .rfc4 import AnatomicalOrientationValues
+
+                # In NIfTI RAS+ convention, positive direction is:
+                #   x: left-to-right, y: posterior-to-anterior,
+                #   z: inferior-to-superior
+                # Flip the sign for the opposite direction.
+                negative_orientations = {
+                    "x": AnatomicalOrientationValues.right_to_left,
+                    "y": AnatomicalOrientationValues.anterior_to_posterior,
+                    "z": AnatomicalOrientationValues.superior_to_inferior,
+                }
+                for i, dim in enumerate(["x", "y", "z"]):
+                    ornt = ngff_image.axes_orientations.get(dim)
+                    if ornt is not None:
+                        ornt_val = ornt.value if hasattr(ornt, "value") else ornt
+                        if ornt_val == negative_orientations.get(dim):
+                            affine[i, i] = -abs(affine[i, i])
+
+            nii_img = nib.Nifti1Image(data, affine)
+            nib.save(nii_img, args.output)
+            return
+
+        if args.output and output_backend in (
+            ConversionBackend.LIFFILE,
+            ConversionBackend.ZARR_ARRAY,
+        ):
+            live.console.print(
+                f"[red]✗ {args.output}: unsupported output format {output_backend.name}"
+            )
+            live.console.print(
+                "[yellow]→ Supported output formats:\n"
+                "  • OME-Zarr: .zarr, .ome.zarr, .ozx\n"
+                "  • NIfTI: .nii, .nii.gz\n"
+                "  • TIFF: .tif, .tiff, .ome.tif, .lsm, .stk, .svs,"
+                " .ndpi, etc.\n"
+                "  • ITK: .png, .jpg, .bmp, .nrrd, .mha, .mhd, .dcm,"
+                " .vtk, etc.\n"
+                "  • Other: via imageio (format must be supported)"
+            )
+            sys.exit(1)
 
         if input_backend is ConversionBackend.NGFF_ZARR:
             # Pass the path directly to from_ngff_zarr to let it handle .ozx files
@@ -609,7 +765,7 @@ def main():
                                 Path(args.output).parent
                                 / f"{output_base}_{series_name}.ome.zarr"
                             )
-                            series_store = LocalStore(str(output_path), **zarr_kwargs)
+                            series_store = LocalStore(str(output_path))
                         else:
                             series_store = output_store
                     else:

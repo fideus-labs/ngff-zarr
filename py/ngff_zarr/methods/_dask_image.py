@@ -122,9 +122,7 @@ def _downsample_dask_image(
             dims, scale_factor, previous_absolute_dim_factors
         )
         previous_absolute_dim_factors = {
-            d: v * previous_scale_factors[d]
-            if d in previous_scale_factors
-            else 1.0
+            d: v * previous_scale_factors[d] if d in previous_scale_factors else 1.0
             for d, v in dim_factors.items()
         }
         if isinstance(scale_factor, dict):
