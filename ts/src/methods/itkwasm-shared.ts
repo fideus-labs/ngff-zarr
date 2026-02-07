@@ -8,6 +8,7 @@
 
 import type { Image } from "itk-wasm";
 import * as zarr from "zarrita";
+import { DEFAULT_CODECS } from "../utils/codecs.ts";
 import { NgffImage } from "../types/ngff_image.ts";
 
 export const SPATIAL_DIMS = ["x", "y", "z"];
@@ -635,6 +636,7 @@ export async function itkImageToZarr(
     chunk_shape: zarrChunkShape,
     data_type: dataType,
     fill_value: 0,
+    codecs: [...DEFAULT_CODECS],
   });
 
   // Write data - preserve the actual data type, don't cast to Float32Array

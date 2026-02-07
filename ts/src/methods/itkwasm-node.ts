@@ -17,6 +17,7 @@ import {
   downsampleNode as downsample,
 } from "@itk-wasm/downsample";
 import * as zarr from "zarrita";
+import { DEFAULT_CODECS } from "../utils/codecs.ts";
 import { NgffImage } from "../types/ngff_image.ts";
 import {
   type DimFactors,
@@ -99,6 +100,7 @@ async function downsampleGaussian(
         chunk_shape: sliceChunkShape,
         data_type: image.data.dtype,
         fill_value: 0,
+        codecs: [...DEFAULT_CODECS],
       });
 
       const fullSelection = new Array(sliceShape.length).fill(null);
@@ -153,6 +155,7 @@ async function downsampleGaussian(
       chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
       data_type: image.data.dtype,
       fill_value: 0,
+      codecs: [...DEFAULT_CODECS],
     });
 
     // Copy each downsampled slice into the combined array
@@ -221,6 +224,7 @@ async function downsampleGaussian(
         chunk_shape: sliceChunkShape,
         data_type: image.data.dtype,
         fill_value: 0,
+        codecs: [...DEFAULT_CODECS],
       });
 
       const fullSelection = new Array(sliceShape.length).fill(null);
@@ -275,6 +279,7 @@ async function downsampleGaussian(
       chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
       data_type: image.data.dtype,
       fill_value: 0,
+      codecs: [...DEFAULT_CODECS],
     });
 
     // Copy each downsampled slice into the combined array
@@ -396,6 +401,7 @@ async function downsampleBinShrinkImpl(
         chunk_shape: sliceChunkShape,
         data_type: image.data.dtype,
         fill_value: 0,
+        codecs: [...DEFAULT_CODECS],
       });
 
       const fullSelection = new Array(sliceShape.length).fill(null);
@@ -450,6 +456,7 @@ async function downsampleBinShrinkImpl(
       chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
       data_type: image.data.dtype,
       fill_value: 0,
+      codecs: [...DEFAULT_CODECS],
     });
 
     // Copy each downsampled slice into the combined array
@@ -518,6 +525,7 @@ async function downsampleBinShrinkImpl(
         chunk_shape: sliceChunkShape,
         data_type: image.data.dtype,
         fill_value: 0,
+        codecs: [...DEFAULT_CODECS],
       });
 
       const fullSelection = new Array(sliceShape.length).fill(null);
@@ -572,6 +580,7 @@ async function downsampleBinShrinkImpl(
       chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
       data_type: image.data.dtype,
       fill_value: 0,
+      codecs: [...DEFAULT_CODECS],
     });
 
     // Copy each downsampled slice into the combined array
@@ -689,6 +698,7 @@ async function downsampleLabelImageImpl(
         chunk_shape: sliceChunkShape,
         data_type: image.data.dtype,
         fill_value: 0,
+        codecs: [...DEFAULT_CODECS],
       });
 
       const fullSelection = new Array(sliceShape.length).fill(null);
@@ -743,6 +753,7 @@ async function downsampleLabelImageImpl(
       chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
       data_type: image.data.dtype,
       fill_value: 0,
+      codecs: [...DEFAULT_CODECS],
     });
 
     // Copy each downsampled slice into the combined array
@@ -811,6 +822,7 @@ async function downsampleLabelImageImpl(
         chunk_shape: sliceChunkShape,
         data_type: image.data.dtype,
         fill_value: 0,
+        codecs: [...DEFAULT_CODECS],
       });
 
       const fullSelection = new Array(sliceShape.length).fill(null);
@@ -865,6 +877,7 @@ async function downsampleLabelImageImpl(
       chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
       data_type: image.data.dtype,
       fill_value: 0,
+      codecs: [...DEFAULT_CODECS],
     });
 
     // Copy each downsampled slice into the combined array

@@ -13,6 +13,7 @@ import type {
   TypedArray,
 } from "itk-wasm";
 import * as zarr from "zarrita";
+import { DEFAULT_CODECS } from "../utils/codecs.ts";
 import { NgffImage } from "../types/ngff_image.ts";
 
 export interface NgffImageToItkImageOptions {
@@ -144,6 +145,7 @@ export async function ngffImageToItkImage(
       chunk_shape: chunkShape,
       data_type: workingImage.data.dtype,
       fill_value: 0,
+      codecs: [...DEFAULT_CODECS],
     });
 
     // Write the slice data
@@ -202,6 +204,7 @@ export async function ngffImageToItkImage(
       chunk_shape: chunkShape,
       data_type: workingImage.data.dtype,
       fill_value: 0,
+      codecs: [...DEFAULT_CODECS],
     });
 
     // Write the slice data
