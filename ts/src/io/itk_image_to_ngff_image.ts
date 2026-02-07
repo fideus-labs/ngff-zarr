@@ -6,6 +6,7 @@
 
 import type { Image } from "itk-wasm";
 import * as zarr from "zarrita";
+import { DEFAULT_CODECS } from "../utils/codecs.ts";
 import { NgffImage } from "../types/ngff_image.ts";
 import { itkLpsToAnatomicalOrientation } from "../types/rfc4.ts";
 import type { AnatomicalOrientation } from "../types/rfc4.ts";
@@ -125,6 +126,7 @@ export async function itkImageToNgffImage(
     chunk_shape: chunkShape,
     data_type: imageType.componentType as zarr.DataType,
     fill_value: 0,
+    codecs: [...DEFAULT_CODECS],
   });
 
   // Write the ITK-Wasm data to the zarr array
