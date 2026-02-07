@@ -2,6 +2,7 @@ import * as zarr from "zarrita";
 import { DEFAULT_CODECS } from "../utils/codecs.ts";
 import { NgffImage } from "../types/ngff_image.ts";
 import type { MemoryStore } from "../io/from_ngff_zarr.ts";
+import { zarrSet } from "../utils/worker_pool.ts";
 
 export interface ToNgffImageOptions {
   dims?: string[];
@@ -119,7 +120,7 @@ export async function toNgffImage(
   });
 
   // Write data to zarr array
-  await zarr.set(zarrArray, [], {
+  await zarrSet(zarrArray, [], {
     data: typedData as Float32Array,
     shape,
     stride: calculateStride(shape),

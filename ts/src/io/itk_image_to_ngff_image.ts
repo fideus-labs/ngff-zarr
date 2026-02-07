@@ -10,6 +10,7 @@ import { DEFAULT_CODECS } from "../utils/codecs.ts";
 import { NgffImage } from "../types/ngff_image.ts";
 import { itkLpsToAnatomicalOrientation } from "../types/rfc4.ts";
 import type { AnatomicalOrientation } from "../types/rfc4.ts";
+import { zarrSet } from "../utils/worker_pool.ts";
 
 // Import the get_strides function from zarrita utilities
 import { _zarrita_internal_get_strides as getStrides } from "zarrita";
@@ -145,9 +146,9 @@ export async function itkImageToNgffImage(
     stride: getStrides(shape, "C"), // C-order strides for the reversed shape
   };
 
-  // Write all data to the zarr array using zarrita's set function
+  // Write all data to the zarr array using worker-accelerated set function
   // This handles chunking and encoding automatically
-  await zarr.set(zarrArray, selection, dataChunk); // Add anatomical orientation if requested
+  await zarrSet(zarrArray, selection, dataChunk); // Add anatomical orientation if requested
   let axesOrientations: Record<string, AnatomicalOrientation> | undefined;
   if (addAnatomicalOrientation) {
     axesOrientations = {};

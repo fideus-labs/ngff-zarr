@@ -8,7 +8,6 @@
  * For browser environments with WebWorker support, see compute_omero-browser.ts.
  */
 
-import * as zarr from "zarrita";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { Multiscales } from "../types/multiscales.ts";
 import type {
@@ -16,6 +15,7 @@ import type {
   OmeroChannel,
   OmeroWindow,
 } from "../types/zarr_metadata.ts";
+import { zarrGet } from "./worker_pool.ts";
 
 // Re-export shared utilities for backward compatibility
 export {
@@ -127,7 +127,7 @@ export async function computeOmeroFromNgffImage(
   }
 
   // Read all data from the zarr array
-  const result = await zarr.get(image.data);
+  const result = await zarrGet(image.data);
   const fullData = result.data as ArrayLike<number>;
 
   // Compute statistics for each channel

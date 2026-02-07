@@ -11,6 +11,7 @@ import {
   fromZarrAttrsV04,
   fromZarrAttrsV05,
 } from "../utils/from_zarr_attrs.ts";
+import { zarrGet } from "../utils/worker_pool.ts";
 
 export interface FromNgffZarrOptions {
   validate?: boolean;
@@ -171,9 +172,9 @@ export async function readArrayData(
     }
 
     if (selection) {
-      return await zarr.get(zarrArray, selection);
+      return await zarrGet(zarrArray, selection);
     } else {
-      return await zarr.get(zarrArray);
+      return await zarrGet(zarrArray);
     }
   } catch (error) {
     throw new Error(

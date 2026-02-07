@@ -6,7 +6,7 @@ import * as zarr from "zarrita";
 import type { Multiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { MemoryStore } from "./from_ngff_zarr-browser.ts";
-import { createQueue } from "../utils/create_queue.ts";
+import { createWriteQueue, zarrGet, zarrSet } from "../utils/worker_pool.ts";
 import { DEFAULT_CODECS } from "../utils/codecs.ts";
 import { memoryStoreToZip } from "./rfc9_zip.ts";
 import { writeMultiscalesToMemoryStore } from "./to_ngff_zarr_ozx_common.ts";
@@ -256,7 +256,7 @@ async function _writeArrayData(
     const chunkIndices = calculateChunkIndices(shape, zarrArray.chunks);
 
     // Create a queue for parallel chunk writing
-    const writeQueue = createQueue();
+    const writeQueue = createWriteQueue();
 
     // Queue all chunks for writing
     for (const chunkIndex of chunkIndices) {
@@ -297,7 +297,7 @@ async function writeChunkWithGet(
   );
 
   // Get only the chunk data we need from the source
-  const { data: chunkSourceData } = await zarr.get(image.data, sourceSelection);
+  const { data: chunkSourceData } = await zarrGet(image.data, sourceSelection);
 
   // Convert chunk data to target type
   const targetTypedArrayConstructor = getTypedArrayConstructor(zarrArray.dtype);
@@ -332,7 +332,7 @@ async function writeChunkWithGet(
   );
 
   // Write the chunk using zarrita's set function
-  await zarr.set(zarrArray, targetSelection, {
+  await zarrSet(zarrArray, targetSelection, {
     data: chunkTargetData,
     shape: chunkShape,
     stride: calculateChunkStride(chunkShape),
