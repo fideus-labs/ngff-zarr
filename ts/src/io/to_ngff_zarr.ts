@@ -5,6 +5,7 @@ import type { Multiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { MemoryStore } from "./from_ngff_zarr.ts";
 import { createQueue } from "../utils/create_queue.ts";
+import { DEFAULT_CODECS } from "../utils/codecs.ts";
 import { isOzxPath, memoryStoreToZip } from "./rfc9_zip.ts";
 import {
   processAxesForRfcs,
@@ -293,6 +294,7 @@ async function _writeImage(
       data_type: zarrDataType,
       chunk_shape: chunks,
       fill_value: 0,
+      codecs: [...DEFAULT_CODECS],
     });
 
     await _writeArrayData(
