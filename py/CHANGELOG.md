@@ -1,4 +1,23 @@
-## Unreleased
+## py-v0.25.0 (2026-02-08)
+
+### ✨ Features
+
+- **py**: add nibabel NIfTI output support to CLI ([393a0e3](https://github.com/fideus-labs/ngff-zarr/commit/393a0e3087c4313f60b34ac50141e7e0bf250e26))
+- **py**: add multi-format output support to CLI ([3aa37fd](https://github.com/fideus-labs/ngff-zarr/commit/3aa37fdd8cfb8703397e48c1a02f42cf2603a3e0))
+- **py**: add TIFF series selection and OME metadata extraction ([ba4c088](https://github.com/fideus-labs/ngff-zarr/commit/ba4c088fa2989186481c5d481ff0d5db3ebe6c29))
+- add scope-filtered changelogs with GitHub commit links ([2f68564](https://github.com/fideus-labs/ngff-zarr/commit/2f6856470ed894e90fa16d733d560ce0a0560073))
+
+### 🐛 Bug Fixes
+
+- **py**: remove zarr v2 DirectoryStore usage in CLI input handler ([9108543](https://github.com/fideus-labs/ngff-zarr/commit/910854303077c13c49687d04fbed7e41e5a884c6))
+- **py**: set PYTHONIOENCODING=utf-8 in CLI output tests for Windows ([9208ce2](https://github.com/fideus-labs/ngff-zarr/commit/9208ce212adc0aa8c400bb1cdb75b198257d41b0))
+- restore accidentally modified commented code ([48da920](https://github.com/fideus-labs/ngff-zarr/commit/48da920523988c7be54147a9bcd0f2df95b5a898))
+- improve absolute factor tracking and add shape validation ([fd9da2c](https://github.com/fideus-labs/ngff-zarr/commit/fd9da2c447d4b042fb14a1c25a09d9eb35ea3be9))
+- preserve non-spatial metadata in dask_image downsampling ([c277f2f](https://github.com/fideus-labs/ngff-zarr/commit/c277f2f734232417d7c77b67dc09136f30c9571e))
+- **py**: balance security and usability in series name sanitization ([2deae9d](https://github.com/fideus-labs/ngff-zarr/commit/2deae9d5743cfe0010131991c2ed28d600893770))
+- **py**: improve series name sanitization for security ([b55c077](https://github.com/fideus-labs/ngff-zarr/commit/b55c077bdf9ca3418351949523faacd659aeb392))
+- **py**: address PR review comments for TIFF series handling ([7efdebe](https://github.com/fideus-labs/ngff-zarr/commit/7efdebeaf7b3e9b47e79a28aa879de131cc18799))
+- **py**: handle TIFF S-axis (sample/RGB) and unsupported axes ([750eed5](https://github.com/fideus-labs/ngff-zarr/commit/750eed5bd75497ace33e8bfda074d5291944a5f4))
 
 ## py-v0.24.0 (2026-02-05)
 
