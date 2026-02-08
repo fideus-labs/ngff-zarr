@@ -69,5 +69,9 @@
     "noImplicitOverride": true,
     "exactOptionalPropertyTypes": true
   },
-  "nodeModulesDir": "auto"
+  "nodeModulesDir": "auto",
+  "publish": {
+    "exclude":
+      [".commitizen"]
+  }
 }
