@@ -134,12 +134,12 @@ async function createPackageJson(): Promise<void> {
     types: "./esm/mod.d.ts",
     repository: {
       type: "git",
-      url: "git+https://github.com/thewtex/ngff-zarr.git",
+      url: "git+https://github.com/fideus-labs/ngff-zarr.git",
     },
     bugs: {
-      url: "https://github.com/thewtex/ngff-zarr/issues",
+      url: "https://github.com/fideus-labs/ngff-zarr/issues",
     },
-    homepage: "https://github.com/thewtex/ngff-zarr#readme",
+    homepage: "https://github.com/fideus-labs/ngff-zarr#readme",
     keywords: [
       "ome-zarr",
       "zarr",
