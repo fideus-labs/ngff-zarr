@@ -1,3 +1,9 @@
+## ts-v0.7.1 (2026-02-08)
+
+### 🐛 Bug Fixes
+
+- **ts**: bump fizarrita for edge chunk handling ([ad84810](https://github.com/fideus-labs/ngff-zarr/commit/ad8481021552b26b8e06d755e574aa15ca54a774))
+
 ## ts-v0.7.0 (2026-02-08)
 
 ### ✨ Features
