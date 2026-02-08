@@ -152,7 +152,11 @@ jobs:
         if: steps.identify.outputs.project == 'ts'
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
+
+      - name: Download test data
+        run: pixi run download-test-data
+        working-directory: py
 
       - name: Build TypeScript packages
         if: steps.identify.outputs.project == 'ts'
