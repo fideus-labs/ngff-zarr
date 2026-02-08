@@ -1,3 +1,9 @@
+## ts-v0.7.0 (2026-02-08)
+
+### ✨ Features
+
+- **ts**: export fizarrita worker pools ([3310bc8](https://github.com/fideus-labs/ngff-zarr/commit/3310bc85acc70826b0e92ae639abf824e9332703))
+
 ## ts-v0.6.0 (2026-02-08)
 
 ### ⚡ Performance

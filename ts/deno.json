@@ -1,6 +1,6 @@
 {
   "name": "@fideus-labs/ngff-zarr",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "license": "MIT",
   "exports": {
     ".": "./src/mod.ts",
