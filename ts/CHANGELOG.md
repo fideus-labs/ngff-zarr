@@ -1,4 +1,16 @@
-## Unreleased
+## ts-v0.6.0 (2026-02-08)
+
+### ⚡ Performance
+
+- **ts**: integrate fizarrita worker pool for parallel zarr codec operations ([26dca7e](https://github.com/fideus-labs/ngff-zarr/commit/26dca7e89d5c43ae1302ff68cf9b1e5610ede2f6))
+
+### ✨ Features
+
+- add scope-filtered changelogs with GitHub commit links ([2f68564](https://github.com/fideus-labs/ngff-zarr/commit/2f6856470ed894e90fa16d733d560ce0a0560073))
+
+### 🐛 Bug Fixes
+
+- **ts**: add bytes+blosc codecs to all zarr.create() calls ([d822eee](https://github.com/fideus-labs/ngff-zarr/commit/d822eeefd6f80c8ee1faf8bb2c086c0218a809a0))
 
 ## ts-v0.5.1 (2026-02-05)
 
