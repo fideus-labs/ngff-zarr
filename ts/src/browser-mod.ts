@@ -57,7 +57,7 @@ export {
   validateQuantiles,
 } from "./utils/compute_omero-shared.ts";
 export type { ChannelStatisticsAccumulator } from "./utils/compute_omero-shared.ts";
-export { terminateWorkerPool } from "./utils/worker_pool.ts";
+export { terminateWorkerPool, zarrGet, zarrSet } from "./utils/worker_pool.ts";
 
 // Browser-compatible I/O modules
 // Note: Uses browser-specific versions that don't import @zarrita/storage
