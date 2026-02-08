@@ -12,6 +12,7 @@ import {
   downsampleLabelImage,
 } from "@itk-wasm/downsample";
 import * as zarr from "zarrita";
+import { zarrGet, zarrSet } from "../utils/worker_pool.ts";
 import { DEFAULT_CODECS } from "../utils/codecs.ts";
 import { NgffImage } from "../types/ngff_image.ts";
 import {
@@ -75,7 +76,7 @@ async function downsampleGaussian(
       // Extract time slice
       const selection = new Array(image.data.shape.length).fill(null);
       selection[tDimIndex] = t;
-      const sliceData = await zarr.get(image.data, selection);
+      const sliceData = await zarrGet(image.data, selection);
 
       // Create temporary zarr array for this slice
       const sliceStore = new Map<string, Uint8Array>();
@@ -99,7 +100,7 @@ async function downsampleGaussian(
       });
 
       const fullSelection = new Array(sliceShape.length).fill(null);
-      await zarr.set(sliceArray, fullSelection, sliceData);
+      await zarrSet(sliceArray, fullSelection, sliceData);
 
       // Create NgffImage for this slice (without 't' dimension)
       const sliceImage = new NgffImage({
@@ -155,10 +156,10 @@ async function downsampleGaussian(
 
     // Copy each downsampled slice into the combined array
     for (let t = 0; t < tSize; t++) {
-      const sliceData = await zarr.get(downsampledSlices[t]);
+      const sliceData = await zarrGet(downsampledSlices[t]);
       const targetSelection = new Array(combinedShape.length).fill(null);
       targetSelection[tDimIndex] = t;
-      await zarr.set(combinedArray, targetSelection, sliceData);
+      await zarrSet(combinedArray, targetSelection, sliceData);
     }
 
     // Compute new metadata (time dimension unchanged, spatial dimensions downsampled)
@@ -199,7 +200,7 @@ async function downsampleGaussian(
       // Extract channel slice
       const selection = new Array(image.data.shape.length).fill(null);
       selection[cDimIndex] = c;
-      const sliceData = await zarr.get(image.data, selection);
+      const sliceData = await zarrGet(image.data, selection);
 
       // Create temporary zarr array for this slice
       const sliceStore = new Map<string, Uint8Array>();
@@ -223,7 +224,7 @@ async function downsampleGaussian(
       });
 
       const fullSelection = new Array(sliceShape.length).fill(null);
-      await zarr.set(sliceArray, fullSelection, sliceData);
+      await zarrSet(sliceArray, fullSelection, sliceData);
 
       // Create NgffImage for this slice (without 'c' dimension)
       const sliceImage = new NgffImage({
@@ -279,10 +280,10 @@ async function downsampleGaussian(
 
     // Copy each downsampled slice into the combined array
     for (let c = 0; c < cSize; c++) {
-      const sliceData = await zarr.get(downsampledSlices[c]);
+      const sliceData = await zarrGet(downsampledSlices[c]);
       const targetSelection = new Array(combinedShape.length).fill(null);
       targetSelection[cDimIndex] = c;
-      await zarr.set(combinedArray, targetSelection, sliceData);
+      await zarrSet(combinedArray, targetSelection, sliceData);
     }
 
     // Compute new metadata (channel dimension unchanged, spatial dimensions downsampled)
@@ -376,7 +377,7 @@ async function downsampleBinShrinkImpl(
       // Extract time slice
       const selection = new Array(image.data.shape.length).fill(null);
       selection[tDimIndex] = t;
-      const sliceData = await zarr.get(image.data, selection);
+      const sliceData = await zarrGet(image.data, selection);
 
       // Create temporary zarr array for this slice
       const sliceStore = new Map<string, Uint8Array>();
@@ -400,7 +401,7 @@ async function downsampleBinShrinkImpl(
       });
 
       const fullSelection = new Array(sliceShape.length).fill(null);
-      await zarr.set(sliceArray, fullSelection, sliceData);
+      await zarrSet(sliceArray, fullSelection, sliceData);
 
       // Create NgffImage for this slice (without 't' dimension)
       const sliceImage = new NgffImage({
@@ -456,10 +457,10 @@ async function downsampleBinShrinkImpl(
 
     // Copy each downsampled slice into the combined array
     for (let t = 0; t < tSize; t++) {
-      const sliceData = await zarr.get(downsampledSlices[t]);
+      const sliceData = await zarrGet(downsampledSlices[t]);
       const targetSelection = new Array(combinedShape.length).fill(null);
       targetSelection[tDimIndex] = t;
-      await zarr.set(combinedArray, targetSelection, sliceData);
+      await zarrSet(combinedArray, targetSelection, sliceData);
     }
 
     // Compute new metadata
@@ -500,7 +501,7 @@ async function downsampleBinShrinkImpl(
       // Extract channel slice
       const selection = new Array(image.data.shape.length).fill(null);
       selection[cDimIndex] = c;
-      const sliceData = await zarr.get(image.data, selection);
+      const sliceData = await zarrGet(image.data, selection);
 
       // Create temporary zarr array for this slice
       const sliceStore = new Map<string, Uint8Array>();
@@ -524,7 +525,7 @@ async function downsampleBinShrinkImpl(
       });
 
       const fullSelection = new Array(sliceShape.length).fill(null);
-      await zarr.set(sliceArray, fullSelection, sliceData);
+      await zarrSet(sliceArray, fullSelection, sliceData);
 
       // Create NgffImage for this slice (without 'c' dimension)
       const sliceImage = new NgffImage({
@@ -580,10 +581,10 @@ async function downsampleBinShrinkImpl(
 
     // Copy each downsampled slice into the combined array
     for (let c = 0; c < cSize; c++) {
-      const sliceData = await zarr.get(downsampledSlices[c]);
+      const sliceData = await zarrGet(downsampledSlices[c]);
       const targetSelection = new Array(combinedShape.length).fill(null);
       targetSelection[cDimIndex] = c;
-      await zarr.set(combinedArray, targetSelection, sliceData);
+      await zarrSet(combinedArray, targetSelection, sliceData);
     }
 
     // Compute new metadata (channel dimension unchanged, spatial dimensions downsampled)
@@ -673,7 +674,7 @@ async function downsampleLabelImageImpl(
       // Extract time slice
       const selection = new Array(image.data.shape.length).fill(null);
       selection[tDimIndex] = t;
-      const sliceData = await zarr.get(image.data, selection);
+      const sliceData = await zarrGet(image.data, selection);
 
       // Create temporary zarr array for this slice
       const sliceStore = new Map<string, Uint8Array>();
@@ -697,7 +698,7 @@ async function downsampleLabelImageImpl(
       });
 
       const fullSelection = new Array(sliceShape.length).fill(null);
-      await zarr.set(sliceArray, fullSelection, sliceData);
+      await zarrSet(sliceArray, fullSelection, sliceData);
 
       // Create NgffImage for this slice (without 't' dimension)
       const sliceImage = new NgffImage({
@@ -753,10 +754,10 @@ async function downsampleLabelImageImpl(
 
     // Copy each downsampled slice into the combined array
     for (let t = 0; t < tSize; t++) {
-      const sliceData = await zarr.get(downsampledSlices[t]);
+      const sliceData = await zarrGet(downsampledSlices[t]);
       const targetSelection = new Array(combinedShape.length).fill(null);
       targetSelection[tDimIndex] = t;
-      await zarr.set(combinedArray, targetSelection, sliceData);
+      await zarrSet(combinedArray, targetSelection, sliceData);
     }
 
     // Compute new metadata
@@ -797,7 +798,7 @@ async function downsampleLabelImageImpl(
       // Extract channel slice
       const selection = new Array(image.data.shape.length).fill(null);
       selection[cDimIndex] = c;
-      const sliceData = await zarr.get(image.data, selection);
+      const sliceData = await zarrGet(image.data, selection);
 
       // Create temporary zarr array for this slice
       const sliceStore = new Map<string, Uint8Array>();
@@ -821,7 +822,7 @@ async function downsampleLabelImageImpl(
       });
 
       const fullSelection = new Array(sliceShape.length).fill(null);
-      await zarr.set(sliceArray, fullSelection, sliceData);
+      await zarrSet(sliceArray, fullSelection, sliceData);
 
       // Create NgffImage for this slice (without 'c' dimension)
       const sliceImage = new NgffImage({
@@ -877,10 +878,10 @@ async function downsampleLabelImageImpl(
 
     // Copy each downsampled slice into the combined array
     for (let c = 0; c < cSize; c++) {
-      const sliceData = await zarr.get(downsampledSlices[c]);
+      const sliceData = await zarrGet(downsampledSlices[c]);
       const targetSelection = new Array(combinedShape.length).fill(null);
       targetSelection[cDimIndex] = c;
-      await zarr.set(combinedArray, targetSelection, sliceData);
+      await zarrSet(combinedArray, targetSelection, sliceData);
     }
 
     // Compute new metadata (channel dimension unchanged, spatial dimensions downsampled)

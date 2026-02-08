@@ -10,6 +10,7 @@ import type { Image } from "itk-wasm";
 import * as zarr from "zarrita";
 import { DEFAULT_CODECS } from "../utils/codecs.ts";
 import { NgffImage } from "../types/ngff_image.ts";
+import { zarrGet, zarrSet } from "../utils/worker_pool.ts";
 
 export const SPATIAL_DIMS = ["x", "y", "z"];
 
@@ -395,7 +396,7 @@ export async function zarrToItkImage(
   isVector = false,
 ): Promise<Image> {
   // Read the full array data
-  const result = await zarr.get(array);
+  const result = await zarrGet(array);
 
   // Ensure we have the data
   if (!result.data || result.data.length === 0) {
@@ -643,7 +644,7 @@ export async function itkImageToZarr(
   // Shape and stride should match the ITK image size order
   // Use null for each dimension to select the entire array
   const selection = zarrShape.map(() => null);
-  await zarr.set(array, selection, {
+  await zarrSet(array, selection, {
     data: finalData,
     shape: zarrShape,
     stride: calculateStride(zarrShape),

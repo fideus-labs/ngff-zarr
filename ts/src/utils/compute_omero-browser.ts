@@ -14,7 +14,6 @@
  */
 
 import * as Comlink from "comlink";
-import * as zarr from "zarrita";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { Multiscales } from "../types/multiscales.ts";
 import type { Omero } from "../types/zarr_metadata.ts";
@@ -28,6 +27,7 @@ import {
   updateAccumulator,
   validateQuantiles,
 } from "./compute_omero-shared.ts";
+import { zarrGet } from "./worker_pool.ts";
 
 // Re-export shared utilities for convenience
 export {
@@ -125,7 +125,7 @@ async function computeOmeroMainThread(
   const nChannels = hasChannelDim ? shape[cIndex] : 1;
 
   // Read all data from the zarr array
-  const result = await zarr.get(image.data);
+  const result = await zarrGet(image.data);
   const fullData = result.data as ArrayLike<number>;
 
   // Create accumulators for each channel
@@ -187,7 +187,7 @@ export async function computeOmeroFromNgffImage(
     const dims = image.dims;
 
     // Read data from zarr array
-    const result = await zarr.get(image.data);
+    const result = await zarrGet(image.data);
     const fullData = result.data;
     const totalSize = fullData.length;
 

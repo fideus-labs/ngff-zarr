@@ -45,6 +45,7 @@ export type {
   ComputeOmeroOptions,
 } from "./utils/compute_omero.ts";
 export { fromZarrAttrsV04, fromZarrAttrsV05 } from "./utils/from_zarr_attrs.ts";
+export { terminateWorkerPool } from "./utils/worker_pool.ts";
 
 export * from "./io/from_ngff_zarr.ts";
 export * from "./io/to_ngff_zarr.ts";
