@@ -34,7 +34,7 @@
     "@std/cli": "jsr:@std/cli@^1.0.27",
     "@std/http": "jsr:@std/http@^1.0.24",
     "@std/path": "jsr:@std/path@^1.1.4",
-    "@fideus-labs/fizarrita": "npm:@fideus-labs/fizarrita@^1.1.0",
+    "@fideus-labs/fizarrita": "npm:@fideus-labs/fizarrita@^1.1.1",
     "@fideus-labs/worker-pool": "npm:@fideus-labs/worker-pool@^1.0.0",
     "@zarrita/storage": "jsr:@zarrita/storage@^0.1.4",
     "dnt": "jsr:@deno/dnt@^0.42.3",
