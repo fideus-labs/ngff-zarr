@@ -1,3 +1,9 @@
+## ts-v0.7.2 (2026-02-08)
+
+### 🐛 Bug Fixes
+
+- **ts**: bump fizarrita for better chunk shape detection ([261da2f](https://github.com/fideus-labs/ngff-zarr/commit/261da2fbd2dd0c101db9604c69a8e08ed66db4c6))
+
 ## ts-v0.7.1 (2026-02-08)
 
 ### 🐛 Bug Fixes
