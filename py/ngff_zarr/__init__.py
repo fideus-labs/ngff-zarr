@@ -27,7 +27,7 @@ from .ngff_image_to_itk_image import ngff_image_to_itk_image
 from .task_count import task_count
 from .to_multiscales import to_multiscales
 from .to_ngff_image import to_ngff_image
-from .to_ngff_zarr import to_ngff_zarr
+from .to_ngff_zarr import to_ngff_zarr, ScaleStrategy
 from .validate import validate
 from .hcs import (
     from_hcs_zarr,
@@ -109,6 +109,7 @@ __all__ = [
     "to_multiscales",
     "Methods",
     "to_ngff_zarr",
+    "ScaleStrategy",
     "from_ngff_zarr",
     "detect_cli_io_backend",
     "ConversionBackend",
