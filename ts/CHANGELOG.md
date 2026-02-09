@@ -1,3 +1,9 @@
+## ts-v0.7.3 (2026-02-09)
+
+### 🐛 Bug Fixes
+
+- **ts**: fizarrita bump for more reliable shape estimation ([283c925](https://github.com/fideus-labs/ngff-zarr/commit/283c925caf6350655e7b4a40647bb55b4ab4e21d))
+
 ## ts-v0.7.2 (2026-02-08)
 
 ### 🐛 Bug Fixes
