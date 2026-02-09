@@ -282,106 +282,6 @@ def _ngff_image_to_multiscales(
     )
 
 
-def _multiscales_from_tifffile_pyramid(root, args, live):
-    """Build Multiscales directly from a pyramidal TIFF's zarr Group.
-
-    Reuses existing pyramid levels instead of regenerating them via
-    downsampling, which avoids expensive computation for files that
-    already contain a multi-resolution pyramid.
-    """
-    from .methods._support import _spatial_dims
-    from .multiscales import Multiscales
-    from .v04.zarr_metadata import Axis, Dataset, Metadata, Scale, Translation
-
-    try:
-        from zarr.core import Array as ZarrArray
-    except ImportError:
-        from zarr.core.array import Array as ZarrArray
-
-    # Get ordered dataset paths from multiscales metadata
-    paths = []
-    if "multiscales" in root.attrs:
-        multiscales_meta = root.attrs["multiscales"]
-        if multiscales_meta:
-            datasets = multiscales_meta[0].get("datasets", [])
-            paths = [d["path"] for d in datasets if d["path"] in root]
-
-    if not paths:
-        # Fallback: sort arrays by size (largest first = full resolution)
-        items = [(k, root[k]) for k in root.keys() if isinstance(root[k], ZarrArray)]
-        items.sort(key=lambda x: x[1].size, reverse=True)
-        paths = [k for k, _ in items]
-
-    # Build level 0 NgffImage and apply user CLI overrides
-    level0_arr = root[paths[0]]
-    ngff_image_0 = to_ngff_image(level0_arr)
-    _apply_cli_metadata_overrides(ngff_image_0, args, live)
-
-    level0_shape = level0_arr.shape
-    base_scale = ngff_image_0.scale
-    base_translation = ngff_image_0.translation
-
-    # Build NgffImages for all levels
-    images = [ngff_image_0]
-    for path in paths[1:]:
-        arr = root[path]
-        level_scale = {}
-        level_translation = {}
-        for dim in ngff_image_0.dims:
-            dim_idx = list(ngff_image_0.dims).index(dim)
-            if dim in _spatial_dims:
-                factor = level0_shape[dim_idx] / arr.shape[dim_idx]
-                level_scale[dim] = base_scale[dim] * factor
-                level_translation[dim] = (
-                    base_translation[dim] + 0.5 * (factor - 1) * base_scale[dim]
-                )
-            else:
-                if dim in base_scale:
-                    level_scale[dim] = base_scale[dim]
-                if dim in base_translation:
-                    level_translation[dim] = base_translation[dim]
-
-        level_image = to_ngff_image(
-            arr,
-            dims=ngff_image_0.dims,
-            scale=level_scale,
-            translation=level_translation,
-            name=ngff_image_0.name,
-            axes_units=ngff_image_0.axes_units,
-        )
-        images.append(level_image)
-
-    # Build Metadata
-    axes = []
-    for dim in ngff_image_0.dims:
-        unit = None
-        if ngff_image_0.axes_units and dim in ngff_image_0.axes_units:
-            unit = ngff_image_0.axes_units[dim]
-        if dim in {"x", "y", "z"}:
-            axes.append(Axis(name=dim, type="space", unit=unit))
-        elif dim == "c":
-            axes.append(Axis(name=dim, type="channel", unit=unit))
-        elif dim == "t":
-            axes.append(Axis(name=dim, type="time", unit=unit))
-
-    datasets = []
-    for index, image in enumerate(images):
-        path = f"scale{index}/{ngff_image_0.name}"
-        scale_values = [image.scale.get(d, 1.0) for d in image.dims]
-        trans_values = [image.translation.get(d, 0.0) for d in image.dims]
-        coord_transforms = [Scale(scale_values), Translation(trans_values)]
-        datasets.append(Dataset(path=path, coordinateTransformations=coord_transforms))
-
-    metadata = Metadata(
-        axes=axes,
-        datasets=datasets,
-        name=ngff_image_0.name,
-        coordinateTransformations=None,
-    )
-
-    return Multiscales(images, metadata)
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="Convert datasets to and from the OME-Zarr Next Generation File Format.",
@@ -841,6 +741,7 @@ def main():
                 if importlib.util.find_spec("tifffile") is None:
                     raise ImportError("tifffile not found")
 
+                from .multiscales import Multiscales as MultiscalesType
                 from .tiff_to_ngff_image import tiff_file_to_ngff_images
 
                 # Get series to convert based on --series argument
@@ -853,14 +754,16 @@ def main():
                         pass  # Keep as string (pattern or "all")
 
                 series_list = tiff_file_to_ngff_images(
-                    args.input[0], series=series_spec
+                    args.input[0],
+                    series=series_spec,
+                    reuse_existing_pyramids=True,
                 )
 
                 if len(series_list) == 0:
                     live.console.print("[red]No matching series found in TIFF file.")
                     sys.exit(1)
 
-                for series_name, ngff_image in series_list:
+                for series_name, result in series_list:
                     # Determine output path for this series
                     if args.output:
                         if len(series_list) > 1:
@@ -876,15 +779,27 @@ def main():
                     else:
                         series_store = None
 
-                    multiscales = _ngff_image_to_multiscales(
-                        live,
-                        ngff_image,
-                        args,
-                        progress,
-                        rich_dask_progress,
-                        subtitle,
-                        method,
-                    )
+                    if isinstance(result, MultiscalesType):
+                        # Pyramidal TIFF: reuse existing pyramid levels
+                        multiscales = result
+                        # Apply CLI metadata overrides to the base image
+                        _apply_cli_metadata_overrides(multiscales.images[0], args, live)
+                        if not args.quiet:
+                            n_levels = len(multiscales.images)
+                            live.console.log(
+                                f"[green]Reusing {n_levels} existing pyramid levels"
+                            )
+                    else:
+                        # Single-level: generate multiscales via downsampling
+                        multiscales = _ngff_image_to_multiscales(
+                            live,
+                            result,
+                            args,
+                            progress,
+                            rich_dask_progress,
+                            subtitle,
+                            method,
+                        )
                     _multiscales_to_ngff_zarr(
                         live,
                         args,

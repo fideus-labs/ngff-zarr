@@ -72,7 +72,7 @@ def test_to_ngff_image_with_empty_zarr_group():
     # Test that to_ngff_image raises ValueError for empty group
     import pytest
 
-    with pytest.raises(ValueError, match="Zarr Group is empty"):
+    with pytest.raises(ValueError, match="no arrays found"):
         to_ngff_image(reopened_group)
 
 
