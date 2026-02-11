@@ -29,7 +29,7 @@
     "jsr:@ts-morph/common@0.27": "0.27.0",
     "jsr:@zarrita/storage@~0.1.4": "0.1.4",
     "jsr:@zarrita/zarrita@~0.6.1": "0.6.1",
-    "npm:@fideus-labs/fizarrita@^1.1.1": "1.1.1_zarrita@0.6.1",
+    "npm:@fideus-labs/fizarrita@^1.2.0": "1.2.0_zarrita@0.6.1",
     "npm:@fideus-labs/worker-pool@1": "1.0.0",
     "npm:@itk-wasm/compare-images@^5.4.1": "5.4.1",
     "npm:@itk-wasm/downsample@^1.8.1": "1.8.1",
@@ -184,8 +184,8 @@
         "tslib"
       ]
     },
-    "@fideus-labs/fizarrita@1.1.1_zarrita@0.6.1": {
-      "integrity": "sha512-0TrS1UwlIEZcFTr61Uv3RmrJh2es7OgPckZn4ISX3WpxhfwDoVo47aNJ4VNRPLwcPZzyhw+XmBEaJi9zfa2gCg==",
+    "@fideus-labs/fizarrita@1.2.0_zarrita@0.6.1": {
+      "integrity": "sha512-+6qIsIz2HMkfdQVL/FFX52xkXz8+MoM8RfQU+JYDCKFOBlg2Ee3wML6982ni+Ly5CB7c4W0J7pBoKLCjIah/Eg==",
       "dependencies": [
         "@fideus-labs/worker-pool",
         "zarrita"
@@ -1310,7 +1310,7 @@
       "jsr:@std/path@^1.1.4",
       "jsr:@zarrita/storage@~0.1.4",
       "jsr:@zarrita/zarrita@~0.6.1",
-      "npm:@fideus-labs/fizarrita@^1.1.1",
+      "npm:@fideus-labs/fizarrita@^1.2.0",
       "npm:@fideus-labs/worker-pool@1",
       "npm:@itk-wasm/compare-images@^5.4.1",
       "npm:@itk-wasm/downsample@^1.8.1",

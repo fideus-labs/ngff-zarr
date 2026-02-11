@@ -63,6 +63,7 @@ export { terminateWorkerPool, zarrGet, zarrSet } from "./utils/worker_pool.ts";
 // Note: Uses browser-specific versions that don't import @zarrita/storage
 // (which contains Node.js-specific modules like node:fs, node:buffer, node:path)
 export {
+  type ChunkCache,
   fromNgffZarr,
   type FromNgffZarrOptions,
   type MemoryStore,
