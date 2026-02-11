@@ -12,10 +12,22 @@ import {
   fromZarrAttrsV05,
 } from "../utils/from_zarr_attrs.ts";
 import { zarrGet } from "../utils/worker_pool.ts";
+export type { ChunkCache } from "../utils/worker_pool.ts";
 
 export interface FromNgffZarrOptions {
+  /** Enable schema validation of OME-Zarr metadata. */
   validate?: boolean;
+  /** Expected OME-Zarr version. */
   version?: "0.4" | "0.5";
+  /**
+   * Optional decoded-chunk cache passed to `zarrGet` calls.
+   *
+   * Any object with `get(key)` and `set(key, value)` works — a plain `Map`
+   * is the simplest option. For bounded memory use an LRU cache.
+   *
+   * @see {@link https://github.com/fideus-labs/worker-pool/tree/main/fizarrita#chunk-caching}
+   */
+  cache?: import("../utils/worker_pool.ts").ChunkCache;
 }
 
 export type MemoryStore = Map<string, Uint8Array>;

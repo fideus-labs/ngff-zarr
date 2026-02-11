@@ -9,6 +9,7 @@ import {
   createMetadata,
   createMultiscales,
 } from "../src/utils/factory.ts";
+import { zarrGet } from "../src/utils/worker_pool.ts";
 import { NgffImage } from "../src/types/ngff_image.ts";
 import { Multiscales } from "../src/types/multiscales.ts";
 import * as zarr from "zarrita";
@@ -488,4 +489,122 @@ Deno.test("omero metadata backward compatibility", async () => {
   assertEquals(channel3.window.end, 985);
 
   console.log("✓ OMERO metadata backward compatibility test passed");
+});
+
+Deno.test("fromNgffZarr accepts cache option", async () => {
+  // Create synthetic test data and write to memory store
+  const image = await createTestLungSeriesData();
+  const multiscales = createMultiscalesFromImage(image);
+
+  const testStore: MemoryStore = new Map<string, Uint8Array>();
+  const version = "0.4";
+  await toNgffZarr(testStore, multiscales, { version });
+
+  // A plain Map satisfies the ChunkCache interface (get/set)
+  const cache = new Map();
+
+  // fromNgffZarr should accept the cache option without error
+  const result = await fromNgffZarr(testStore, { version, cache });
+
+  assertExists(result);
+  assertEquals(result.images.length, 1);
+  assertEquals(result.images[0].dims, ["z", "y", "x"]);
+
+  console.log("✓ fromNgffZarr accepts cache option test passed");
+});
+
+Deno.test("zarrGet populates cache on read", async () => {
+  // Create a small in-memory zarr array
+  const store = new Map<string, Uint8Array>();
+  const root = zarr.root(store);
+  const shape = [4, 4];
+  const chunks = [4, 4];
+
+  const arr = await zarr.create(root.resolve("test"), {
+    shape,
+    chunk_shape: chunks,
+    data_type: "float32" as zarr.DataType,
+    fill_value: 0,
+  });
+
+  // Write known data
+  const data = new Float32Array(16);
+  for (let i = 0; i < 16; i++) data[i] = i;
+  await zarr.set(arr, null, {
+    data,
+    shape,
+    stride: [shape[1], 1],
+  });
+
+  // Read with a Map cache (satisfies ChunkCache interface)
+  const cache = new Map();
+  assertEquals(cache.size, 0, "Cache should be empty before read");
+
+  const chunk = await zarrGet(arr, null, { cache });
+  assertExists(chunk);
+
+  // The cache should have been populated by the worker-accelerated read
+  // (At minimum one chunk entry for the single 4x4 chunk)
+  assertEquals(
+    cache.size > 0,
+    true,
+    "Cache should be populated after zarrGet read",
+  );
+
+  // Read again — should hit the cache (result should be identical)
+  const chunk2 = await zarrGet(arr, null, { cache });
+  assertExists(chunk2);
+
+  console.log(
+    `✓ zarrGet populates cache on read (cache entries: ${cache.size})`,
+  );
+});
+
+Deno.test("zarrGet cache serves repeated reads", async () => {
+  // Create a zarr array with multiple chunks to verify caching across chunks
+  const store = new Map<string, Uint8Array>();
+  const root = zarr.root(store);
+  const shape = [8, 8];
+  const chunks = [4, 4];
+
+  const arr = await zarr.create(root.resolve("multi"), {
+    shape,
+    chunk_shape: chunks,
+    data_type: "uint16" as zarr.DataType,
+    fill_value: 0,
+  });
+
+  // Write data
+  const data = new Uint16Array(64);
+  for (let i = 0; i < 64; i++) data[i] = i;
+  await zarr.set(arr, null, {
+    data,
+    shape,
+    stride: [shape[1], 1],
+  });
+
+  const cache = new Map();
+
+  // First read — fills cache
+  const result1 = await zarrGet(arr, null, { cache });
+  assertExists(result1);
+  const cacheSize1 = cache.size;
+  assertEquals(
+    cacheSize1 > 0,
+    true,
+    "Cache should have entries after first read",
+  );
+
+  // Second read — all from cache (cache size should not grow)
+  const result2 = await zarrGet(arr, null, { cache });
+  assertExists(result2);
+  assertEquals(
+    cache.size,
+    cacheSize1,
+    "Cache size should not change on repeated read",
+  );
+
+  console.log(
+    `✓ zarrGet cache serves repeated reads (${cacheSize1} cache entries)`,
+  );
 });

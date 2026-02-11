@@ -194,7 +194,7 @@ async function createPackageJson(): Promise<void> {
     },
     files: ["esm/", "README.md", "LICENSE.txt"],
     dependencies: {
-      "@fideus-labs/fizarrita": "^1.1.1",
+      "@fideus-labs/fizarrita": "^1.2.0",
       "@fideus-labs/worker-pool": "^1.0.0",
       "@itk-wasm/downsample": "^1.8.1",
       comlink: "^4.4.2",

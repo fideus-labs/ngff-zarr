@@ -32,6 +32,8 @@ import type {
   Slice,
 } from "zarrita";
 
+export type { ChunkCache } from "@fideus-labs/fizarrita";
+
 // fizarrita uses npm:zarrita while this project uses jsr:@zarrita/zarrita.
 // The types are structurally identical but TypeScript sees them as
 // incompatible due to differing #private class fields. We bridge with
