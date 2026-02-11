@@ -1,3 +1,13 @@
+## ts-v0.7.4 (2026-02-10)
+
+### ⚡ Performance
+
+- **ts**: add cache option to fromNgffZarr with fizarrita 1.2.0 ([cd84d9e](https://github.com/fideus-labs/ngff-zarr/commit/cd84d9edc4057b3d6fc0c802924da1ab58452de8))
+
+### 🐛 Bug Fixes
+
+- **ts**: use spec-compliant blosc codec shuffle string and typesize ([938cfb6](https://github.com/fideus-labs/ngff-zarr/commit/938cfb6fff73c5af6ae11cf47e8bd4961c0672a4))
+
 ## ts-v0.7.3 (2026-02-09)
 
 ### 🐛 Bug Fixes
