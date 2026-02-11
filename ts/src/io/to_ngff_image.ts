@@ -1,5 +1,5 @@
 import * as zarr from "zarrita";
-import { DEFAULT_CODECS } from "../utils/codecs.ts";
+import { defaultCodecs } from "../utils/codecs.ts";
 import { NgffImage } from "../types/ngff_image.ts";
 import type { MemoryStore } from "../io/from_ngff_zarr.ts";
 import { zarrSet } from "../utils/worker_pool.ts";
@@ -116,7 +116,7 @@ export async function toNgffImage(
     chunk_shape: chunkShape,
     data_type: "float32",
     fill_value: 0,
-    codecs: [...DEFAULT_CODECS],
+    codecs: defaultCodecs("float32"),
   });
 
   // Write data to zarr array

@@ -7,7 +7,7 @@ import type { Multiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { MemoryStore } from "./from_ngff_zarr-browser.ts";
 import { createWriteQueue, zarrGet, zarrSet } from "../utils/worker_pool.ts";
-import { DEFAULT_CODECS } from "../utils/codecs.ts";
+import { defaultCodecs } from "../utils/codecs.ts";
 import { memoryStoreToZip } from "./rfc9_zip.ts";
 import { writeMultiscalesToMemoryStore } from "./to_ngff_zarr_ozx_common.ts";
 export { isOzxPath } from "./rfc9_zip.ts";
@@ -219,7 +219,7 @@ async function _writeImage(
       data_type: zarrDataType,
       chunk_shape: chunks,
       fill_value: 0,
-      codecs: [...DEFAULT_CODECS],
+      codecs: defaultCodecs(zarrDataType),
     });
 
     await _writeArrayData(
