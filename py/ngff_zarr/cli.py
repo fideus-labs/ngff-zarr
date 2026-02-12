@@ -200,10 +200,8 @@ def _multiscales_to_ngff_zarr(
     )
 
 
-def _ngff_image_to_multiscales(
-    live, ngff_image, args, progress, rich_dask_progress, subtitle, method
-):
-    data = ngff_image.data
+def _apply_cli_metadata_overrides(ngff_image, args, live):
+    """Apply user CLI metadata overrides (dims, scale, translation, units, name) to an NgffImage."""
     if args.dims:
         if len(args.dims) != len(ngff_image.dims):
             live.console.print(
@@ -254,6 +252,13 @@ def _ngff_image_to_multiscales(
         ngff_image.axes_units = unit_pairs
     if args.name:
         ngff_image.name = args.name
+
+
+def _ngff_image_to_multiscales(
+    live, ngff_image, args, progress, rich_dask_progress, subtitle, method
+):
+    data = ngff_image.data
+    _apply_cli_metadata_overrides(ngff_image, args, live)
 
     # Generate Multiscales
     cache = data.nbytes > config.memory_target
@@ -736,6 +741,7 @@ def main():
                 if importlib.util.find_spec("tifffile") is None:
                     raise ImportError("tifffile not found")
 
+                from .multiscales import Multiscales as MultiscalesType
                 from .tiff_to_ngff_image import tiff_file_to_ngff_images
 
                 # Get series to convert based on --series argument
@@ -748,14 +754,16 @@ def main():
                         pass  # Keep as string (pattern or "all")
 
                 series_list = tiff_file_to_ngff_images(
-                    args.input[0], series=series_spec
+                    args.input[0],
+                    series=series_spec,
+                    reuse_existing_pyramids=True,
                 )
 
                 if len(series_list) == 0:
                     live.console.print("[red]No matching series found in TIFF file.")
                     sys.exit(1)
 
-                for series_name, ngff_image in series_list:
+                for series_name, result in series_list:
                     # Determine output path for this series
                     if args.output:
                         if len(series_list) > 1:
@@ -771,15 +779,27 @@ def main():
                     else:
                         series_store = None
 
-                    multiscales = _ngff_image_to_multiscales(
-                        live,
-                        ngff_image,
-                        args,
-                        progress,
-                        rich_dask_progress,
-                        subtitle,
-                        method,
-                    )
+                    if isinstance(result, MultiscalesType):
+                        # Pyramidal TIFF: reuse existing pyramid levels
+                        multiscales = result
+                        # Apply CLI metadata overrides to the base image
+                        _apply_cli_metadata_overrides(multiscales.images[0], args, live)
+                        if not args.quiet:
+                            n_levels = len(multiscales.images)
+                            live.console.log(
+                                f"[green]Reusing {n_levels} existing pyramid levels"
+                            )
+                    else:
+                        # Single-level: generate multiscales via downsampling
+                        multiscales = _ngff_image_to_multiscales(
+                            live,
+                            result,
+                            args,
+                            progress,
+                            rich_dask_progress,
+                            subtitle,
+                            method,
+                        )
                     _multiscales_to_ngff_zarr(
                         live,
                         args,

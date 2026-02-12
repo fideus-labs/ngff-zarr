@@ -29,6 +29,8 @@ from .to_ngff_image import to_ngff_image
 if TYPE_CHECKING:
     import tifffile
 
+    from .multiscales import Multiscales
+
 # Mapping from TIFF axis characters to NGFF-compatible dimension names
 # Based on tifffile axis conventions:
 #   X: width, Y: height, Z: depth, S: sample (RGB), C: channel, T: time
@@ -448,12 +450,221 @@ def _sanitize_series_name(name: str) -> str:
     return name if name else "unnamed"
 
 
+_SPATIAL_DIMS = {"x", "y", "z"}
+
+
+def _build_multiscales_from_pyramid(
+    tif: "tifffile.TiffFile",
+    series_idx: int,
+    tiff_series: "tifffile.TiffPageSeries",
+    ome_scale: Optional[Dict[str, float]],
+    ome_units: Optional[Dict[str, str]],
+) -> "Multiscales":
+    """Build a Multiscales object from a pyramidal TIFF's existing pyramid levels.
+
+    Instead of regenerating the pyramid via downsampling, this reuses the
+    resolution levels already stored in the TIFF file.
+
+    Parameters
+    ----------
+    tif : tifffile.TiffFile
+        An open TiffFile instance.
+    series_idx : int
+        Index of the series in the TIFF file.
+    tiff_series : tifffile.TiffPageSeries
+        The TIFF series object (used for axis/shape info).
+    ome_scale : dict or None
+        Physical pixel sizes from OME metadata (e.g., {'x': 0.5, 'y': 0.5}).
+    ome_units : dict or None
+        Unit strings from OME metadata (e.g., {'x': 'micrometer'}).
+
+    Returns
+    -------
+    Multiscales
+        A Multiscales object containing all pyramid levels.
+    """
+    from .multiscales import Multiscales
+    from .v04.zarr_metadata import Axis, Dataset, Metadata, Scale, Translation
+
+    try:
+        from zarr.core import Array as ZarrArray
+    except ImportError:
+        from zarr.core.array import Array as ZarrArray
+
+    # Open the full zarr store (all levels) for this series
+    store = tif.aszarr(series=series_idx)
+    root = zarr.open(store, mode="r")
+
+    # Get TIFF axis mapping
+    tiff_axes = tiff_series.axes if tiff_series.axes else None
+
+    # Get ordered dataset paths from multiscales metadata
+    paths: List[str] = []
+    if isinstance(root, zarr.Group) and "multiscales" in root.attrs:
+        multiscales_meta = root.attrs["multiscales"]
+        if multiscales_meta:
+            datasets = multiscales_meta[0].get("datasets", [])
+            paths = [d["path"] for d in datasets if d["path"] in root]
+
+    if not paths and isinstance(root, zarr.Group):
+        # Fallback: sort arrays by size (largest first = full resolution)
+        items = [(k, root[k]) for k in root.keys() if isinstance(root[k], ZarrArray)]
+        items.sort(key=lambda x: x[1].size, reverse=True)
+        paths = [k for k, _ in items]
+
+    if not paths:
+        # Single array (not a Group), shouldn't happen for pyramidal TIFFs
+        msg = "Expected pyramidal TIFF but got a single array"
+        raise ValueError(msg)
+
+    # Build the base level NgffImage (level 0)
+    level0_data = root[paths[0]]
+
+    # Map TIFF axes for level 0
+    dims: Optional[Tuple[str, ...]] = None
+    ngff_shape: Optional[Tuple[int, ...]] = None
+    channel_indices: List[int] = []
+    dropped_indices: List[int] = []
+
+    if tiff_axes:
+        dims, ngff_shape, channel_indices, dropped_indices = _map_tiff_axes_to_ngff(
+            tiff_axes, tiff_series.shape
+        )
+
+    # Build scale dict from OME metadata
+    scale = None
+    if ome_scale:
+        scale = {}
+        spatial_dims_for_scale = dims if dims else ("z", "y", "x")
+        for dim in spatial_dims_for_scale:
+            if dim in ome_scale:
+                scale[dim] = ome_scale[dim]
+            elif dim in ("x", "y", "z"):
+                scale[dim] = 1.0
+
+    # Build units dict from OME metadata
+    axes_units = None
+    if ome_units:
+        axes_units = {}
+        spatial_dims_for_units = dims if dims else ("z", "y", "x")
+        for dim in spatial_dims_for_units:
+            if dim in ome_units:
+                axes_units[dim] = ome_units[dim]
+
+    # Create base NgffImage
+    ngff_image_0 = to_ngff_image(
+        level0_data,
+        dims=dims,
+        scale=scale,
+        axes_units=axes_units,
+    )
+
+    # Reshape if needed (channel flattening, dropped axes)
+    if (
+        tiff_axes
+        and dims is not None
+        and ngff_shape is not None
+        and ngff_image_0.data.shape != ngff_shape
+    ):
+        reshaped_data = _reshape_tiff_for_channels(
+            ngff_image_0.data,
+            tiff_axes,
+            tiff_series.shape,
+            dims,
+            ngff_shape,
+            channel_indices,
+            dropped_indices,
+        )
+        ngff_image_0 = NgffImage(
+            data=reshaped_data,
+            dims=dims,
+            scale=ngff_image_0.scale,
+            translation=ngff_image_0.translation,
+            name=ngff_image_0.name,
+            axes_units=ngff_image_0.axes_units,
+        )
+
+    level0_shape = ngff_image_0.data.shape
+    base_scale = ngff_image_0.scale
+    base_translation = ngff_image_0.translation
+
+    # Build NgffImages for all levels
+    images = [ngff_image_0]
+    for path in paths[1:]:
+        arr = root[path]
+        level_scale: Dict[str, float] = {}
+        level_translation: Dict[str, float] = {}
+
+        for dim in ngff_image_0.dims:
+            dim_idx = list(ngff_image_0.dims).index(dim)
+            if dim in _SPATIAL_DIMS:
+                factor = level0_shape[dim_idx] / arr.shape[dim_idx]
+                level_scale[dim] = base_scale[dim] * factor
+                level_translation[dim] = (
+                    base_translation[dim] + 0.5 * (factor - 1) * base_scale[dim]
+                )
+            else:
+                if dim in base_scale:
+                    level_scale[dim] = base_scale[dim]
+                if dim in base_translation:
+                    level_translation[dim] = base_translation[dim]
+
+        level_data = da.from_zarr(arr)
+        level_image = NgffImage(
+            data=level_data,
+            dims=ngff_image_0.dims,
+            scale=level_scale,
+            translation=level_translation,
+            name=ngff_image_0.name,
+            axes_units=ngff_image_0.axes_units,
+        )
+        images.append(level_image)
+
+    # Build Metadata (axes, datasets, coordinate transforms)
+    axes = []
+    for dim in ngff_image_0.dims:
+        unit = None
+        if ngff_image_0.axes_units and dim in ngff_image_0.axes_units:
+            unit = ngff_image_0.axes_units[dim]
+
+        orientation = None
+        if ngff_image_0.axes_orientations and dim in ngff_image_0.axes_orientations:
+            orientation = ngff_image_0.axes_orientations[dim]
+
+        if dim in {"x", "y", "z"}:
+            axes.append(
+                Axis(name=dim, type="space", unit=unit, orientation=orientation)
+            )
+        elif dim == "c":
+            axes.append(Axis(name=dim, type="channel", unit=unit))
+        elif dim == "t":
+            axes.append(Axis(name=dim, type="time", unit=unit))
+
+    datasets = []
+    for index, image in enumerate(images):
+        path = f"scale{index}/{ngff_image_0.name}"
+        scale_values = [image.scale.get(d, 1.0) for d in image.dims]
+        trans_values = [image.translation.get(d, 0.0) for d in image.dims]
+        coord_transforms = [Scale(scale_values), Translation(trans_values)]
+        datasets.append(Dataset(path=path, coordinateTransformations=coord_transforms))
+
+    metadata = Metadata(
+        axes=axes,
+        datasets=datasets,
+        name=ngff_image_0.name,
+        coordinateTransformations=None,
+    )
+
+    return Multiscales(images, metadata)
+
+
 def tiff_file_to_ngff_images(
     tiff_path: Union[str, Path],
     series: Optional[Union[int, str, List[Union[int, str]]]] = None,
-) -> List[Tuple[str, NgffImage]]:
+    reuse_existing_pyramids: bool = False,
+) -> "List[Tuple[str, Union[NgffImage, Multiscales]]]":
     """
-    Convert a TIFF file to a list of (name, NgffImage) pairs.
+    Convert a TIFF file to a list of (name, NgffImage) or (name, Multiscales) pairs.
 
     This function properly handles multi-series TIFF files (including OME-TIFF)
     and extracts physical size metadata when available.
@@ -468,11 +679,17 @@ def tiff_file_to_ngff_images(
         - int: Convert series at that index
         - str: Convert series matching regex pattern (use '*' as wildcard)
         - list: Convert multiple series by index or pattern
+    reuse_existing_pyramids : bool, optional
+        If True and a series has multiple pyramid levels, return a
+        ``Multiscales`` object built from the existing levels instead of a
+        single ``NgffImage``. Default is False (always return NgffImage).
 
     Returns
     -------
-    List[Tuple[str, NgffImage]]
-        List of (series_name, ngff_image) tuples. Each NgffImage includes:
+    List[Tuple[str, Union[NgffImage, Multiscales]]]
+        List of (series_name, result) tuples. When ``reuse_existing_pyramids``
+        is True and the series is pyramidal, result is a ``Multiscales``.
+        Otherwise it is an ``NgffImage`` with:
         - data: Dask array with lazy loading from the TIFF
         - dims: Dimension labels (e.g., ('z', 'y', 'x'))
         - scale: Physical pixel sizes (from OME metadata if available)
@@ -497,11 +714,8 @@ def tiff_file_to_ngff_images(
     >>> images = tiff_file_to_ngff_images("sample.ome.tiff", series=0)
     >>> # Convert series matching pattern
     >>> images = tiff_file_to_ngff_images("sample.ome.tiff", series="*area_1*")
-
-    Notes
-    -----
-    For pyramidal TIFFs, only the base resolution (level 0) is extracted.
-    Use `to_multiscales()` to regenerate the pyramid with consistent settings.
+    >>> # Reuse existing pyramid levels
+    >>> images = tiff_file_to_ngff_images("pyramidal.ome.tiff", reuse_existing_pyramids=True)
     """
     try:
         import tifffile
@@ -509,7 +723,7 @@ def tiff_file_to_ngff_images(
         msg = "tifffile package is required. Install with: pip install tifffile"
         raise ImportError(msg) from e
 
-    results: List[Tuple[str, NgffImage]] = []
+    results: list = []
 
     with tifffile.TiffFile(tiff_path) as tif:
         all_series = tif.series
@@ -563,6 +777,19 @@ def tiff_file_to_ngff_images(
 
             # Extract OME metadata for this series
             ome_scale, ome_units = _extract_ome_pixel_metadata(tif, series_index=idx)
+
+            # Generate series name early (used for both paths)
+            raw_name = tiff_series.name if tiff_series.name else f"series_{idx}"
+            series_name = _sanitize_series_name(raw_name)
+
+            # Check if this series has existing pyramid levels we can reuse
+            n_levels = len(tiff_series.levels) if hasattr(tiff_series, "levels") else 1
+            if reuse_existing_pyramids and n_levels > 1:
+                multiscales = _build_multiscales_from_pyramid(
+                    tif, idx, tiff_series, ome_scale, ome_units
+                )
+                results.append((series_name, multiscales))
+                continue
 
             # Get the zarr store for this series, using level=0 for base resolution
             # This ensures we always get an Array, not a Group, for pyramidal TIFFs
@@ -636,9 +863,6 @@ def tiff_file_to_ngff_images(
                     axes_units=ngff_image.axes_units,
                 )
 
-            # Generate series name and sanitize it to prevent path traversal
-            raw_name = tiff_series.name if tiff_series.name else f"series_{idx}"
-            series_name = _sanitize_series_name(raw_name)
             results.append((series_name, ngff_image))
 
     return results
