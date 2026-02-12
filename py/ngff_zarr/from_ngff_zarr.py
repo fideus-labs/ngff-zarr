@@ -107,10 +107,30 @@ def from_ngff_zarr(
                 f"Available keys: {list(root_attrs.keys())}"
             )
         if "multiscales" not in root_attrs["ome"]:
-            raise ValueError(
+            available_keys = list(root_attrs["ome"].keys())
+            error_msg = (
                 f"Expected OME-Zarr v{version} format with 'multiscales' under 'ome' key, "
-                f"but 'multiscales' key is missing. Available keys under 'ome': {list(root_attrs['ome'].keys())}"
+                f"but 'multiscales' key is missing. Available keys under 'ome': {available_keys}\n\n"
+                "Possible causes:\n"
+                "  1. The file may be corrupted or incomplete\n"
+                "  2. The file may not be a valid OME-Zarr image (it could be an HCS plate root that "
+                "requires navigating to a specific well/field)\n"
+                "  3. The file may use a custom or unsupported metadata structure\n\n"
             )
+            
+            # Provide specific guidance based on what's actually in the ome dict
+            if "plate" in root_attrs["ome"]:
+                error_msg += (
+                    "Note: This appears to be an HCS plate root. To load plate data, use from_hcs_zarr() "
+                    "or specify a path to a specific well/field image (e.g., 'plate.zarr/A/1/0')."
+                )
+            else:
+                error_msg += (
+                    "The 'ome' key is present but doesn't contain the required 'multiscales' metadata. "
+                    "Please verify that this is a valid OME-Zarr file."
+                )
+            
+            raise ValueError(error_msg)
 
         metadata_obj, images = Metadata._from_zarr_attrs(
             root_attrs, store, validate=validate
