@@ -109,9 +109,9 @@ def _parse_hcs_path(store_path: str) -> tuple[str, Optional[str]]:
     Returns
     -------
     store : str
-        The path to the zarr store
+        The path to the zarr store (preserves original path separators)
     subpath : str or None
-        The sub-path within the store, or None if no sub-path
+        The sub-path within the store using forward slashes, or None if no sub-path
         
     Examples
     --------
@@ -122,24 +122,21 @@ def _parse_hcs_path(store_path: str) -> tuple[str, Optional[str]]:
     >>> _parse_hcs_path('/path/to/plate.ome.zarr/B/2')
     ('/path/to/plate.ome.zarr', 'B/2')
     """
-    from pathlib import Path
+    # Normalize to forward slashes for searching, but preserve original for store path
+    normalized = store_path.replace('\\', '/')
     
-    path = Path(store_path)
-    parts = path.parts
-    
-    # Find the zarr store in the path
-    # Check longer extensions first to avoid matching '.zarr' in '.ome.zarr'
-    for i, part in enumerate(parts):
-        if part.endswith('.ome.zarr') or part.endswith('.ozx') or part.endswith('.zarr'):
-            # Found the store, check if there's a sub-path
-            store = str(Path(*parts[:i+1]))
-            if i < len(parts) - 1:
-                # There's a sub-path after the store
-                subpath = '/'.join(parts[i+1:])
+    # Check longer extensions first (.ome.zarr before .zarr)
+    for ext in ('.ome.zarr', '.ozx', '.zarr'):
+        idx = normalized.find(ext)
+        if idx != -1:
+            ext_end = idx + len(ext)
+            # Verify the extension is at a path boundary (end of string or followed by a separator)
+            if ext_end == len(normalized) or normalized[ext_end] == '/':
+                # Preserve original separators in store path by slicing original input
+                store = store_path[:ext_end]
+                remainder = normalized[ext_end:].lstrip('/')
+                subpath = remainder if remainder else None
                 return store, subpath
-            else:
-                # No sub-path, just the store
-                return store, None
     
     # No zarr extension found, return as-is
     return store_path, None

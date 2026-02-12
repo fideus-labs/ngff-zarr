@@ -15,6 +15,9 @@ from .rfc9_zip import is_ozx_path, read_ozx_version
 zarr_version = packaging.version.parse(zarr.__version__)
 zarr_version_major = zarr_version.major
 
+# Supported remote URL schemes for storage
+REMOTE_URL_SCHEMES = ("s3://", "gs://", "azure://", "http://", "https://")
+
 
 def from_ngff_zarr(
     store: StoreLike,
@@ -61,7 +64,7 @@ def from_ngff_zarr(
     if isinstance(store, (str, Path)):
         store_str = str(store)
         # Only parse for local file paths (not URLs)
-        if not store_str.startswith(("s3://", "gs://", "azure://", "http://", "https://")):
+        if not store_str.startswith(REMOTE_URL_SCHEMES):
             store, subpath = _parse_hcs_path(store_str)
 
     # RFC-9: Handle .ozx (zipped OME-Zarr) files
@@ -77,7 +80,7 @@ def from_ngff_zarr(
 
     # Handle string URLs with storage options (zarr-python 3+ only)
     if isinstance(store, str) and storage_options is not None:
-        if store.startswith(("s3://", "gs://", "azure://", "http://", "https://")):
+        if store.startswith(REMOTE_URL_SCHEMES):
             if zarr_version_major >= 3 and hasattr(zarr.storage, "FsspecStore"):
                 store = zarr.storage.FsspecStore.from_url(
                     store, storage_options=storage_options
@@ -97,31 +100,18 @@ def from_ngff_zarr(
         )
     root = zarr.open_group(store, mode="r", **format_kwargs)
     
-    # Navigate to sub-path if provided (for HCS well/image access)
-    if subpath:
-        try:
-            root = root[subpath]
-        except KeyError:
-            raise ValueError(
-                f"Sub-path '{subpath}' not found in store. "
-                f"Ensure the path is correct (e.g., 'A/1/0' for well A1, field 0)."
-            )
+    # Check root-level attributes first to see if this is an HCS plate
+    root_attrs_initial = root.attrs.asdict()
+    is_hcs_plate_root = _is_hcs_plate(root_attrs_initial)
     
-    root_attrs = root.attrs.asdict()
-
-    if not version:
-        version = _detect_version(root_attrs).value
-
-    # Check if this is an HCS plate structure
-    if _is_hcs_plate(root_attrs):
+    # If this is an HCS plate and no subpath was provided, error with guidance
+    if is_hcs_plate_root and not subpath:
         # Try to provide helpful error message with available wells
         try:
             from .hcs import from_hcs_zarr
             
             # Attempt to load plate metadata to provide well information
-            # Use original_store (which is the input store) for from_hcs_zarr
-            plate_store = original_store if subpath else store
-            plate = from_hcs_zarr(plate_store, validate=False)
+            plate = from_hcs_zarr(original_store, validate=False)
             
             # Build helpful error message with well examples
             well_examples = []
@@ -130,7 +120,7 @@ def from_ngff_zarr(
                 for well in plate.metadata.wells[:3]:
                     well_path = well.path
                     # Add field 0 as example
-                    well_examples.append(f"'{plate_store}/{well_path}/0'")
+                    well_examples.append(f"'{original_store}/{well_path}/0'")
             
             examples_str = ", ".join(well_examples) if well_examples else "'plate.zarr/A/1/0'"
             
@@ -152,6 +142,23 @@ def from_ngff_zarr(
                 "provide the full path including well and field (e.g., 'plate.zarr/A/1/0' for well A1, field 0). "
                 "For programmatic access to the full plate, use from_hcs_zarr() instead of from_ngff_zarr()."
             ) from None
+    
+    # Navigate to sub-path if provided (for HCS well/image access)
+    # We get metadata from the subpath but pass the subpath to _from_zarr_attrs
+    # so it can correctly construct data paths
+    if subpath:
+        try:
+            root = root[subpath]
+        except KeyError:
+            raise ValueError(
+                f"Sub-path '{subpath}' not found in store. "
+                f"Ensure the path is correct (e.g., 'A/1/0' for well A1, field 0)."
+            )
+    
+    root_attrs = root.attrs.asdict()
+
+    if not version:
+        version = _detect_version(root_attrs).value
 
     if version == "0.5":
         from .v05.zarr_metadata import Metadata

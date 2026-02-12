@@ -31,10 +31,21 @@ def _matches_extension(extension: str, supported_extensions: tuple) -> bool:
 
 
 def detect_cli_io_backend(input: List[str]) -> ConversionBackend:
-    if (Path(input[0]) / ".zarray").exists():
+    input_path = Path(input[0])
+    
+    if (input_path / ".zarray").exists():
         return ConversionBackend.ZARR_ARRAY
 
-    extension = "".join(Path(input[0]).suffixes).lower()
+    # Check for HCS sub-paths (e.g., 'plate.zarr/A/1/0')
+    # Parse the path to find a zarr store, even if there's a sub-path
+    from .parse_metadata import _parse_hcs_path
+    store_path, subpath = _parse_hcs_path(str(input_path))
+    
+    # If we found a sub-path, use the store path for extension detection
+    if subpath:
+        extension = "".join(Path(store_path).suffixes).lower()
+    else:
+        extension = "".join(input_path.suffixes).lower()
 
     # RFC-9: Support .ozx (zipped OME-Zarr) files
     ngff_zarr_supported_extensions = (".zarr", ".ome.zarr", ".ozx")

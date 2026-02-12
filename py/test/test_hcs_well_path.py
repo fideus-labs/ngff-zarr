@@ -26,23 +26,23 @@ def test_parse_hcs_path():
     """Test HCS path parsing function."""
     # Test basic plate path
     store, subpath = _parse_hcs_path("plate.zarr")
-    assert store == "plate.zarr"
-    assert subpath is None
+    assert store == "plate.zarr", f"Expected store 'plate.zarr', got '{store}'"
+    assert subpath is None, "Expected no subpath for plate root"
     
     # Test well path
     store, subpath = _parse_hcs_path("plate.zarr/A/1")
-    assert store == "plate.zarr"
-    assert subpath == "A/1"
+    assert store == "plate.zarr", f"Expected store 'plate.zarr', got '{store}'"
+    assert subpath == "A/1", f"Expected subpath 'A/1', got '{subpath}'"
     
     # Test well with field
     store, subpath = _parse_hcs_path("plate.zarr/A/1/0")
-    assert store == "plate.zarr"
-    assert subpath == "A/1/0"
+    assert store == "plate.zarr", f"Expected store 'plate.zarr', got '{store}'"
+    assert subpath == "A/1/0", f"Expected subpath 'A/1/0', got '{subpath}'"
     
     # Test .ome.zarr extension
     store, subpath = _parse_hcs_path("/path/to/plate.ome.zarr/B/2/0")
-    assert store == "/path/to/plate.ome.zarr"
-    assert subpath == "B/2/0"
+    assert store == "/path/to/plate.ome.zarr", f"Expected store '/path/to/plate.ome.zarr', got '{store}'"
+    assert subpath == "B/2/0", f"Expected subpath 'B/2/0', got '{subpath}'"
 
 
 def test_from_ngff_zarr_hcs_plate_error(hcs_data_path):

@@ -277,5 +277,5 @@ def test_from_ngff_zarr_hcs_plate_error():
     }
 
     # Should raise ValueError with helpful message about using from_hcs_zarr
-    with pytest.raises(ValueError, match="HCS.*from_hcs_zarr"):
+    with pytest.raises(ValueError, match="(?s)HCS.*from_hcs_zarr"):
         from_ngff_zarr(store)
