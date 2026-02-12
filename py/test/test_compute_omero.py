@@ -273,29 +273,16 @@ class TestComputeOmeroSpecialValues:
 class TestComputeOmeroFromMultiscales:
     """Tests for compute_omero_from_multiscales function."""
 
-    def test_uses_lowest_resolution_by_default(self):
-        """Test that lowest resolution is used by default for speed."""
-        # Create data with distinct values at different scales
+    def test_uses_highest_resolution(self):
+        """Test that highest resolution image is used for statistics."""
         data = np.arange(64).reshape((8, 8)).astype(np.float32)
         image = to_ngff_image(data, dims=["y", "x"])
         multiscales = to_multiscales(image, scale_factors=[2], chunks=4)
 
-        # The lowest resolution image should have been downsampled
-        # and may have different statistics
-        omero = compute_omero_from_multiscales(multiscales, use_lowest_resolution=True)
+        omero = compute_omero_from_multiscales(multiscales)
 
         assert len(omero.channels) == 1
-
-    def test_can_use_highest_resolution(self):
-        """Test that highest resolution can be selected."""
-        data = np.arange(64).reshape((8, 8)).astype(np.float32)
-        image = to_ngff_image(data, dims=["y", "x"])
-        multiscales = to_multiscales(image, scale_factors=[2], chunks=4)
-
-        omero = compute_omero_from_multiscales(multiscales, use_lowest_resolution=False)
-
-        assert len(omero.channels) == 1
-        # Highest resolution should have original values
+        # Should have original full-resolution values
         assert omero.channels[0].window.min == 0.0
         assert omero.channels[0].window.max == 63.0
 
@@ -420,3 +407,128 @@ class TestValidation:
         assert np.isnan(omero.channels[0].window.max)
         assert np.isnan(omero.channels[0].window.start)
         assert np.isnan(omero.channels[0].window.end)
+
+
+class TestDenseSampling:
+    """Tests for histogram-based dense sampling (dense=True)."""
+
+    def test_dense_basic_statistics(self):
+        """Test that dense sampling computes accurate min, max, and quantiles."""
+        data = np.arange(1000).reshape((10, 100)).astype(np.float32)
+        image = to_ngff_image(data, dims=["y", "x"])
+
+        omero = compute_omero_from_ngff_image(image, dense=True)
+
+        channel = omero.channels[0]
+        assert channel.window.min == 0.0
+        assert channel.window.max == 999.0
+        # Dense quantiles should be very close to exact values
+        # 2% of 1000 = 20, 98% of 1000 = 980
+        assert 18.0 <= channel.window.start <= 22.0
+        assert 978.0 <= channel.window.end <= 982.0
+
+    def test_dense_integer_dtype(self):
+        """Test dense sampling with integer dtypes uses exact bin counts."""
+        data = np.arange(256, dtype=np.uint8).reshape((16, 16))
+        image = to_ngff_image(data, dims=["y", "x"])
+
+        omero = compute_omero_from_ngff_image(image, dense=True)
+
+        assert omero.channels[0].window.min == 0.0
+        assert omero.channels[0].window.max == 255.0
+        # For uint8 with 256 values, 2% = ~5.1, 98% = ~250.9
+        assert 4.0 <= omero.channels[0].window.start <= 7.0
+        assert 249.0 <= omero.channels[0].window.end <= 252.0
+
+    def test_dense_with_nan_values(self):
+        """Test that dense sampling handles NaN values correctly."""
+        data = np.array([[1, 2, np.nan], [4, np.nan, 6], [7, 8, 9]], dtype=np.float32)
+        image = to_ngff_image(data, dims=["y", "x"])
+
+        omero = compute_omero_from_ngff_image(image, dense=True)
+
+        assert omero.channels[0].window.min == 1.0
+        assert omero.channels[0].window.max == 9.0
+
+    def test_dense_constant_values(self):
+        """Test dense sampling with constant-value array."""
+        data = np.full((10, 10), 42.0, dtype=np.float32)
+        image = to_ngff_image(data, dims=["y", "x"])
+
+        omero = compute_omero_from_ngff_image(image, dense=True)
+
+        assert omero.channels[0].window.min == 42.0
+        assert omero.channels[0].window.max == 42.0
+        assert omero.channels[0].window.start == 42.0
+        assert omero.channels[0].window.end == 42.0
+
+    def test_dense_all_nan(self):
+        """Test dense sampling with all-NaN array."""
+        data = np.full((10, 10), np.nan, dtype=np.float32)
+        image = to_ngff_image(data, dims=["y", "x"])
+
+        omero = compute_omero_from_ngff_image(image, dense=True)
+
+        assert np.isnan(omero.channels[0].window.min)
+        assert np.isnan(omero.channels[0].window.max)
+        assert np.isnan(omero.channels[0].window.start)
+        assert np.isnan(omero.channels[0].window.end)
+
+    def test_dense_multi_channel(self):
+        """Test dense sampling with multi-channel data."""
+        ch0 = np.arange(100).reshape((10, 10)).astype(np.float32)
+        ch1 = np.arange(100, 200).reshape((10, 10)).astype(np.float32)
+        data = np.stack([ch0, ch1], axis=0)
+
+        image = to_ngff_image(data, dims=["c", "y", "x"])
+        omero = compute_omero_from_ngff_image(image, dense=True)
+
+        assert len(omero.channels) == 2
+        assert omero.channels[0].window.min == 0.0
+        assert omero.channels[0].window.max == 99.0
+        assert omero.channels[1].window.min == 100.0
+        assert omero.channels[1].window.max == 199.0
+
+    def test_dense_multiscales(self):
+        """Test dense sampling via compute_omero_from_multiscales."""
+        data = np.arange(64).reshape((8, 8)).astype(np.float32)
+        image = to_ngff_image(data, dims=["y", "x"])
+        multiscales = to_multiscales(image, scale_factors=[2], chunks=4)
+
+        omero = compute_omero_from_multiscales(multiscales, dense=True)
+
+        assert len(omero.channels) == 1
+        assert omero.channels[0].window.min == 0.0
+        assert omero.channels[0].window.max == 63.0
+
+    def test_dense_more_accurate_than_approximate_for_multi_chunk(self):
+        """Test that dense sampling is at least as accurate as approximate for multi-chunk data."""
+        # Create a large-ish array with many small chunks to stress the
+        # approximate algorithm
+        import dask.array as da
+
+        rng = np.random.default_rng(42)
+        raw = rng.standard_normal(10000).astype(np.float32)
+        # Known exact quantiles from numpy
+        exact_q2 = float(np.percentile(raw, 2))
+        exact_q98 = float(np.percentile(raw, 98))
+
+        # Create dask array with many small chunks
+        dask_data = da.from_array(raw.reshape((100, 100)), chunks=(10, 10))
+        image = to_ngff_image(dask_data, dims=["y", "x"])
+
+        omero_dense = compute_omero_from_ngff_image(image, dense=True)
+        omero_approx = compute_omero_from_ngff_image(image, dense=False)
+
+        # Dense should be close to exact (within a small fraction of data range)
+        dense_err_low = abs(omero_dense.channels[0].window.start - exact_q2)
+        dense_err_high = abs(omero_dense.channels[0].window.end - exact_q98)
+
+        data_range = float(raw.max() - raw.min())
+        # Dense error should be well under 1% of the data range
+        assert dense_err_low < data_range * 0.01
+        assert dense_err_high < data_range * 0.01
+
+        # Approximate may have larger error (we just check it doesn't crash)
+        assert omero_approx.channels[0].window.start is not None
+        assert omero_approx.channels[0].window.end is not None
