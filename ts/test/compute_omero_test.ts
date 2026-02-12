@@ -355,33 +355,7 @@ Deno.test("integer dtype works correctly", async () => {
 // Tests for computeOmeroFromMultiscales
 // ============================================================================
 
-Deno.test("computeOmeroFromMultiscales uses lowest resolution by default", async () => {
-  // Create a simple image
-  const data = Array.from({ length: 64 }, (_, i) => i);
-  const image = await createTestImage(data, [8, 8], ["y", "x"]);
-
-  const axes = [
-    createAxis("y", "space"),
-    createAxis("x", "space"),
-  ];
-  const datasets = [
-    createDataset("0", [1.0, 1.0], [0.0, 0.0]),
-    createDataset("1", [2.0, 2.0], [0.0, 0.0]),
-  ];
-  const metadata = createMetadata(axes, datasets, "test");
-  const multiscales = createMultiscales(
-    [image, image], // Two scales (same image for simplicity)
-    metadata,
-    [2],
-    Methods.ITKWASM_GAUSSIAN,
-  );
-
-  const omero = await computeOmeroFromMultiscales(multiscales);
-
-  assertEquals(omero.channels.length, 1);
-});
-
-Deno.test("computeOmeroFromMultiscales can use highest resolution", async () => {
+Deno.test("computeOmeroFromMultiscales uses highest resolution", async () => {
   const data = Array.from({ length: 64 }, (_, i) => i);
   const image = await createTestImage(data, [8, 8], ["y", "x"]);
 
@@ -400,11 +374,10 @@ Deno.test("computeOmeroFromMultiscales can use highest resolution", async () => 
     Methods.ITKWASM_GAUSSIAN,
   );
 
-  const omero = await computeOmeroFromMultiscales(multiscales, {
-    useLowestResolution: false,
-  });
+  const omero = await computeOmeroFromMultiscales(multiscales);
 
   assertEquals(omero.channels.length, 1);
+  // Should have original full-resolution values
   assertEquals(omero.channels[0].window.min, 0);
   assertEquals(omero.channels[0].window.max, 63);
 });

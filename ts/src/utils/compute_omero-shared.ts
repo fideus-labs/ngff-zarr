@@ -499,13 +499,7 @@ export interface ComputeOmeroOptions {
  * Options for computing OMERO metadata from multiscales.
  */
 export interface ComputeOmeroFromMultiscalesOptions
-  extends ComputeOmeroOptions {
-  /**
-   * If true (default), use the lowest resolution (smallest) image for faster computation.
-   * If false, use the highest resolution (largest) image for more accurate statistics.
-   */
-  useLowestResolution?: boolean;
-}
+  extends ComputeOmeroOptions {}
 
 /**
  * Build Omero metadata from channel accumulators.
