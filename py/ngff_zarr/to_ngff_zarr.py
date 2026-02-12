@@ -4,7 +4,8 @@ import sys
 import tempfile
 from dataclasses import asdict
 from pathlib import Path, PurePosixPath
-from typing import Optional, Union, Tuple, Dict, List
+from typing import Literal, Optional, Union, Tuple, Dict, List
+
 import warnings
 
 from .methods._metadata import get_method_metadata
@@ -41,6 +42,8 @@ from packaging.version import Version
 zarr_version = Version(zarr.__version__)
 IS_ZARR_V3_PLUS = zarr_version.major >= 3
 DASK_SUPPORTS_SHARDING = Version(dask_version) >= Version("2025.12.0")
+
+ScaleStrategy = Literal["pad", "exact"]
 
 
 def _pop_metadata_optionals(metadata_dict, enabled_rfcs: Optional[List[int]] = None):
@@ -1034,8 +1037,16 @@ def _prepare_next_scale(
     store: StoreLike,
     path: str,
     progress: Optional[Union[NgffProgress, NgffProgressCallback]],
+    scale_strategy: ScaleStrategy = "pad",
 ) -> Optional[object]:
-    """Prepare the next scale for processing if needed."""
+    """Prepare the next scale for processing if needed.
+
+    :param scale_strategy: Strategy for handling non-power-of-2 scale factors.
+        "pad" (default) always uses incremental downsampling from the previous level,
+        which may produce slightly different sizes due to floor-division rounding.
+        "exact" uses pre-computed images from the initial to_multiscales() call when
+        incremental downsampling cannot achieve the exact target size.
+    """
     # No next scale if we're at the last one
     if index >= nscales - 1:
         return None
@@ -1047,36 +1058,85 @@ def _prepare_next_scale(
 
         image.data = dask.array.from_zarr(store, component=path)
 
-        # Fetch scale factor for this index; used directly for index 0,
-        # converted to a relative factor for index > 0
-        next_multiscales_factor = multiscales.scale_factors[index]
+        # Get the absolute scale factor for the next level
+        next_absolute_factor = multiscales.scale_factors[index]
+        original_image = multiscales.images[0]
+        spatial_dims = {"x", "y", "z"}
 
-        # For subsequent levels (index > 0), compute relative scale factor
+        # Track what scale factor was applied to reach current image
+        previous_dim_factors = {d: 1 for d in image.dims}
         if index > 0:
-            # If scales have been passed as list of integers
-            if isinstance(next_multiscales_factor, int):
-                next_multiscales_factor = (
-                    next_multiscales_factor // multiscales.scale_factors[index - 1]
-                )
-            # If scales have been passed as dict of per-dimension factors
+            prev_absolute_factor = multiscales.scale_factors[index - 1]
+            if isinstance(prev_absolute_factor, int):
+                for d in image.dims:
+                    if d in spatial_dims:
+                        previous_dim_factors[d] = prev_absolute_factor
             else:
-                updated_factors = {}
-                for d, f in next_multiscales_factor.items():
-                    updated_factors[d] = f // multiscales.scale_factors[index - 1][d]
-                next_multiscales_factor = updated_factors
+                for d in prev_absolute_factor:
+                    previous_dim_factors[d] = prev_absolute_factor[d]
 
-        next_multiscales = to_multiscales(
-            image,
-            scale_factors=[
-                next_multiscales_factor,
-            ],
-            method=multiscales.method,
-            chunks=multiscales.chunks,
-            progress=progress,
-            cache=False,
+        # Compute incremental factor from current image to next scale
+        dim_factors = _dim_scale_factors(
+            image.dims,
+            next_absolute_factor,
+            previous_dim_factors,
+            original_image=original_image,
+            previous_image=image,
         )
-        multiscales.images[index + 1] = next_multiscales.images[1]
-        return next_multiscales.images[1]
+
+        # Check whether incremental downsampling would fail to achieve the
+        # exact target size (original_size // absolute_factor).  When True,
+        # "exact" mode should fall back to the pre-computed image.
+        can_use_exact_mode = False
+        for dim in dim_factors:
+            if dim in spatial_dims:
+                dim_index = original_image.dims.index(dim)
+                original_size = original_image.data.shape[dim_index]
+                # Handle both int and dict scale_factor
+                dim_scale_factor = (
+                    next_absolute_factor[dim]
+                    if isinstance(next_absolute_factor, dict)
+                    else next_absolute_factor
+                )
+                target_size = int(original_size / dim_scale_factor)
+
+                prev_dim_index = image.dims.index(dim)
+                previous_size = image.data.shape[prev_dim_index]
+
+                # Check if floor(previous_size / dim_factors[dim]) != target_size
+                if int(previous_size / dim_factors[dim]) != target_size:
+                    can_use_exact_mode = True
+                    break
+
+        if scale_strategy == "exact" and can_use_exact_mode:
+            # Cannot achieve exact target sizes via incremental downsampling.
+            # Use the already-computed image from multiscales.images[index + 1]
+            # which was computed correctly during the initial to_multiscales call.
+            return multiscales.images[index + 1]
+        else:
+            # Downsample from current (previous) image.
+            # In "pad" mode this always runs (sizes may differ slightly due to
+            # floor-division rounding).  In "exact" mode this runs when
+            # incremental downsampling achieves the exact target.
+            source_image = image
+            # Only include spatial dimensions in the scale factors dict
+            # to avoid KeyError in methods that look up scale/translation
+            next_multiscales_factor = {
+                d: f for d, f in dim_factors.items() if d in spatial_dims
+            }
+
+            next_multiscales = to_multiscales(
+                source_image,
+                scale_factors=[
+                    next_multiscales_factor,
+                ],
+                method=multiscales.method,
+                chunks=multiscales.chunks,
+                progress=progress,
+                cache=False,
+            )
+            multiscales.images[index + 1] = next_multiscales.images[1]
+            return next_multiscales.images[1]
     else:
         return multiscales.images[index + 1]
 
@@ -1097,6 +1157,7 @@ def to_ngff_zarr(
         ]
     ] = None,
     enabled_rfcs: Optional[List[int]] = None,
+    scale_strategy: ScaleStrategy = "pad",
     **kwargs,
 ) -> None:
     """
@@ -1130,6 +1191,14 @@ def to_ngff_zarr(
 
     :param enabled_rfcs: List of RFC numbers to enable. If RFC 4 is included, anatomical orientation metadata will be preserved in the output.
     :type  enabled_rfcs: list of int, optional
+
+    :param scale_strategy: Strategy for handling non-power-of-2 scale factors during
+        multiscale writing. "pad" (default) always uses incremental downsampling from
+        the previous level, which is memory-efficient but may produce slightly different
+        sizes due to floor-division rounding. "exact" uses pre-computed images from
+        the initial to_multiscales() call when incremental downsampling cannot achieve
+        the exact target size (original_size // scale_factor).
+    :type  scale_strategy: "pad" or "exact", optional
 
     :param **kwargs: Passed to the zarr.create_array() or zarr.creation.create() function, e.g., compression options.
     """
@@ -1180,6 +1249,7 @@ def to_ngff_zarr(
                 progress=progress,
                 chunks_per_shard=chunks_per_shard,
                 enabled_rfcs=enabled_rfcs,
+                scale_strategy=scale_strategy,
                 **kwargs,
             )
 
@@ -1212,6 +1282,7 @@ def to_ngff_zarr(
         progress=progress,
         chunks_per_shard=chunks_per_shard,
         enabled_rfcs=enabled_rfcs,
+        scale_strategy=scale_strategy,
         **kwargs,
     )
 
@@ -1232,6 +1303,7 @@ def _to_ngff_zarr_impl(
         ]
     ] = None,
     enabled_rfcs: Optional[List[int]] = None,
+    scale_strategy: ScaleStrategy = "pad",
     **kwargs,
 ) -> None:
     """
@@ -1369,7 +1441,14 @@ def _to_ngff_zarr_impl(
 
         # Prepare next scale if needed
         next_image = _prepare_next_scale(
-            image, index, nscales, multiscales, store, path, progress
+            image,
+            index,
+            nscales,
+            multiscales,
+            store,
+            path,
+            progress,
+            scale_strategy=scale_strategy,
         )
 
     # Clean up callbacks
