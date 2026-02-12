@@ -93,5 +93,90 @@ extract_changelog() {
     ' "$file"
 }
 
+get_release_tags() {
+    local prefix="$1"
+    local version="$2"
+    local current_tag="${prefix}-v${version}"
+    local previous_tag=""
+
+    mapfile -t tags < <(git tag --list "${prefix}-v*" --sort=-version:refname)
+
+    if [ "${#tags[@]}" -eq 0 ]; then
+        echo "${current_tag}|${previous_tag}"
+        return
+    fi
+
+    for ((i=0; i<${#tags[@]}; i++)); do
+        if [ "${tags[$i]}" = "${current_tag}" ]; then
+            if [ $((i+1)) -lt ${#tags[@]} ]; then
+                previous_tag="${tags[$((i+1))]}"
+            fi
+            break
+        fi
+    done
+
+    echo "${current_tag}|${previous_tag}"
+}
+
+append_contributors() {
+    local prefix="$1"
+    local version="$2"
+    local tag_info
+    local current_tag
+    local previous_tag
+    local range
+
+    tag_info=$(get_release_tags "$prefix" "$version")
+    current_tag="${tag_info%%|*}"
+    previous_tag="${tag_info##*|}"
+
+    if [ -n "$previous_tag" ]; then
+        range="${previous_tag}..${current_tag}"
+    else
+        range="${current_tag}"
+    fi
+
+    mapfile -t contributor_lines < <(git shortlog -s -n "$range" | sed 's/^[[:space:]]*[0-9]\+[[:space:]]\+//')
+
+    if [ "${#contributor_lines[@]}" -eq 0 ]; then
+        return
+    fi
+
+    printf "\n## 🤝 Contributors\n\n"
+    printf "We appreciate the contributions from:\n\n"
+    for name in "${contributor_lines[@]}"; do
+        if [ -n "$name" ]; then
+            printf "- %s\n" "$name"
+        fi
+    done
+
+    local new_contributors=()
+
+    if [ -z "$previous_tag" ]; then
+        for name in "${contributor_lines[@]}"; do
+            if [ -n "$name" ]; then
+                new_contributors+=("$name")
+            fi
+        done
+    else
+        for name in "${contributor_lines[@]}"; do
+            if [ -n "$name" ]; then
+                if ! git log --format="%an" "$previous_tag" | grep -Fxq "$name"; then
+                    new_contributors+=("$name")
+                fi
+            fi
+        done
+    fi
+
+    if [ "${#new_contributors[@]}" -gt 0 ]; then
+        printf "\n## 🌟 Congratulations\n\n"
+        printf "Congratulations to our new contributors:\n\n"
+        for name in "${new_contributors[@]}"; do
+            printf "- %s\n" "$name"
+        done
+    fi
+}
+
 # Extract and output the changelog
 extract_changelog "$CHANGELOG_FILE" "$VERSION" "$TAG_PREFIX"
+append_contributors "$TAG_PREFIX" "$VERSION"
