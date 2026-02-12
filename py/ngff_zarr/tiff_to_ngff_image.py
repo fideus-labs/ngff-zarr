@@ -725,7 +725,17 @@ def tiff_file_to_ngff_images(
 
     results: list = []
 
-    with tifffile.TiffFile(tiff_path) as tif:
+    try:
+        tif = tifffile.TiffFile(tiff_path)
+    except (OSError, ValueError) as e:
+        msg = (
+            f"Failed to open TIFF file '{tiff_path}'. "
+            f"The file may be corrupted, truncated, or not a valid TIFF file. "
+            f"Original error: {type(e).__name__}: {e}"
+        )
+        raise OSError(msg) from e
+
+    try:
         all_series = tif.series
 
         # Determine which series to convert
@@ -773,96 +783,113 @@ def tiff_file_to_ngff_images(
 
         # Convert selected series
         for idx in indices_to_convert:
-            tiff_series = all_series[idx]
+            try:
+                tiff_series = all_series[idx]
 
-            # Extract OME metadata for this series
-            ome_scale, ome_units = _extract_ome_pixel_metadata(tif, series_index=idx)
+                # Extract OME metadata for this series
+                ome_scale, ome_units = _extract_ome_pixel_metadata(tif, series_index=idx)
 
-            # Generate series name early (used for both paths)
-            raw_name = tiff_series.name if tiff_series.name else f"series_{idx}"
-            series_name = _sanitize_series_name(raw_name)
+                # Generate series name early (used for both paths)
+                raw_name = tiff_series.name if tiff_series.name else f"series_{idx}"
+                series_name = _sanitize_series_name(raw_name)
 
-            # Check if this series has existing pyramid levels we can reuse
-            n_levels = len(tiff_series.levels) if hasattr(tiff_series, "levels") else 1
-            if reuse_existing_pyramids and n_levels > 1:
-                multiscales = _build_multiscales_from_pyramid(
-                    tif, idx, tiff_series, ome_scale, ome_units
+                # Check if this series has existing pyramid levels we can reuse
+                n_levels = len(tiff_series.levels) if hasattr(tiff_series, "levels") else 1
+                if reuse_existing_pyramids and n_levels > 1:
+                    multiscales = _build_multiscales_from_pyramid(
+                        tif, idx, tiff_series, ome_scale, ome_units
+                    )
+                    results.append((series_name, multiscales))
+                    continue
+
+                # Get the zarr store for this series, using level=0 for base resolution
+                # This ensures we always get an Array, not a Group, for pyramidal TIFFs
+                store = tif.aszarr(series=idx, level=0)
+                root = zarr.open(store, mode="r")
+
+                # Get dims from the series axes with proper mapping
+                # TIFF axes like 'S' (sample/RGB) need to be mapped to NGFF 'c' (channel)
+                tiff_axes = tiff_series.axes if tiff_series.axes else None
+                dims: Optional[Tuple[str, ...]] = None
+                ngff_shape: Optional[Tuple[int, ...]] = None
+                channel_indices: List[int] = []
+                dropped_indices: List[int] = []
+
+                if tiff_axes:
+                    # Map TIFF axes to NGFF dims (handles S->c, drops unsupported axes)
+                    dims, ngff_shape, channel_indices, dropped_indices = (
+                        _map_tiff_axes_to_ngff(tiff_axes, tiff_series.shape)
+                    )
+
+                # Build scale dict from OME metadata, using defaults for missing dims
+                scale = None
+                if ome_scale:
+                    scale = {}
+                    spatial_dims = dims if dims else ("z", "y", "x")
+                    for dim in spatial_dims:
+                        if dim in ome_scale:
+                            scale[dim] = ome_scale[dim]
+                        elif dim in ("x", "y", "z"):
+                            scale[dim] = 1.0  # Default scale for spatial dims
+
+                # Build units dict from OME metadata
+                axes_units = None
+                if ome_units:
+                    axes_units = {}
+                    spatial_dims = dims if dims else ("z", "y", "x")
+                    for dim in spatial_dims:
+                        if dim in ome_units:
+                            axes_units[dim] = ome_units[dim]
+
+                # Convert to NgffImage
+                ngff_image = to_ngff_image(
+                    root,
+                    dims=dims,
+                    scale=scale,
+                    axes_units=axes_units,
                 )
-                results.append((series_name, multiscales))
+
+                # Reshape data if needed (for channel flattening, dropped axes, etc.)
+                if (
+                    tiff_axes
+                    and dims is not None
+                    and ngff_shape is not None
+                    and ngff_image.data.shape != ngff_shape
+                ):
+                    reshaped_data = _reshape_tiff_for_channels(
+                        ngff_image.data,
+                        tiff_axes,
+                        tiff_series.shape,
+                        dims,
+                        ngff_shape,
+                        channel_indices,
+                        dropped_indices,
+                    )
+                    ngff_image = NgffImage(
+                        data=reshaped_data,
+                        dims=dims,
+                        scale=ngff_image.scale,
+                        translation=ngff_image.translation,
+                        name=ngff_image.name,
+                        axes_units=ngff_image.axes_units,
+                    )
+
+                results.append((series_name, ngff_image))
+            except (OSError, ValueError, KeyError) as e:
+                # Handle errors during series processing
+                error_msg = (
+                    f"Failed to process series {idx} ('{series_name if 'series_name' in locals() else f'series_{idx}'}') "
+                    f"in TIFF file '{tiff_path}'. "
+                    f"This may indicate a corrupted or malformed TIFF file, "
+                    f"or invalid page offsets in the file structure. "
+                    f"Original error: {type(e).__name__}: {e}"
+                )
+                warnings.warn(error_msg, UserWarning, stacklevel=2)
+                # Continue to next series instead of failing completely
                 continue
 
-            # Get the zarr store for this series, using level=0 for base resolution
-            # This ensures we always get an Array, not a Group, for pyramidal TIFFs
-            store = tif.aszarr(series=idx, level=0)
-            root = zarr.open(store, mode="r")
-
-            # Get dims from the series axes with proper mapping
-            # TIFF axes like 'S' (sample/RGB) need to be mapped to NGFF 'c' (channel)
-            tiff_axes = tiff_series.axes if tiff_series.axes else None
-            dims: Optional[Tuple[str, ...]] = None
-            ngff_shape: Optional[Tuple[int, ...]] = None
-            channel_indices: List[int] = []
-            dropped_indices: List[int] = []
-
-            if tiff_axes:
-                # Map TIFF axes to NGFF dims (handles S->c, drops unsupported axes)
-                dims, ngff_shape, channel_indices, dropped_indices = (
-                    _map_tiff_axes_to_ngff(tiff_axes, tiff_series.shape)
-                )
-
-            # Build scale dict from OME metadata, using defaults for missing dims
-            scale = None
-            if ome_scale:
-                scale = {}
-                spatial_dims = dims if dims else ("z", "y", "x")
-                for dim in spatial_dims:
-                    if dim in ome_scale:
-                        scale[dim] = ome_scale[dim]
-                    elif dim in ("x", "y", "z"):
-                        scale[dim] = 1.0  # Default scale for spatial dims
-
-            # Build units dict from OME metadata
-            axes_units = None
-            if ome_units:
-                axes_units = {}
-                spatial_dims = dims if dims else ("z", "y", "x")
-                for dim in spatial_dims:
-                    if dim in ome_units:
-                        axes_units[dim] = ome_units[dim]
-
-            # Convert to NgffImage
-            ngff_image = to_ngff_image(
-                root,
-                dims=dims,
-                scale=scale,
-                axes_units=axes_units,
-            )
-
-            # Reshape data if needed (for channel flattening, dropped axes, etc.)
-            if (
-                tiff_axes
-                and dims is not None
-                and ngff_shape is not None
-                and ngff_image.data.shape != ngff_shape
-            ):
-                reshaped_data = _reshape_tiff_for_channels(
-                    ngff_image.data,
-                    tiff_axes,
-                    tiff_series.shape,
-                    dims,
-                    ngff_shape,
-                    channel_indices,
-                    dropped_indices,
-                )
-                ngff_image = NgffImage(
-                    data=reshaped_data,
-                    dims=dims,
-                    scale=ngff_image.scale,
-                    translation=ngff_image.translation,
-                    name=ngff_image.name,
-                    axes_units=ngff_image.axes_units,
-                )
-
-            results.append((series_name, ngff_image))
+    finally:
+        # Always close the TIFF file
+        tif.close()
 
     return results

@@ -605,10 +605,19 @@ def _write_array_direct(
             dtype=arr.dtype,
             **to_zarr_kwargs,
         )
-        if region is not None:
-            array[region] = arr.compute()
-        else:
-            array[:] = arr.compute()
+        try:
+            if region is not None:
+                array[region] = arr.compute()
+            else:
+                array[:] = arr.compute()
+        except (OSError, ValueError) as e:
+            msg = (
+                f"Failed to write data to zarr array at path '{path}'. "
+                f"If reading from a TIFF file, this may indicate a corrupted file "
+                f"with invalid page offsets or structure. "
+                f"Original error: {type(e).__name__}: {e}"
+            )
+            raise OSError(msg) from e
     else:
         _prepare_zarr_kwargs(to_zarr_kwargs)
 
@@ -616,16 +625,25 @@ def _write_array_direct(
             zarr_array if (region is not None and zarr_array is not None) else store
         )
 
-        dask.array.to_zarr(
-            arr,
-            target,
-            region=region if (region is not None and zarr_array is not None) else None,
-            component=path,
-            overwrite=False,
-            compute=True,
-            return_stored=False,
-            **to_zarr_kwargs,
-        )
+        try:
+            dask.array.to_zarr(
+                arr,
+                target,
+                region=region if (region is not None and zarr_array is not None) else None,
+                component=path,
+                overwrite=False,
+                compute=True,
+                return_stored=False,
+                **to_zarr_kwargs,
+            )
+        except (OSError, ValueError) as e:
+            msg = (
+                f"Failed to write data to zarr array at path '{path}'. "
+                f"If reading from a TIFF file, this may indicate a corrupted file "
+                f"with invalid page offsets or structure. "
+                f"Original error: {type(e).__name__}: {e}"
+            )
+            raise OSError(msg) from e
 
 
 def _handle_large_array_writing(

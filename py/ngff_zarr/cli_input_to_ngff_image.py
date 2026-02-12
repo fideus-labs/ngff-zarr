@@ -81,12 +81,20 @@ def cli_input_to_ngff_image(
         except ImportError:
             print("[red]Please install the [i]tifffile[/i] package.")
             sys.exit(1)
-        if len(input) == 1:
-            store = tifffile.imread(input[0], aszarr=True)
-        else:
-            store = tifffile.imread(input, aszarr=True)
-        root = zarr.open(store, mode="r")
-        return to_ngff_image(root)
+        try:
+            if len(input) == 1:
+                store = tifffile.imread(input[0], aszarr=True)
+            else:
+                store = tifffile.imread(input, aszarr=True)
+            root = zarr.open(store, mode="r")
+            return to_ngff_image(root)
+        except (OSError, ValueError) as e:
+            print(
+                f"[red]Error: Failed to read TIFF file. The file may be corrupted, "
+                f"truncated, or have invalid page offsets. "
+                f"Details: {type(e).__name__}: {e}"
+            )
+            sys.exit(1)
     if backend is ConversionBackend.IMAGEIO:
         try:
             import imageio.v3 as iio
