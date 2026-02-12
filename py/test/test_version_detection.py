@@ -302,14 +302,13 @@ def test_from_ngff_zarr_v05_ome_key_without_multiscales():
     }
 
     # Should raise ValueError with helpful error explaining possible causes
-    with pytest.raises(ValueError, match="multiscales.*missing"):
+    with pytest.raises(
+        ValueError, 
+        match=r"multiscales[\s\S]*missing[\s\S]*Possible causes"
+    ) as exc_info:
         from_ngff_zarr(store)
     
-    # Also test that error message mentions possible causes
-    try:
-        from_ngff_zarr(store)
-    except ValueError as e:
-        error_msg = str(e)
-        # Check that the error provides guidance
-        assert "Possible causes" in error_msg or "corrupted" in error_msg.lower()
-        assert "Available keys under 'ome'" in error_msg
+    # Verify error message contains all expected guidance
+    error_msg = str(exc_info.value)
+    assert "Available keys under 'ome'" in error_msg
+    assert "corrupted" in error_msg.lower() or "incomplete" in error_msg.lower()
