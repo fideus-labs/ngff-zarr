@@ -1,3 +1,21 @@
+## py-v0.26.0 (2026-02-12)
+
+### ⚡ Performance
+
+- **py**: wire pyramid reuse into TIFFFILE CLI code path ([48cbc57](https://github.com/fideus-labs/ngff-zarr/commit/48cbc57c34e3213a0e63968e2e128561cc07b47f))
+- **py**: reuse existing pyramid levels from pyramidal TIFFs ([9ed34a7](https://github.com/fideus-labs/ngff-zarr/commit/9ed34a7d37acfde094cb75ad90a737b79e93dc5b))
+
+### ✨ Features
+
+- **py**: add scale_strategy parameter to to_ngff_zarr() ([1f146d8](https://github.com/fideus-labs/ngff-zarr/commit/1f146d8d3e84cd25310d0c2e4db95f5dcaf3c946))
+
+### 🐛 Bug Fixes
+
+- **py**: to_multiscale fails with non-prime scale factors ([a9bb0ed](https://github.com/fideus-labs/ngff-zarr/commit/a9bb0edb479243cc73ad67a9740d6b551bfb83cf))
+- **py**: remove unused previous_scale_factors variable in _dask_image ([fa32c47](https://github.com/fideus-labs/ngff-zarr/commit/fa32c47f684ff00291db1d0967267184f36dff3c))
+- **py**: handle zarr Group from pyramidal TIFFs in to_ngff_image ([85ce8ab](https://github.com/fideus-labs/ngff-zarr/commit/85ce8ab22eb4b84050281eaab6d79b3eafa50dbc))
+- **py**: reduce dask task explosion for large tiled TIFF files ([dd1b197](https://github.com/fideus-labs/ngff-zarr/commit/dd1b197296ebb668b7d275d95371359a99674d23))
+
 ## py-v0.25.0 (2026-02-08)
 
 ### ✨ Features
