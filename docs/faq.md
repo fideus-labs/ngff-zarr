@@ -121,3 +121,75 @@ In addition to specification of credentials explicitly,
 
 The same patterns work for other cloud providers (GCS, Azure) by using their
 respective fsspec implementations (e.g., `gcsfs`, `adlfs`).
+
+## Troubleshooting
+
+### I'm getting "Invalid page offset" or "OSError" errors when converting TIFF/SVS files
+
+This error typically indicates that the TIFF or SVS file is corrupted, truncated, or has an invalid internal structure. Common causes include:
+
+1. **Incomplete file transfer**: The file may have been incompletely downloaded or transferred
+2. **Disk errors**: Physical disk errors during file creation
+3. **Software bugs**: Issues in the original software that created the file
+4. **File format violations**: Non-standard TIFF structures that violate the specification
+
+**How to diagnose:**
+
+```bash
+# Try opening the file with tifffile directly to check for errors
+python3 -c "import tifffile; tif = tifffile.TiffFile('your_file.svs'); print(f'Series: {len(tif.series)}'); tif.close()"
+```
+
+If this command fails or shows errors, the file is likely corrupted.
+
+**Possible solutions:**
+
+1. **Re-download or re-transfer the file** from the original source
+2. **Verify file integrity** using checksums if available
+3. **Try repairing the file** using specialized TIFF repair tools
+4. **Contact the data provider** if the file came from an external source
+5. **Use the original acquisition software** to re-export the image if possible
+
+**Recent improvements:**
+
+As of the latest version, ngff-zarr provides better error messages when encountering corrupted files, helping you identify the issue early rather than waiting for the conversion to fail after hours of processing.
+
+### My TIFF/SVS conversion is taking extremely long (hours/days)
+
+Very large whole-slide imaging (WSI) files like SVS can take significant time to convert, but there are ways to optimize the process:
+
+**Expected performance:**
+
+- Small files (< 1GB): Minutes
+- Medium files (1-10GB): 15-60 minutes
+- Large files (10-50GB): 1-4 hours
+- Very large files (> 50GB): Several hours to days
+
+**Optimization tips:**
+
+1. **Use the `--local-cluster` option** for better parallelization:
+   ```bash
+   ngff-zarr --local-cluster -i input.svs -o output.ozx
+   ```
+
+2. **Adjust memory target** to use more of your available RAM:
+   ```bash
+   # For a system with 64GB RAM, use 50GB
+   ngff-zarr --memory-target 50G -i input.svs -o output.ozx
+   ```
+
+3. **Check for file corruption** before starting long conversions:
+   ```bash
+   # Quick validation
+   python3 -c "import tifffile; tif = tifffile.TiffFile('input.svs'); print(f'{len(tif.series)} series found'); tif.close()"
+   ```
+
+4. **Use SSD storage** for both input and output if possible, as I/O can be a bottleneck
+
+5. **Monitor system resources** during conversion to identify bottlenecks:
+   ```bash
+   # In a separate terminal
+   htop  # or 'top' on macOS/Linux
+   ```
+
+If conversion is taking unexpectedly long and then fails with an error, the file is likely corrupted. See the section above for diagnosis and solutions.
