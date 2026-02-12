@@ -1,3 +1,9 @@
+## ts-v0.7.5 (2026-02-11)
+
+### 🐛 Bug Fixes
+
+- **ts**: do not always set method undefined with fromNgffZarr ([20bd29a](https://github.com/fideus-labs/ngff-zarr/commit/20bd29ab44a0cbf51c86f95b134d183d353380e6))
+
 ## ts-v0.7.4 (2026-02-10)
 
 ### ⚡ Performance
