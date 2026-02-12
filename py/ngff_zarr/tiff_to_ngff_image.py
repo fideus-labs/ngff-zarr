@@ -783,6 +783,8 @@ def tiff_file_to_ngff_images(
 
         # Convert selected series
         for idx in indices_to_convert:
+            # Initialize series_name with default value before try block
+            series_name = f"series_{idx}"
             try:
                 tiff_series = all_series[idx]
 
@@ -878,7 +880,7 @@ def tiff_file_to_ngff_images(
             except (OSError, ValueError, KeyError) as e:
                 # Handle errors during series processing
                 error_msg = (
-                    f"Failed to process series {idx} ('{series_name if 'series_name' in locals() else f'series_{idx}'}') "
+                    f"Failed to process series {idx} ('{series_name}') "
                     f"in TIFF file '{tiff_path}'. "
                     f"This may indicate a corrupted or malformed TIFF file, "
                     f"or invalid page offsets in the file structure. "

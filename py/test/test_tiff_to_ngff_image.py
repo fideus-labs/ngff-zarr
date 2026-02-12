@@ -508,42 +508,56 @@ def test_tiff_file_to_ngff_images_nonexistent_file():
         tiff_file_to_ngff_images("/nonexistent/path/to/file.tiff")
 
 
-def test_tiff_file_to_ngff_images_corrupted_series_continues():
-    """Test that processing continues after encountering a corrupted series."""
+def test_tiff_file_to_ngff_images_corrupted_series_warning():
+    """Test that processing issues warning when encountering errors during series processing."""
     try:
         import tifffile
     except ImportError:
         pytest.skip("tifffile not available")
 
     import warnings
+    from unittest.mock import patch
 
     from ngff_zarr import tiff_file_to_ngff_images
 
     tmpdir = Path(tempfile.mkdtemp())
     tiff_path = tmpdir / "multi_series.tiff"
 
-    # Create a multi-series TIFF where we can later corrupt one series
+    # Create a multi-series TIFF
     with tifffile.TiffWriter(tiff_path) as tif:
-        # First series - valid
         tif.write(
             np.random.rand(10, 100, 100).astype(np.uint8),
             photometric="minisblack",
             metadata={"axes": "ZYX"},
         )
-        # Second series - valid
         tif.write(
             np.random.rand(5, 50, 50).astype(np.uint8),
             photometric="minisblack",
             metadata={"axes": "ZYX"},
         )
 
-    # Note: It's difficult to create a partially corrupted multi-series TIFF
-    # where one series is valid and another is corrupted. This test documents
-    # the intended behavior: if a series fails, a warning is issued and
-    # processing continues with other series.
-    # In practice, the error handling code will catch exceptions during
-    # series processing and continue.
+    # Mock aszarr to raise an error for the second series (simulating corruption)
+    original_aszarr = tifffile.TiffFile.aszarr
+    call_count = [0]
 
-    images = tiff_file_to_ngff_images(tiff_path)
-    # Both series should be valid in this test
-    assert len(images) == 2
+    def mock_aszarr(self, *args, **kwargs):
+        call_count[0] += 1
+        if call_count[0] == 2:  # Second series
+            raise OSError("Simulated corrupted page offset")
+        return original_aszarr(self, *args, **kwargs)
+
+    with patch.object(tifffile.TiffFile, "aszarr", mock_aszarr):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            images = tiff_file_to_ngff_images(tiff_path)
+
+            # Should have one warning about the failed series
+            assert len(w) >= 1
+            warning_msg = str(w[-1].message)
+            assert "Failed to process series" in warning_msg
+            assert "corrupted" in warning_msg.lower()
+
+    # Should still get the first series successfully
+    assert len(images) == 1
+    name, img = images[0]
+    assert img.data.shape == (10, 100, 100)
