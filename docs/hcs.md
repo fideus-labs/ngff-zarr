@@ -110,6 +110,66 @@ for well_meta in plate.metadata.wells:
                 print(f"  Field {field_idx}: {ngff_image.data.shape}")
 ```
 
+## CLI Support for HCS Data
+
+The `ngff-zarr` CLI tool supports converting individual well images from HCS plates using sub-path syntax.
+
+### Converting a Specific Well Image
+
+To convert a specific well and field from an HCS plate, provide the full path including the well coordinates and field index:
+
+```bash
+# Convert well A/1, field 0 from an HCS plate
+ngff-zarr -i plate.ome.zarr/A/1/0 -o well_A1_field0.ome.zarr
+
+# Convert well B/2, field 1
+ngff-zarr -i plate.ome.zarr/B/2/1 -o well_B2_field1.ome.zarr
+```
+
+The CLI will automatically detect that you're accessing a well within an HCS plate and load the appropriate image data.
+
+### Error Handling
+
+If you attempt to convert the entire plate (without specifying a well/field), you'll receive a helpful error message:
+
+```bash
+$ ngff-zarr -i plate.ome.zarr -o output.ome.zarr
+Error: The input appears to be an HCS (High Content Screening) plate structure 
+with 96 wells. To convert a specific well/image, provide the full path including 
+well and field:
+  Examples: 'plate.ome.zarr/A/1/0', 'plate.ome.zarr/A/2/0', 'plate.ome.zarr/A/3/0'
+For programmatic access to the full plate, use from_hcs_zarr() instead of from_ngff_zarr().
+```
+
+### Programmatic Access
+
+For programmatic access to the full plate structure, use the `from_ngff_zarr()` function with sub-path syntax:
+
+```python
+from ngff_zarr import from_ngff_zarr
+
+# Load a specific well image using sub-path
+multiscales = from_ngff_zarr("plate.ome.zarr/A/1/0")
+
+# Access the image data
+image = multiscales.images[0]  # Full resolution
+print(f"Shape: {image.data.shape}")
+print(f"Axes: {image.dims}")
+```
+
+This is equivalent to using the HCS API:
+
+```python
+from ngff_zarr import from_hcs_zarr
+
+# Load the plate
+plate = from_hcs_zarr("plate.ome.zarr")
+
+# Navigate to the well and image
+well = plate.get_well("A", "1")
+multiscales = well.get_image(0)
+```
+
 ## Writing HCS Data
 
 NGFF-Zarr provides support for writing HCS datasets through the `write_hcs_well_image` function. This function is designed for the typical HCS workflow where individual well images (fields of view) are written as they are acquired during the experiment.
