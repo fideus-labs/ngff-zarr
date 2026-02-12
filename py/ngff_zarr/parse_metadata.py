@@ -97,6 +97,54 @@ def _parse_omero(omero_data: dict) -> Optional[Omero]:
     return omero
 
 
+def _parse_hcs_path(store_path: str) -> tuple[str, Optional[str]]:
+    """Parse a potential HCS path into store and sub-path components.
+    
+    Parameters
+    ----------
+    store_path : str
+        Path that may contain a zarr store with an optional sub-path
+        (e.g., 'plate.zarr/A/1/0')
+    
+    Returns
+    -------
+    store : str
+        The path to the zarr store
+    subpath : str or None
+        The sub-path within the store, or None if no sub-path
+        
+    Examples
+    --------
+    >>> _parse_hcs_path('plate.zarr')
+    ('plate.zarr', None)
+    >>> _parse_hcs_path('plate.zarr/A/1/0')
+    ('plate.zarr', 'A/1/0')
+    >>> _parse_hcs_path('/path/to/plate.ome.zarr/B/2')
+    ('/path/to/plate.ome.zarr', 'B/2')
+    """
+    from pathlib import Path
+    
+    path = Path(store_path)
+    parts = path.parts
+    
+    # Find the zarr store in the path
+    # Check longer extensions first to avoid matching '.zarr' in '.ome.zarr'
+    for i, part in enumerate(parts):
+        if part.endswith('.ome.zarr') or part.endswith('.ozx') or part.endswith('.zarr'):
+            # Found the store, check if there's a sub-path
+            store = str(Path(*parts[:i+1]))
+            if i < len(parts) - 1:
+                # There's a sub-path after the store
+                subpath = '/'.join(parts[i+1:])
+                return store, subpath
+            else:
+                # No sub-path, just the store
+                return store, None
+    
+    # No zarr extension found, return as-is
+    return store_path, None
+
+
 def _is_hcs_plate(root_attrs: dict) -> bool:
     """Check if root attributes indicate an HCS plate structure.
 

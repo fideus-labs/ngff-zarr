@@ -73,11 +73,12 @@ class Metadata:
         root_attrs: dict,
         store: StoreLike,
         validate: bool = False,
+        subpath: str = None,
     ) -> tuple["Metadata", list["NgffImage"]]:  # noqa: F821
         from ..v04.zarr_metadata import Metadata as Metadata_v04
 
         v4_metadata, images = Metadata_v04._from_zarr_attrs(
-            root_attrs["ome"], store, validate=validate
+            root_attrs["ome"], store, validate=validate, subpath=subpath
         )
         metadata = cls._from_v04(v4_metadata)
         return metadata, images
