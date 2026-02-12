@@ -4,6 +4,7 @@ from pathlib import Path
 
 import packaging.version
 import zarr
+import zarr.errors
 import zarr.storage
 
 from ._zarr_types import StoreLike
@@ -108,7 +109,28 @@ def from_ome_zarr(
             if packaging.version.parse(version) < packaging.version.parse("0.5")
             else {"zarr_format": 3}
         )
-    root = zarr.open_group(store, mode="r", **format_kwargs)
+    # Open the Zarr store as a group with helpful error messages
+    try:
+        root = zarr.open_group(store, mode="r", **format_kwargs)
+    except zarr.errors.GroupNotFoundError as e:
+        store_path = str(store)
+        raise ValueError(
+            f"No valid Zarr group found at '{store_path}'. "
+            "This error typically occurs when:\n"
+            "  1. The path does not contain a valid Zarr store\n"
+            "  2. The Zarr store is empty or corrupted\n"
+            "  3. The download was incomplete\n"
+            "  4. The store contains a Zarr array at the root instead of a group\n\n"
+            "For OME-Zarr files, the root must be a Zarr group containing multiscale metadata. "
+            "Please verify that the input path points to a valid OME-Zarr store."
+        ) from e
+    except zarr.errors.ContainsArrayError as e:
+        store_path = str(store)
+        raise ValueError(
+            f"The Zarr store at '{store_path}' contains an array at the root level, "
+            "but OME-Zarr requires a group structure with multiscale metadata. "
+            "Single Zarr arrays cannot be directly converted to OME-Zarr format."
+        ) from e
 
     # When auto-detecting version (no explicit version provided) on zarr-python 3,
     # zarr may prefer a spurious zarr.json (format 3) over .zgroup (format 2),
@@ -200,7 +222,6 @@ def from_ome_zarr(
                 f"Sub-path '{subpath}' not found in store. "
                 f"Ensure the path is correct (e.g., 'A/1/0' for well A1, field 0)."
             )
-
     root_attrs = root.attrs.asdict()
 
     if not version:
