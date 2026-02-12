@@ -131,7 +131,6 @@ def from_ome_zarr(
             "but OME-Zarr requires a group structure with multiscale metadata. "
             "Single Zarr arrays cannot be directly converted to OME-Zarr format."
         ) from e
-
     # When auto-detecting version (no explicit version provided) on zarr-python 3,
     # zarr may prefer a spurious zarr.json (format 3) over .zgroup (format 2),
     # resulting in empty root attributes. Fall back to zarr_format=2 in that case.
