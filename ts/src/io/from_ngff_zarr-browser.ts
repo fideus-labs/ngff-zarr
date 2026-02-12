@@ -3,11 +3,13 @@
 // Browser-compatible version of from_ngff_zarr that doesn't import @zarrita/storage
 // (which contains Node.js-specific modules like node:fs, node:buffer, node:path)
 import * as zarr from "zarrita";
+
+import { MetadataSchema } from "../schemas/zarr_metadata.ts";
 import { Multiscales } from "../types/multiscales.ts";
 import { NgffImage } from "../types/ngff_image.ts";
-import type { Metadata, Omero } from "../types/zarr_metadata.ts";
-import { MetadataSchema } from "../schemas/zarr_metadata.ts";
 import type { Units } from "../types/units.ts";
+import type { Metadata, Omero } from "../types/zarr_metadata.ts";
+import { extractMethodMetadata } from "../utils/parse_metadata.ts";
 
 export type { ChunkCache } from "../utils/worker_pool.ts";
 
@@ -59,7 +61,6 @@ export async function fromNgffZarr(
     // Try to use consolidated metadata for better performance
     let optimizedStore;
     try {
-      // @ts-ignore: tryWithConsolidated typing
       optimizedStore = await zarr.tryWithConsolidated(resolvedStore);
     } catch {
       optimizedStore = resolvedStore;
@@ -203,12 +204,15 @@ export async function fromNgffZarr(
       }
 
       const dims = metadata.axes.map((axis) => axis.name);
-      const axesUnits = metadata.axes.reduce((acc, axis) => {
-        if (axis.unit) {
-          acc[axis.name] = axis.unit;
-        }
-        return acc;
-      }, {} as Record<string, Units>);
+      const axesUnits = metadata.axes.reduce(
+        (acc, axis) => {
+          if (axis.unit) {
+            acc[axis.name] = axis.unit;
+          }
+          return acc;
+        },
+        {} as Record<string, Units>,
+      );
 
       const ngffImage = new NgffImage({
         data: zarrArray,
@@ -223,11 +227,22 @@ export async function fromNgffZarr(
       images.push(ngffImage);
     }
 
+    // Extract method metadata from the multiscales entry (mirrors non-browser version)
+    const { method, methodType, methodMetadata } = extractMethodMetadata(
+      multiscalesMetadata as Record<string, unknown>,
+    );
+    if (methodType) {
+      metadata.type = methodType;
+    }
+    if (methodMetadata) {
+      metadata.metadata = methodMetadata;
+    }
+
     return new Multiscales({
       images,
       metadata,
       scaleFactors: undefined,
-      method: undefined,
+      method,
       chunks: undefined,
     });
   } catch (error) {
