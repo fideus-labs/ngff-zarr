@@ -1,3 +1,9 @@
+## py-v0.27.0 (2026-02-12)
+
+### ✨ Features
+
+- **py**: add dense histogram-based sampling for accurate OMERO quantiles ([8be5091](https://github.com/fideus-labs/ngff-zarr/commit/8be50912d753367b606d8d5baec826e060216152))
+
 ## py-v0.26.0 (2026-02-12)
 
 ### ⚡ Performance
