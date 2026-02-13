@@ -146,7 +146,7 @@ append_contributors() {
     printf "We appreciate the contributions from:\n\n"
     for name in "${contributor_lines[@]}"; do
         if [ -n "$name" ]; then
-            printf "- %s\n" "$name"
+            printf -- "- %s\n" "$name"
         fi
     done
 
@@ -172,7 +172,7 @@ append_contributors() {
         printf "\n## 🌟 Congratulations\n\n"
         printf "Congratulations to our new contributors:\n\n"
         for name in "${new_contributors[@]}"; do
-            printf "- %s\n" "$name"
+            printf -- "- %s\n" "$name"
         done
     fi
 }
