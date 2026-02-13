@@ -6,14 +6,14 @@
 
 import type { Image } from "itk-wasm";
 import * as zarr from "zarrita";
-import { defaultCodecs } from "../utils/codecs.ts";
-import { NgffImage } from "../types/ngff_image.ts";
-import { itkLpsToAnatomicalOrientation } from "../types/rfc4.ts";
-import type { AnatomicalOrientation } from "../types/rfc4.ts";
-import { zarrSet } from "../utils/worker_pool.ts";
-
 // Import the get_strides function from zarrita utilities
 import { _zarrita_internal_get_strides as getStrides } from "zarrita";
+
+import { NgffImage } from "../types/ngff_image.ts";
+import type { AnatomicalOrientation } from "../types/rfc4.ts";
+import { itkLpsToAnatomicalOrientation } from "../types/rfc4.ts";
+import { defaultCodecs } from "../utils/codecs.ts";
+import { zarrSet } from "../utils/worker_pool.ts";
 
 export interface ItkImageToNgffImageOptions {
   /**
@@ -52,8 +52,11 @@ export async function itkImageToNgffImage(
   itkImage: Image,
   options: ItkImageToNgffImageOptions = {},
 ): Promise<NgffImage> {
-  const { addAnatomicalOrientation = true, path = "image", chunks = 256 } =
-    options;
+  const {
+    addAnatomicalOrientation = true,
+    path = "image",
+    chunks = 256,
+  } = options;
 
   // Extract image properties from ITK-Wasm Image
   const _data = itkImage.data;
@@ -62,15 +65,25 @@ export async function itkImageToNgffImage(
   const shape = [...itkImage.size].reverse();
   const spacing = itkImage.spacing;
   const origin = itkImage.origin;
+
+  // Check if this is a vector image (multi-component)
+  const imageType = itkImage.imageType;
+  const isVector = imageType.components > 1;
+
+  // ITK-Wasm stores components separately from size (size is spatial-only).
+  // For vector images, append the component count to shape so that ndim and
+  // dims correctly include the "c" dimension — matching the Python
+  // implementation where image_dict["data"] already includes the component
+  // axis in its shape.
+  if (isVector) {
+    shape.push(imageType.components);
+  }
+
   const ndim = shape.length;
 
   // Determine dimension names based on shape and image type
   // This logic matches the Python implementation
   let dims: string[];
-
-  // Check if this is a vector image (multi-component)
-  const imageType = itkImage.imageType;
-  const isVector = imageType.components > 1;
 
   if (ndim === 3 && isVector) {
     // 2D RGB/vector image: 2D spatial + components
