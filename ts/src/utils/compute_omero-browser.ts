@@ -269,10 +269,10 @@ export async function computeOmeroFromNgffImage(
  * Compute OMERO metadata from a Multiscales object using WebWorker.
  *
  * This is a convenience function that computes OMERO metadata from the
- * highest or lowest resolution image in a multiscales pyramid.
+ * highest resolution image in a multiscales pyramid for accurate statistics.
  *
  * @param multiscales - The Multiscales object to compute metadata for
- * @param options - Optional configuration for quantiles, colors, labels, and resolution
+ * @param options - Optional configuration for quantiles, colors, and labels
  * @returns Promise resolving to Omero metadata with computed window parameters
  */
 export async function computeOmeroFromMultiscales(
@@ -283,12 +283,8 @@ export async function computeOmeroFromMultiscales(
     throw new Error("Multiscales has no images");
   }
 
-  const useLowestResolution = options.useLowestResolution ?? true;
-
-  // Select which image to use based on resolution preference
-  const image = useLowestResolution
-    ? multiscales.images[multiscales.images.length - 1] // Last image (lowest resolution)
-    : multiscales.images[0]; // First image (highest resolution)
+  // Always use the highest resolution (first) image for accurate statistics
+  const image = multiscales.images[0];
 
   const computeOptions: ComputeOmeroOptions = {};
   if (options.quantiles !== undefined) {

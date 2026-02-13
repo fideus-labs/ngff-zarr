@@ -3,9 +3,12 @@
 """Compute OMERO metadata from NgffImage data."""
 
 import re
-from typing import List, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple, Union
 
 import dask.array as da
+
+if TYPE_CHECKING:
+    import numpy as np
 
 from .ngff_image import NgffImage
 from .v04.zarr_metadata import Omero, OmeroChannel, OmeroWindow
@@ -335,25 +338,36 @@ def get_default_colors(n_channels: int) -> List[str]:
 def _compute_channel_statistics(
     data: da.Array,
     quantiles: Tuple[float, float],
+    dense: bool = False,
 ) -> Tuple[float, float, float, float]:
     """Compute min, max, and quantiles for a single channel.
 
     Uses dask.array operations to efficiently compute statistics without
-    loading all data into memory. Uses approximate quantile computation
-    that works across chunks, which is suitable for visualization parameters.
+    loading all data into memory.
 
     Args:
         data: Dask array for a single channel (can be multi-dimensional)
         quantiles: Tuple of (low, high) quantile values (e.g., (0.02, 0.98))
+        dense: If True, use histogram-based dense sampling for exact quantile
+            computation over the full data. If False (default), use Dask's
+            approximate percentile algorithm which is faster but may produce
+            less accurate quantiles for large multi-chunk datasets.
 
     Returns:
         Tuple of (min, max, q_low, q_high) as floats
 
     Note:
-        The quantile computation uses Dask's approximate percentile algorithm
-        which processes chunks independently and merges results. This is
-        memory-efficient and suitable for visualization window parameters,
-        though results may differ slightly from exact quantiles.
+        When dense=False, the quantile computation uses Dask's approximate
+        percentile algorithm which processes chunks independently and merges
+        results. This is memory-efficient and suitable for visualization
+        window parameters, though results may differ slightly from exact
+        quantiles.
+
+        When dense=True, a histogram with fine bins is computed over the full
+        data via ``da.histogram``, then quantiles are derived from the
+        cumulative distribution. This gives exact results within bin
+        resolution and is well-suited for large datasets where approximate
+        percentiles may be inaccurate.
     """
     import numpy as np
 
@@ -371,6 +385,41 @@ def _compute_channel_statistics(
     if np.isnan(min_val):
         return (float("nan"), float("nan"), float("nan"), float("nan"))
 
+    # Handle constant-value case: all non-NaN values are the same
+    if min_val == max_val:
+        return (float(min_val), float(max_val), float(min_val), float(max_val))
+
+    if dense:
+        return _compute_quantiles_dense(
+            flat_data, quantiles, float(min_val), float(max_val), data.dtype
+        )
+    else:
+        return _compute_quantiles_approximate(
+            flat_data, quantiles, float(min_val), float(max_val)
+        )
+
+
+def _compute_quantiles_approximate(
+    flat_data: da.Array,
+    quantiles: Tuple[float, float],
+    min_val: float,
+    max_val: float,
+) -> Tuple[float, float, float, float]:
+    """Compute quantiles using Dask's approximate percentile algorithm.
+
+    This is fast and memory-efficient but may produce less accurate results
+    for large datasets with many chunks, since it computes per-chunk
+    percentiles and merges them.
+
+    Args:
+        flat_data: Flattened 1-D dask array
+        quantiles: Tuple of (low, high) quantile values
+        min_val: Pre-computed minimum value
+        max_val: Pre-computed maximum value
+
+    Returns:
+        Tuple of (min, max, q_low, q_high) as floats
+    """
     # Use dask's approximate percentile computation which works across chunks
     # without loading all data into memory. Convert quantiles to percentiles (0-100).
     # Filter out NaN values before computing percentiles since da.percentile
@@ -386,12 +435,71 @@ def _compute_channel_statistics(
     # Compute quantile statistics (min/max already computed above)
     low_val, high_val = da.compute(q_low, q_high)
 
-    return (
-        float(min_val),
-        float(max_val),
-        float(low_val),
-        float(high_val),
-    )
+    return (min_val, max_val, float(low_val), float(high_val))
+
+
+def _compute_quantiles_dense(
+    flat_data: da.Array,
+    quantiles: Tuple[float, float],
+    min_val: float,
+    max_val: float,
+    dtype: "np.dtype",
+) -> Tuple[float, float, float, float]:
+    """Compute quantiles using histogram-based dense sampling.
+
+    Builds a fine-grained histogram over the full data using ``da.histogram``,
+    then derives exact quantiles from the cumulative distribution function.
+    This processes all data in a parallelized pass through dask's lazy
+    evaluation and gives exact results within bin resolution.
+
+    For integer dtypes, the number of bins equals the number of distinct
+    possible values (capped at 65536). For float dtypes, 65536 bins are used.
+
+    Args:
+        flat_data: Flattened 1-D dask array
+        quantiles: Tuple of (low, high) quantile values
+        min_val: Pre-computed minimum value
+        max_val: Pre-computed maximum value
+        dtype: Data type of the array (used to choose bin count)
+
+    Returns:
+        Tuple of (min, max, q_low, q_high) as floats
+    """
+    import numpy as np
+
+    # Choose number of bins based on dtype
+    if np.issubdtype(dtype, np.integer):
+        # For integer types, use exact number of distinct values (capped)
+        n_bins = min(int(max_val - min_val + 1), 65536)
+    else:
+        n_bins = 65536
+
+    # Filter NaN values before histogramming
+    valid_data = flat_data[~da.isnan(flat_data)]
+
+    # Compute histogram over the full data range.
+    # da.histogram computes per-chunk histograms and merges them, so this
+    # is memory-efficient and parallelized.
+    hist, bin_edges = da.histogram(valid_data, bins=n_bins, range=[min_val, max_val])
+    hist = hist.compute()
+    bin_edges = np.asarray(bin_edges)
+
+    # Build cumulative distribution function
+    cumsum = np.cumsum(hist)
+    total_count = cumsum[-1]
+
+    # Compute quantile values via interpolation on the CDF.
+    # cumsum[i] is the count of values <= bin_edges[i+1].
+    # We interpolate to find the bin edge where the cumulative count
+    # crosses the desired quantile fraction.
+    target_low = quantiles[0] * total_count
+    target_high = quantiles[1] * total_count
+
+    # Use bin right-edges for CDF interpolation
+    low_val = float(np.interp(target_low, cumsum, bin_edges[1:]))
+    high_val = float(np.interp(target_high, cumsum, bin_edges[1:]))
+
+    return (min_val, max_val, low_val, high_val)
 
 
 def compute_omero_from_ngff_image(
@@ -399,6 +507,7 @@ def compute_omero_from_ngff_image(
     quantiles: Tuple[float, float] = (0.02, 0.98),
     colors: Optional[Sequence[str]] = None,
     labels: Optional[Sequence[str]] = None,
+    dense: bool = False,
 ) -> Omero:
     """Compute OMERO metadata from an NgffImage.
 
@@ -408,11 +517,6 @@ def compute_omero_from_ngff_image(
 
     For multi-channel images (with 'c' dimension), statistics are computed
     separately for each channel, resulting in per-channel OMERO windows.
-
-    This function uses memory-efficient approximate quantile computation that
-    processes data in chunks without loading the entire dataset into memory.
-    The approximate quantiles are well-suited for visualization parameters
-    where slight variations from exact values are acceptable.
 
     Edge cases:
     - If all values in a channel are NaN, the statistics will be NaN.
@@ -429,6 +533,10 @@ def compute_omero_from_ngff_image(
                 progression for multi-channel.
         labels: Optional list of label strings for each channel.
                 If not provided, uses empty strings.
+        dense: If True, use histogram-based dense sampling for exact quantile
+               computation over the full data. If False (default), use Dask's
+               approximate percentile algorithm which is faster but may
+               produce less accurate quantiles for large multi-chunk datasets.
 
     Returns:
         Omero metadata with computed window parameters for each channel.
@@ -494,7 +602,7 @@ def compute_omero_from_ngff_image(
 
         # Compute statistics
         data_min, data_max, q_low, q_high = _compute_channel_statistics(
-            channel_data, quantiles
+            channel_data, quantiles, dense=dense
         )
 
         # Create OMERO window
@@ -521,25 +629,25 @@ def compute_omero_from_multiscales(
     quantiles: Tuple[float, float] = (0.02, 0.98),
     colors: Optional[Sequence[str]] = None,
     labels: Optional[Sequence[str]] = None,
-    use_lowest_resolution: bool = True,
+    dense: bool = False,
 ) -> Omero:
     """Compute OMERO metadata from a Multiscales object.
 
     This is a convenience function that computes OMERO metadata from the
-    highest or lowest resolution image in a multiscales pyramid.
+    highest resolution image in a multiscales pyramid.
 
-    Uses memory-efficient approximate quantile computation that processes
-    data in chunks. This makes it safe to use with very large datasets
-    without risk of memory exhaustion.
+    Uses memory-efficient computation that processes data in chunks. This
+    makes it safe to use with very large datasets without risk of memory
+    exhaustion.
 
     Args:
         multiscales: The Multiscales object to compute metadata for
         quantiles: Tuple of (low, high) quantile values for the display window.
         colors: Optional list of hex color strings for each channel.
         labels: Optional list of label strings for each channel.
-        use_lowest_resolution: If True (default), use the lowest resolution
-            (smallest) image for faster computation. If False, use the highest
-            resolution (largest) image.
+        dense: If True, use histogram-based dense sampling for exact quantile
+            computation over the full data. If False (default), use Dask's
+            approximate percentile algorithm.
 
     Returns:
         Omero metadata with computed window parameters for each channel.
@@ -552,17 +660,13 @@ def compute_omero_from_multiscales(
     if not multiscales.images:
         raise ValueError("Multiscales has no images")
 
-    # Select which image to use based on resolution preference
-    if use_lowest_resolution:
-        # Use the last image (lowest resolution, smallest)
-        image = multiscales.images[-1]
-    else:
-        # Use the first image (highest resolution, largest)
-        image = multiscales.images[0]
+    # Always use the highest resolution (first) image for accurate statistics
+    image = multiscales.images[0]
 
     return compute_omero_from_ngff_image(
         image,
         quantiles=quantiles,
         colors=colors,
         labels=labels,
+        dense=dense,
     )

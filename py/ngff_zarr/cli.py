@@ -153,7 +153,7 @@ def _apply_omero_metadata(live, args, multiscales):
             quantiles=quantiles,
             colors=colors,
             labels=labels,
-            use_lowest_resolution=True,  # Use lowest resolution for speed
+            dense=args.omero_dense,
         )
         multiscales.metadata.omero = omero
         if not args.quiet:
@@ -388,6 +388,12 @@ def main():
         nargs="+",
         metavar="LABEL",
         help="Labels for channels (e.g., DAPI GFP RFP)",
+    )
+    omero_group.add_argument(
+        "--omero-dense",
+        action="store_true",
+        help="Use histogram-based dense sampling for exact OMERO quantile computation. "
+        "More accurate than the default approximate method for large datasets.",
     )
 
     processing_group = parser.add_argument_group("processing", "Processing options")
