@@ -1,3 +1,13 @@
+## ts-v0.8.0 (2026-02-12)
+
+### ✨ Features
+
+- **ts**: always use highest resolution for OMERO statistics ([c3ae65f](https://github.com/fideus-labs/ngff-zarr/commit/c3ae65fbfb0214e6a861df2523f26b9066cca400))
+
+### 🐛 Bug Fixes
+
+- **ts**: handle 2D multi-component images in itkImageToNgffImage ([962a017](https://github.com/fideus-labs/ngff-zarr/commit/962a01780874cc2162ac706f26b377408722f331))
+
 ## ts-v0.7.5 (2026-02-11)
 
 ### 🐛 Bug Fixes
