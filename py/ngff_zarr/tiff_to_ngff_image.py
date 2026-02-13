@@ -609,7 +609,42 @@ def _build_multiscales_from_pyramid(
                 if dim in base_translation:
                     level_translation[dim] = base_translation[dim]
 
+        # Convert to dask array first
         level_data = da.from_zarr(arr)
+        
+        # Apply the same axis mapping and channel reshaping that was applied to level 0
+        # Pyramid levels have the same axis structure as the original TIFF,
+        # just with downsampled spatial dimensions
+        if (
+            tiff_axes
+            and dims is not None
+            and ngff_shape is not None
+        ):
+            # For this pyramid level, calculate what shape it should have after reshaping
+            # by substituting the actual spatial dimensions from this level
+            level_expected_shape = list(ngff_shape)
+            
+            # Map TIFF axes to find where spatial dimensions are in the ORIGINAL shape
+            tiff_axes_lower = tiff_axes.lower()
+            for tiff_idx, tiff_ax in enumerate(tiff_axes_lower):
+                ngff_ax = TIFF_AXIS_TO_NGFF.get(tiff_ax)
+                if ngff_ax and ngff_ax in _SPATIAL_DIMS and ngff_ax in dims:
+                    # This is a spatial dimension - use the downsampled size
+                    ngff_idx = list(dims).index(ngff_ax)
+                    level_expected_shape[ngff_idx] = arr.shape[tiff_idx]
+            
+            # Only reshape if shapes don't already match
+            if level_data.shape != tuple(level_expected_shape):
+                level_data = _reshape_tiff_for_channels(
+                    level_data,
+                    tiff_axes,
+                    arr.shape,  # This level's TIFF shape
+                    dims,
+                    tuple(level_expected_shape),
+                    channel_indices,
+                    dropped_indices,
+                )
+        
         level_image = NgffImage(
             data=level_data,
             dims=ngff_image_0.dims,
