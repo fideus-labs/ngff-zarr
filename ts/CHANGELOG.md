@@ -1,3 +1,18 @@
+## ts-v0.9.0 (2026-02-14)
+
+### ♻️ Refactoring
+
+- **ts**: apply PR review feedback for type safety and performance ([46da7a2](https://github.com/fideus-labs/ngff-zarr/commit/46da7a2bb49f7815ffb30261ed8fec1457aefdd1))
+
+### ✨ Features
+
+- **ts**: replace Comlink OMERO computation with unified worker-pool implementation ([e11eb63](https://github.com/fideus-labs/ngff-zarr/commit/e11eb6348de386636f5bf4d6d0fd24904cdbdc4b))
+
+### 🐛 Bug Fixes
+
+- **ts**: resolve CI formatting and type-checking failures ([a94d022](https://github.com/fideus-labs/ngff-zarr/commit/a94d022c33a4868eb22fb93652cb466cc70a9f64))
+- **ci**: guard printf against names starting with dash ([7ef5d40](https://github.com/fideus-labs/ngff-zarr/commit/7ef5d406a6c6c8495e7b0652cedb8ec2656d82dc))
+
 ## ts-v0.8.0 (2026-02-12)
 
 ### ✨ Features
