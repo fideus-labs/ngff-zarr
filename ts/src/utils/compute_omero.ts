@@ -62,7 +62,7 @@ type AnyZarrArray = any;
 
 /** Pool size for the omero worker pool. */
 const POOL_SIZE = Math.min(
-  (typeof navigator !== "undefined" ? (navigator?.hardwareConcurrency || 4) : 4),
+  typeof navigator !== "undefined" ? (navigator?.hardwareConcurrency || 4) : 4,
   128,
 );
 

@@ -43,7 +43,9 @@ import {
   updateAccumulator,
 } from "../utils/compute_omero-shared.ts";
 
-const ctx: DedicatedWorkerGlobalScope = self as DedicatedWorkerGlobalScope;
+// Use typeof self for cross-environment compatibility (Deno, Node.js, Browser workers)
+// deno-lint-ignore no-explicit-any
+const ctx = self as any;
 
 // ---------------------------------------------------------------------------
 // Edge chunk shape correction (same as fizarrita's codec-worker)
