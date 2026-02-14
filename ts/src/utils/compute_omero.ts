@@ -62,7 +62,7 @@ type AnyZarrArray = any;
 
 /** Pool size for the omero worker pool. */
 const POOL_SIZE = Math.min(
-  (typeof navigator !== "undefined" && navigator?.hardwareConcurrency) || 4,
+  (typeof navigator !== "undefined" ? (navigator?.hardwareConcurrency || 4) : 4),
   128,
 );
 
@@ -459,11 +459,13 @@ export async function computeOmeroFromNgffImage(
           nChannels,
           cIndex,
         );
-        // No task needed — accumulate directly
-        // We push a dummy resolved task to keep the result ordering
+        // No worker needed — return the slot directly for pool management.
+        // For cached results, we use the provided workerSlot if available,
+        // or create a worker to satisfy the type contract.
         tasks.push((workerSlot: Worker | null) => {
+          const worker = workerSlot ?? createOmeroWorker();
           return Promise.resolve({
-            worker: workerSlot ?? (null as unknown as Worker),
+            worker,
             result: accs,
           });
         });

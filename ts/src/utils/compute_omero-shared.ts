@@ -447,14 +447,19 @@ export function mergeAccumulators(
 
   // Downsample if combined reservoir exceeds limit
   if (merged.sample.length > QUANTILE_SAMPLE_SIZE) {
-    // Fisher-Yates shuffle + truncate for unbiased downsampling
-    for (let i = merged.sample.length - 1; i > 0; i--) {
+    // Use reservoir sampling over the concatenated sample for unbiased downsampling
+    const k = QUANTILE_SAMPLE_SIZE;
+    const n = merged.sample.length;
+
+    // Treat the first k elements as the initial reservoir and
+    // stream the remaining elements, applying the reservoir update rule.
+    for (let i = k; i < n; i++) {
       const j = Math.floor(Math.random() * (i + 1));
-      const tmp = merged.sample[i];
-      merged.sample[i] = merged.sample[j];
-      merged.sample[j] = tmp;
+      if (j < k) {
+        merged.sample[j] = merged.sample[i];
+      }
     }
-    merged.sample.length = QUANTILE_SAMPLE_SIZE;
+    merged.sample.length = k;
   }
 
   return merged;
