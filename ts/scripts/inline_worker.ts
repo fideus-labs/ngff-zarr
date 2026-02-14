@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * Script to inline the compute_omero_worker.ts code into compute_omero-browser.ts
+ * Script to inline the omero_codec_worker.ts code into compute_omero.js
  * for bundled browser builds.
  *
  * This script:
  * 1. Bundles the worker code using esbuild
- * 2. Replaces the Worker URL constructor with a Blob URL in compute_omero-browser.ts
+ * 2. Replaces the Worker URL constructor with a Blob URL in compute_omero.js
  *
  * Run this after the npm build but before creating the final bundle.
  */
@@ -28,7 +28,7 @@ async function bundleWorker(): Promise<string> {
   const command = new Deno.Command("npx", {
     args: [
       "esbuild@0.24.2",
-      "esm/workers/compute_omero_worker.js",
+      "esm/workers/omero_codec_worker.js",
       "--bundle",
       "--format=esm",
       "--platform=browser",
@@ -59,18 +59,18 @@ function escapeForTemplateLiteral(code: string): string {
 }
 
 /**
- * Replace the Worker constructor with an inline Blob URL in compute_omero-browser.js
+ * Replace the Worker constructor with an inline Blob URL in compute_omero.js
  */
 async function inlineWorkerCode(workerCode: string): Promise<void> {
-  const browserModPath = join(ESM_DIR, "utils", "compute_omero-browser.js");
+  const targetPath = join(ESM_DIR, "utils", "compute_omero.js");
 
-  let content = await Deno.readTextFile(browserModPath);
+  let content = await Deno.readTextFile(targetPath);
 
-  // Find and replace the Worker constructor pattern
-  // Original: new Worker(new URL("../workers/compute_omero_worker.js", import.meta.url), { type: "module" })
-  // Note: The pattern may have varying whitespace
+  // Find and replace the createOmeroWorker function body.
+  // After tsc compilation, createOmeroWorker() contains:
+  //   new Worker(new URL("../workers/omero_codec_worker.js", import.meta.url), { type: "module" })
   const workerPattern =
-    /new\s+Worker\(\s*new\s+URL\(\s*["']\.\.\/workers\/compute_omero_worker\.js["']\s*,\s*import\.meta\.url\s*\)\s*,\s*\{\s*type\s*:\s*["']module["']\s*\}\s*\)/g;
+    /new\s+Worker\(\s*new\s+URL\(\s*["']\.\.\/workers\/omero_codec_worker\.js["']\s*,\s*import\.meta\.url\s*\)\s*,\s*\{\s*type\s*:\s*["']module["']\s*\}\s*\)/g;
 
   if (!workerPattern.test(content)) {
     console.log(
@@ -93,7 +93,7 @@ async function inlineWorkerCode(workerCode: string): Promise<void> {
   // Replace the pattern
   content = content.replace(workerPattern, inlineWorkerCreation);
 
-  await Deno.writeTextFile(browserModPath, content);
+  await Deno.writeTextFile(targetPath, content);
   console.log("[inline_worker] Successfully inlined worker code");
 }
 
@@ -107,7 +107,7 @@ try {
     `[inline_worker] Worker bundle size: ${workerCode.length} bytes`,
   );
 
-  console.log("[inline_worker] Inlining worker into browser module...");
+  console.log("[inline_worker] Inlining worker into compute_omero module...");
   await inlineWorkerCode(workerCode);
 
   console.log("[inline_worker] Complete!");

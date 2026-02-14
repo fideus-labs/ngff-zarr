@@ -431,6 +431,36 @@ export function finalizeStatistics(
 }
 
 /**
+ * Merge two channel statistics accumulators.
+ * Used to combine partial results from parallel per-chunk workers.
+ */
+export function mergeAccumulators(
+  a: ChannelStatisticsAccumulator,
+  b: ChannelStatisticsAccumulator,
+): ChannelStatisticsAccumulator {
+  const merged: ChannelStatisticsAccumulator = {
+    min: Math.min(a.min, b.min),
+    max: Math.max(a.max, b.max),
+    count: a.count + b.count,
+    sample: [...a.sample, ...b.sample],
+  };
+
+  // Downsample if combined reservoir exceeds limit
+  if (merged.sample.length > QUANTILE_SAMPLE_SIZE) {
+    // Fisher-Yates shuffle + truncate for unbiased downsampling
+    for (let i = merged.sample.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = merged.sample[i];
+      merged.sample[i] = merged.sample[j];
+      merged.sample[j] = tmp;
+    }
+    merged.sample.length = QUANTILE_SAMPLE_SIZE;
+  }
+
+  return merged;
+}
+
+/**
  * Compute channel statistics from array data (non-streaming version).
  * For datasets larger than QUANTILE_SAMPLE_SIZE, uses reservoir sampling.
  */
@@ -493,6 +523,13 @@ export interface ComputeOmeroOptions {
   colors?: string[] | undefined;
   /** Optional list of label strings for each channel. */
   labels?: string[] | undefined;
+  /**
+   * Optional decoded-chunk cache. When provided, decoded chunks are cached
+   * during omero computation so that subsequent zarrGet() calls with the
+   * same cache get cache hits (no re-decode). Any object with get(key)
+   * and set(key, value) works — a plain Map is the simplest option.
+   */
+  cache?: import("@fideus-labs/fizarrita").ChunkCache | undefined;
 }
 
 /**

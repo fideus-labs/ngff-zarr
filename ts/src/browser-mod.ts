@@ -31,19 +31,18 @@ export {
   createNgffImage,
 } from "./utils/factory.ts";
 export { getMethodMetadata } from "./utils/method_metadata.ts";
-// Browser-specific OMERO computation with WebWorker support
+// OMERO computation with WorkerPool
 export {
   computeOmeroFromMultiscales,
   computeOmeroFromNgffImage,
   getDefaultColors,
   GLASBEY_COLORS,
-  isUsingWorker,
-  terminateOmeroWorker,
-} from "./utils/compute_omero-browser.ts";
+  terminateOmeroWorkerPool,
+} from "./utils/compute_omero.ts";
 export type {
   ComputeOmeroFromMultiscalesOptions,
   ComputeOmeroOptions,
-} from "./utils/compute_omero-browser.ts";
+} from "./utils/compute_omero.ts";
 
 // Shared OMERO computation functions for benchmarking and direct use
 export {

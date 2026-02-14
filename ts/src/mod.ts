@@ -39,6 +39,7 @@ export {
   computeOmeroFromNgffImage,
   getDefaultColors,
   GLASBEY_COLORS,
+  terminateOmeroWorkerPool,
 } from "./utils/compute_omero.ts";
 export type {
   ComputeOmeroFromMultiscalesOptions,
