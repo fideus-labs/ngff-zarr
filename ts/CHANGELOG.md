@@ -1,3 +1,14 @@
+## ts-v0.10.0 (2026-02-15)
+
+### ✨ Features
+
+- **ts**: add support for general zarrita stores to fromNgffZarr ([fafaeb4](https://github.com/fideus-labs/ngff-zarr/commit/fafaeb44078c6dc515b73cfd49dcd3661caa7a86))
+- **ts**: add support general zarrita stores to  fromNgffZarr ([29f5bd0](https://github.com/fideus-labs/ngff-zarr/commit/29f5bd00f48c8746a41af6e0f80692e1a7017251))
+
+### 🐛 Bug Fixes
+
+- **ts**: reorder store type checks to avoid inconsistent behavior ([4bef960](https://github.com/fideus-labs/ngff-zarr/commit/4bef960e05bd547c7f61bc1d38b5701bdc669155))
+
 ## ts-v0.9.0 (2026-02-14)
 
 ### ♻️ Refactoring
