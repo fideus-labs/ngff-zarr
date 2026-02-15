@@ -47,16 +47,17 @@ export async function fromNgffZarr(
   try {
     // Determine the appropriate store type based on the path
     let resolvedStore: MemoryStore | zarr.FetchStore | zarr.Readable;
-    if (store instanceof Map || store instanceof zarr.FetchStore) {
-      resolvedStore = store;
-    } else if (
+    if (
       typeof store === "object" &&
       store !== null &&
       "get" in store &&
       typeof (store as zarr.Readable).get === "function"
     ) {
-      // Duck-type check for zarrita Readable stores (e.g. TiffStore)
+      // Duck-type check for zarrita Readable stores (e.g. TiffStore, FetchStore, MemoryStore)
       resolvedStore = store as zarr.Readable;
+    } else if (store instanceof Map || store instanceof zarr.FetchStore) {
+      // Defensive fallback for Map/FetchStore (normally caught by duck-type check above)
+      resolvedStore = store;
     } else if (
       typeof store === "string" &&
       (store.startsWith("http://") || store.startsWith("https://"))
