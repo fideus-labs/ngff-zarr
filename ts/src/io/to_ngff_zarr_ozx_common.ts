@@ -6,11 +6,12 @@
  */
 
 import * as zarr from "zarrita";
+
 import type { Multiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
+import { isRfc4Enabled } from "../types/rfc4.ts";
 import type { Axis } from "../types/zarr_metadata.ts";
 import type { MemoryStore } from "./rfc9_zip.ts";
-import { isRfc4Enabled } from "../types/rfc4.ts";
 
 /**
  * Process axes for RFC enablement.
@@ -135,6 +136,8 @@ export function createRfc9RootAttributes(
  * @param multiscales - Multiscales data to write
  * @param enabledRfcs - Optional list of RFC numbers to enable
  * @param writeImage - Function to write individual images
+ * @param onProgress - Optional progress callback for cumulative chunk
+ *   progress across all scale levels
  */
 export async function writeMultiscalesToMemoryStore(
   store: MemoryStore,
@@ -144,7 +147,11 @@ export async function writeMultiscalesToMemoryStore(
     group: zarr.Group<MemoryStore>,
     image: NgffImage,
     path: string,
+    onProgress?:
+      | ((completedChunks: number, totalChunks: number) => void)
+      | null,
   ) => Promise<void>,
+  onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
 ): Promise<void> {
   // Validate version
   validateRfc9Version(multiscales);
@@ -160,7 +167,23 @@ export async function writeMultiscalesToMemoryStore(
 
   const rootGroup = await zarr.create(root, { attributes });
 
+  // Pre-calculate total chunk count across all images for cumulative progress
+  let totalChunks = 0;
+  if (onProgress) {
+    for (const image of multiscales.images) {
+      const shape = image.data.shape;
+      const chunks = image.data.chunks ||
+        shape.map((s: number) => Math.min(s, 1024));
+      let imageChunks = 1;
+      for (let d = 0; d < shape.length; d++) {
+        imageChunks *= Math.ceil(shape[d] / chunks[d]);
+      }
+      totalChunks += imageChunks;
+    }
+  }
+
   // Write each image in the multiscales
+  let completedChunks = 0;
   for (let i = 0; i < multiscales.images.length; i++) {
     const image = multiscales.images[i];
     const dataset = multiscales.metadata.datasets[i];
@@ -169,6 +192,31 @@ export async function writeMultiscalesToMemoryStore(
       throw new Error(`No dataset configuration found for image ${i}`);
     }
 
-    await writeImage(rootGroup as zarr.Group<MemoryStore>, image, dataset.path);
+    // Create a per-image progress wrapper that reports cumulative progress
+    const imageOffset = completedChunks;
+    const imageProgress = onProgress
+      ? (completed: number, _total: number) => {
+        onProgress(imageOffset + completed, totalChunks);
+      }
+      : null;
+
+    await writeImage(
+      rootGroup as zarr.Group<MemoryStore>,
+      image,
+      dataset.path,
+      imageProgress,
+    );
+
+    // Update cumulative offset for next image
+    if (onProgress) {
+      const shape = image.data.shape;
+      const chunks = image.data.chunks ||
+        shape.map((s: number) => Math.min(s, 1024));
+      let imageChunkCount = 1;
+      for (let d = 0; d < shape.length; d++) {
+        imageChunkCount *= Math.ceil(shape[d] / chunks[d]);
+      }
+      completedChunks += imageChunkCount;
+    }
   }
 }

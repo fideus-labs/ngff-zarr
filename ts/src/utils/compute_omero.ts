@@ -10,17 +10,15 @@
  * with the same cache avoids redundant decompression.
  */
 
-import { WorkerPool } from "@fideus-labs/worker-pool";
-import type { WorkerPoolTask } from "@fideus-labs/worker-pool";
-import { createCacheKey, readArrayMetadata } from "@fideus-labs/fizarrita";
 import type { CodecChunkMeta } from "@fideus-labs/fizarrita";
-import type { DataType, Readable } from "zarrita";
-import type { Array as ZarrArray } from "zarrita";
+import { createCacheKey, readArrayMetadata } from "@fideus-labs/fizarrita";
+import type { WorkerPoolTask } from "@fideus-labs/worker-pool";
+import { WorkerPool } from "@fideus-labs/worker-pool";
+import type { Array as ZarrArray, DataType, Readable } from "zarrita";
 
-import type { NgffImage } from "../types/ngff_image.ts";
 import type { Multiscales } from "../types/multiscales.ts";
+import type { NgffImage } from "../types/ngff_image.ts";
 import type { Omero } from "../types/zarr_metadata.ts";
-
 import {
   buildOmeroFromAccumulators,
   type ChannelStatisticsAccumulator,
@@ -33,7 +31,6 @@ import {
   validateColor,
   validateQuantiles,
 } from "./compute_omero-shared.ts";
-
 import { getMetaId, workerDecodeAndStats } from "./omero_worker_rpc.ts";
 
 // Re-export shared utilities for backward compatibility
@@ -62,7 +59,7 @@ type AnyZarrArray = any;
 
 /** Pool size for the omero worker pool. */
 const POOL_SIZE = Math.min(
-  typeof navigator !== "undefined" ? (navigator?.hardwareConcurrency || 4) : 4,
+  typeof navigator !== "undefined" ? navigator?.hardwareConcurrency || 4 : 4,
   128,
 );
 
@@ -156,8 +153,9 @@ async function hasUnsupportedCodecs<Store extends Readable>(
     return pathMap.get(arr.path)!;
   }
 
-  const zarrJsonPath =
-    (arr.path === "/" ? "/zarr.json" : `${arr.path}/zarr.json`) as `/${string}`;
+  const zarrJsonPath = (
+    arr.path === "/" ? "/zarr.json" : `${arr.path}/zarr.json`
+  ) as `/${string}`;
   const bytes = await arr.store.get(zarrJsonPath);
 
   let result = false;
@@ -225,8 +223,9 @@ async function readLocalArrayMetadata<Store extends Readable>(
   const store = arr.store;
 
   // Try v3 first: read zarr.json
-  const v3Path =
-    (arr.path === "/" ? "/zarr.json" : `${arr.path}/zarr.json`) as `/${string}`;
+  const v3Path = (
+    arr.path === "/" ? "/zarr.json" : `${arr.path}/zarr.json`
+  ) as `/${string}`;
   const v3Bytes = await store.get(v3Path);
   if (v3Bytes) {
     const metadata = JSON.parse(_textDecoder.decode(v3Bytes));
@@ -241,14 +240,16 @@ async function readLocalArrayMetadata<Store extends Readable>(
   }
 
   // Try v2: read .zarray
-  const v2Path =
-    (arr.path === "/" ? "/.zarray" : `${arr.path}/.zarray`) as `/${string}`;
+  const v2Path = (
+    arr.path === "/" ? "/.zarray" : `${arr.path}/.zarray`
+  ) as `/${string}`;
   const v2Bytes = await store.get(v2Path);
   if (v2Bytes) {
     const metadata = JSON.parse(_textDecoder.decode(v2Bytes));
-    const codecs: Array<
-      { name: string; configuration: Record<string, unknown> }
-    > = [];
+    const codecs: Array<{
+      name: string;
+      configuration: Record<string, unknown>;
+    }> = [];
     if (metadata.order === "F") {
       codecs.push({ name: "transpose", configuration: { order: "F" } });
     }
@@ -278,9 +279,12 @@ async function readLocalArrayMetadata<Store extends Readable>(
       chunk_shape: arr.chunks,
       codecs: [{ name: "bytes", configuration: { endian: "little" } }],
     },
-    encodeChunkKey: createChunkKeyEncoder({
-      chunk_key_encoding: { name: "default" },
-    }, false),
+    encodeChunkKey: createChunkKeyEncoder(
+      {
+        chunk_key_encoding: { name: "default" },
+      },
+      false,
+    ),
   };
 }
 
@@ -514,7 +518,7 @@ export async function computeOmeroFromNgffImage(
   // Execute all tasks with bounded concurrency
   let allAccumulators: ChannelStatisticsAccumulator[][];
   if (tasks.length > 0) {
-    const { promise } = pool.runTasks(tasks);
+    const { promise } = pool.runTasks(tasks, options.onProgress ?? null);
     allAccumulators = await promise;
   } else {
     allAccumulators = [];
@@ -579,6 +583,9 @@ export async function computeOmeroFromMultiscales(
   }
   if (options.labels !== undefined) {
     computeOptions.labels = options.labels;
+  }
+  if (options.onProgress !== undefined) {
+    computeOptions.onProgress = options.onProgress;
   }
 
   return await computeOmeroFromNgffImage(image, computeOptions);

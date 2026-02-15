@@ -535,6 +535,15 @@ export interface ComputeOmeroOptions {
    * and set(key, value) works — a plain Map is the simplest option.
    */
   cache?: import("@fideus-labs/fizarrita").ChunkCache | undefined;
+  /**
+   * Optional progress callback invoked after each chunk is processed.
+   *
+   * @param completedChunks - Number of chunks processed so far
+   * @param totalChunks - Total number of chunks to process
+   */
+  onProgress?:
+    | ((completedChunks: number, totalChunks: number) => void)
+    | undefined;
 }
 
 /**
