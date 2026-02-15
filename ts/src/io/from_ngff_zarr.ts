@@ -1,17 +1,19 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 import * as zarr from "zarrita";
+
 import { Multiscales } from "../types/multiscales.ts";
 import { NgffVersion } from "../types/supported_versions.ts";
-import {
-  detectVersion,
-  extractMethodMetadata,
-} from "../utils/parse_metadata.ts";
 import {
   fromZarrAttrsV04,
   fromZarrAttrsV05,
 } from "../utils/from_zarr_attrs.ts";
+import {
+  detectVersion,
+  extractMethodMetadata,
+} from "../utils/parse_metadata.ts";
 import { zarrGet } from "../utils/worker_pool.ts";
+
 export type { ChunkCache } from "../utils/worker_pool.ts";
 
 export interface FromNgffZarrOptions {
@@ -33,8 +35,8 @@ export interface FromNgffZarrOptions {
 export type MemoryStore = Map<string, Uint8Array>;
 
 export async function fromNgffZarr(
-  // Also accepts FileSystemStore, ZipFileStore objects in Node.js/Deno
-  store: string | MemoryStore | zarr.FetchStore,
+  // Also accepts FileSystemStore, ZipFileStore, or any zarrita Readable store
+  store: string | MemoryStore | zarr.FetchStore | zarr.Readable,
   options: FromNgffZarrOptions = {},
 ): Promise<Multiscales> {
   const validate = options.validate ?? false;
@@ -42,13 +44,28 @@ export async function fromNgffZarr(
 
   try {
     // Determine the appropriate store type based on the path
-    let resolvedStore: MemoryStore | zarr.FetchStore;
-    if (store instanceof Map || store instanceof zarr.FetchStore) {
+    let resolvedStore: MemoryStore | zarr.FetchStore | zarr.Readable;
+    if (
+      typeof store === "object" &&
+      store !== null &&
+      "get" in store &&
+      typeof (store as zarr.Readable).get === "function"
+    ) {
+      // Duck-type check for zarrita Readable stores (e.g. TiffStore, FetchStore, MemoryStore)
+      resolvedStore = store as zarr.Readable;
+    } else if (store instanceof Map || store instanceof zarr.FetchStore) {
+      // Defensive fallback for Map/FetchStore (normally caught by duck-type check above)
       resolvedStore = store;
-    } else if (store.startsWith("http://") || store.startsWith("https://")) {
+    } else if (
+      typeof store === "string" &&
+      (store.startsWith("http://") || store.startsWith("https://"))
+    ) {
       // Use FetchStore for HTTP/HTTPS URLs
       resolvedStore = new zarr.FetchStore(store);
     } else {
+      // Only strings (local paths) reach this branch
+      const storePath = store as string;
+
       // For local paths, check if we're in a browser environment
       if (typeof window !== "undefined") {
         throw new Error(
@@ -61,15 +78,14 @@ export async function fromNgffZarr(
         const { FileSystemStore, ZipFileStore } = await import(
           "@zarrita/storage"
         );
-        // @ts-ignore: Node/Deno workaround
         if (store instanceof FileSystemStore || store instanceof ZipFileStore) {
-          // @ts-ignore: Node/Deno workaround
-          resolvedStore = store;
+          resolvedStore = store as unknown as zarr.Readable;
         } else {
           // Normalize the path for cross-platform compatibility
-          const normalizedPath = store.replace(/^\/([A-Za-z]:)/, "$1");
-          // @ts-ignore: Node/Deno workaround
-          resolvedStore = new FileSystemStore(normalizedPath);
+          const normalizedPath = storePath.replace(/^\/([A-Za-z]:)/, "$1");
+          resolvedStore = new FileSystemStore(
+            normalizedPath,
+          ) as unknown as zarr.Readable;
         }
       } catch (error) {
         throw new Error(
@@ -79,12 +95,13 @@ export async function fromNgffZarr(
     }
 
     // Try to use consolidated metadata for better performance
-    let optimizedStore;
+    let optimizedStore: zarr.Readable | zarr.Listable<zarr.Readable>;
     try {
-      // @ts-ignore: tryWithConsolidated typing
-      optimizedStore = await zarr.tryWithConsolidated(resolvedStore);
+      optimizedStore = await zarr.tryWithConsolidated(
+        resolvedStore as zarr.Readable,
+      );
     } catch {
-      optimizedStore = resolvedStore;
+      optimizedStore = resolvedStore as zarr.Readable;
     }
 
     const root = await zarr.open(optimizedStore as zarr.Readable, {
