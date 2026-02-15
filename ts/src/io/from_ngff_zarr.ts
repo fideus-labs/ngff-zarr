@@ -54,6 +54,7 @@ export async function fromNgffZarr(
       // Duck-type check for zarrita Readable stores (e.g. TiffStore, FetchStore, MemoryStore)
       resolvedStore = store as zarr.Readable;
     } else if (store instanceof Map || store instanceof zarr.FetchStore) {
+      // Defensive fallback for Map/FetchStore (normally caught by duck-type check above)
       resolvedStore = store;
     } else if (
       typeof store === "string" &&
