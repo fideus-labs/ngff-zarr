@@ -101,6 +101,19 @@ export function prepareRfc9Metadata(
 }
 
 /**
+ * Get chunks from an NgffImage, falling back to default chunk size if not specified.
+ *
+ * @param image - NgffImage to get chunks from
+ * @returns Array of chunk sizes for each dimension
+ */
+function getChunksFromImage(image: NgffImage): number[] {
+  if (image.data.chunks && image.data.chunks.length > 0) {
+    return image.data.chunks;
+  }
+  return image.data.shape.map((s: number) => Math.min(s, 1024));
+}
+
+/**
  * Create root group attributes for RFC-9 export.
  *
  * @param multiscalesMetadata - Prepared multiscales metadata
@@ -172,8 +185,7 @@ export async function writeMultiscalesToMemoryStore(
   if (onProgress) {
     for (const image of multiscales.images) {
       const shape = image.data.shape;
-      const chunks = image.data.chunks ||
-        shape.map((s: number) => Math.min(s, 1024));
+      const chunks = getChunksFromImage(image);
       let imageChunks = 1;
       for (let d = 0; d < shape.length; d++) {
         imageChunks *= Math.ceil(shape[d] / chunks[d]);
@@ -195,7 +207,7 @@ export async function writeMultiscalesToMemoryStore(
     // Create a per-image progress wrapper that reports cumulative progress
     const imageOffset = completedChunks;
     const imageProgress = onProgress
-      ? (completed: number, _total: number) => {
+      ? (completed: number, _imageTotal: number) => {
         onProgress(imageOffset + completed, totalChunks);
       }
       : null;
@@ -210,8 +222,7 @@ export async function writeMultiscalesToMemoryStore(
     // Update cumulative offset for next image
     if (onProgress) {
       const shape = image.data.shape;
-      const chunks = image.data.chunks ||
-        shape.map((s: number) => Math.min(s, 1024));
+      const chunks = getChunksFromImage(image);
       let imageChunkCount = 1;
       for (let d = 0; d < shape.length; d++) {
         imageChunkCount *= Math.ceil(shape[d] / chunks[d]);
