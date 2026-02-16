@@ -14,14 +14,13 @@
  * `Math.min(navigator?.hardwareConcurrency || 4, 128)`.
  */
 
-import { WorkerPool } from "@fideus-labs/worker-pool";
-import { getWorker, setWorker } from "@fideus-labs/fizarrita";
 import type {
   GetWorkerOptions,
   SetWorkerOptions,
 } from "@fideus-labs/fizarrita";
+import { getWorker, setWorker } from "@fideus-labs/fizarrita";
 import type { WorkerPoolTask } from "@fideus-labs/worker-pool";
-import * as zarr from "zarrita";
+import { WorkerPool } from "@fideus-labs/worker-pool";
 import type {
   Array as ZarrArray,
   Chunk,
@@ -31,6 +30,7 @@ import type {
   Scalar,
   Slice,
 } from "zarrita";
+import * as zarr from "zarrita";
 
 export type { ChunkCache } from "@fideus-labs/fizarrita";
 
@@ -110,8 +110,9 @@ async function hasUnsupportedCodecs<Store extends Readable>(
     return pathMap.get(arr.path)!;
   }
 
-  const zarrJsonPath =
-    (arr.path === "/" ? "/zarr.json" : `${arr.path}/zarr.json`) as `/${string}`;
+  const zarrJsonPath = (
+    arr.path === "/" ? "/zarr.json" : `${arr.path}/zarr.json`
+  ) as `/${string}`;
   const bytes = await arr.store.get(zarrJsonPath);
 
   let result = false;
@@ -141,10 +142,12 @@ async function hasUnsupportedCodecs<Store extends Readable>(
 // ---------------------------------------------------------------------------
 
 // Return type alias for zarrGet — avoids repeating the conditional type.
-type GetResult<D extends DataType, Sel extends (null | Slice | number)[]> =
-  null extends Sel[number] ? Chunk<D>
-    : Slice extends Sel[number] ? Chunk<D>
-    : Scalar<D>;
+type GetResult<
+  D extends DataType,
+  Sel extends (null | Slice | number)[],
+> = null extends Sel[number] ? Chunk<D>
+  : Slice extends Sel[number] ? Chunk<D>
+  : Scalar<D>;
 
 /**
  * Worker-accelerated zarr array read.
@@ -168,7 +171,7 @@ export async function zarrGet<
   // (e.g. sharding_indexed). Avoids Worker creation that can hang on
   // some platforms (Windows CI).
   if (await hasUnsupportedCodecs(arr)) {
-    return await zarr.get(arr, selection) as GetResult<D, Sel>;
+    return (await zarr.get(arr, selection)) as GetResult<D, Sel>;
   }
 
   try {
@@ -187,9 +190,10 @@ export async function zarrGet<
   } catch (err) {
     // Fallback to zarr.get() for unsupported codecs (e.g. sharding_indexed)
     if (
-      err instanceof Error && /(?:unsupported|unknown) codec/i.test(err.message)
+      err instanceof Error &&
+      /(?:unsupported|unknown) codec/i.test(err.message)
     ) {
-      return await zarr.get(arr, selection) as GetResult<D, Sel>;
+      return (await zarr.get(arr, selection)) as GetResult<D, Sel>;
     }
     throw err;
   }
@@ -246,10 +250,16 @@ export async function zarrSet<D extends DataType>(
 // Public API: write queue (replaces PQueue-based create_queue)
 // ---------------------------------------------------------------------------
 
+/** Progress callback for chunk-level progress reporting. */
+export type ChunkProgressCallback = (
+  completedChunks: number,
+  totalChunks: number,
+) => void;
+
 /** Interface for chunk write scheduling queue. */
 export type ChunkQueue = {
   add(fn: () => Promise<void>): void;
-  onIdle(): Promise<void>;
+  onIdle(onProgress?: ChunkProgressCallback | null): Promise<void>;
 };
 
 /**
@@ -277,10 +287,10 @@ export function createWriteQueue(): ChunkQueue {
         };
       });
     },
-    async onIdle() {
+    async onIdle(onProgress?: ChunkProgressCallback | null) {
       if (tasks.length === 0) return;
       const batch = tasks.splice(0, tasks.length);
-      const { promise } = pool.runTasks(batch);
+      const { promise } = pool.runTasks(batch, onProgress ?? null);
       await promise;
     },
   };
