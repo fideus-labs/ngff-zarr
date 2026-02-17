@@ -8,8 +8,10 @@
 
 import type { Image } from "itk-wasm";
 import * as zarr from "zarrita";
+
+import type { NgffImage } from "../types/ngff_image.ts";
+import type { ZarrCodec } from "../utils/codecs.ts";
 import { defaultCodecs } from "../utils/codecs.ts";
-import { NgffImage } from "../types/ngff_image.ts";
 import { zarrGet, zarrSet } from "../utils/worker_pool.ts";
 
 export const SPATIAL_DIMS = ["x", "y", "z"];
@@ -502,6 +504,7 @@ export async function itkImageToZarr(
   path: string,
   chunkShape: number[],
   targetDims?: string[],
+  codecs?: ZarrCodec[],
 ): Promise<zarr.Array<zarr.DataType, zarr.Readable>> {
   const root = zarr.root(store);
 
@@ -637,7 +640,7 @@ export async function itkImageToZarr(
     chunk_shape: zarrChunkShape,
     data_type: dataType,
     fill_value: 0,
-    codecs: defaultCodecs(dataType),
+    codecs: codecs ?? defaultCodecs(dataType),
   });
 
   // Write data - preserve the actual data type, don't cast to Float32Array
