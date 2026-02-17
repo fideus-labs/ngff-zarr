@@ -270,7 +270,7 @@ Deno.test("2D oblique rotation", async () => {
 
 // Test edge case: axes aligned at 45 degrees
 
-Deno.test("2D 45-degree rotation: equal components", async () => {
+Deno.test("2D 45-degree rotation: first component wins on equal magnitude", async () => {
   // Both axes at 45 degrees:
   // [0.707  -0.707]
   // [0.707   0.707]

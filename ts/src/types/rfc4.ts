@@ -196,7 +196,7 @@ export function itkDirectionToAnatomicalOrientation(
 ): AnatomicalOrientation {
   if (directionColumn.length < 2) {
     throw new Error(
-      "Direction column must have at least 2 elements for 2D/3D images",
+      `Direction column must have at least 2 elements for 2D/3D images, got ${directionColumn.length}`,
     );
   }
   // Find the dominant physical axis (largest absolute component)

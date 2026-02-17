@@ -148,7 +148,7 @@ Deno.test("itkDirectionToAnatomicalOrientation - equal X/Y favors first componen
   assertEquals(orientation.value, AnatomicalOrientationValues.RightToLeft);
 });
 
-Deno.test("itkDirectionToAnatomicalOrientation - equal X/Y with negative X [-0.707, 0.707, 0] → LeftToRight", () => {
+Deno.test("itkDirectionToAnatomicalOrientation - equal magnitude X/Y with negative X [-0.707, 0.707, 0] → LeftToRight", () => {
   // First component still wins when its absolute value is equal
   const orientation = itkDirectionToAnatomicalOrientation([
     -0.707,
