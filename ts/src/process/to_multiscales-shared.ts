@@ -12,10 +12,7 @@ import type { Multiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { ZarrCodec } from "../utils/codecs.ts";
 // deno-lint-ignore no-unused-vars
-import {
-  bytesOnlyCodecs,
-  defaultCodecs,
-} from "../utils/codecs.ts";
+import { bytesOnlyCodecs, defaultCodecs } from "../utils/codecs.ts";
 import {
   createAxis,
   createDataset,
