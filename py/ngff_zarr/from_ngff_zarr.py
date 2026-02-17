@@ -118,17 +118,11 @@ def from_ngff_zarr(
                 "  3. The file may use a custom or unsupported metadata structure\n\n"
             )
             
-            # Provide specific guidance based on what's actually in the ome dict
-            if "plate" in root_attrs["ome"]:
-                error_msg += (
-                    "Note: This appears to be an HCS plate root. To load plate data, use from_hcs_zarr() "
-                    "or specify a path to a specific well/field image (e.g., 'plate.zarr/A/1/0')."
-                )
-            else:
-                error_msg += (
-                    "The 'ome' key is present but doesn't contain the required 'multiscales' metadata. "
-                    "Please verify that this is a valid OME-Zarr file."
-                )
+            # Provide additional generic guidance when 'multiscales' is missing under 'ome'
+            error_msg += (
+                "The 'ome' key is present but doesn't contain the required 'multiscales' metadata. "
+                "Please verify that this is a valid OME-Zarr file."
+            )
             
             raise ValueError(error_msg)
 
