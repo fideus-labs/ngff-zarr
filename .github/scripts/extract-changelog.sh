@@ -108,10 +108,11 @@ get_release_tags() {
 
     for ((i=0; i<${#tags[@]}; i++)); do
         if [ "${tags[$i]}" = "${current_tag}" ]; then
-            continue
+            if [ $((i + 1)) -lt ${#tags[@]} ]; then
+                previous_tag="${tags[$((i + 1))]}"
+            fi
+            break
         fi
-        previous_tag="${tags[$i]}"
-        break
     done
 
     echo "${current_tag}|${previous_tag}"
@@ -142,7 +143,7 @@ append_contributors() {
         if [ -z "$name" ]; then
             continue
         fi
-        if printf '%s\n' "$name" | grep -Eqi '(^copilot-swe-agent|bot)'; then
+        if printf '%s\n' "$name" | grep -Eqi '(^copilot-swe-agent$|\[bot\]$)'; then
             continue
         fi
         filtered_contributors+=("$name")
@@ -165,8 +166,13 @@ append_contributors() {
             new_contributors+=("$name")
         done
     else
+        # Compute the list of authors for the previous tag once to avoid
+        # running `git log` for each contributor.
+        local previous_authors
+        previous_authors="$(git log --format="%an" "$previous_tag" | sort -u || true)"
+
         for name in "${filtered_contributors[@]}"; do
-            if ! git log --format="%an" "$previous_tag" | grep -Fxq "$name"; then
+            if ! grep -Fxq "$name" <<< "$previous_authors"; then
                 new_contributors+=("$name")
             fi
         done
