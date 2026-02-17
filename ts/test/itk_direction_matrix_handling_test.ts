@@ -220,10 +220,10 @@ Deno.test("3D oblique: 45-degree rotation in XY plane", async () => {
     AnatomicalOrientationValues.RightToLeft,
   );
   // y (ITK axis 1) → column 1 → [-cos45, cos45, 0]
-  // Dominant: Y component (0.707 > |-0.707|) → A/P
+  // Equal X and Y magnitude, first (X) wins, X is negative → L/R
   assertEquals(
     ngff.axesOrientations?.["y"]?.value,
-    AnatomicalOrientationValues.AnteriorToPosterior,
+    AnatomicalOrientationValues.LeftToRight,
   );
   // z (ITK axis 2) → column 2 → [0, 0, 1]
   // Clearly Z component → I/S
@@ -318,10 +318,10 @@ Deno.test(
       ngff.axesOrientations?.["x"]?.value,
       AnatomicalOrientationValues.RightToLeft,
     );
-    // y → [-0.707, 0.707] → Y wins (0.707 > |-0.707|) → A/P
+    // y → [-0.707, 0.707] → Equal magnitude, X wins, X is negative → L/R
     assertEquals(
       ngff.axesOrientations?.["y"]?.value,
-      AnatomicalOrientationValues.AnteriorToPosterior,
+      AnatomicalOrientationValues.LeftToRight,
     );
   },
 );
