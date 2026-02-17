@@ -5,7 +5,17 @@ from dataclasses import asdict
 import dask.array
 
 from .ngff_image import NgffImage
-from .rfc4 import itk_lps_to_anatomical_orientation
+from .rfc4 import itk_lps_to_anatomical_orientation, itk_direction_to_anatomical_orientation
+
+
+def _is_identity_direction(direction, n: int) -> bool:
+    """Check whether a flat direction matrix is the identity matrix."""
+    for row in range(n):
+        for col in range(n):
+            expected = 1 if row == col else 0
+            if float(direction[row * n + col]) != expected:
+                return False
+    return True
 
 
 def itk_image_to_ngff_image(
@@ -72,10 +82,27 @@ def itk_image_to_ngff_image(
     axes_orientations = None
     if add_anatomical_orientation:
         axes_orientations = {}
-        for dim in spatial_dims:
-            orientation = itk_lps_to_anatomical_orientation(dim)
-            if orientation is not None:
-                axes_orientations[dim] = orientation
+        direction = image_dict.get("direction")
+        n_spatial = len(spatial_dims)
+
+        has_direction = direction is not None and len(direction) > 0
+        has_non_identity_direction = has_direction and not _is_identity_direction(
+            direction, n_spatial
+        )
+
+        if has_non_identity_direction:
+            for i, dim in enumerate(spatial_dims):
+                itk_axis_index = n_spatial - 1 - i
+                col = [
+                    float(direction[row * n_spatial + itk_axis_index])
+                    for row in range(n_spatial)
+                ]
+                axes_orientations[dim] = itk_direction_to_anatomical_orientation(col)
+        else:
+            for dim in spatial_dims:
+                orientation = itk_lps_to_anatomical_orientation(dim)
+                if orientation is not None:
+                    axes_orientations[dim] = orientation
 
     return NgffImage(
         data, dims, scale, translation, axes_orientations=axes_orientations

@@ -8,7 +8,7 @@ to OME-NGFF axes, based on the LinkML schema.
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Optional, Literal, Dict
+from typing import Optional, Literal, Dict, Sequence
 from enum import Enum
 
 
@@ -149,6 +149,93 @@ def itk_lps_to_anatomical_orientation(
         The corresponding anatomical orientation, or None for non-spatial axes
     """
     return LPS.get(axis_name)
+
+
+_MAX_SPATIAL_DIMENSIONS = 3
+"""Maximum number of spatial dimensions (for ITK LPS coordinate system)."""
+
+_LPS_ORIENTATION_PAIRS = [
+    (
+        AnatomicalOrientationValues.right_to_left,
+        AnatomicalOrientationValues.left_to_right,
+    ),
+    (
+        AnatomicalOrientationValues.anterior_to_posterior,
+        AnatomicalOrientationValues.posterior_to_anterior,
+    ),
+    (
+        AnatomicalOrientationValues.inferior_to_superior,
+        AnatomicalOrientationValues.superior_to_inferior,
+    ),
+]
+"""LPS orientation pairs: positive and negative orientations for each
+physical axis in the LPS coordinate system.
+
+Each row is ``(positive_orientation, negative_orientation)`` where
+*positive* means the direction cosine value is ≥ 0 and *negative* means
+it is < 0.
+
+- Row 0 (L/R): positive → RightToLeft, negative → LeftToRight
+- Row 1 (A/P): positive → AnteriorToPosterior, negative → PosteriorToAnterior
+- Row 2 (I/S): positive → InferiorToSuperior, negative → SuperiorToInferior
+"""
+
+
+def itk_direction_to_anatomical_orientation(
+    direction_column: Sequence[float],
+) -> AnatomicalOrientation:
+    """Determine anatomical orientation from an ITK direction cosine vector.
+
+    The *direction_column* is one column of the ITK direction matrix (stored
+    row-major as a flat array).  Its dominant component (largest absolute
+    value) determines which physical axis (L/R, A/P, or S/I) the image axis
+    aligns with, and the sign of that component determines the direction.
+
+    In LPS physical space:
+
+    - Component 0: L/R axis (positive = Right→Left, negative = Left→Right)
+    - Component 1: A/P axis (positive = Anterior→Posterior, negative = Posterior→Anterior)
+    - Component 2: I/S axis (positive = Inferior→Superior, negative = Superior→Inferior)
+
+    For 2D images the vector has only 2 elements; the third component is
+    implicitly zero.
+
+    Parameters
+    ----------
+    direction_column : Sequence[float]
+        Direction cosine vector for one image axis.  Must have at least 2
+        elements.
+
+    Returns
+    -------
+    AnatomicalOrientation
+        The anatomical orientation corresponding to the dominant direction.
+
+    Raises
+    ------
+    ValueError
+        If *direction_column* has fewer than 2 elements.
+    """
+    if len(direction_column) < 2:
+        raise ValueError(
+            f"Direction column must have at least 2 elements for 2D/3D images, "
+            f"got {len(direction_column)}"
+        )
+
+    # Find the dominant physical axis (largest absolute component)
+    dominant_axis = 0
+    max_abs = abs(direction_column[0])
+    n = min(len(direction_column), _MAX_SPATIAL_DIMENSIONS)
+    for i in range(1, n):
+        abs_val = abs(direction_column[i])
+        if abs_val > max_abs:
+            max_abs = abs_val
+            dominant_axis = i
+
+    # Positive component → positive LPS direction, negative → opposite
+    pair = _LPS_ORIENTATION_PAIRS[dominant_axis]
+    value = pair[0] if direction_column[dominant_axis] >= 0 else pair[1]
+    return AnatomicalOrientation(value=value)
 
 
 def is_rfc4_enabled(enabled_rfcs: Optional[list[int]]) -> bool:
