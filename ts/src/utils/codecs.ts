@@ -2,6 +2,17 @@
 // SPDX-License-Identifier: MIT
 
 /**
+ * Codec descriptor used in zarr v3 array metadata.
+ *
+ * @see {@link defaultCodecs} for the standard blosc+zstd pipeline.
+ * @see {@link bytesOnlyCodecs} for an uncompressed pipeline.
+ */
+export type ZarrCodec = {
+  name: string;
+  configuration: Record<string, unknown>;
+};
+
+/**
  * Return the byte size for a zarr v3 data type string.
  *
  * The Zarr v3 blosc codec spec requires an explicit `typesize` when
@@ -56,4 +67,17 @@ export function defaultCodecs(dataType: string) {
       },
     },
   ];
+}
+
+/**
+ * Build an uncompressed zarr v3 codec pipeline.
+ *
+ * Returns only the required `bytes` array-to-bytes codec (little-endian)
+ * with no bytes-to-bytes compression. This is useful when zarr arrays
+ * are ephemeral (e.g., in-memory multiscale pyramids that will be
+ * immediately re-encoded into another format like OME-TIFF) and the
+ * blosc compress/decompress round-trip would be wasted work.
+ */
+export function bytesOnlyCodecs(): ZarrCodec[] {
+  return [{ name: "bytes", configuration: { endian: "little" } }];
 }

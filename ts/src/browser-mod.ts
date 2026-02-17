@@ -54,6 +54,8 @@ export * from "./types/multiscales.ts";
 export * from "./types/ngff_image.ts";
 export * from "./types/units.ts";
 export * from "./types/zarr_metadata.ts";
+export type { ZarrCodec } from "./utils/codecs.ts";
+export { bytesOnlyCodecs, defaultCodecs } from "./utils/codecs.ts";
 export type {
   ComputeOmeroFromMultiscalesOptions,
   ComputeOmeroOptions,
