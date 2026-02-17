@@ -10,3 +10,5 @@ pixi.lock linguist-language=YAML linguist-generated=true
 *.yml text eol=lf
 *.yaml text eol=lf
 *.toml text eol=lf
+
+.github/workflows/*.lock.yml linguist-generated=true merge=ours
