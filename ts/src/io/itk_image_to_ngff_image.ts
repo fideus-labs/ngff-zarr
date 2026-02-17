@@ -221,11 +221,11 @@ export async function itkImageToNgffImage(
         const dim = spatialDims[i];
         // Reverse index: spatialDims[0] → last ITK axis, etc.
         const itkAxisIndex = nSpatial - 1 - i;
-        const col: [number, number, number] = [
-          Number(direction[0 * nSpatial + itkAxisIndex]),
-          Number(direction[1 * nSpatial + itkAxisIndex]),
-          Number(direction[2 * nSpatial + itkAxisIndex]),
-        ];
+        // Extract direction column, handling both 2D and 3D cases
+        const col: number[] = [];
+        for (let row = 0; row < nSpatial; row++) {
+          col.push(Number(direction[row * nSpatial + itkAxisIndex]));
+        }
         axesOrientations[dim] = itkDirectionToAnatomicalOrientation(col);
       }
     } else {
