@@ -12,9 +12,11 @@ import {
   downsampleLabelImage,
 } from "@itk-wasm/downsample";
 import * as zarr from "zarrita";
-import { zarrGet, zarrSet } from "../utils/worker_pool.ts";
-import { defaultCodecs } from "../utils/codecs.ts";
+
 import { NgffImage } from "../types/ngff_image.ts";
+import type { ZarrCodec } from "../utils/codecs.ts";
+import { defaultCodecs } from "../utils/codecs.ts";
+import { zarrGet, zarrSet } from "../utils/worker_pool.ts";
 import {
   type DimFactors,
   dimScaleFactors,
@@ -63,6 +65,7 @@ async function downsampleGaussian(
   dimFactors: DimFactors,
   spatialDims: string[],
   chunks?: number | number[] | Record<string, number>,
+  codecs?: ZarrCodec[],
 ): Promise<NgffImage> {
   // Handle time dimension by processing each time slice independently
   if (image.dims.includes("t")) {
@@ -96,7 +99,7 @@ async function downsampleGaussian(
         chunk_shape: sliceChunkShape,
         data_type: image.data.dtype,
         fill_value: 0,
-        codecs: defaultCodecs(image.data.dtype),
+        codecs: codecs ?? defaultCodecs(image.data.dtype),
       });
 
       const fullSelection = new Array(sliceShape.length).fill(null);
@@ -127,6 +130,7 @@ async function downsampleGaussian(
         dimFactors,
         spatialDims,
         sliceChunks,
+        codecs,
       );
       downsampledSlices.push(downsampledSlice.data);
     }
@@ -151,7 +155,7 @@ async function downsampleGaussian(
       chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
       data_type: image.data.dtype,
       fill_value: 0,
-      codecs: defaultCodecs(image.data.dtype),
+      codecs: codecs ?? defaultCodecs(image.data.dtype),
     });
 
     // Copy each downsampled slice into the combined array
@@ -220,7 +224,7 @@ async function downsampleGaussian(
         chunk_shape: sliceChunkShape,
         data_type: image.data.dtype,
         fill_value: 0,
-        codecs: defaultCodecs(image.data.dtype),
+        codecs: codecs ?? defaultCodecs(image.data.dtype),
       });
 
       const fullSelection = new Array(sliceShape.length).fill(null);
@@ -251,6 +255,7 @@ async function downsampleGaussian(
         dimFactors,
         spatialDims,
         sliceChunks,
+        codecs,
       );
       downsampledSlices.push(downsampledSlice.data);
     }
@@ -275,7 +280,7 @@ async function downsampleGaussian(
       chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
       data_type: image.data.dtype,
       fill_value: 0,
-      codecs: defaultCodecs(image.data.dtype),
+      codecs: codecs ?? defaultCodecs(image.data.dtype),
     });
 
     // Copy each downsampled slice into the combined array
@@ -343,6 +348,7 @@ async function downsampleGaussian(
     "image",
     chunkShape,
     image.dims,
+    codecs,
   );
 
   return new NgffImage({
@@ -364,6 +370,7 @@ async function downsampleBinShrinkImpl(
   dimFactors: DimFactors,
   spatialDims: string[],
   chunks?: number | number[] | Record<string, number>,
+  codecs?: ZarrCodec[],
 ): Promise<NgffImage> {
   // Handle time dimension by processing each time slice independently
   if (image.dims.includes("t")) {
@@ -397,7 +404,7 @@ async function downsampleBinShrinkImpl(
         chunk_shape: sliceChunkShape,
         data_type: image.data.dtype,
         fill_value: 0,
-        codecs: defaultCodecs(image.data.dtype),
+        codecs: codecs ?? defaultCodecs(image.data.dtype),
       });
 
       const fullSelection = new Array(sliceShape.length).fill(null);
@@ -428,6 +435,7 @@ async function downsampleBinShrinkImpl(
         dimFactors,
         spatialDims,
         sliceChunks,
+        codecs,
       );
       downsampledSlices.push(downsampledSlice.data);
     }
@@ -452,7 +460,7 @@ async function downsampleBinShrinkImpl(
       chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
       data_type: image.data.dtype,
       fill_value: 0,
-      codecs: defaultCodecs(image.data.dtype),
+      codecs: codecs ?? defaultCodecs(image.data.dtype),
     });
 
     // Copy each downsampled slice into the combined array
@@ -521,7 +529,7 @@ async function downsampleBinShrinkImpl(
         chunk_shape: sliceChunkShape,
         data_type: image.data.dtype,
         fill_value: 0,
-        codecs: defaultCodecs(image.data.dtype),
+        codecs: codecs ?? defaultCodecs(image.data.dtype),
       });
 
       const fullSelection = new Array(sliceShape.length).fill(null);
@@ -552,6 +560,7 @@ async function downsampleBinShrinkImpl(
         dimFactors,
         spatialDims,
         sliceChunks,
+        codecs,
       );
       downsampledSlices.push(downsampledSlice.data);
     }
@@ -576,7 +585,7 @@ async function downsampleBinShrinkImpl(
       chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
       data_type: image.data.dtype,
       fill_value: 0,
-      codecs: defaultCodecs(image.data.dtype),
+      codecs: codecs ?? defaultCodecs(image.data.dtype),
     });
 
     // Copy each downsampled slice into the combined array
@@ -640,6 +649,7 @@ async function downsampleBinShrinkImpl(
     "image",
     chunkShape,
     image.dims,
+    codecs,
   );
 
   return new NgffImage({
@@ -661,6 +671,7 @@ async function downsampleLabelImageImpl(
   dimFactors: DimFactors,
   spatialDims: string[],
   chunks?: number | number[] | Record<string, number>,
+  codecs?: ZarrCodec[],
 ): Promise<NgffImage> {
   // Handle time dimension by processing each time slice independently
   if (image.dims.includes("t")) {
@@ -694,7 +705,7 @@ async function downsampleLabelImageImpl(
         chunk_shape: sliceChunkShape,
         data_type: image.data.dtype,
         fill_value: 0,
-        codecs: defaultCodecs(image.data.dtype),
+        codecs: codecs ?? defaultCodecs(image.data.dtype),
       });
 
       const fullSelection = new Array(sliceShape.length).fill(null);
@@ -725,6 +736,7 @@ async function downsampleLabelImageImpl(
         dimFactors,
         spatialDims,
         sliceChunks,
+        codecs,
       );
       downsampledSlices.push(downsampledSlice.data);
     }
@@ -749,7 +761,7 @@ async function downsampleLabelImageImpl(
       chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
       data_type: image.data.dtype,
       fill_value: 0,
-      codecs: defaultCodecs(image.data.dtype),
+      codecs: codecs ?? defaultCodecs(image.data.dtype),
     });
 
     // Copy each downsampled slice into the combined array
@@ -818,7 +830,7 @@ async function downsampleLabelImageImpl(
         chunk_shape: sliceChunkShape,
         data_type: image.data.dtype,
         fill_value: 0,
-        codecs: defaultCodecs(image.data.dtype),
+        codecs: codecs ?? defaultCodecs(image.data.dtype),
       });
 
       const fullSelection = new Array(sliceShape.length).fill(null);
@@ -849,6 +861,7 @@ async function downsampleLabelImageImpl(
         dimFactors,
         spatialDims,
         sliceChunks,
+        codecs,
       );
       downsampledSlices.push(downsampledSlice.data);
     }
@@ -873,7 +886,7 @@ async function downsampleLabelImageImpl(
       chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
       data_type: image.data.dtype,
       fill_value: 0,
-      codecs: defaultCodecs(image.data.dtype),
+      codecs: codecs ?? defaultCodecs(image.data.dtype),
     });
 
     // Copy each downsampled slice into the combined array
@@ -943,6 +956,7 @@ async function downsampleLabelImageImpl(
     "image",
     chunkShape,
     image.dims,
+    codecs,
   );
 
   return new NgffImage({
@@ -964,6 +978,7 @@ export async function downsampleItkWasm(
   scaleFactors: (Record<string, number> | number)[],
   smoothing: "gaussian" | "bin_shrink" | "label_image",
   chunks?: number | number[] | Record<string, number>,
+  codecs?: ZarrCodec[],
 ): Promise<NgffImage[]> {
   const multiscales: NgffImage[] = [ngffImage];
   const dims = ngffImage.dims;
@@ -1043,6 +1058,7 @@ export async function downsampleItkWasm(
         sourceDimFactors,
         spatialDims,
         chunks,
+        codecs,
       );
     } else if (smoothing === "bin_shrink") {
       downsampled = await downsampleBinShrinkImpl(
@@ -1050,6 +1066,7 @@ export async function downsampleItkWasm(
         sourceDimFactors,
         spatialDims,
         chunks,
+        codecs,
       );
     } else if (smoothing === "label_image") {
       downsampled = await downsampleLabelImageImpl(
@@ -1057,6 +1074,7 @@ export async function downsampleItkWasm(
         sourceDimFactors,
         spatialDims,
         chunks,
+        codecs,
       );
     } else {
       throw new Error(`Unknown smoothing method: ${smoothing}`);
