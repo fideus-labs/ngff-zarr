@@ -127,6 +127,71 @@ export function itkLpsToAnatomicalOrientation(
 }
 
 /**
+ * LPS orientation pairs: positive and negative orientations for each
+ * physical axis in the LPS coordinate system.
+ *
+ * - Row 0 (L/R): positive (Left) / negative (Right)
+ * - Row 1 (A/P): positive (Posterior) / negative (Anterior)
+ * - Row 2 (I/S): positive (Superior) / negative (Inferior)
+ */
+const LPS_ORIENTATION_PAIRS: [
+  AnatomicalOrientationValues,
+  AnatomicalOrientationValues,
+][] = [
+  [
+    AnatomicalOrientationValues.RightToLeft,
+    AnatomicalOrientationValues.LeftToRight,
+  ],
+  [
+    AnatomicalOrientationValues.AnteriorToPosterior,
+    AnatomicalOrientationValues.PosteriorToAnterior,
+  ],
+  [
+    AnatomicalOrientationValues.InferiorToSuperior,
+    AnatomicalOrientationValues.SuperiorToInferior,
+  ],
+];
+
+/**
+ * Determine the anatomical orientation of a single image axis from its
+ * direction cosine vector in ITK LPS physical space.
+ *
+ * The direction vector is a column of the ITK direction matrix. Its
+ * dominant component (largest absolute value) determines which physical
+ * axis (L/R, A/P, or S/I) this image axis aligns with, and the sign
+ * of that component determines the direction.
+ *
+ * In LPS physical space:
+ * - Component 0: L/R axis (positive = Right→Left, negative = Left→Right)
+ * - Component 1: A/P axis (positive = Anterior→Posterior, negative = Posterior→Anterior)
+ * - Component 2: I/S axis (positive = Inferior→Superior, negative = Superior→Inferior)
+ *
+ * @param directionColumn - 3-element direction cosine vector
+ *   `[lps_x, lps_y, lps_z]` for the image axis
+ * @returns The anatomical orientation corresponding to the dominant
+ *   direction of this axis
+ */
+export function itkDirectionToAnatomicalOrientation(
+  directionColumn: readonly [number, number, number],
+): AnatomicalOrientation {
+  // Find the dominant physical axis (largest absolute component)
+  let dominantAxis = 0;
+  let maxAbs = Math.abs(directionColumn[0]);
+  for (let i = 1; i < 3; i++) {
+    const absVal = Math.abs(directionColumn[i]);
+    if (absVal > maxAbs) {
+      maxAbs = absVal;
+      dominantAxis = i;
+    }
+  }
+
+  // Positive component → positive LPS direction, negative → opposite
+  const pair = LPS_ORIENTATION_PAIRS[dominantAxis];
+  const value = directionColumn[dominantAxis] >= 0 ? pair[0] : pair[1];
+  return createAnatomicalOrientation(value);
+}
+
+/**
  * Check if RFC 4 is enabled in the list of enabled RFCs.
  */
 export function isRfc4Enabled(enabledRfcs?: number[]): boolean {
