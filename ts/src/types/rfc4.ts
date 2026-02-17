@@ -128,7 +128,8 @@ export function itkLpsToAnatomicalOrientation(
 
 /**
  * Maximum number of spatial dimensions (for ITK LPS coordinate system).
- * LPS has 3 axes: Left/Right (X), Anterior/Posterior (Y), Inferior/Superior (Z).
+ * LPS has 3 axes: Left/Right (X), Anterior/Posterior (Y),
+ * Inferior/Superior (Z).
  */
 const MAX_SPATIAL_DIMENSIONS = 3;
 
@@ -137,16 +138,19 @@ const MAX_SPATIAL_DIMENSIONS = 3;
  * physical axis in the LPS coordinate system.
  *
  * Each row is `[positiveComponentOrientation, negativeComponentOrientation]`,
- * where "positive component" (positive direction cosine value) indicates the
- * direction along that axis, and "negative component" (negative direction
- * cosine value) indicates the opposite direction.
+ * where "positive component" (positive direction cosine value) indicates
+ * the direction along that axis, and "negative component" (negative
+ * direction cosine value) indicates the opposite direction.
  *
- * - Row 0 (L/R): positive component → RightToLeft (positive direction points Left) /
- *                negative component → LeftToRight (negative direction points Right)
- * - Row 1 (A/P): positive component → AnteriorToPosterior (positive direction points Posterior) /
- *                negative component → PosteriorToAnterior (negative direction points Anterior)
- * - Row 2 (I/S): positive component → InferiorToSuperior (positive direction points Superior) /
- *                negative component → SuperiorToInferior (negative direction points Inferior)
+ * - Row 0 (L/R): positive component → RightToLeft
+ *   (positive direction points Left) / negative component → LeftToRight
+ *   (negative direction points Right)
+ * - Row 1 (A/P): positive component → AnteriorToPosterior
+ *   (positive direction points Posterior) / negative component →
+ *   PosteriorToAnterior (negative direction points Anterior)
+ * - Row 2 (I/S): positive component → InferiorToSuperior
+ *   (positive direction points Superior) / negative component →
+ *   SuperiorToInferior (negative direction points Inferior)
  */
 const LPS_ORIENTATION_PAIRS: [
   AnatomicalOrientationValues,

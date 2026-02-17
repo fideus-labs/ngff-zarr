@@ -2,12 +2,11 @@
 // SPDX-License-Identifier: MIT
 /**
  * Tests for direction matrix handling in itkImageToNgffImage.
- * Verifies correct anatomical orientation extraction from ITK direction matrices.
+ * Verifies anatomical orientation extraction from ITK direction matrices.
  */
 
 import { assertEquals } from "@std/assert";
 import type { Image } from "itk-wasm";
-import * as zarr from "zarrita";
 
 import { itkImageToNgffImage } from "../src/io/itk_image_to_ngff_image.ts";
 import { AnatomicalOrientationValues } from "../src/types/rfc4.ts";
@@ -99,9 +98,15 @@ Deno.test("3D permuted axes: X→Y, Y→Z, Z→X", async () => {
   // [1  0  0]   (Y maps to X: right-left)
   // [0  1  0]   (Z maps to Y: anterior-posterior)
   const direction = new Float64Array([
-    0, 0, 1,
-    1, 0, 0,
-    0, 1, 0,
+    0,
+    0,
+    1,
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
   ]);
   const image = mockItkImageWithDirection([10, 20, 30], direction);
   const ngff = await itkImageToNgffImage(image);
@@ -132,9 +137,15 @@ Deno.test("3D permuted with negation: flipped Y axis", async () => {
   // [0  -1   0]
   // [0   0   1]
   const direction = new Float64Array([
-    1, 0, 0,
-    0, -1, 0,
-    0, 0, 1,
+    1,
+    0,
+    0,
+    0,
+    -1,
+    0,
+    0,
+    0,
+    1,
   ]);
   const image = mockItkImageWithDirection([10, 20, 30], direction);
   const ngff = await itkImageToNgffImage(image);
@@ -159,8 +170,10 @@ Deno.test("2D permuted axes: X↔Y swap", async () => {
   // [0  1]   (X maps to Y: A/P)
   // [1  0]   (Y maps to X: R/L)
   const direction = new Float64Array([
-    0, 1,
-    1, 0,
+    0,
+    1,
+    1,
+    0,
   ]);
   const image = mockItkImageWithDirection([10, 20], direction);
   const ngff = await itkImageToNgffImage(image);
@@ -187,9 +200,15 @@ Deno.test("3D oblique: 45-degree rotation in XY plane", async () => {
   // [0       0      1]
   const cos45 = 0.707;
   const direction = new Float64Array([
-    cos45, -cos45, 0,
-    cos45, cos45, 0,
-    0, 0, 1,
+    cos45,
+    -cos45,
+    0,
+    cos45,
+    cos45,
+    0,
+    0,
+    0,
+    1,
   ]);
   const image = mockItkImageWithDirection([10, 20, 30], direction);
   const ngff = await itkImageToNgffImage(image);
@@ -220,9 +239,15 @@ Deno.test("3D oblique with dominant components", async () => {
   // Column 1: [0.2, 0.85, 0.3] → dominant Y
   // Column 2: [0.1, 0.2, 0.9] → dominant Z
   const direction = new Float64Array([
-    0.9, 0.2, 0.1,
-    0.3, 0.85, 0.2,
-    0.2, 0.3, 0.9,
+    0.9,
+    0.2,
+    0.1,
+    0.3,
+    0.85,
+    0.2,
+    0.2,
+    0.3,
+    0.9,
   ]);
   const image = mockItkImageWithDirection([10, 20, 30], direction);
   const ngff = await itkImageToNgffImage(image);
@@ -248,8 +273,10 @@ Deno.test("2D oblique rotation", async () => {
   const cos30 = 0.866;
   const sin30 = 0.5;
   const direction = new Float64Array([
-    cos30, -sin30,
-    sin30, cos30,
+    cos30,
+    -sin30,
+    sin30,
+    cos30,
   ]);
   const image = mockItkImageWithDirection([10, 20], direction);
   const ngff = await itkImageToNgffImage(image);
@@ -270,29 +297,34 @@ Deno.test("2D oblique rotation", async () => {
 
 // Test edge case: axes aligned at 45 degrees
 
-Deno.test("2D 45-degree rotation: first component wins on equal magnitude", async () => {
-  // Both axes at 45 degrees:
-  // [0.707  -0.707]
-  // [0.707   0.707]
-  const direction = new Float64Array([
-    0.707, -0.707,
-    0.707, 0.707,
-  ]);
-  const image = mockItkImageWithDirection([10, 20], direction);
-  const ngff = await itkImageToNgffImage(image);
+Deno.test(
+  "2D 45-degree rotation: first component wins on equal magnitude",
+  async () => {
+    // Both axes at 45 degrees:
+    // [0.707  -0.707]
+    // [0.707   0.707]
+    const direction = new Float64Array([
+      0.707,
+      -0.707,
+      0.707,
+      0.707,
+    ]);
+    const image = mockItkImageWithDirection([10, 20], direction);
+    const ngff = await itkImageToNgffImage(image);
 
-  // When components are equal, first one wins
-  // x → [0.707, 0.707] → X wins → R/L
-  assertEquals(
-    ngff.axesOrientations?.["x"]?.value,
-    AnatomicalOrientationValues.RightToLeft,
-  );
-  // y → [-0.707, 0.707] → Y wins (0.707 > |-0.707|) → A/P
-  assertEquals(
-    ngff.axesOrientations?.["y"]?.value,
-    AnatomicalOrientationValues.AnteriorToPosterior,
-  );
-});
+    // When components are equal, first one wins
+    // x → [0.707, 0.707] → X wins → R/L
+    assertEquals(
+      ngff.axesOrientations?.["x"]?.value,
+      AnatomicalOrientationValues.RightToLeft,
+    );
+    // y → [-0.707, 0.707] → Y wins (0.707 > |-0.707|) → A/P
+    assertEquals(
+      ngff.axesOrientations?.["y"]?.value,
+      AnatomicalOrientationValues.AnteriorToPosterior,
+    );
+  },
+);
 
 // Test that disabling anatomical orientation works
 
