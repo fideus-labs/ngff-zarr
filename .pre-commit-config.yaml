@@ -57,3 +57,4 @@ repos:
         stages: [commit-msg]
       - id: commitizen-branch
         stages: [pre-push]
+        args: ["--use-default-range"]
