@@ -79,5 +79,5 @@ export function defaultCodecs(dataType: string) {
  * blosc compress/decompress round-trip would be wasted work.
  */
 export function bytesOnlyCodecs(): ZarrCodec[] {
-  return [{ name: "bytes", configuration: { endian: "little" } } as ZarrCodec];
+  return [{ name: "bytes", configuration: { endian: "little" } }];
 }
