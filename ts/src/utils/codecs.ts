@@ -78,6 +78,6 @@ export function defaultCodecs(dataType: string) {
  * immediately re-encoded into another format like OME-TIFF) and the
  * blosc compress/decompress round-trip would be wasted work.
  */
-export function bytesOnlyCodecs() {
-  return [{ name: "bytes", configuration: { endian: "little" } }];
+export function bytesOnlyCodecs(): ZarrCodec[] {
+  return [{ name: "bytes", configuration: { endian: "little" } } as ZarrCodec];
 }

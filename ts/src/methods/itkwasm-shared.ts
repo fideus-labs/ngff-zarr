@@ -635,6 +635,21 @@ export async function itkImageToZarr(
     );
   }
 
+  // Validate codecs if provided
+  if (codecs !== undefined) {
+    if (codecs.length === 0) {
+      throw new Error(
+        "codecs array must not be empty; at minimum, include the required 'bytes' array-to-bytes codec",
+      );
+    }
+    const hasBytesCodec = codecs.some((codec) => codec.name === "bytes");
+    if (!hasBytesCodec) {
+      throw new Error(
+        "codecs array must include the required 'bytes' array-to-bytes codec",
+      );
+    }
+  }
+
   const array = await zarr.create(root.resolve(path), {
     shape: zarrShape,
     chunk_shape: zarrChunkShape,
