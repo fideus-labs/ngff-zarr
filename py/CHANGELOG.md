@@ -1,3 +1,9 @@
+## py-v0.28.1 (2026-02-18)
+
+### 🐛 Bug Fixes
+
+- **py**: republish package to fix corrupted detect_cli_io_backend.py in PyPI distribution
+
 ## py-v0.28.0 (2026-02-18)
 
 ### ♻️ Refactoring
