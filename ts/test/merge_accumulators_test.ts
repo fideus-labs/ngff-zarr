@@ -268,26 +268,27 @@ Deno.test("mergeAccumulators: chaining multiple merges", () => {
 // ============================================================================
 
 Deno.test("mergeAccumulators: randomness in subsampling", () => {
-  // Run the same merge multiple times and verify different samples
-  // Use larger data to reduce chance of accidental collision
-  const createTestAccumulator = () => {
-    const acc = createAccumulator();
-    updateAccumulator(acc, Array.from({ length: 5000 }, (_, i) => i));
-    return acc;
-  };
+  // Verify that Fisher-Yates shuffle produces different samples
+  // Use different data in each accumulator to guarantee different possible outcomes
+  const acc1 = createAccumulator();
+  const acc2 = createAccumulator();
+  
+  // acc1 has values 0-9999, acc2 has values 10000-19999
+  updateAccumulator(acc1, Array.from({ length: 10000 }, (_, i) => i));
+  updateAccumulator(acc2, Array.from({ length: 10000 }, (_, i) => i + 10000));
 
-  // Run multiple trials to verify randomness
+  // Merge multiple times - samples should differ due to random subsampling
   let allIdentical = true;
-  const firstMerge = (() => {
-    const a = createTestAccumulator();
-    const b = createTestAccumulator();
-    return mergeAccumulators(a, b);
-  })();
+  const firstMerge = mergeAccumulators(acc1, acc2);
 
-  // Try 5 more merges - at least one should differ
-  for (let i = 0; i < 5; i++) {
-    const a = createTestAccumulator();
-    const b = createTestAccumulator();
+  // Try 10 more merges - at least one should differ
+  for (let i = 0; i < 10; i++) {
+    // Create fresh accumulators with same data
+    const a = createAccumulator();
+    const b = createAccumulator();
+    updateAccumulator(a, Array.from({ length: 10000 }, (_, i) => i));
+    updateAccumulator(b, Array.from({ length: 10000 }, (_, i) => i + 10000));
+    
     const merged = mergeAccumulators(a, b);
 
     const samplesEqual = JSON.stringify(merged.sample.sort()) ===
