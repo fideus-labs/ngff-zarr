@@ -1,3 +1,15 @@
+## ts-v0.12.0 (2026-02-17)
+
+### ✨ Features
+
+- **ts**: add 2D support and comprehensive tests for direction matrix handling ([83ff58f](https://github.com/fideus-labs/ngff-zarr/commit/83ff58f4d503e080197793d7c164a8fbace2565d))
+- **ts**: derive anatomical orientation from ITK direction matrix ([d3e55d1](https://github.com/fideus-labs/ngff-zarr/commit/d3e55d1d69463d26522e849c7d12525064d906f3))
+- **ts**: add codecs option to toMultiscales for skipping blosc compression ([5bebee3](https://github.com/fideus-labs/ngff-zarr/commit/5bebee309c2d5ebc2768e65aac33936b978b910a))
+
+### 🐛 Bug Fixes
+
+- **ci**: correct new contributor detection and filter bots ([836992d](https://github.com/fideus-labs/ngff-zarr/commit/836992dd0094aaf0c8036200e7de606a628094da))
+
 ## ts-v0.11.0 (2026-02-15)
 
 ### ♻️ Refactoring
