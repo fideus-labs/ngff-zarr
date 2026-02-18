@@ -1,4 +1,5 @@
 #!/usr/bin/env -S deno run --allow-all
+
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 
@@ -12,8 +13,8 @@
  * 4. Generates package.json with proper exports
  */
 
-import { walk } from "jsr:@std/fs@^1/walk";
 import { emptyDir, ensureDir } from "jsr:@std/fs@^1";
+import { walk } from "jsr:@std/fs@^1/walk";
 import { dirname, join, relative } from "jsr:@std/path@^1";
 
 const SRC_DIR = "./src";
@@ -25,10 +26,7 @@ const NPM_DIR = "./npm";
  */
 function rewriteImports(content: string): string {
   // Replace .ts extensions with .js in relative imports
-  content = content.replace(
-    /(from\s+["'])(\.[^"']+)\.ts(["'])/g,
-    "$1$2.js$3",
-  );
+  content = content.replace(/(from\s+["'])(\.[^"']+)\.ts(["'])/g, "$1$2.js$3");
 
   // Replace import() with .ts extensions
   content = content.replace(
@@ -73,7 +71,10 @@ async function copyAndTransformSources(): Promise<void> {
   await ensureDir(STAGING_DIR);
 
   for await (
-    const entry of walk(SRC_DIR, { exts: [".ts"], includeDirs: false })
+    const entry of walk(SRC_DIR, {
+      exts: [".ts"],
+      includeDirs: false,
+    })
   ) {
     const relativePath = relative(SRC_DIR, entry.path);
     const destPath = join(STAGING_DIR, relativePath);
@@ -125,7 +126,7 @@ async function createTsConfig(): Promise<void> {
 async function createPackageJson(): Promise<void> {
   const packageJson = {
     name: "@fideus-labs/ngff-zarr",
-    version: "0.12.2",
+    version: "0.12.3",
     description:
       "TypeScript implementation of ngff-zarr for reading and writing OME-Zarr files",
     license: "MIT",

@@ -1,4 +1,5 @@
 #!/usr/bin/env -S deno run --allow-all
+
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 
@@ -52,10 +53,7 @@ async function bundleWorker(): Promise<string> {
  * Escape a string for use in a JavaScript template literal.
  */
 function escapeForTemplateLiteral(code: string): string {
-  return code
-    .replace(/\\/g, "\\\\")
-    .replace(/`/g, "\\`")
-    .replace(/\$/g, "\\$");
+  return code.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$/g, "\\$");
 }
 
 /**
@@ -90,8 +88,10 @@ async function inlineWorkerCode(workerCode: string): Promise<void> {
     return new Worker(url, { type: "module" });
   })()`;
 
-  // Replace the pattern
-  content = content.replace(workerPattern, inlineWorkerCreation);
+  // Replace the pattern using a replacer function to avoid
+  // String.replace() interpreting "$&", "$`", etc. in the
+  // replacement string as special back-reference patterns.
+  content = content.replace(workerPattern, () => inlineWorkerCreation);
 
   await Deno.writeTextFile(targetPath, content);
   console.log("[inline_worker] Successfully inlined worker code");
@@ -103,9 +103,7 @@ console.log("[inline_worker] Starting worker inlining...");
 try {
   console.log("[inline_worker] Bundling worker code...");
   const workerCode = await bundleWorker();
-  console.log(
-    `[inline_worker] Worker bundle size: ${workerCode.length} bytes`,
-  );
+  console.log(`[inline_worker] Worker bundle size: ${workerCode.length} bytes`);
 
   console.log("[inline_worker] Inlining worker into compute_omero module...");
   await inlineWorkerCode(workerCode);
