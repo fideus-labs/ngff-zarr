@@ -1,3 +1,16 @@
+## py-v0.28.0 (2026-02-18)
+
+### ♻️ Refactoring
+
+- **py**: consolidate test assertions in test_version_detection ([6cbacc9](https://github.com/fideus-labs/ngff-zarr/commit/6cbacc93c693a5a06844c33dd26ac443625ff399))
+
+### 🐛 Bug Fixes
+
+- **py**: remove unreachable HCS plate detection code ([789dfb1](https://github.com/fideus-labs/ngff-zarr/commit/789dfb127cf4bf3a2fe74d199426b869d1868a43))
+- **py**: improve error message for OME-Zarr files with ome key but missing multiscales ([76b7ed7](https://github.com/fideus-labs/ngff-zarr/commit/76b7ed7e7dda159dd26b097dff8c604157a0e0ea))
+- **ci**: correct new contributor detection and filter bots ([836992d](https://github.com/fideus-labs/ngff-zarr/commit/836992dd0094aaf0c8036200e7de606a628094da))
+- **ci**: guard printf against names starting with dash ([7ef5d40](https://github.com/fideus-labs/ngff-zarr/commit/7ef5d406a6c6c8495e7b0652cedb8ec2656d82dc))
+
 ## py-v0.27.0 (2026-02-12)
 
 ### ✨ Features
