@@ -64,6 +64,7 @@ def to_ngff_image(
     translation: Optional[Union[Mapping[Hashable, float]]] = None,
     name: str = "image",
     axes_units: Optional[Mapping[str, Units]] = None,
+    channel_names: Optional[Sequence[str]] = None,
 ) -> NgffImage:
     """
     Create an image with pixel array and metadata to following the OME-NGFF data model.
@@ -92,6 +93,10 @@ def to_ngff_image(
     :param axes_units: Units to associate with the axes. Should be drawn from UDUNITS-2, enumerated at
         https://ngff.openmicroscopy.org/latest/#axes-md
     :type  axes_units: dict of str, optional
+
+    :param channel_names: Optional list of channel names. Length should match the number of channels
+        in the data (size of 'c' dimension).
+    :type  channel_names: sequence of str, optional
 
     :return: Representation of an image (pixel data + metadata) for a single scale of an NGFF-OME-Zarr multiscale dataset
     :rtype: NgffImage
@@ -136,4 +141,5 @@ def to_ngff_image(
         translation=translation,
         name=name,
         axes_units=axes_units,
+        channel_names=list(channel_names) if channel_names else None,
     )

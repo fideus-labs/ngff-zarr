@@ -20,4 +20,5 @@ class NgffImage:
     name: str = "image"
     axes_units: Optional[Mapping[str, Units]] = None
     axes_orientations: Optional[Mapping[str, AnatomicalOrientation]] = None
+    channel_names: Optional[List[str]] = None
     computed_callbacks: List[ComputedCallback] = field(default_factory=list)
