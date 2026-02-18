@@ -476,9 +476,7 @@ def _extract_ome_channel_names(
                 channels = pixels.findall("ome:Channel", ns)
                 if channels:
                     # Extract Name attribute from each channel, use empty string if not present
-                    channel_names = [
-                        ch.get("Name", "") for ch in channels
-                    ]
+                    channel_names = [ch.get("Name", "") for ch in channels]
                     return channel_names if channel_names else None
 
     # Fallback: try without namespace (for non-standard OME-XML)
@@ -495,13 +493,10 @@ def _extract_ome_channel_names(
         # Look for Channel elements
         channels = [ch for ch in pixels if "Channel" in ch.tag]
         if channels:
-            channel_names = [
-                ch.get("Name", "") for ch in channels
-            ]
+            channel_names = [ch.get("Name", "") for ch in channels]
             return channel_names if channel_names else None
 
     return None
-
 
 
 def _sanitize_series_name(name: str) -> str:

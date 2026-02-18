@@ -565,4 +565,3 @@ def test_tiff_file_to_ngff_images_without_channel_names():
     name, img = images[0]
     # Should have None for channel names
     assert img.channel_names is None
-

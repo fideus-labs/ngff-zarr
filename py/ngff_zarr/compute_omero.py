@@ -584,6 +584,15 @@ def compute_omero_from_ngff_image(
                 f"Not enough labels provided. Got {len(labels)}, need {n_channels}."
             )
         channel_labels = list(labels[:n_channels])
+    elif ngff_image.channel_names is not None:
+        # Use channel names from the image if available
+        if len(ngff_image.channel_names) >= n_channels:
+            channel_labels = list(ngff_image.channel_names[:n_channels])
+        else:
+            # Pad with empty strings if not enough names
+            channel_labels = list(ngff_image.channel_names) + [""] * (
+                n_channels - len(ngff_image.channel_names)
+            )
     else:
         channel_labels = [""] * n_channels
 
