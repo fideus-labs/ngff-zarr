@@ -1,3 +1,10 @@
+## ts-v0.12.1 (2026-02-18)
+
+### 🐛 Bug Fixes
+
+- **ts**: handle padded edge chunks and fix biased reservoir merge ([492a3a2](https://github.com/fideus-labs/ngff-zarr/commit/492a3a29dceb78bd1572ccf3e8993a8c8d4d4632))
+- **ts**: add explicit return type to defaultCodecs public function ([d488baa](https://github.com/fideus-labs/ngff-zarr/commit/d488baae644c5b5f0c17e9bf95e23fd6f7f170a3))
+
 ## ts-v0.12.0 (2026-02-17)
 
 ### ✨ Features
