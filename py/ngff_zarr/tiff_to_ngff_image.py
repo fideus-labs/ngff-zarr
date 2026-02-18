@@ -169,9 +169,16 @@ def _map_tiff_axes_to_ngff(
             dropped_indices.append(i)
 
     if dropped_axes:
+        supported = ", ".join(
+            sorted(
+                k.upper()
+                for k in TIFF_AXIS_TO_NGFF.keys()
+                if TIFF_AXIS_TO_NGFF[k] is not None
+            )
+        )
         warnings.warn(
             f"Dropping unsupported TIFF axes: {', '.join(dropped_axes)}. "
-            f"Supported axes are: {', '.join(sorted(k.upper() for k in TIFF_AXIS_TO_NGFF.keys() if TIFF_AXIS_TO_NGFF[k] is not None))}",
+            f"Supported axes are: {supported}",
             UserWarning,
             stacklevel=3,
         )
@@ -475,7 +482,8 @@ def _extract_ome_channel_names(
                 # Extract channel elements
                 channels = pixels.findall("ome:Channel", ns)
                 if channels:
-                    # Extract Name attribute from each channel, use empty string if not present
+                    # Extract Name attribute from each channel, use empty
+                    # string if not present
                     channel_names = [ch.get("Name", "") for ch in channels]
                     return channel_names if channel_names else None
 
@@ -798,7 +806,9 @@ def tiff_file_to_ngff_images(
     >>> # Convert series matching pattern
     >>> images = tiff_file_to_ngff_images("sample.ome.tiff", series="*area_1*")
     >>> # Reuse existing pyramid levels
-    >>> images = tiff_file_to_ngff_images("pyramidal.ome.tiff", reuse_existing_pyramids=True)
+    >>> images = tiff_file_to_ngff_images(
+    ...     "pyramidal.ome.tiff", reuse_existing_pyramids=True
+    ... )
     """
     try:
         import tifffile
@@ -817,7 +827,11 @@ def tiff_file_to_ngff_images(
         elif isinstance(series, int):
             # Explicit index - validate it exists
             if series < 0 or series >= len(all_series):
-                msg = f"Series index {series} is out of bounds. File has {len(all_series)} series (indices 0-{len(all_series) - 1})."
+                msg = (
+                    f"Series index {series} is out of bounds. "
+                    f"File has {len(all_series)} series "
+                    f"(indices 0-{len(all_series) - 1})."
+                )
                 raise IndexError(msg)
             indices_to_convert = [series]
         elif isinstance(series, str):
@@ -837,7 +851,11 @@ def tiff_file_to_ngff_images(
                 if isinstance(s, int):
                     # Explicit index - validate it exists
                     if s < 0 or s >= len(all_series):
-                        msg = f"Series index {s} is out of bounds. File has {len(all_series)} series (indices 0-{len(all_series) - 1})."
+                        msg = (
+                            f"Series index {s} is out of bounds. "
+                            f"File has {len(all_series)} series "
+                            f"(indices 0-{len(all_series) - 1})."
+                        )
                         raise IndexError(msg)
                     indices_to_convert.append(s)
                 elif isinstance(s, str):

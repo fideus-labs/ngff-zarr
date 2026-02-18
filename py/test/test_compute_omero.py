@@ -502,7 +502,8 @@ class TestDenseSampling:
         assert omero.channels[0].window.max == 63.0
 
     def test_dense_more_accurate_than_approximate_for_multi_chunk(self):
-        """Test that dense sampling is at least as accurate as approximate for multi-chunk data."""
+        """Test dense sampling is at least as accurate as approximate for
+        multi-chunk data."""
         # Create a large-ish array with many small chunks to stress the
         # approximate algorithm
         import dask.array as da
@@ -532,3 +533,95 @@ class TestDenseSampling:
         # Approximate may have larger error (we just check it doesn't crash)
         assert omero_approx.channels[0].window.start is not None
         assert omero_approx.channels[0].window.end is not None
+
+
+class TestChannelNamesIntegration:
+    """Tests for channel_names field integration with compute_omero_from_ngff_image."""
+
+    def test_channel_names_used_as_default_labels(self):
+        """Test that channel_names from NgffImage are used as default labels."""
+        data = np.ones((3, 10, 10), dtype=np.float32)
+        image = to_ngff_image(data, dims=["c", "y", "x"])
+
+        # Set channel_names on the image
+        image.channel_names = ["DAPI", "GFP", "RFP"]
+
+        omero = compute_omero_from_ngff_image(image)
+
+        assert len(omero.channels) == 3
+        assert omero.channels[0].label == "DAPI"
+        assert omero.channels[1].label == "GFP"
+        assert omero.channels[2].label == "RFP"
+
+    def test_explicit_labels_override_channel_names(self):
+        """Test that explicit labels parameter overrides channel_names."""
+        data = np.ones((3, 10, 10), dtype=np.float32)
+        image = to_ngff_image(data, dims=["c", "y", "x"])
+
+        # Set channel_names on the image
+        image.channel_names = ["DAPI", "GFP", "RFP"]
+
+        # Use explicit labels that differ from channel_names
+        omero = compute_omero_from_ngff_image(image, labels=["Red", "Green", "Blue"])
+
+        assert omero.channels[0].label == "Red"
+        assert omero.channels[1].label == "Green"
+        assert omero.channels[2].label == "Blue"
+
+    def test_channel_names_with_single_channel(self):
+        """Test channel_names with single channel image without 'c' dimension."""
+        data = np.ones((10, 10), dtype=np.float32)
+        image = to_ngff_image(data, dims=["y", "x"])
+
+        # Single channel image without 'c' dimension can still use channel_names
+        image.channel_names = ["Brightfield"]
+
+        omero = compute_omero_from_ngff_image(image)
+
+        assert len(omero.channels) == 1
+        # channel_names are used even for images without 'c' dimension
+        assert omero.channels[0].label == "Brightfield"
+
+    def test_insufficient_channel_names_padded_with_empty_strings(self):
+        """Test that insufficient channel_names are padded with empty strings."""
+        data = np.ones((3, 10, 10), dtype=np.float32)
+        image = to_ngff_image(data, dims=["c", "y", "x"])
+
+        # Provide fewer channel names than channels
+        image.channel_names = ["DAPI"]
+
+        # Should not raise an error, pads with empty strings
+        omero = compute_omero_from_ngff_image(image)
+
+        assert len(omero.channels) == 3
+        assert omero.channels[0].label == "DAPI"
+        assert omero.channels[1].label == ""
+        assert omero.channels[2].label == ""
+
+    def test_no_channel_names_uses_empty_strings(self):
+        """Test that when channel_names is None, empty strings are used."""
+        data = np.ones((3, 10, 10), dtype=np.float32)
+        image = to_ngff_image(data, dims=["c", "y", "x"])
+
+        # channel_names is None by default
+        assert image.channel_names is None
+
+        omero = compute_omero_from_ngff_image(image)
+
+        assert omero.channels[0].label == ""
+        assert omero.channels[1].label == ""
+        assert omero.channels[2].label == ""
+
+    def test_channel_names_with_empty_strings(self):
+        """Test that channel_names can contain empty strings."""
+        data = np.ones((3, 10, 10), dtype=np.float32)
+        image = to_ngff_image(data, dims=["c", "y", "x"])
+
+        # Mix of named and unnamed channels
+        image.channel_names = ["DAPI", "", "RFP"]
+
+        omero = compute_omero_from_ngff_image(image)
+
+        assert omero.channels[0].label == "DAPI"
+        assert omero.channels[1].label == ""
+        assert omero.channels[2].label == "RFP"
