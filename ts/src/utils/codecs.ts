@@ -53,7 +53,7 @@ export function typeSizeForDtype(dtype: string): number {
  * which is not spec-compliant and causes errors in other zarr v3
  * implementations (e.g., Python zarr-python).
  */
-export function defaultCodecs(dataType: string) {
+export function defaultCodecs(dataType: string): ZarrCodec[] {
   return [
     { name: "bytes", configuration: { endian: "little" } },
     {
