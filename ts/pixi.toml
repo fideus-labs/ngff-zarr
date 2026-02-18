@@ -47,9 +47,6 @@ cmd = "deno task build:npm && deno task test:browser"
 cmd = "deno task test && deno task test:browser:bundle"
 
 [tasks.build-npm]
-cmd = "deno run --allow-all scripts/build_npm.ts"
-
-[tasks.build-bundle]
 # Build NPM package first, inline the worker, then bundle the browser module with esbuild
 # This ensures proper npm conditional exports are respected (e.g., browser vs node)
 # Using pinned esbuild version for supply-chain security
