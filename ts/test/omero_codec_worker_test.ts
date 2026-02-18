@@ -100,9 +100,18 @@ Deno.test("copySubRegion: 1D array - single element", () => {
 Deno.test("copySubRegion: 2D array - full copy", () => {
   // 3x4 array in C-order
   const src = [
-    1, 2, 3, 4,
-    5, 6, 7, 8,
-    9, 10, 11, 12,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
   ];
   const dst = new Array(12).fill(0);
   const srcStrides = getStrides([3, 4]);
@@ -116,9 +125,18 @@ Deno.test("copySubRegion: 2D array - full copy", () => {
 Deno.test("copySubRegion: 2D array - extract sub-region", () => {
   // 3x4 padded array, extract 2x3 region
   const src = [
-    1, 2, 3, 4,
-    5, 6, 7, 8,
-    9, 10, 11, 12,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
   ];
   const dst = new Array(6).fill(0);
   const srcStrides = getStrides([3, 4]);
@@ -131,9 +149,15 @@ Deno.test("copySubRegion: 2D array - extract sub-region", () => {
 
 Deno.test("copySubRegion: 2D array - extract single row", () => {
   const src = [
-    1, 2, 3,
-    4, 5, 6,
-    7, 8, 9,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
   ];
   const dst = new Array(3).fill(0);
   const srcStrides = getStrides([3, 3]);
@@ -146,9 +170,15 @@ Deno.test("copySubRegion: 2D array - extract single row", () => {
 
 Deno.test("copySubRegion: 2D array - extract single column", () => {
   const src = [
-    1, 2, 3,
-    4, 5, 6,
-    7, 8, 9,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
   ];
   const dst = new Array(3).fill(0);
   const srcStrides = getStrides([3, 3]);
@@ -191,13 +221,31 @@ Deno.test("copySubRegion: 3D array - extract sub-region", () => {
   // Shape: [z, y, x] = [2, 3, 4]
   const src = [
     // z=0
-    0, 1, 2, 3, // y=0
-    4, 5, 6, 7, // y=1
-    8, 9, 10, 11, // y=2
+    0,
+    1,
+    2,
+    3, // y=0
+    4,
+    5,
+    6,
+    7, // y=1
+    8,
+    9,
+    10,
+    11, // y=2
     // z=1
-    12, 13, 14, 15, // y=0
-    16, 17, 18, 19, // y=1
-    20, 21, 22, 23, // y=2
+    12,
+    13,
+    14,
+    15, // y=0
+    16,
+    17,
+    18,
+    19, // y=1
+    20,
+    21,
+    22,
+    23, // y=2
   ];
   const dst = new Array(12).fill(-1);
   const srcStrides = getStrides([2, 3, 4]);
@@ -212,12 +260,18 @@ Deno.test("copySubRegion: 3D array - extract sub-region", () => {
 Deno.test("copySubRegion: 3D array - extract single plane", () => {
   // 3x2x2 array, extract first plane (1x2x2)
   const src = [
-    1, 2,
-    3, 4,
-    5, 6,
-    7, 8,
-    9, 10,
-    11, 12,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
   ];
   const dst = new Array(4).fill(-1);
   const srcStrides = getStrides([3, 2, 2]);
@@ -236,9 +290,15 @@ Deno.test("copySubRegion: padded edge chunk - 2D example", () => {
   // Simulate a padded edge chunk: chunk_shape=[3,3], actual_shape=[2,2]
   // The padded region is filled with zeros
   const src = [
-    1, 2, 0, // y=0: valid data, then padding
-    3, 4, 0, // y=1: valid data, then padding
-    0, 0, 0, // y=2: all padding
+    1,
+    2,
+    0, // y=0: valid data, then padding
+    3,
+    4,
+    0, // y=1: valid data, then padding
+    0,
+    0,
+    0, // y=2: all padding
   ];
   const dst = new Array(4).fill(-1);
   const srcStrides = getStrides([3, 3]);
@@ -252,10 +312,14 @@ Deno.test("copySubRegion: padded edge chunk - 2D example", () => {
 Deno.test("copySubRegion: padded edge chunk - 3D example", () => {
   // chunk_shape=[2,2,2], actual_shape=[1,2,1]
   const src = [
-    10, 0, // z=0, y=0: one valid, one pad
-    20, 0, // z=0, y=1: one valid, one pad
-    0, 0, // z=1, y=0: all padding
-    0, 0, // z=1, y=1: all padding
+    10,
+    0, // z=0, y=0: one valid, one pad
+    20,
+    0, // z=0, y=1: one valid, one pad
+    0,
+    0, // z=1, y=0: all padding
+    0,
+    0, // z=1, y=1: all padding
   ];
   const dst = new Array(2).fill(-1);
   const srcStrides = getStrides([2, 2, 2]);
