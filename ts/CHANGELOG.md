@@ -1,3 +1,9 @@
+## ts-v0.12.2 (2026-02-18)
+
+### 🐛 Bug Fixes
+
+- **ts**: always build bundle for npm package ([38de129](https://github.com/fideus-labs/ngff-zarr/commit/38de129da66dee80b26c37f2b5dd819547fb1b32))
+
 ## ts-v0.12.1 (2026-02-18)
 
 ### 🐛 Bug Fixes
