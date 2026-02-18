@@ -272,7 +272,7 @@ Deno.test("mergeAccumulators: randomness in subsampling", () => {
   // Use different data in each accumulator to guarantee different possible outcomes
   const acc1 = createAccumulator();
   const acc2 = createAccumulator();
-  
+
   // acc1 has values 0-9999, acc2 has values 10000-19999
   updateAccumulator(acc1, Array.from({ length: 10000 }, (_, i) => i));
   updateAccumulator(acc2, Array.from({ length: 10000 }, (_, i) => i + 10000));
@@ -288,7 +288,7 @@ Deno.test("mergeAccumulators: randomness in subsampling", () => {
     const b = createAccumulator();
     updateAccumulator(a, Array.from({ length: 10000 }, (_, i) => i));
     updateAccumulator(b, Array.from({ length: 10000 }, (_, i) => i + 10000));
-    
+
     const merged = mergeAccumulators(a, b);
 
     const samplesEqual = JSON.stringify(merged.sample.sort()) ===
