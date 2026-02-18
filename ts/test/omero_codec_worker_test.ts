@@ -391,15 +391,19 @@ Deno.test("copySubRegion: 5D array", () => {
 // ============================================================================
 
 Deno.test("copySubRegion: with srcOffset", () => {
-  const src = [0, 0, 1, 2, 3, 4]; // First 2 elements are padding
+  // 2x3 array: [[1,2,3], [4,5,6]]
+  const src = [1, 2, 3, 4, 5, 6];
   const dst = new Array(4).fill(-1);
-  const srcStrides = getStrides([2, 3]); // but treat as starting at offset 2
+  const srcStrides = getStrides([2, 3]); // srcStrides = [3, 1] for shape [2,3]
   const subShape = [2, 2];
 
-  // Start copy from index 2 in source
-  copySubRegion(src, srcStrides, dst, subShape, 2, 0, 0);
+  // Start copy from index 1 (offset by 1 in source)
+  // With srcStrides=[3,1], subShape=[2,2], srcOffset=1:
+  // First row (i=0): srcOffset=1, copies src[1], src[2] -> 2, 3
+  // Second row (i=1): srcOffset=1+3=4, copies src[4], src[5] -> 5, 6
+  copySubRegion(src, srcStrides, dst, subShape, 1, 0, 0);
 
-  assertEquals(dst, [1, 2, 4, 0]); // Note: srcStrides expects [2,3] shape so stride[0]=3
+  assertEquals(dst, [2, 3, 5, 6]);
 });
 
 Deno.test("copySubRegion: with dstOffset", () => {

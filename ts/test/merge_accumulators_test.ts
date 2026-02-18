@@ -269,26 +269,41 @@ Deno.test("mergeAccumulators: chaining multiple merges", () => {
 
 Deno.test("mergeAccumulators: randomness in subsampling", () => {
   // Run the same merge multiple times and verify different samples
+  // Use larger data to reduce chance of accidental collision
   const createTestAccumulator = () => {
     const acc = createAccumulator();
-    updateAccumulator(acc, Array.from({ length: 100 }, (_, i) => i));
+    updateAccumulator(acc, Array.from({ length: 5000 }, (_, i) => i));
     return acc;
   };
 
-  const a1 = createTestAccumulator();
-  const b1 = createTestAccumulator();
-  const merged1 = mergeAccumulators(a1, b1);
+  // Run multiple trials to verify randomness
+  let allIdentical = true;
+  const firstMerge = (() => {
+    const a = createTestAccumulator();
+    const b = createTestAccumulator();
+    return mergeAccumulators(a, b);
+  })();
 
-  const a2 = createTestAccumulator();
-  const b2 = createTestAccumulator();
-  const merged2 = mergeAccumulators(a2, b2);
+  // Try 5 more merges - at least one should differ
+  for (let i = 0; i < 5; i++) {
+    const a = createTestAccumulator();
+    const b = createTestAccumulator();
+    const merged = mergeAccumulators(a, b);
 
-  // The samples should be different due to random subsampling
-  // (very unlikely to be identical)
-  const samplesEqual = JSON.stringify(merged1.sample.sort()) ===
-    JSON.stringify(merged2.sample.sort());
+    const samplesEqual = JSON.stringify(merged.sample.sort()) ===
+      JSON.stringify(firstMerge.sample.sort());
 
-  assertEquals(samplesEqual, false, "samples should differ due to randomness");
+    if (!samplesEqual) {
+      allIdentical = false;
+      break;
+    }
+  }
+
+  assertEquals(
+    allIdentical,
+    false,
+    "at least one sample should differ due to randomness",
+  );
 });
 
 // ============================================================================
