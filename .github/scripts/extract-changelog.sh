@@ -108,8 +108,8 @@ get_release_tags() {
 
     for ((i=0; i<${#tags[@]}; i++)); do
         if [ "${tags[$i]}" = "${current_tag}" ]; then
-            if [ $((i+1)) -lt ${#tags[@]} ]; then
-                previous_tag="${tags[$((i+1))]}"
+            if [ $((i + 1)) -lt ${#tags[@]} ]; then
+                previous_tag="${tags[$((i + 1))]}"
             fi
             break
         fi
@@ -138,32 +138,42 @@ append_contributors() {
 
     mapfile -t contributor_lines < <(git shortlog -s -n "$range" | sed 's/^[[:space:]]*[0-9]\+[[:space:]]\+//')
 
-    if [ "${#contributor_lines[@]}" -eq 0 ]; then
+    local filtered_contributors=()
+    for name in "${contributor_lines[@]}"; do
+        if [ -z "$name" ]; then
+            continue
+        fi
+        if printf '%s\n' "$name" | grep -Eqi '(^copilot-swe-agent$|\[bot\]$)'; then
+            continue
+        fi
+        filtered_contributors+=("$name")
+    done
+
+    if [ "${#filtered_contributors[@]}" -eq 0 ]; then
         return
     fi
 
     printf "\n## 🤝 Contributors\n\n"
     printf "We appreciate the contributions from:\n\n"
-    for name in "${contributor_lines[@]}"; do
-        if [ -n "$name" ]; then
-            printf -- "- %s\n" "$name"
-        fi
+    for name in "${filtered_contributors[@]}"; do
+        printf -- "- %s\n" "$name"
     done
 
     local new_contributors=()
 
     if [ -z "$previous_tag" ]; then
-        for name in "${contributor_lines[@]}"; do
-            if [ -n "$name" ]; then
-                new_contributors+=("$name")
-            fi
+        for name in "${filtered_contributors[@]}"; do
+            new_contributors+=("$name")
         done
     else
-        for name in "${contributor_lines[@]}"; do
-            if [ -n "$name" ]; then
-                if ! git log --format="%an" "$previous_tag" | grep -Fxq "$name"; then
-                    new_contributors+=("$name")
-                fi
+        # Compute the list of authors for the previous tag once to avoid
+        # running `git log` for each contributor.
+        local previous_authors
+        previous_authors="$(git log --format="%an" "$previous_tag" | sort -u || true)"
+
+        for name in "${filtered_contributors[@]}"; do
+            if ! grep -Fxq "$name" <<< "$previous_authors"; then
+                new_contributors+=("$name")
             fi
         done
     fi
