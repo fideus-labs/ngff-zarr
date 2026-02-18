@@ -17,6 +17,7 @@
  *   decode_and_stats: → decoded_and_stats    (decode + compute channel stats)
  */
 
+import type { CodecChunkMeta } from "@fideus-labs/fizarrita";
 // fizarrita internals for codec pipeline
 import { create_codec_pipeline } from "@fideus-labs/fizarrita/internals/codec-pipeline";
 import {
@@ -24,9 +25,7 @@ import {
   set_from_chunk_binary,
 } from "@fideus-labs/fizarrita/internals/setter";
 import { get_ctr, get_strides } from "@fideus-labs/fizarrita/internals/util";
-
 import type { Chunk, DataType } from "zarrita";
-import type { CodecChunkMeta } from "@fideus-labs/fizarrita";
 
 // Projection type — plain serializable data describing chunk→output mapping.
 // Mirrors fizarrita's Projection type for worker messages.
@@ -59,14 +58,66 @@ function fixEdgeChunkShapeStride<D extends DataType>(
     const expectedElements = actualChunkShape.reduce((a, b) => a * b, 1);
     const actualElements = (chunk.data as unknown as ArrayLike<unknown>).length;
     if (actualElements === expectedElements) {
+      // Decoded size matches the actual edge shape — just fix shape/stride
       return {
         data: chunk.data,
         shape: actualChunkShape,
         stride: get_strides(actualChunkShape, "C"),
       };
     }
+    if (actualElements > expectedElements) {
+      // Decoded chunk is padded to full chunk_shape (e.g. by setWorker).
+      // Extract the valid sub-region into a compact contiguous buffer.
+      // deno-lint-ignore no-explicit-any
+      const src = chunk.data as any;
+      const Ctr = src.constructor as new (n: number) => typeof src;
+      const dst = new Ctr(expectedElements);
+      const srcStrides = get_strides(chunk.shape, "C");
+      copySubRegion(src, srcStrides, dst, actualChunkShape);
+      return {
+        data: dst as typeof chunk.data,
+        shape: actualChunkShape,
+        stride: get_strides(actualChunkShape, "C"),
+      };
+    }
   }
   return chunk;
+}
+
+/**
+ * Copy a sub-region from a padded C-order buffer into a compact destination.
+ *
+ * For each dimension, copies only the first `subShape[d]` elements along
+ * that axis from the source (which has strides `srcStrides`).
+ */
+function copySubRegion(
+  src: { readonly [i: number]: unknown; readonly length: number },
+  srcStrides: number[],
+  dst: { [i: number]: unknown; length: number },
+  subShape: number[],
+  srcOffset = 0,
+  dstOffset = 0,
+  dim = 0,
+): void {
+  if (dim === subShape.length - 1) {
+    // Innermost dimension — copy contiguous run
+    for (let i = 0; i < subShape[dim]; i++) {
+      dst[dstOffset + i] = src[srcOffset + i];
+    }
+    return;
+  }
+  const dstStride = subShape.slice(dim + 1).reduce((a, b) => a * b, 1);
+  for (let i = 0; i < subShape[dim]; i++) {
+    copySubRegion(
+      src,
+      srcStrides,
+      dst,
+      subShape,
+      srcOffset + i * srcStrides[dim],
+      dstOffset + i * dstStride,
+      dim + 1,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -85,9 +136,7 @@ const pipelineByKey = new Map<
   ReturnType<typeof create_codec_pipeline>
 >();
 
-function getPipeline(
-  metaId: number,
-): ReturnType<typeof create_codec_pipeline> {
+function getPipeline(metaId: number): ReturnType<typeof create_codec_pipeline> {
   const pipeline = pipelineByMetaId.get(metaId);
   if (!pipeline) {
     throw new Error(
@@ -170,201 +219,191 @@ type WorkerMessage =
     cIndex: number;
   };
 
-ctx.addEventListener(
-  "message",
-  async (event: MessageEvent<WorkerMessage>) => {
-    const msg = event.data;
+ctx.addEventListener("message", async (event: MessageEvent<WorkerMessage>) => {
+  const msg = event.data;
 
-    try {
-      if (msg.type === "init") {
-        metaByMetaId.set(msg.metaId, msg.meta);
-        const pipeline = create_codec_pipeline({
-          data_type: msg.meta.data_type,
-          shape: msg.meta.chunk_shape,
-          codecs: msg.meta.codecs,
-        });
-        pipelineByMetaId.set(msg.metaId, pipeline);
-        ctx.postMessage({ type: "init_ok", id: msg.id });
-        return;
+  try {
+    if (msg.type === "init") {
+      metaByMetaId.set(msg.metaId, msg.meta);
+      const pipeline = create_codec_pipeline({
+        data_type: msg.meta.data_type,
+        shape: msg.meta.chunk_shape,
+        codecs: msg.meta.codecs,
+      });
+      pipelineByMetaId.set(msg.metaId, pipeline);
+      ctx.postMessage({ type: "init_ok", id: msg.id });
+      return;
+    }
+
+    if (msg.type === "decode") {
+      const pipeline =
+        msg.metaId !== undefined && pipelineByMetaId.has(msg.metaId)
+          ? getPipeline(msg.metaId)
+          : getOrCreatePipelineLegacy(msg.meta!);
+
+      const bytes = new Uint8Array(msg.bytes);
+      let chunk = (await pipeline.decode(bytes)) as Chunk<DataType>;
+      chunk = fixEdgeChunkShapeStride(chunk, msg.actualChunkShape);
+
+      const dataView = chunk.data as unknown as {
+        buffer: ArrayBuffer;
+        byteOffset: number;
+        byteLength: number;
+      };
+      const buffer = dataView.buffer;
+      const byteOffset = dataView.byteOffset;
+      const byteLength = dataView.byteLength;
+
+      let transferBuffer: ArrayBuffer;
+      if (byteOffset === 0 && byteLength === buffer.byteLength) {
+        transferBuffer = buffer;
+      } else {
+        transferBuffer = buffer.slice(byteOffset, byteOffset + byteLength);
       }
 
-      if (msg.type === "decode") {
-        const pipeline =
-          msg.metaId !== undefined && pipelineByMetaId.has(msg.metaId)
-            ? getPipeline(msg.metaId)
-            : getOrCreatePipelineLegacy(msg.meta!);
+      ctx.postMessage(
+        {
+          type: "decoded" as const,
+          id: msg.id,
+          data: transferBuffer,
+          shape: chunk.shape,
+          stride: chunk.stride,
+        },
+        [transferBuffer],
+      );
+    } else if (msg.type === "decode_into") {
+      const pipeline = getPipeline(msg.metaId);
+      const bytes = new Uint8Array(msg.bytes);
+      let chunk = (await pipeline.decode(bytes)) as Chunk<DataType>;
+      chunk = fixEdgeChunkShapeStride(chunk, msg.actualChunkShape);
 
-        const bytes = new Uint8Array(msg.bytes);
-        let chunk = (await pipeline.decode(bytes)) as Chunk<DataType>;
-        chunk = fixEdgeChunkShapeStride(chunk, msg.actualChunkShape);
+      const destView = new Uint8Array(msg.output, 0, msg.outputByteLength);
+      // deno-lint-ignore no-explicit-any
+      const src = compat_chunk(chunk as any);
 
-        const dataView = chunk.data as unknown as {
-          buffer: ArrayBuffer;
-          byteOffset: number;
-          byteLength: number;
-        };
-        const buffer = dataView.buffer;
-        const byteOffset = dataView.byteOffset;
-        const byteLength = dataView.byteLength;
+      set_from_chunk_binary(
+        { data: destView, stride: msg.outputStride },
+        src,
+        msg.bytesPerElement,
+        msg.projections,
+      );
 
-        let transferBuffer: ArrayBuffer;
-        if (byteOffset === 0 && byteLength === buffer.byteLength) {
-          transferBuffer = buffer;
-        } else {
-          transferBuffer = buffer.slice(byteOffset, byteOffset + byteLength);
-        }
+      ctx.postMessage({ type: "decode_into_ok", id: msg.id });
+    } else if (msg.type === "encode") {
+      let pipeline: ReturnType<typeof create_codec_pipeline>;
+      let meta: CodecChunkMeta;
+      if (msg.metaId !== undefined && pipelineByMetaId.has(msg.metaId)) {
+        pipeline = getPipeline(msg.metaId);
+        meta = metaByMetaId.get(msg.metaId)!;
+      } else {
+        meta = msg.meta!;
+        pipeline = getOrCreatePipelineLegacy(meta);
+      }
 
-        ctx.postMessage(
-          {
-            type: "decoded" as const,
-            id: msg.id,
-            data: transferBuffer,
-            shape: chunk.shape,
-            stride: chunk.stride,
-          },
-          [transferBuffer],
+      const Ctr = get_ctr(meta.data_type) as unknown as {
+        new (buf: ArrayBuffer, off: number, len: number): unknown;
+        BYTES_PER_ELEMENT: number;
+      };
+      const data = new Ctr(
+        msg.data,
+        0,
+        msg.data.byteLength / Ctr.BYTES_PER_ELEMENT,
+      );
+      const shape = meta.chunk_shape;
+      const stride = get_strides(shape, "C");
+
+      const chunk = { data, shape, stride } as Chunk<DataType>;
+      // deno-lint-ignore no-explicit-any
+      const encoded = await pipeline.encode(chunk as any);
+
+      const transferBuffer = encoded.byteOffset === 0 &&
+          encoded.byteLength === encoded.buffer.byteLength
+        ? (encoded.buffer as ArrayBuffer)
+        : encoded.buffer.slice(
+          encoded.byteOffset,
+          encoded.byteOffset + encoded.byteLength,
         );
-      } else if (msg.type === "decode_into") {
-        const pipeline = getPipeline(msg.metaId);
-        const bytes = new Uint8Array(msg.bytes);
-        let chunk = (await pipeline.decode(bytes)) as Chunk<DataType>;
-        chunk = fixEdgeChunkShapeStride(chunk, msg.actualChunkShape);
 
-        const destView = new Uint8Array(msg.output, 0, msg.outputByteLength);
-        // deno-lint-ignore no-explicit-any
-        const src = compat_chunk(chunk as any);
+      ctx.postMessage(
+        {
+          type: "encoded" as const,
+          id: msg.id,
+          bytes: transferBuffer,
+        },
+        [transferBuffer],
+      );
+    } else if (msg.type === "decode_and_stats") {
+      // NEW: Decode chunk AND compute per-channel statistics in one pass
+      const pipeline = getPipeline(msg.metaId);
+      const bytes = new Uint8Array(msg.bytes);
+      let chunk = (await pipeline.decode(bytes)) as Chunk<DataType>;
+      chunk = fixEdgeChunkShapeStride(chunk, msg.actualChunkShape);
 
-        set_from_chunk_binary(
-          { data: destView, stride: msg.outputStride },
-          src,
-          msg.bytesPerElement,
-          msg.projections,
-        );
+      const chunkData = chunk.data as unknown as ArrayLike<number>;
+      const chunkShape = chunk.shape;
+      const { nChannels, cIndex } = msg;
 
-        ctx.postMessage({ type: "decode_into_ok", id: msg.id });
-      } else if (msg.type === "encode") {
-        let pipeline: ReturnType<typeof create_codec_pipeline>;
-        let meta: CodecChunkMeta;
-        if (
-          msg.metaId !== undefined && pipelineByMetaId.has(msg.metaId)
-        ) {
-          pipeline = getPipeline(msg.metaId);
-          meta = metaByMetaId.get(msg.metaId)!;
-        } else {
-          meta = msg.meta!;
-          pipeline = getOrCreatePipelineLegacy(meta);
-        }
-
-        const Ctr = get_ctr(meta.data_type) as unknown as {
-          new (buf: ArrayBuffer, off: number, len: number): unknown;
-          BYTES_PER_ELEMENT: number;
-        };
-        const data = new Ctr(
-          msg.data,
-          0,
-          msg.data.byteLength / Ctr.BYTES_PER_ELEMENT,
-        );
-        const shape = meta.chunk_shape;
-        const stride = get_strides(shape, "C");
-
-        const chunk = { data, shape, stride } as Chunk<DataType>;
-        // deno-lint-ignore no-explicit-any
-        const encoded = await pipeline.encode(chunk as any);
-
-        const transferBuffer = encoded.byteOffset === 0 &&
-            encoded.byteLength === encoded.buffer.byteLength
-          ? (encoded.buffer as ArrayBuffer)
-          : encoded.buffer.slice(
-            encoded.byteOffset,
-            encoded.byteOffset + encoded.byteLength,
-          );
-
-        ctx.postMessage(
-          {
-            type: "encoded" as const,
-            id: msg.id,
-            bytes: transferBuffer,
-          },
-          [transferBuffer],
-        );
-      } else if (msg.type === "decode_and_stats") {
-        // NEW: Decode chunk AND compute per-channel statistics in one pass
-        const pipeline = getPipeline(msg.metaId);
-        const bytes = new Uint8Array(msg.bytes);
-        let chunk = (await pipeline.decode(bytes)) as Chunk<DataType>;
-        chunk = fixEdgeChunkShapeStride(chunk, msg.actualChunkShape);
-
-        const chunkData = chunk.data as unknown as ArrayLike<number>;
-        const chunkShape = chunk.shape;
-        const { nChannels, cIndex } = msg;
-
-        // Compute per-channel statistics
-        const accumulators: SerializedAccumulator[] = [];
-        if (cIndex >= 0) {
-          // Multi-channel: extract each channel and compute stats
-          for (let ch = 0; ch < nChannels; ch++) {
-            const channelData = extractChannel(
-              chunkData,
-              chunkShape,
-              ch,
-              cIndex,
-            );
-            const acc = createAccumulator();
-            updateAccumulator(acc, channelData);
-            accumulators.push(acc);
-          }
-        } else {
-          // Single channel: compute stats on full chunk data
+      // Compute per-channel statistics
+      const accumulators: SerializedAccumulator[] = [];
+      if (cIndex >= 0) {
+        // Multi-channel: extract each channel and compute stats
+        for (let ch = 0; ch < nChannels; ch++) {
+          const channelData = extractChannel(chunkData, chunkShape, ch, cIndex);
           const acc = createAccumulator();
-          updateAccumulator(acc, chunkData);
+          updateAccumulator(acc, channelData);
           accumulators.push(acc);
         }
-
-        // Transfer the decoded data buffer back for caching
-        const dataView = chunk.data as unknown as {
-          buffer: ArrayBuffer;
-          byteOffset: number;
-          byteLength: number;
-        };
-        const buffer = dataView.buffer;
-        const byteOffset = dataView.byteOffset;
-        const byteLength = dataView.byteLength;
-
-        let transferBuffer: ArrayBuffer;
-        if (byteOffset === 0 && byteLength === buffer.byteLength) {
-          transferBuffer = buffer;
-        } else {
-          transferBuffer = buffer.slice(byteOffset, byteOffset + byteLength);
-        }
-
-        ctx.postMessage(
-          {
-            type: "decoded_and_stats" as const,
-            id: msg.id,
-            data: transferBuffer,
-            shape: chunk.shape,
-            stride: chunk.stride,
-            accumulators,
-          },
-          [transferBuffer],
-        );
+      } else {
+        // Single channel: compute stats on full chunk data
+        const acc = createAccumulator();
+        updateAccumulator(acc, chunkData);
+        accumulators.push(acc);
       }
-    } catch (error) {
-      // Send error back to main thread
-      const errorType = msg.type === "decode"
-        ? "decoded"
-        : msg.type === "encode"
-        ? "encoded"
-        : msg.type === "decode_into"
-        ? "decode_into_ok"
-        : msg.type === "decode_and_stats"
-        ? "decoded_and_stats"
-        : "init_ok";
-      ctx.postMessage({
-        type: errorType,
-        id: msg.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
+
+      // Transfer the decoded data buffer back for caching
+      const dataView = chunk.data as unknown as {
+        buffer: ArrayBuffer;
+        byteOffset: number;
+        byteLength: number;
+      };
+      const buffer = dataView.buffer;
+      const byteOffset = dataView.byteOffset;
+      const byteLength = dataView.byteLength;
+
+      let transferBuffer: ArrayBuffer;
+      if (byteOffset === 0 && byteLength === buffer.byteLength) {
+        transferBuffer = buffer;
+      } else {
+        transferBuffer = buffer.slice(byteOffset, byteOffset + byteLength);
+      }
+
+      ctx.postMessage(
+        {
+          type: "decoded_and_stats" as const,
+          id: msg.id,
+          data: transferBuffer,
+          shape: chunk.shape,
+          stride: chunk.stride,
+          accumulators,
+        },
+        [transferBuffer],
+      );
     }
-  },
-);
+  } catch (error) {
+    // Send error back to main thread
+    const errorType = msg.type === "decode"
+      ? "decoded"
+      : msg.type === "encode"
+      ? "encoded"
+      : msg.type === "decode_into"
+      ? "decode_into_ok"
+      : msg.type === "decode_and_stats"
+      ? "decoded_and_stats"
+      : "init_ok";
+    ctx.postMessage({
+      type: errorType,
+      id: msg.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
