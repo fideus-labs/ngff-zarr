@@ -1,3 +1,9 @@
+## ts-v0.12.3 (2026-02-18)
+
+### 🐛 Bug Fixes
+
+- **ts**: address character replacement for inline worker ([1824b25](https://github.com/fideus-labs/ngff-zarr/commit/1824b25e50663d452ffda46e1ef5ad4ea648ffb1))
+
 ## ts-v0.12.2 (2026-02-18)
 
 ### 🐛 Bug Fixes
