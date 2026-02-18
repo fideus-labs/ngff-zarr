@@ -284,7 +284,7 @@ def test_from_ngff_zarr_hcs_plate_error():
 @pytest.mark.skipif(zarr_version_major < 3, reason="v0.5 format requires zarr-python 3")
 def test_from_ngff_zarr_v05_ome_key_without_multiscales():
     """Test that v0.5 format with ome key but missing multiscales gives helpful error.
-    
+
     This can happen with corrupted files or files with ome key containing other metadata
     but not the required multiscales.
     """
@@ -303,11 +303,10 @@ def test_from_ngff_zarr_v05_ome_key_without_multiscales():
 
     # Should raise ValueError with helpful error explaining possible causes
     with pytest.raises(
-        ValueError, 
-        match=r"multiscales[\s\S]*missing[\s\S]*Possible causes"
+        ValueError, match=r"multiscales[\s\S]*missing[\s\S]*Possible causes"
     ) as exc_info:
         from_ngff_zarr(store)
-    
+
     # Verify error message contains all expected guidance
     error_msg = str(exc_info.value)
     assert "Available keys under 'ome'" in error_msg

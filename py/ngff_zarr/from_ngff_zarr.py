@@ -117,13 +117,13 @@ def from_ngff_zarr(
                 "requires navigating to a specific well/field)\n"
                 "  3. The file may use a custom or unsupported metadata structure\n\n"
             )
-            
+
             # Provide additional generic guidance when 'multiscales' is missing under 'ome'
             error_msg += (
                 "The 'ome' key is present but doesn't contain the required 'multiscales' metadata. "
                 "Please verify that this is a valid OME-Zarr file."
             )
-            
+
             raise ValueError(error_msg)
 
         metadata_obj, images = Metadata._from_zarr_attrs(
