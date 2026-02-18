@@ -8,7 +8,6 @@
 
 import { assertEquals, assertExists } from "@std/assert";
 import {
-  type ChannelStatisticsAccumulator,
   createAccumulator,
   finalizeStatistics,
   mergeAccumulators,
