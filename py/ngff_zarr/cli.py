@@ -409,7 +409,7 @@ def main():
         "--chunks-per-shard",
         nargs="+",
         type=int,
-        help="Number of chunks along each axis in a shard. If not set, no sharding. Either a single integer or integer per dimension, e.g. 64 or 8 16 32",
+        help="Number of chunks along each axis in a shard. If not set, no sharding. Either a single integer or integer per dimension, e.g. 4 or 2 4 8",
         metavar="CHUNKS_PER_SHARD",
     )
     processing_group.add_argument(
