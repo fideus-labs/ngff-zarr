@@ -1,3 +1,9 @@
+## py-v0.28.1 (2026-02-18)
+
+### 🐛 Bug Fixes
+
+- **py**: apply channel reshaping to all pyramid levels in TIFF conversion ([f49155a](https://github.com/fideus-labs/ngff-zarr/commit/f49155ad7e66045c66db92aa937c07fe0b10b9fd))
+
 ## py-v0.28.0 (2026-02-18)
 
 ### ♻️ Refactoring
