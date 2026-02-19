@@ -60,7 +60,7 @@ type AnyZarrArray = any;
 /** Pool size for the omero worker pool. */
 const POOL_SIZE = Math.min(
   typeof navigator !== "undefined" ? navigator?.hardwareConcurrency || 4 : 4,
-  128,
+  16,
 );
 
 /** Blob URL used by inlined browser builds — set by inline_worker.ts. */
