@@ -169,9 +169,16 @@ def _map_tiff_axes_to_ngff(
             dropped_indices.append(i)
 
     if dropped_axes:
+        supported = ", ".join(
+            sorted(
+                k.upper()
+                for k in TIFF_AXIS_TO_NGFF.keys()
+                if TIFF_AXIS_TO_NGFF[k] is not None
+            )
+        )
         warnings.warn(
             f"Dropping unsupported TIFF axes: {', '.join(dropped_axes)}. "
-            f"Supported axes are: {', '.join(sorted(k.upper() for k in TIFF_AXIS_TO_NGFF.keys() if TIFF_AXIS_TO_NGFF[k] is not None))}",
+            f"Supported axes are: {supported}",
             UserWarning,
             stacklevel=3,
         )
@@ -422,6 +429,84 @@ def _extract_ome_pixel_metadata(
     return scale, units if units else None
 
 
+def _extract_ome_channel_names(
+    tif: "tifffile.TiffFile",
+    series_index: int = 0,
+) -> Optional[List[str]]:
+    """
+    Extract channel names from OME-XML metadata for a specific series.
+
+    Parameters
+    ----------
+    tif : tifffile.TiffFile
+        An open TiffFile instance.
+    series_index : int, optional
+        Index of the series to extract metadata for. Default is 0.
+
+    Returns
+    -------
+    Optional[List[str]]
+        List of channel names, or None if OME metadata is not available or
+        cannot be parsed. Empty strings are used for channels without names.
+
+    Examples
+    --------
+    >>> with tifffile.TiffFile("sample.ome.tiff") as tif:
+    ...     channel_names = _extract_ome_channel_names(tif, series_index=0)
+    ...     if channel_names:
+    ...         print(f"Channels: {channel_names}")  # ['DAPI', 'GFP', 'RFP']
+    """
+    if not tif.is_ome or not tif.ome_metadata:
+        return None
+
+    try:
+        root = ET.fromstring(tif.ome_metadata)
+    except ET.ParseError:
+        return None
+
+    # OME namespace - try common versions
+    namespaces = [
+        {"ome": "http://www.openmicroscopy.org/Schemas/OME/2016-06"},
+        {"ome": "http://www.openmicroscopy.org/Schemas/OME/2015-01"},
+        {"ome": "http://www.openmicroscopy.org/Schemas/OME/2013-06"},
+    ]
+
+    pixels = None
+    for ns in namespaces:
+        # Find the Image element for the requested series
+        images = root.findall(".//ome:Image", ns)
+        if series_index < len(images):
+            image = images[series_index]
+            pixels = image.find("ome:Pixels", ns)
+            if pixels is not None:
+                # Extract channel elements
+                channels = pixels.findall("ome:Channel", ns)
+                if channels:
+                    # Extract Name attribute from each channel, use empty
+                    # string if not present
+                    channel_names = [ch.get("Name", "") for ch in channels]
+                    return channel_names if channel_names else None
+
+    # Fallback: try without namespace (for non-standard OME-XML)
+    if pixels is None:
+        count = 0
+        for elem in root.iter():
+            if "Pixels" in elem.tag:
+                if count == series_index:
+                    pixels = elem
+                    break
+                count += 1
+
+    if pixels is not None:
+        # Look for Channel elements
+        channels = [ch for ch in pixels if "Channel" in ch.tag]
+        if channels:
+            channel_names = [ch.get("Name", "") for ch in channels]
+            return channel_names if channel_names else None
+
+    return None
+
+
 def _sanitize_series_name(name: str) -> str:
     """
     Sanitize a series name to prevent path traversal attacks.
@@ -459,6 +544,7 @@ def _build_multiscales_from_pyramid(
     tiff_series: "tifffile.TiffPageSeries",
     ome_scale: Optional[Dict[str, float]],
     ome_units: Optional[Dict[str, str]],
+    ome_channel_names: Optional[List[str]],
 ) -> "Multiscales":
     """Build a Multiscales object from a pyramidal TIFF's existing pyramid levels.
 
@@ -477,6 +563,8 @@ def _build_multiscales_from_pyramid(
         Physical pixel sizes from OME metadata (e.g., {'x': 0.5, 'y': 0.5}).
     ome_units : dict or None
         Unit strings from OME metadata (e.g., {'x': 'micrometer'}).
+    ome_channel_names : list or None
+        Channel names from OME metadata (e.g., ['DAPI', 'GFP', 'RFP']).
 
     Returns
     -------
@@ -557,6 +645,7 @@ def _build_multiscales_from_pyramid(
         dims=dims,
         scale=scale,
         axes_units=axes_units,
+        channel_names=ome_channel_names,
     )
 
     # Reshape if needed (channel flattening, dropped axes)
@@ -582,6 +671,7 @@ def _build_multiscales_from_pyramid(
             translation=ngff_image_0.translation,
             name=ngff_image_0.name,
             axes_units=ngff_image_0.axes_units,
+            channel_names=ngff_image_0.channel_names,
         )
 
     level0_shape = ngff_image_0.data.shape
@@ -652,6 +742,7 @@ def _build_multiscales_from_pyramid(
             translation=level_translation,
             name=ngff_image_0.name,
             axes_units=ngff_image_0.axes_units,
+            channel_names=ngff_image_0.channel_names,
         )
         images.append(level_image)
 
@@ -750,7 +841,9 @@ def tiff_file_to_ngff_images(
     >>> # Convert series matching pattern
     >>> images = tiff_file_to_ngff_images("sample.ome.tiff", series="*area_1*")
     >>> # Reuse existing pyramid levels
-    >>> images = tiff_file_to_ngff_images("pyramidal.ome.tiff", reuse_existing_pyramids=True)
+    >>> images = tiff_file_to_ngff_images(
+    ...     "pyramidal.ome.tiff", reuse_existing_pyramids=True
+    ... )
     """
     try:
         import tifffile
@@ -769,7 +862,11 @@ def tiff_file_to_ngff_images(
         elif isinstance(series, int):
             # Explicit index - validate it exists
             if series < 0 or series >= len(all_series):
-                msg = f"Series index {series} is out of bounds. File has {len(all_series)} series (indices 0-{len(all_series) - 1})."
+                msg = (
+                    f"Series index {series} is out of bounds. "
+                    f"File has {len(all_series)} series "
+                    f"(indices 0-{len(all_series) - 1})."
+                )
                 raise IndexError(msg)
             indices_to_convert = [series]
         elif isinstance(series, str):
@@ -789,7 +886,11 @@ def tiff_file_to_ngff_images(
                 if isinstance(s, int):
                     # Explicit index - validate it exists
                     if s < 0 or s >= len(all_series):
-                        msg = f"Series index {s} is out of bounds. File has {len(all_series)} series (indices 0-{len(all_series) - 1})."
+                        msg = (
+                            f"Series index {s} is out of bounds. "
+                            f"File has {len(all_series)} series "
+                            f"(indices 0-{len(all_series) - 1})."
+                        )
                         raise IndexError(msg)
                     indices_to_convert.append(s)
                 elif isinstance(s, str):
@@ -812,6 +913,7 @@ def tiff_file_to_ngff_images(
 
             # Extract OME metadata for this series
             ome_scale, ome_units = _extract_ome_pixel_metadata(tif, series_index=idx)
+            ome_channel_names = _extract_ome_channel_names(tif, series_index=idx)
 
             # Generate series name early (used for both paths)
             raw_name = tiff_series.name if tiff_series.name else f"series_{idx}"
@@ -821,7 +923,7 @@ def tiff_file_to_ngff_images(
             n_levels = len(tiff_series.levels) if hasattr(tiff_series, "levels") else 1
             if reuse_existing_pyramids and n_levels > 1:
                 multiscales = _build_multiscales_from_pyramid(
-                    tif, idx, tiff_series, ome_scale, ome_units
+                    tif, idx, tiff_series, ome_scale, ome_units, ome_channel_names
                 )
                 results.append((series_name, multiscales))
                 continue
@@ -871,6 +973,7 @@ def tiff_file_to_ngff_images(
                 dims=dims,
                 scale=scale,
                 axes_units=axes_units,
+                channel_names=ome_channel_names,
             )
 
             # Reshape data if needed (for channel flattening, dropped axes, etc.)
@@ -896,6 +999,7 @@ def tiff_file_to_ngff_images(
                     translation=ngff_image.translation,
                     name=ngff_image.name,
                     axes_units=ngff_image.axes_units,
+                    channel_names=ngff_image.channel_names,
                 )
 
             results.append((series_name, ngff_image))

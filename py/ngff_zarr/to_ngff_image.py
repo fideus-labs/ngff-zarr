@@ -64,20 +64,23 @@ def to_ngff_image(
     translation: Optional[Union[Mapping[Hashable, float]]] = None,
     name: str = "image",
     axes_units: Optional[Mapping[str, Units]] = None,
+    channel_names: Optional[Sequence[str]] = None,
 ) -> NgffImage:
     """
     Create an image with pixel array and metadata to following the OME-NGFF data model.
 
-    :param data: Multi-dimensional array that provides the image pixel values. It can be a numpy.ndarray
-         or another type that behaves like a numpy.ndarray, i.e. an ArrayLike.
-         If a ZarrArray, MutableMapping, or str, it will be loaded into Dask lazily
-         as a zarr Array. If a ZarrGroup, the first array in the group will be used.
+    :param data: Multi-dimensional array that provides the image pixel
+         values. It can be a numpy.ndarray or another type that behaves like
+         a numpy.ndarray, i.e. an ArrayLike. If a ZarrArray, MutableMapping,
+         or str, it will be loaded into Dask lazily as a zarr Array. If a
+         ZarrGroup, the first array in the group will be used.
     :type  data: ArrayLike, ZarrArray, ZarrGroup, MutableMapping, str
 
     :param dims: Tuple specifying the data dimensions.
-        Values should drawn from: {'t', 'z', 'y', 'x', 'c'} for time, third spatial direction
-        second spatial direction, first spatial dimension, and channel or
-        component, respectively spatial dimension, and time, respectively.
+        Values should drawn from: {'t', 'z', 'y', 'x', 'c'} for time, third
+        spatial direction, second spatial direction, first spatial dimension,
+        and channel or component, respectively spatial dimension, and time,
+        respectively.
     :type  dims: sequence of hashable, optional
 
     :param scale: Pixel spacing for the spatial dims
@@ -89,11 +92,17 @@ def to_ngff_image(
     :param name: Name of the resulting image
     :type  name: str, optional
 
-    :param axes_units: Units to associate with the axes. Should be drawn from UDUNITS-2, enumerated at
+    :param axes_units: Units to associate with the axes. Should be drawn from
+        UDUNITS-2, enumerated at
         https://ngff.openmicroscopy.org/latest/#axes-md
     :type  axes_units: dict of str, optional
 
-    :return: Representation of an image (pixel data + metadata) for a single scale of an NGFF-OME-Zarr multiscale dataset
+    :param channel_names: Optional list of channel names. Length should match
+        the number of channels in the data (size of 'c' dimension).
+    :type  channel_names: sequence of str, optional
+
+    :return: Representation of an image (pixel data + metadata) for a single
+        scale of an NGFF-OME-Zarr multiscale dataset
     :rtype: NgffImage
     """
 
@@ -136,4 +145,5 @@ def to_ngff_image(
         translation=translation,
         name=name,
         axes_units=axes_units,
+        channel_names=list(channel_names) if channel_names else None,
     )

@@ -313,7 +313,8 @@ def _validate_color(color: str) -> None:
         raise ValueError(f"Color must be a string, got {type(color).__name__}")
     if not re.fullmatch(r"[0-9A-Fa-f]{6}", color):
         raise ValueError(
-            f"Color must be a 6-digit hexadecimal string without # prefix, got '{color}'"
+            f"Color must be a 6-digit hexadecimal string "
+            f"without # prefix, got '{color}'"
         )
 
 
@@ -532,7 +533,11 @@ def compute_omero_from_ngff_image(
                 If not provided, uses white for single channel or Glasbey
                 progression for multi-channel.
         labels: Optional list of label strings for each channel.
-                If not provided, uses empty strings.
+                If not provided, uses channel_names from NgffImage if available.
+                If channel_names is also not available or has fewer entries than
+                channels, uses empty strings for remaining channels.
+                When explicitly provided, must have at least as many labels as
+                channels (ValueError raised if insufficient).
         dense: If True, use histogram-based dense sampling for exact quantile
                computation over the full data. If False (default), use Dask's
                approximate percentile algorithm which is faster but may
@@ -543,12 +548,30 @@ def compute_omero_from_ngff_image(
 
     Raises:
         ValueError: If quantiles are invalid, colors are invalid format,
-                    or not enough colors/labels provided.
+                    or not enough colors/labels explicitly provided.
+
+    Note:
+        The behavior differs between explicit labels and channel_names from NgffImage:
+        - Explicit labels parameter: Must provide at least as many labels as
+          channels, otherwise ValueError is raised. This ensures intentional
+          labeling is complete.
+        - channel_names from NgffImage: Can be shorter than the number of
+          channels, in which case remaining channels get empty string labels.
+          This allows partial metadata from sources like OME-XML where not all
+          channels may have names.
 
     Example:
+        >>> # Using channel_names from NgffImage (e.g., from OME-TIFF)
         >>> image = to_ngff_image(data, dims=["c", "z", "y", "x"])
+        >>> image.channel_names = ["DAPI", "GFP", "RFP"]
         >>> omero = compute_omero_from_ngff_image(image)
-        >>> multiscales.metadata.omero = omero
+        >>> omero.channels[0].label  # "DAPI"
+
+        >>> # Explicit labels override channel_names
+        >>> omero = compute_omero_from_ngff_image(
+        ...     image, labels=["Red", "Green", "Blue"]
+        ... )
+        >>> omero.channels[0].label  # "Red"
     """
     # Validate quantiles
     _validate_quantiles(quantiles)
@@ -584,6 +607,15 @@ def compute_omero_from_ngff_image(
                 f"Not enough labels provided. Got {len(labels)}, need {n_channels}."
             )
         channel_labels = list(labels[:n_channels])
+    elif ngff_image.channel_names is not None:
+        # Use channel names from the image if available
+        if len(ngff_image.channel_names) >= n_channels:
+            channel_labels = list(ngff_image.channel_names[:n_channels])
+        else:
+            # Pad with empty strings if not enough names
+            channel_labels = list(ngff_image.channel_names) + [""] * (
+                n_channels - len(ngff_image.channel_names)
+            )
     else:
         channel_labels = [""] * n_channels
 
