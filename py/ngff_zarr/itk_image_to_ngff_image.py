@@ -3,17 +3,28 @@
 from dataclasses import asdict
 
 import dask.array
+import numpy as np
 
 from .ngff_image import NgffImage
 from .rfc4 import itk_lps_to_anatomical_orientation, itk_direction_to_anatomical_orientation
 
 
+def _flatten_direction(direction, n: int):
+    """Return direction as a flat 1-D array of length n*n.
+
+    ``itk.dict_from_image`` returns a 2-D numpy array while
+    ``itkwasm`` returns a flat array.  This helper normalises both.
+    """
+    return np.asarray(direction, dtype=float).reshape(-1)
+
+
 def _is_identity_direction(direction, n: int) -> bool:
-    """Check whether a flat direction matrix is the identity matrix."""
+    """Check whether a direction matrix is the identity matrix."""
+    flat = _flatten_direction(direction, n)
     for row in range(n):
         for col in range(n):
             expected = 1 if row == col else 0
-            if float(direction[row * n + col]) != expected:
+            if flat[row * n + col] != expected:
                 return False
     return True
 
@@ -91,10 +102,11 @@ def itk_image_to_ngff_image(
         )
 
         if has_non_identity_direction:
+            flat_dir = _flatten_direction(direction, n_spatial)
             for i, dim in enumerate(spatial_dims):
                 itk_axis_index = n_spatial - 1 - i
                 col = [
-                    float(direction[row * n_spatial + itk_axis_index])
+                    flat_dir[row * n_spatial + itk_axis_index]
                     for row in range(n_spatial)
                 ]
                 axes_orientations[dim] = itk_direction_to_anatomical_orientation(col)
