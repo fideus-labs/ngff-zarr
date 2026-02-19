@@ -128,9 +128,20 @@ def _detect_version(root_attrs: dict) -> NgffVersion:
     Handles both regular image groups and HCS plate structures.
     """
     version_str: Optional[str] = None
+
+    # Check for v0.5+ format (has "ome" key)
     if "ome" in root_attrs:
+        ome_value = root_attrs["ome"]
+        # Validate that "ome" is a dictionary
+        if not isinstance(ome_value, dict):
+            raise ValueError(
+                f"Invalid NGFF metadata: 'ome' key must be a dictionary, "
+                f"but got {type(ome_value).__name__}. "
+                f"This may indicate a malformed OME-Zarr file. "
+                f"Root attributes keys: {list(root_attrs.keys())}"
+            )
         # v0.5+ format has metadata under "ome" key
-        version_str = root_attrs["ome"].get("version")
+        version_str = ome_value.get("version")
         # If version is not specified in ome dict, default to 0.5
         # since the presence of "ome" key indicates v0.5+ format
         if version_str is None:
@@ -139,7 +150,23 @@ def _detect_version(root_attrs: dict) -> NgffVersion:
         # v0.4 format has "multiscales" at root level
         multiscales = root_attrs.get("multiscales", [])
         if multiscales and isinstance(multiscales, list):
-            version_str = multiscales[0].get("version", "0.4")
+            if isinstance(multiscales[0], dict):
+                version_str = multiscales[0].get("version", "0.4")
+            else:
+                # multiscales list exists but first element is not a dict
+                raise ValueError(
+                    f"Invalid NGFF metadata: 'multiscales' list must contain dictionaries, "
+                    f"but first element is {type(multiscales[0]).__name__}. "
+                    f"Root attributes keys: {list(root_attrs.keys())}"
+                )
+        elif "multiscales" in root_attrs and not isinstance(multiscales, list):
+            # multiscales exists but is not a list
+            raise ValueError(
+                f"Invalid NGFF metadata: 'multiscales' must be a list, "
+                f"but got {type(multiscales).__name__}. "
+                f"This may indicate a malformed OME-Zarr file. "
+                f"Root attributes keys: {list(root_attrs.keys())}"
+            )
         # Handle HCS plate structures that don't have multiscales at root
         # but have "plate" metadata instead (and no "multiscales" key)
         elif (
@@ -152,6 +179,33 @@ def _detect_version(root_attrs: dict) -> NgffVersion:
             version_str = "0.4"
 
     if version_str is None:
-        raise ValueError("Could not detect NGFF version from root attributes.")
+        # Provide detailed diagnostic information
+        available_keys = list(root_attrs.keys())
+        error_msg = (
+            "Could not detect NGFF version from root attributes. "
+            f"Available keys: {available_keys}. "
+        )
+
+        # Add specific hints based on what's present
+        if not available_keys:
+            error_msg += (
+                "The root attributes are empty. This is not a valid OME-Zarr file. "
+                "Please check that the input is a properly formatted OME-Zarr directory."
+            )
+        elif "multiscales" in root_attrs:
+            error_msg += (
+                "Found 'multiscales' key but it appears to be empty or invalid. "
+                "For v0.4 format, 'multiscales' must be a non-empty list of dictionaries."
+            )
+        else:
+            error_msg += (
+                "Expected one of: "
+                "(1) 'ome' key with 'multiscales' for v0.5+ format, "
+                "(2) 'multiscales' key at root for v0.4 format, or "
+                "(3) 'plate' key for HCS plate format. "
+                "This may be a malformed OME-Zarr file or created by a tool that doesn't follow the NGFF specification."
+            )
+
+        raise ValueError(error_msg)
 
     return NgffVersion(version_str)

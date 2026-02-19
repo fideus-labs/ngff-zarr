@@ -100,6 +100,61 @@ def test_detect_version_missing_keys():
         _detect_version(root_attrs)
 
 
+def test_detect_version_empty_root_attrs_detailed_error():
+    """Test that empty root attributes provide detailed error message."""
+    root_attrs = {}
+    with pytest.raises(ValueError, match="root attributes are empty"):
+        _detect_version(root_attrs)
+
+
+def test_detect_version_malformed_ome_key():
+    """Test that malformed 'ome' key (not a dict) gives helpful error."""
+    # Test with ome as null/None
+    root_attrs = {"ome": None}
+    with pytest.raises(ValueError, match="'ome' key must be a dictionary"):
+        _detect_version(root_attrs)
+
+    # Test with ome as string
+    root_attrs = {"ome": "0.5"}
+    with pytest.raises(ValueError, match="'ome' key must be a dictionary"):
+        _detect_version(root_attrs)
+
+    # Test with ome as number
+    root_attrs = {"ome": 0.5}
+    with pytest.raises(ValueError, match="'ome' key must be a dictionary"):
+        _detect_version(root_attrs)
+
+
+def test_detect_version_malformed_multiscales_not_list():
+    """Test that multiscales as non-list gives helpful error."""
+    # Test with multiscales as dict
+    root_attrs = {"multiscales": {"version": "0.4"}}
+    with pytest.raises(ValueError, match="'multiscales' must be a list"):
+        _detect_version(root_attrs)
+
+    # Test with multiscales as string
+    root_attrs = {"multiscales": "invalid"}
+    with pytest.raises(ValueError, match="'multiscales' must be a list"):
+        _detect_version(root_attrs)
+
+
+def test_detect_version_malformed_multiscales_invalid_elements():
+    """Test that multiscales list with non-dict elements gives helpful error."""
+    # Test with multiscales containing non-dict element
+    root_attrs = {"multiscales": ["invalid"]}
+    with pytest.raises(
+        ValueError, match="'multiscales' list must contain dictionaries"
+    ):
+        _detect_version(root_attrs)
+
+    # Test with multiscales containing None
+    root_attrs = {"multiscales": [None]}
+    with pytest.raises(
+        ValueError, match="'multiscales' list must contain dictionaries"
+    ):
+        _detect_version(root_attrs)
+
+
 def test_from_ngff_zarr_v04_auto_detect():
     """Test loading v0.4 OME-Zarr with automatic version detection."""
     # Create test data
