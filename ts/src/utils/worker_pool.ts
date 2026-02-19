@@ -11,7 +11,7 @@
  *   concurrent chunk-level write pipelines (get + transform + set).
  *
  * Both pools are lazily initialized singletons with pool size
- * `Math.min(navigator?.hardwareConcurrency || 4, 128)`.
+ * `Math.min(navigator?.hardwareConcurrency || 4, 16)`.
  */
 
 import type {
@@ -44,7 +44,7 @@ type AnyZarrArray = any;
 /** Pool size for both codec and write scheduling pools. */
 const POOL_SIZE = Math.min(
   (typeof navigator !== "undefined" && navigator?.hardwareConcurrency) || 4,
-  128,
+  16,
 );
 
 /** Whether SharedArrayBuffer is available in this environment. */
@@ -269,7 +269,7 @@ export type ChunkQueue = {
  * outer scheduling tasks do not compete with inner codec worker tasks.
  *
  * Each queued function runs with one pool slot held; the pool bounds
- * concurrency to `Math.min(navigator?.hardwareConcurrency || 4, 128)`.
+ * concurrency to `Math.min(navigator?.hardwareConcurrency || 4, 16)`.
  */
 export function createWriteQueue(): ChunkQueue {
   const pool = getWritePool();
