@@ -189,6 +189,13 @@ def _multiscales_to_ngff_zarr(
             output_store = output_store.root
         else:
             output_store = output_store.path
+
+    codec_kwargs = {}
+    if args.codec is not None:
+        from .codecs import codec_from_name
+
+        codec_kwargs["compressor"] = codec_from_name(args.codec, args.compression_level)
+
     to_ngff_zarr(
         output_store,
         multiscales,
@@ -197,6 +204,7 @@ def _multiscales_to_ngff_zarr(
         use_tensorstore=args.use_tensorstore,
         version=args.ome_zarr_version,
         enabled_rfcs=args.enable_rfc,
+        **codec_kwargs,
     )
 
 
@@ -441,6 +449,18 @@ def main():
         "--use-tensorstore",
         action="store_true",
         help="Use the TensorStore library for I/O",
+    )
+    processing_group.add_argument(
+        "--codec",
+        help="Compression codec: blosc:zstd, blosc:lz4, gzip, zstd, lz4, none. "
+        "Default: zarr's built-in default.",
+        default=None,
+    )
+    processing_group.add_argument(
+        "--compression-level",
+        type=int,
+        help="Compression level (codec-dependent, e.g. 1-9 for gzip, 1-22 for zstd)",
+        default=None,
     )
 
     args = parser.parse_args()

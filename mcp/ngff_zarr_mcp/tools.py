@@ -197,31 +197,11 @@ async def convert_to_ome_zarr(
             # Convert to OME-Zarr
             kwargs = {}
             if options.compression_codec:
-                # Create proper compressor object
-                import numcodecs
+                from ngff_zarr.codecs import codec_from_name  # type: ignore[import-untyped]
 
-                if options.compression_codec == "gzip":
-                    level = options.compression_level or 6
-                    kwargs["compressor"] = numcodecs.GZip(level=level)
-                elif options.compression_codec == "lz4":
-                    kwargs["compressor"] = numcodecs.LZ4()
-                elif options.compression_codec == "zstd":
-                    level = options.compression_level or 3
-                    kwargs["compressor"] = numcodecs.Zstd(level=level)
-                elif options.compression_codec.startswith("blosc"):
-                    # Handle blosc variants like "blosc:lz4", "blosc:zstd", etc.
-                    codec_parts = options.compression_codec.split(":")
-                    if len(codec_parts) == 2:
-                        codec_name = codec_parts[1]
-                    else:
-                        codec_name = "lz4"  # default
-                    level = options.compression_level or 5
-                    kwargs["compressor"] = numcodecs.Blosc(
-                        cname=codec_name, clevel=level
-                    )
-                else:
-                    # Fallback to string (may work for some codecs)
-                    kwargs["compressor"] = options.compression_codec
+                kwargs["compressor"] = codec_from_name(
+                    options.compression_codec, options.compression_level
+                )
 
             # Prepare enabled_rfcs parameter
             # Note: Temporarily disabled due to compatibility issues

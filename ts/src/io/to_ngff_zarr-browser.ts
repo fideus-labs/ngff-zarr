@@ -6,6 +6,7 @@ import * as zarr from "zarrita";
 
 import type { Multiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
+import type { ZarrCodec } from "../utils/codecs.ts";
 import { defaultCodecs } from "../utils/codecs.ts";
 import { createWriteQueue, zarrGet, zarrSet } from "../utils/worker_pool.ts";
 import type { MemoryStore } from "./from_ngff_zarr-browser.ts";
@@ -18,6 +19,12 @@ export interface ToNgffZarrOptions {
   overwrite?: boolean;
   version?: "0.4" | "0.5";
   chunksPerShard?: number | number[] | Record<string, number>;
+  /**
+   * Custom codec pipeline for array compression. When omitted the default
+   * ``blosc(zstd)`` pipeline from {@link defaultCodecs} is used. Use
+   * {@link codecFromName} or {@link bytesOnlyCodecs} to build common pipelines.
+   */
+  codecs?: ZarrCodec[];
 }
 
 /**
@@ -128,6 +135,8 @@ export async function toNgffZarr(
         rootGroup as zarr.Group<MemoryStore>,
         image,
         dataset.path,
+        undefined, // onProgress
+        options.codecs,
       );
     }
   } catch (error) {
@@ -216,6 +225,7 @@ async function _writeImage(
   image: NgffImage,
   arrayPath: string,
   onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
+  codecs?: ZarrCodec[],
 ): Promise<void> {
   try {
     const chunks = getChunksFromImage(image);
@@ -232,7 +242,7 @@ async function _writeImage(
       data_type: zarrDataType,
       chunk_shape: chunks,
       fill_value: 0,
-      codecs: defaultCodecs(zarrDataType),
+      codecs: codecs ?? defaultCodecs(zarrDataType),
     });
 
     await _writeArrayData(

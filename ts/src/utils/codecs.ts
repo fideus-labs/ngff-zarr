@@ -81,3 +81,90 @@ export function defaultCodecs(dataType: string): ZarrCodec[] {
 export function bytesOnlyCodecs(): ZarrCodec[] {
   return [{ name: "bytes", configuration: { endian: "little" } }];
 }
+
+/**
+ * Supported codec name strings accepted by {@link codecFromName}.
+ *
+ * Mirrors the Python ``ngff_zarr.codecs.get_available_codecs()`` list.
+ */
+export const AVAILABLE_CODECS = [
+  "none",
+  "gzip",
+  "lz4",
+  "zstd",
+  "blosc",
+  "blosc:blosclz",
+  "blosc:lz4",
+  "blosc:lz4hc",
+  "blosc:snappy",
+  "blosc:zlib",
+  "blosc:zstd",
+] as const;
+
+/** Union of recognised codec name strings. */
+export type CodecName = (typeof AVAILABLE_CODECS)[number];
+
+/**
+ * Build a zarr v3 codec pipeline from a human-readable codec name.
+ *
+ * This is the TypeScript equivalent of the Python
+ * ``ngff_zarr.codecs.codec_from_name()`` helper. Unlike the Python
+ * version (which returns a single *numcodecs* object), this returns a
+ * complete ``ZarrCodec[]`` pipeline including the required ``bytes``
+ * array-to-bytes codec.
+ *
+ * @param name - One of the strings in {@link AVAILABLE_CODECS}.
+ * @param dataType - Zarr v3 data type string (e.g. ``"float32"``),
+ *   needed to set the blosc ``typesize`` field.
+ * @param level - Optional compression level.  When omitted a sensible
+ *   default is used (gzip=6, zstd=3, blosc=5).
+ * @returns A codec pipeline suitable for ``zarr.create()``.
+ * @throws {Error} If *name* is not recognised.
+ */
+export function codecFromName(
+  name: string,
+  dataType: string,
+  level?: number,
+): ZarrCodec[] {
+  const bytes: ZarrCodec = {
+    name: "bytes",
+    configuration: { endian: "little" },
+  };
+
+  if (name === "none") {
+    return [bytes];
+  }
+
+  if (name === "gzip") {
+    return [bytes, { name: "gzip", configuration: { level: level ?? 6 } }];
+  }
+
+  if (name === "zstd") {
+    return [bytes, { name: "zstd", configuration: { level: level ?? 3 } }];
+  }
+
+  if (name === "lz4") {
+    return [bytes, { name: "lz4", configuration: {} }];
+  }
+
+  if (name === "blosc" || name.startsWith("blosc:")) {
+    const cname = name.includes(":") ? name.split(":")[1] : "lz4";
+    return [
+      bytes,
+      {
+        name: "blosc",
+        configuration: {
+          cname,
+          clevel: level ?? 5,
+          shuffle: "shuffle",
+          typesize: typeSizeForDtype(dataType),
+          blocksize: 0,
+        },
+      },
+    ];
+  }
+
+  throw new Error(
+    `Unknown codec: "${name}". Available: ${AVAILABLE_CODECS.join(", ")}`,
+  );
+}

@@ -46,6 +46,57 @@ DASK_SUPPORTS_SHARDING = Version(dask_version) >= Version("2025.12.0")
 ScaleStrategy = Literal["pad", "exact"]
 
 
+def _numcodecs_to_zarr_v3_codec(compressor):
+    """Translate a *numcodecs* compressor to its zarr v3 codec equivalent.
+
+    Returns a zarr v3 codec object suitable for use inside a
+    :class:`~zarr.codecs.sharding.ShardingCodec` or as a standalone
+    bytes-to-bytes codec.  Returns ``None`` when *compressor* is ``None``
+    or the codec type is not recognised.
+    """
+    if compressor is None:
+        return None
+
+    codec_id = getattr(compressor, "codec_id", None)
+    if codec_id is None:
+        return None
+
+    try:
+        if codec_id == "blosc":
+            from zarr.codecs.blosc import BloscCodec
+
+            shuffle_val = getattr(compressor, "shuffle", 1)
+            if shuffle_val == 0:
+                from zarr.codecs.blosc import BloscShuffle
+
+                shuffle = BloscShuffle.noshuffle
+            elif shuffle_val == 2:
+                from zarr.codecs.blosc import BloscShuffle
+
+                shuffle = BloscShuffle.bitshuffle
+            else:
+                from zarr.codecs.blosc import BloscShuffle
+
+                shuffle = BloscShuffle.shuffle
+            return BloscCodec(
+                cname=getattr(compressor, "cname", "lz4"),
+                clevel=getattr(compressor, "clevel", 5),
+                shuffle=shuffle,
+            )
+        elif codec_id == "gzip":
+            from zarr.codecs.gzip import GzipCodec
+
+            return GzipCodec(level=getattr(compressor, "level", 6))
+        elif codec_id == "zstd":
+            from zarr.codecs.zstd import ZstdCodec
+
+            return ZstdCodec(level=getattr(compressor, "level", 3))
+    except ImportError:
+        pass
+
+    return None
+
+
 def _pop_metadata_optionals(metadata_dict, enabled_rfcs: Optional[List[int]] = None):
     for ax in metadata_dict["axes"]:
         if ax["unit"] is None:
@@ -746,19 +797,32 @@ def _handle_large_array_writing(
                 ]
             )
 
-        # Configure the sharding codec with proper defaults
+        # Configure the sharding codec, respecting user-provided compression
         from zarr.codecs.sharding import ShardingCodec
         from zarr.codecs.bytes import BytesCodec
         from zarr.codecs.zstd import ZstdCodec
 
-        # Default inner codecs for sharding
-        default_codecs = [BytesCodec(), ZstdCodec()]
+        # Determine inner codecs: honour user-supplied compressor/compressors
+        user_compressors = kwargs.get("compressors")
+        user_compressor = kwargs.get("compressor")
+        if user_compressors is not None:
+            # User provided a zarr v3 codec object directly
+            inner_codecs = [BytesCodec(), user_compressors]
+        elif user_compressor is not None:
+            v3_codec = _numcodecs_to_zarr_v3_codec(user_compressor)
+            inner_codecs = (
+                [BytesCodec(), v3_codec]
+                if v3_codec is not None
+                else [BytesCodec(), ZstdCodec()]
+            )
+        else:
+            inner_codecs = [BytesCodec(), ZstdCodec()]
 
         # The array's chunk_shape should be the shard shape
         # The sharding codec's chunk_shape should be the internal chunk shape
         sharding_codec = ShardingCodec(
             chunk_shape=internal_chunk_shape,  # Internal chunk shape within shards
-            codecs=default_codecs,
+            codecs=inner_codecs,
         )
 
         # Set up codecs with sharding

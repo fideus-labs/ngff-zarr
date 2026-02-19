@@ -157,6 +157,100 @@ class TestNibabelOutput:
         Path(output_path).unlink(missing_ok=True)
 
 
+class TestCodecCLI:
+    """Test --codec and --compression-level CLI arguments."""
+
+    def test_codec_gzip(self, input_images):  # noqa: ARG002
+        """Test that --codec gzip writes gzip-compressed OME-Zarr."""
+        import json
+
+        input_path = str(test_data_dir / "input" / "cthead1.png")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = os.path.join(tmpdir, "out.ome.zarr")
+            result = _run_ngff_zarr(
+                "-i", input_path, "-o", output_path, "--codec", "gzip"
+            )
+            assert result.returncode == 0, f"stderr: {result.stderr}"
+
+            # Check that the zarr array was written with gzip compressor
+            zarray_path = os.path.join(output_path, "scale0", "image", ".zarray")
+            assert Path(zarray_path).exists(), f"Missing .zarray at {zarray_path}"
+            with open(zarray_path) as f:
+                zarray = json.load(f)
+            assert zarray["compressor"]["id"] == "gzip"
+
+    def test_codec_blosc_zstd(self, input_images):  # noqa: ARG002
+        """Test that --codec blosc:zstd writes blosc-zstd-compressed OME-Zarr."""
+        import json
+
+        input_path = str(test_data_dir / "input" / "cthead1.png")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = os.path.join(tmpdir, "out.ome.zarr")
+            result = _run_ngff_zarr(
+                "-i", input_path, "-o", output_path, "--codec", "blosc:zstd"
+            )
+            assert result.returncode == 0, f"stderr: {result.stderr}"
+
+            zarray_path = os.path.join(output_path, "scale0", "image", ".zarray")
+            with open(zarray_path) as f:
+                zarray = json.load(f)
+            assert zarray["compressor"]["id"] == "blosc"
+            config = zarray["compressor"]
+            assert config["cname"] == "zstd"
+
+    def test_codec_with_level(self, input_images):  # noqa: ARG002
+        """Test that --compression-level is passed through to the codec."""
+        import json
+
+        input_path = str(test_data_dir / "input" / "cthead1.png")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = os.path.join(tmpdir, "out.ome.zarr")
+            result = _run_ngff_zarr(
+                "-i",
+                input_path,
+                "-o",
+                output_path,
+                "--codec",
+                "gzip",
+                "--compression-level",
+                "3",
+            )
+            assert result.returncode == 0, f"stderr: {result.stderr}"
+
+            zarray_path = os.path.join(output_path, "scale0", "image", ".zarray")
+            with open(zarray_path) as f:
+                zarray = json.load(f)
+            assert zarray["compressor"]["id"] == "gzip"
+            assert zarray["compressor"]["level"] == 3
+
+    def test_codec_none(self, input_images):  # noqa: ARG002
+        """Test that --codec none disables compression."""
+        import json
+
+        input_path = str(test_data_dir / "input" / "cthead1.png")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = os.path.join(tmpdir, "out.ome.zarr")
+            result = _run_ngff_zarr(
+                "-i", input_path, "-o", output_path, "--codec", "none"
+            )
+            assert result.returncode == 0, f"stderr: {result.stderr}"
+
+            zarray_path = os.path.join(output_path, "scale0", "image", ".zarray")
+            with open(zarray_path) as f:
+                zarray = json.load(f)
+            assert zarray["compressor"] is None
+
+    def test_invalid_codec(self, input_images):  # noqa: ARG002
+        """Test that an invalid --codec name produces an error."""
+        input_path = str(test_data_dir / "input" / "cthead1.png")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = os.path.join(tmpdir, "out.ome.zarr")
+            result = _run_ngff_zarr(
+                "-i", input_path, "-o", output_path, "--codec", "bogus"
+            )
+            assert result.returncode != 0
+
+
 class TestUnsupportedOutput:
     def test_unsupported_lif_output(self, input_images):  # noqa: ARG002
         """Test that .lif output is rejected with informative error."""
