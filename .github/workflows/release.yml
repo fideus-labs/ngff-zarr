@@ -134,10 +134,19 @@ jobs:
       # TypeScript Package Build (ts/)
       # ============================================================================
 
-      - name: Setup pixi
+      - name: Setup pixi (for Python test data)
         uses: prefix-dev/setup-pixi@v0.9.3
         with:
           manifest-path: ./py/pyproject.toml
+          pixi-version: v0.62.2
+          frozen: true
+
+      - name: Setup pixi (for TypeScript build)
+        if: steps.identify.outputs.project == 'ts'
+        uses: prefix-dev/setup-pixi@v0.9.3
+        with:
+          manifest-path: ./ts/pixi.toml
+          pixi-version: v0.62.2
           frozen: true
 
       - name: Install deno (for TypeScript package)
