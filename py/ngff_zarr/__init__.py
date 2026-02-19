@@ -6,6 +6,7 @@
 from .__about__ import __version__
 from ._supported_versions import SUPPORTED_VERSIONS
 from .cli_input_to_ngff_image import cli_input_to_ngff_image
+from .codecs import codec_from_name, get_available_codecs
 from .compute_omero import (
     GLASBEY_COLORS,
     compute_omero_from_multiscales,
@@ -118,6 +119,9 @@ __all__ = [
     "ConversionBackend",
     "cli_input_to_ngff_image",
     "validate",
+    # Codec utilities
+    "codec_from_name",
+    "get_available_codecs",
     "Metadata",
     "MethodMetadata",
     "AxesType",
