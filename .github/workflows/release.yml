@@ -134,11 +134,9 @@ jobs:
       # TypeScript Package Build (ts/)
       # ============================================================================
 
-      - name: Setup pixi (for TypeScript package)
-        if: steps.identify.outputs.project == 'ts'
-        uses: prefix-dev/setup-pixi@v0.8.1
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@v0.9.3
         with:
-          pixi-version: v0.49.0
           manifest-path: ./py/pyproject.toml
           frozen: true
 
