@@ -99,20 +99,20 @@ def _parse_omero(omero_data: dict) -> Optional[Omero]:
 
 def _parse_hcs_path(store_path: str) -> tuple[str, Optional[str]]:
     """Parse a potential HCS path into store and sub-path components.
-    
+
     Parameters
     ----------
     store_path : str
         Path that may contain a zarr store with an optional sub-path
         (e.g., 'plate.zarr/A/1/0')
-    
+
     Returns
     -------
     store : str
         The path to the zarr store (preserves original path separators)
     subpath : str or None
         The sub-path within the store using forward slashes, or None if no sub-path
-        
+
     Examples
     --------
     >>> _parse_hcs_path('plate.zarr')
@@ -123,21 +123,21 @@ def _parse_hcs_path(store_path: str) -> tuple[str, Optional[str]]:
     ('/path/to/plate.ome.zarr', 'B/2')
     """
     # Normalize to forward slashes for searching, but preserve original for store path
-    normalized = store_path.replace('\\', '/')
-    
+    normalized = store_path.replace("\\", "/")
+
     # Check longer extensions first (.ome.zarr before .zarr)
-    for ext in ('.ome.zarr', '.ozx', '.zarr'):
+    for ext in (".ome.zarr", ".ozx", ".zarr"):
         idx = normalized.find(ext)
         if idx != -1:
             ext_end = idx + len(ext)
             # Verify the extension is at a path boundary (end of string or followed by a separator)
-            if ext_end == len(normalized) or normalized[ext_end] == '/':
+            if ext_end == len(normalized) or normalized[ext_end] == "/":
                 # Preserve original separators in store path by slicing original input
                 store = store_path[:ext_end]
-                remainder = normalized[ext_end:].lstrip('/')
+                remainder = normalized[ext_end:].lstrip("/")
                 subpath = remainder if remainder else None
                 return store, subpath
-    
+
     # No zarr extension found, return as-is
     return store_path, None
 

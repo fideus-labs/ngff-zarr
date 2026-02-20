@@ -368,7 +368,7 @@ class Metadata:
         subpath: str = None,
     ) -> tuple["Metadata", list["NgffImage"]]:
         """Create Metadata instance from ome-zarr metadata dictionary.
-        
+
         Parameters
         ----------
         root_attrs : dict
@@ -474,7 +474,7 @@ class Metadata:
             dataset_path = dataset["path"]
             if subpath:
                 dataset_path = f"{subpath}/{dataset_path}"
-            
+
             data = dask.array.from_zarr(store, component=dataset_path)
             # Convert endianness to native if needed
             if (sys.byteorder == "little" and data.dtype.byteorder == ">") or (

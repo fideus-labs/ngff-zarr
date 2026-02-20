@@ -134,8 +134,8 @@ If you attempt to convert the entire plate (without specifying a well/field), yo
 
 ```bash
 $ ngff-zarr -i plate.ome.zarr -o output.ome.zarr
-Error: The input appears to be an HCS (High Content Screening) plate structure 
-with 96 wells. To convert a specific well/image, provide the full path including 
+Error: The input appears to be an HCS (High Content Screening) plate structure
+with 96 wells. To convert a specific well/image, provide the full path including
 well and field:
   Examples: 'plate.ome.zarr/A/1/0', 'plate.ome.zarr/A/2/0', 'plate.ome.zarr/A/3/0'
 For programmatic access to the full plate, use from_hcs_zarr() instead of from_ngff_zarr().

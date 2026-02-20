@@ -32,7 +32,7 @@ def from_ngff_zarr(
         Store or path to directory in file system. Can be a string URL
         (e.g., 's3://bucket/path') for remote storage. For .ozx files,
         provide the path to the .ozx file.
-        
+
         For HCS (High Content Screening) plates, provide the path to a
         specific well and field within the plate (e.g., 'plate.zarr/A/1/0'
         for well A1, field 0). To load the entire plate structure, use
@@ -56,7 +56,12 @@ def from_ngff_zarr(
     multiscales: multiscale ngff image with dask-chunked arrays for data
 
     """
-    from .parse_metadata import _extract_method_metadata, _detect_version, _is_hcs_plate, _parse_hcs_path
+    from .parse_metadata import (
+        _extract_method_metadata,
+        _detect_version,
+        _is_hcs_plate,
+        _parse_hcs_path,
+    )
 
     # Parse potential HCS sub-paths (e.g., 'plate.zarr/A/1/0')
     original_store = store
@@ -99,20 +104,20 @@ def from_ngff_zarr(
             else {"zarr_format": 3}
         )
     root = zarr.open_group(store, mode="r", **format_kwargs)
-    
+
     # Check root-level attributes first to see if this is an HCS plate
     root_attrs_initial = root.attrs.asdict()
     is_hcs_plate_root = _is_hcs_plate(root_attrs_initial)
-    
+
     # If this is an HCS plate and no subpath was provided, error with guidance
     if is_hcs_plate_root and not subpath:
         # Try to provide helpful error message with available wells
         try:
             from .hcs import from_hcs_zarr
-            
+
             # Attempt to load plate metadata to provide well information
             plate = from_hcs_zarr(original_store, validate=False)
-            
+
             # Build helpful error message with well examples
             well_examples = []
             if plate.metadata.wells:
@@ -121,9 +126,11 @@ def from_ngff_zarr(
                     well_path = well.path
                     # Add field 0 as example
                     well_examples.append(f"'{original_store}/{well_path}/0'")
-            
-            examples_str = ", ".join(well_examples) if well_examples else "'plate.zarr/A/1/0'"
-            
+
+            examples_str = (
+                ", ".join(well_examples) if well_examples else "'plate.zarr/A/1/0'"
+            )
+
             raise ValueError(
                 f"The input appears to be an HCS (High Content Screening) plate structure "
                 f"with {len(plate.metadata.wells)} wells. "
@@ -142,7 +149,7 @@ def from_ngff_zarr(
                 "provide the full path including well and field (e.g., 'plate.zarr/A/1/0' for well A1, field 0). "
                 "For programmatic access to the full plate, use from_hcs_zarr() instead of from_ngff_zarr()."
             ) from None
-    
+
     # Navigate to sub-path if provided (for HCS well/image access)
     # We get metadata from the subpath but pass the subpath to _from_zarr_attrs
     # so it can correctly construct data paths
@@ -154,7 +161,7 @@ def from_ngff_zarr(
                 f"Sub-path '{subpath}' not found in store. "
                 f"Ensure the path is correct (e.g., 'A/1/0' for well A1, field 0)."
             )
-    
+
     root_attrs = root.attrs.asdict()
 
     if not version:
