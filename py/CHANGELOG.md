@@ -1,3 +1,11 @@
+## py-v0.29.0 (2026-02-20)
+
+### ✨ Features
+
+- **py**: improve NGFF version detection error messages ([7b03514](https://github.com/fideus-labs/ngff-zarr/commit/7b035144f117dfb8d07338121041ac63b5d5bf0b))
+- **py**: integrate channel names with OMERO metadata computation ([c4d5601](https://github.com/fideus-labs/ngff-zarr/commit/c4d5601b4d8e7d88415ba163c3dd37fc776aff5d))
+- **py**: add channel name extraction from OME-XML metadata ([9efb0b5](https://github.com/fideus-labs/ngff-zarr/commit/9efb0b561c053a42255778dc0d73b2510c269938))
+
 ## py-v0.28.1 (2026-02-18)
 
 ### 🐛 Bug Fixes
