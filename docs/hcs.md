@@ -143,7 +143,7 @@ For programmatic access to the full plate, use from_hcs_zarr() instead of from_n
 
 ### Programmatic Access
 
-For programmatic access to the full plate structure, use the `from_ngff_zarr()` function with sub-path syntax:
+For programmatic access to a specific well/field image within a plate, use the `from_ngff_zarr()` function with sub-path syntax. To load the full plate structure, use `from_hcs_zarr()`.
 
 ```python
 from ngff_zarr import from_ngff_zarr

@@ -46,6 +46,23 @@ def test_parse_hcs_path():
     ), f"Expected store '/path/to/plate.ome.zarr', got '{store}'"
     assert subpath == "B/2/0", f"Expected subpath 'B/2/0', got '{subpath}'"
 
+    # Edge case: multiple .zarr segments — deepest (last) store should be selected
+    store, subpath = _parse_hcs_path("/a.zarr/b/plate.zarr/A/1/0")
+    assert (
+        store == "/a.zarr/b/plate.zarr"
+    ), f"Expected deepest store '/a.zarr/b/plate.zarr', got '{store}'"
+    assert subpath == "A/1/0", f"Expected subpath 'A/1/0', got '{subpath}'"
+
+    # Edge case: trailing slash on subpath should be stripped
+    store, subpath = _parse_hcs_path("plate.zarr/A/1/0/")
+    assert store == "plate.zarr", f"Expected store 'plate.zarr', got '{store}'"
+    assert subpath == "A/1/0", f"Expected stripped subpath 'A/1/0', got '{subpath}'"
+
+    # Edge case: no zarr extension — returned unchanged
+    store, subpath = _parse_hcs_path("no-extension/path")
+    assert store == "no-extension/path", f"Expected unchanged path, got '{store}'"
+    assert subpath is None, "Expected no subpath for non-zarr path"
+
 
 def test_from_ngff_zarr_hcs_plate_error(hcs_data_path):
     """Test that loading HCS plate root raises helpful error."""

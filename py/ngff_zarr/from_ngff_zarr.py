@@ -121,11 +121,13 @@ def from_ngff_zarr(
             # Build helpful error message with well examples
             well_examples = []
             if plate.metadata.wells:
+                # Normalize store path to forward slashes for display (Windows-friendly)
+                display_store = str(original_store).replace("\\", "/")
                 # Show up to 3 well examples
                 for well in plate.metadata.wells[:3]:
                     well_path = well.path
                     # Add field 0 as example
-                    well_examples.append(f"'{original_store}/{well_path}/0'")
+                    well_examples.append(f"'{display_store}/{well_path}/0'")
 
             examples_str = (
                 ", ".join(well_examples) if well_examples else "'plate.zarr/A/1/0'"

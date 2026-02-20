@@ -365,7 +365,7 @@ class Metadata:
         root_attrs: dict,
         store: StoreLike,
         validate: bool = False,
-        subpath: str = None,
+        subpath: Optional[str] = None,
     ) -> tuple["Metadata", list["NgffImage"]]:
         """Create Metadata instance from ome-zarr metadata dictionary.
 
@@ -380,6 +380,7 @@ class Metadata:
         subpath : str, optional
             Sub-path within the store for HCS well/image access (e.g., 'A/1/0')
         """
+        import posixpath
         import sys
         import dask.array
         from ..validate import validate as validate_ngff
@@ -470,10 +471,11 @@ class Metadata:
         images = []
         datasets = []
         for dataset in root_attrs["datasets"]:
-            # If we have a subpath, prepend it to the dataset path
+            # If we have a subpath, prepend it to the dataset path using posixpath.join
+            # to guarantee a single '/' separator (handles leading/trailing slashes safely)
             dataset_path = dataset["path"]
             if subpath:
-                dataset_path = f"{subpath}/{dataset_path}"
+                dataset_path = posixpath.join(subpath, dataset_path)
 
             data = dask.array.from_zarr(store, component=dataset_path)
             # Convert endianness to native if needed

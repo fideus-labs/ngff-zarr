@@ -37,10 +37,10 @@ def detect_cli_io_backend(input: List[str]) -> ConversionBackend:
         return ConversionBackend.ZARR_ARRAY
 
     # Check for HCS sub-paths (e.g., 'plate.zarr/A/1/0')
-    # Parse the path to find a zarr store, even if there's a sub-path
+    # Use the raw string to avoid Path() mangling URL-like inputs (e.g., s3:// → s3:/)
     from .parse_metadata import _parse_hcs_path
 
-    store_path, subpath = _parse_hcs_path(str(input_path))
+    store_path, subpath = _parse_hcs_path(input[0])
 
     # If we found a sub-path, use the store path for extension detection
     if subpath:

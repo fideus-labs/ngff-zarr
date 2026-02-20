@@ -73,7 +73,7 @@ class Metadata:
         root_attrs: dict,
         store: StoreLike,
         validate: bool = False,
-        subpath: str = None,
+        subpath: Optional[str] = None,
     ) -> tuple["Metadata", list["NgffImage"]]:  # noqa: F821
         from ..v04.zarr_metadata import Metadata as Metadata_v04
 

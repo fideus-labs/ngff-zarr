@@ -125,16 +125,18 @@ def _parse_hcs_path(store_path: str) -> tuple[str, Optional[str]]:
     # Normalize to forward slashes for searching, but preserve original for store path
     normalized = store_path.replace("\\", "/")
 
-    # Check longer extensions first (.ome.zarr before .zarr)
+    # Check longer extensions first (.ome.zarr before .zarr) and use rfind so the
+    # *deepest* (last) matching store boundary is selected when multiple .zarr
+    # segments appear in the path (e.g. /a.zarr/b/plate.zarr/A/1/0).
     for ext in (".ome.zarr", ".ozx", ".zarr"):
-        idx = normalized.find(ext)
+        idx = normalized.rfind(ext)
         if idx != -1:
             ext_end = idx + len(ext)
             # Verify the extension is at a path boundary (end of string or followed by a separator)
             if ext_end == len(normalized) or normalized[ext_end] == "/":
                 # Preserve original separators in store path by slicing original input
                 store = store_path[:ext_end]
-                remainder = normalized[ext_end:].lstrip("/")
+                remainder = normalized[ext_end:].strip("/")
                 subpath = remainder if remainder else None
                 return store, subpath
 
