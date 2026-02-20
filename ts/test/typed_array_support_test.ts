@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { toNgffImage } from "../src/io/to_ngff_image.ts";
-import { toMultiscales } from "../src/io/to_multiscales.ts";
+import { toMultiscales } from "../src/process/to_multiscales-node.ts";
 import { Methods } from "../src/types/methods.ts";
 
 Deno.test("support Int8Array", async () => {

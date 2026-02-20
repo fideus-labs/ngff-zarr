@@ -13,7 +13,9 @@ import type {
   TypedArray,
 } from "itk-wasm";
 import * as zarr from "zarrita";
+import { defaultCodecs } from "../utils/codecs.ts";
 import { NgffImage } from "../types/ngff_image.ts";
+import { zarrGet, zarrSet } from "../utils/worker_pool.ts";
 
 export interface NgffImageToItkImageOptions {
   /**
@@ -32,7 +34,7 @@ export interface NgffImageToItkImageOptions {
 /**
  * Convert the data type from zarr DataType to ITK-Wasm component type
  */
-function dataTypeToComponentType(
+export function dataTypeToComponentType(
   dataType: zarr.DataType,
 ):
   | (typeof IntTypes)[keyof typeof IntTypes]
@@ -131,7 +133,7 @@ export async function ngffImageToItkImage(
     const selection = new Array(workingImage.data.shape.length).fill(null);
     selection[tDimIndex] = tIndex;
 
-    const sliceData = await zarr.get(workingImage.data, selection);
+    const sliceData = await zarrGet(workingImage.data, selection);
 
     // Create new zarr array with reduced dimensions
     const store = new Map<string, Uint8Array>();
@@ -144,11 +146,12 @@ export async function ngffImageToItkImage(
       chunk_shape: chunkShape,
       data_type: workingImage.data.dtype,
       fill_value: 0,
+      codecs: defaultCodecs(workingImage.data.dtype),
     });
 
     // Write the slice data
     const fullSelection = new Array(newShape.length).fill(null);
-    await zarr.set(newArray, fullSelection, sliceData);
+    await zarrSet(newArray, fullSelection, sliceData);
 
     workingImage = new NgffImage({
       data: newArray,
@@ -189,7 +192,7 @@ export async function ngffImageToItkImage(
     const selection = new Array(workingImage.data.shape.length).fill(null);
     selection[cDimIndex] = cIndex;
 
-    const sliceData = await zarr.get(workingImage.data, selection);
+    const sliceData = await zarrGet(workingImage.data, selection);
 
     // Create new zarr array with reduced dimensions
     const store = new Map<string, Uint8Array>();
@@ -202,11 +205,12 @@ export async function ngffImageToItkImage(
       chunk_shape: chunkShape,
       data_type: workingImage.data.dtype,
       fill_value: 0,
+      codecs: defaultCodecs(workingImage.data.dtype),
     });
 
     // Write the slice data
     const fullSelection = new Array(newShape.length).fill(null);
-    await zarr.set(newArray, fullSelection, sliceData);
+    await zarrSet(newArray, fullSelection, sliceData);
 
     workingImage = new NgffImage({
       data: newArray,
@@ -285,7 +289,7 @@ export async function ngffImageToItkImage(
 
   // Read all data from zarr array
   const selection = new Array(data.shape.length).fill(null);
-  const dataChunk = await zarr.get(data, selection);
+  const dataChunk = await zarrGet(data, selection);
 
   // Create direction matrix (identity for now)
   const direction = new Float64Array(dimension * dimension);

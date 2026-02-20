@@ -26,14 +26,18 @@ def _compute_next_scale(previous_image: NgffImage, dim_factors):
         Example {'x': 2.0, 'y': 1.0}
     """
     input_scale = previous_image.scale
-    return {
-        dim: input_scale[dim] * dim_factors[dim]
-        for dim in previous_image.dims
-        if dim in _spatial_dims
-    }
+    scale = {}
+    for dim in previous_image.dims:
+        if dim in _spatial_dims and dim in dim_factors:
+            # Apply scale factor for spatial dims being downsampled
+            scale[dim] = input_scale[dim] * dim_factors[dim]
+        elif dim in input_scale:
+            # Preserve scale for non-spatial dims and spatial dims not being downsampled
+            scale[dim] = input_scale[dim]
+    return scale
 
 
-def _compute_next_translation(previous_image, dim_factors):
+def _compute_next_translation(previous_image: NgffImage, dim_factors):
     """Helper method to manually compute output image physical offset.
         Note that this method does not account for an image direction matrix.
 
@@ -50,19 +54,16 @@ def _compute_next_translation(previous_image, dim_factors):
     input_scale = previous_image.scale
     input_translation = previous_image.translation
 
-    # Index in input image space corresponding to offset after shrink
-    input_index = {
-        dim: 0.5 * (dim_factors[dim] - 1)
-        for dim in previous_image.dims
-        if dim in dim_factors
-    }
-    # Translate input index coordinate to offset in physical space
-    # NOTE: This method fails to account for direction matrix
-    return {
-        dim: input_index[dim] * input_scale[dim] + input_translation[dim]
-        for dim in previous_image.dims
-        if dim in dim_factors
-    }
+    translation = {}
+    for dim in previous_image.dims:
+        if dim in _spatial_dims and dim in dim_factors:
+            # Calculate new translation for spatial dims being downsampled
+            input_index = 0.5 * (dim_factors[dim] - 1)
+            translation[dim] = input_index * input_scale[dim] + input_translation[dim]
+        elif dim in input_translation:
+            # Preserve translation for non-spatial dims and spatial dims not being downsampled
+            translation[dim] = input_translation[dim]
+    return translation
 
 
 def _get_truncate(previous_image, sigma_values, truncate_start=4.0) -> float:
@@ -116,19 +117,23 @@ def _downsample_dask_image(
     previous_image = ngff_image
     dims = ngff_image.dims
     previous_absolute_dim_factors = {d: 1 for d in dims}
-    previous_scale_factors = {d: 1 for d in dims}
     for scale_factor in scale_factors:
         dim_factors = _dim_scale_factors(
             dims, scale_factor, previous_absolute_dim_factors
         )
-        previous_absolute_dim_factors = {
-            d: v * previous_scale_factors[d] for d, v in dim_factors.items()
-        }
-        if isinstance(scale_factor, dict):
-            previous_scale_factors = scale_factor
-        elif isinstance(scale_factor, (int,)):
-            previous_scale_factors = {d: scale_factor for d in dims}
-        else:
+        # Update absolute factors for all dims
+        new_absolute_dim_factors = {}
+        for d in dims:
+            if d in dim_factors:
+                # Multiply by incremental factor for dims being downsampled
+                new_absolute_dim_factors[d] = dim_factors[
+                    d
+                ] * previous_absolute_dim_factors.get(d, 1.0)
+            else:
+                # Keep existing absolute factor for dims not being downsampled
+                new_absolute_dim_factors[d] = previous_absolute_dim_factors.get(d, 1.0)
+        previous_absolute_dim_factors = new_absolute_dim_factors
+        if not isinstance(scale_factor, (dict, int)):
             msg = "Unexpected scale_factor type"
             raise ValueError(msg)
         previous_image = _align_chunks(previous_image, default_chunks, dim_factors)

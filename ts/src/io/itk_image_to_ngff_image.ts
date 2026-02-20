@@ -6,12 +6,17 @@
 
 import type { Image } from "itk-wasm";
 import * as zarr from "zarrita";
-import { NgffImage } from "../types/ngff_image.ts";
-import { itkLpsToAnatomicalOrientation } from "../types/rfc4.ts";
-import type { AnatomicalOrientation } from "../types/rfc4.ts";
-
 // Import the get_strides function from zarrita utilities
 import { _zarrita_internal_get_strides as getStrides } from "zarrita";
+
+import { NgffImage } from "../types/ngff_image.ts";
+import type { AnatomicalOrientation } from "../types/rfc4.ts";
+import {
+  itkDirectionToAnatomicalOrientation,
+  itkLpsToAnatomicalOrientation,
+} from "../types/rfc4.ts";
+import { defaultCodecs } from "../utils/codecs.ts";
+import { zarrSet } from "../utils/worker_pool.ts";
 
 export interface ItkImageToNgffImageOptions {
   /**
@@ -25,6 +30,39 @@ export interface ItkImageToNgffImageOptions {
    * @default "image"
    */
   path?: string;
+
+  /**
+   * Chunk size for the zarr array. Can be:
+   * - A single number (applied to all dimensions, capped at dimension size)
+   * - An array of numbers (one per dimension)
+   * @default 256
+   */
+  chunks?: number | number[];
+}
+
+/**
+ * Check whether an ITK direction matrix is the identity matrix.
+ *
+ * When the direction is identity, the image axes align directly with
+ * the physical LPS axes and the simple LPS lookup is sufficient.
+ *
+ * @param direction - Flat (row-major) direction matrix from ITK-Wasm
+ * @param n - Number of spatial dimensions (2 or 3)
+ * @returns `true` if every element matches the identity matrix
+ */
+function isIdentityDirection(
+  direction: ArrayLike<number | bigint>,
+  n: number,
+): boolean {
+  for (let row = 0; row < n; row++) {
+    for (let col = 0; col < n; col++) {
+      const expected = row === col ? 1 : 0;
+      if (Number(direction[row * n + col]) !== expected) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 /**
@@ -42,7 +80,11 @@ export async function itkImageToNgffImage(
   itkImage: Image,
   options: ItkImageToNgffImageOptions = {},
 ): Promise<NgffImage> {
-  const { addAnatomicalOrientation = true, path = "image" } = options;
+  const {
+    addAnatomicalOrientation = true,
+    path = "image",
+    chunks = 256,
+  } = options;
 
   // Extract image properties from ITK-Wasm Image
   const _data = itkImage.data;
@@ -51,15 +93,25 @@ export async function itkImageToNgffImage(
   const shape = [...itkImage.size].reverse();
   const spacing = itkImage.spacing;
   const origin = itkImage.origin;
+
+  // Check if this is a vector image (multi-component)
+  const imageType = itkImage.imageType;
+  const isVector = imageType.components > 1;
+
+  // ITK-Wasm stores components separately from size (size is spatial-only).
+  // For vector images, append the component count to shape so that ndim and
+  // dims correctly include the "c" dimension — matching the Python
+  // implementation where image_dict["data"] already includes the component
+  // axis in its shape.
+  if (isVector) {
+    shape.push(imageType.components);
+  }
+
   const ndim = shape.length;
 
   // Determine dimension names based on shape and image type
   // This logic matches the Python implementation
   let dims: string[];
-
-  // Check if this is a vector image (multi-component)
-  const imageType = itkImage.imageType;
-  const isVector = imageType.components > 1;
 
   if (ndim === 3 && isVector) {
     // 2D RGB/vector image: 2D spatial + components
@@ -106,14 +158,17 @@ export async function itkImageToNgffImage(
   const store = new Map<string, Uint8Array>();
   const root = zarr.root(store);
 
-  // Determine appropriate chunk size
-  const chunkShape = shape.map((s) => Math.min(s, 256));
+  // Determine appropriate chunk size based on options
+  const chunkShape = typeof chunks === "number"
+    ? shape.map((s) => Math.min(s, chunks))
+    : shape.map((s, i) => Math.min(s, chunks[i] ?? 256));
 
   const zarrArray = await zarr.create(root.resolve(path), {
     shape: shape,
     chunk_shape: chunkShape,
     data_type: imageType.componentType as zarr.DataType,
     fill_value: 0,
+    codecs: defaultCodecs(imageType.componentType),
   });
 
   // Write the ITK-Wasm data to the zarr array
@@ -132,16 +187,54 @@ export async function itkImageToNgffImage(
     stride: getStrides(shape, "C"), // C-order strides for the reversed shape
   };
 
-  // Write all data to the zarr array using zarrita's set function
+  // Write all data to the zarr array using worker-accelerated set function
   // This handles chunking and encoding automatically
-  await zarr.set(zarrArray, selection, dataChunk); // Add anatomical orientation if requested
+  await zarrSet(zarrArray, selection, dataChunk);
+
+  // Add anatomical orientation if requested
   let axesOrientations: Record<string, AnatomicalOrientation> | undefined;
   if (addAnatomicalOrientation) {
     axesOrientations = {};
-    for (const dim of spatialDims) {
-      const orientation = itkLpsToAnatomicalOrientation(dim);
-      if (orientation !== undefined) {
-        axesOrientations[dim] = orientation;
+    const direction = itkImage.direction;
+    const nSpatial = spatialDims.length;
+
+    // Check whether the direction matrix is available and has a
+    // non-identity rotation (permutation or oblique).
+    const hasDirection = direction !== undefined && direction.length > 0;
+    const hasNonIdentityDirection = hasDirection &&
+      !isIdentityDirection(direction, nSpatial);
+
+    if (hasNonIdentityDirection) {
+      // Use the direction cosine matrix to determine each axis'
+      // anatomical orientation. The direction matrix is stored
+      // row-major as a flat array: direction[row * nSpatial + col].
+      //
+      // spatialDims is in array order (e.g. ["z", "y", "x"]) and
+      // maps to reversed ITK axis indices:
+      //   spatialDims[0] = "z" → ITK axis 2 → direction column 2
+      //   spatialDims[1] = "y" → ITK axis 1 → direction column 1
+      //   spatialDims[2] = "x" → ITK axis 0 → direction column 0
+      //
+      // Column j of the direction matrix contains the LPS-space
+      // direction cosine for ITK axis j.
+      for (let i = 0; i < nSpatial; i++) {
+        const dim = spatialDims[i];
+        // Reverse index: spatialDims[0] → last ITK axis, etc.
+        const itkAxisIndex = nSpatial - 1 - i;
+        // Extract direction column, handling both 2D and 3D cases
+        const col: number[] = [];
+        for (let row = 0; row < nSpatial; row++) {
+          col.push(Number(direction[row * nSpatial + itkAxisIndex]));
+        }
+        axesOrientations[dim] = itkDirectionToAnatomicalOrientation(col);
+      }
+    } else {
+      // Identity direction or no direction: fall back to LPS labels
+      for (const dim of spatialDims) {
+        const orientation = itkLpsToAnatomicalOrientation(dim);
+        if (orientation !== undefined) {
+          axesOrientations[dim] = orientation;
+        }
       }
     }
   }

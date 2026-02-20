@@ -19,7 +19,8 @@ pip install 'ngff-zarr[cli]'
 
 Convert any scientific image file format supported by either
 [itk](https://wasm.itk.org/docs/image_formats),
-[tifffile](https://pypi.org/project/tifffile/), or
+[tifffile](https://pypi.org/project/tifffile/) (TIFF/OME-TIFF with metadata extraction),
+[liffile](https://pypi.org/project/liffile/) (Leica LIF), or
 [imageio](https://imageio.readthedocs.io/en/stable/formats/index.html).
 
 Example:
@@ -29,6 +30,62 @@ ngff-zarr -i ./MR-head.nrrd -o ./MR-head.ome.zarr
 ```
 
 ![ngff-zarr convert](https://i.imgur.com/I7gTG52.png)
+
+### Convert a TIFF file
+
+TIFF files, including multi-series OME-TIFF files, can be converted with automatic
+extraction of physical size metadata when available.
+
+Convert a single TIFF file:
+
+```shell
+ngff-zarr -i microscopy.ome.tiff -o output.ome.zarr
+```
+
+Convert all series from a multi-series TIFF:
+
+```shell
+ngff-zarr -i multi_series.ome.tiff -o output/
+```
+
+Convert a specific series by index:
+
+```shell
+ngff-zarr -i multi_series.ome.tiff -o output.ome.zarr --series 0
+```
+
+Convert series matching a pattern:
+
+```shell
+ngff-zarr -i multi_series.ome.tiff -o output/ --series "*channel_1*"
+```
+
+When converting OME-TIFF files, physical size metadata (PhysicalSizeX/Y/Z and units)
+is automatically extracted and applied to the output OME-Zarr.
+
+For more details on TIFF conversion, see [TIFF Support](./tiff.md).
+
+### Convert a Leica LIF file
+
+Convert all series from a LIF file:
+
+```shell
+ngff-zarr -i microscopy.lif -o output/
+```
+
+Convert a specific series by index:
+
+```shell
+ngff-zarr -i microscopy.lif -o output.ome.zarr --series 0
+```
+
+Convert series matching a pattern:
+
+```shell
+ngff-zarr -i microscopy.lif -o output/ --series "*GFP*"
+```
+
+For more details on LIF conversion, see [Leica LIF Support](./lif.md).
 
 ### Convert an image volume slice series
 

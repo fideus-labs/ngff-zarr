@@ -3,6 +3,9 @@
 
 # ngff-zarr TypeScript
 
+[![npm - Version](https://img.shields.io/npm/v/@fideus-labs/ngff-zarr.svg)](https://www.npmjs.com/package/@fideus-labs/ngff-zarr)
+[![JSR - Version](https://img.shields.io/jsr/v/@fideus-labs/ngff-zarr.svg)](https://jsr.io/@fideus-labs/ngff-zarr)
+
 A TypeScript implementation of ngff-zarr for reading and writing OME-Zarr files,
 compatible with Deno, Node.js, and the browser.
 

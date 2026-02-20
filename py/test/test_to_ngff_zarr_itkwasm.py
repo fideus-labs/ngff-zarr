@@ -254,3 +254,68 @@ def test_label_image_isotropic_scale_factors(input_images):
 #     baseline_name = "x2y4_x2y4/ITKWASM_LABEL_IMAGE.zarr"
 #     store_new_multiscales(dataset_name, baseline_name, multiscales)
 #     verify_against_baseline(dataset_name, baseline_name, multiscales)
+
+
+def test_itkwasm_gaussian_many_channels():
+    """Test ITKWASM_GAUSSIAN with >8 channels iterates over channels individually.
+
+    This tests the fix for GitHub issue #188 where images with many channels
+    would fail with 'Unsupported image type: VariableLengthVector'.
+    """
+    # Create 4D array: (z=8, y=32, x=32, c=16) - 16 channels exceeds threshold
+    data = np.random.randint(0, 65535, (8, 32, 32, 16), dtype=np.uint16)
+    image = to_ngff_image(data, dims=("z", "y", "x", "c"))
+
+    multiscales = to_multiscales(
+        image, scale_factors=[2], method=Methods.ITKWASM_GAUSSIAN
+    )
+
+    assert len(multiscales.images) == 2
+    # Verify channels are preserved
+    assert multiscales.images[1].data.shape[-1] == 16
+    # Verify spatial dimensions are downsampled
+    assert multiscales.images[1].data.shape[0] == 4  # z
+    assert multiscales.images[1].data.shape[1] == 16  # y
+    assert multiscales.images[1].data.shape[2] == 16  # x
+
+
+def test_itkwasm_gaussian_few_channels():
+    """Test ITKWASM_GAUSSIAN with ≤8 channels uses vector mode."""
+    # Create 4D array: (z=8, y=32, x=32, c=3) - 3 channels within threshold
+    data = np.random.randint(0, 65535, (8, 32, 32, 3), dtype=np.uint16)
+    image = to_ngff_image(data, dims=("z", "y", "x", "c"))
+
+    multiscales = to_multiscales(
+        image, scale_factors=[2], method=Methods.ITKWASM_GAUSSIAN
+    )
+
+    assert len(multiscales.images) == 2
+    # Verify channels are preserved
+    assert multiscales.images[1].data.shape[-1] == 3
+    # Verify spatial dimensions are downsampled
+    assert multiscales.images[1].data.shape[0] == 4  # z
+    assert multiscales.images[1].data.shape[1] == 16  # y
+    assert multiscales.images[1].data.shape[2] == 16  # x
+
+
+def test_itkwasm_bin_shrink_many_channels():
+    """Test ITKWASM_BIN_SHRINK with >8 channels iterates over channels individually.
+
+    This tests the fix for GitHub issue #188 where images with many channels
+    would fail with 'Unsupported image type: VariableLengthVector'.
+    """
+    # Create 4D array: (z=8, y=32, x=32, c=12) - 12 channels exceeds threshold
+    data = np.random.randint(0, 65535, (8, 32, 32, 12), dtype=np.uint16)
+    image = to_ngff_image(data, dims=("z", "y", "x", "c"))
+
+    multiscales = to_multiscales(
+        image, scale_factors=[2], method=Methods.ITKWASM_BIN_SHRINK
+    )
+
+    assert len(multiscales.images) == 2
+    # Verify channels are preserved
+    assert multiscales.images[1].data.shape[-1] == 12
+    # Verify spatial dimensions are downsampled
+    assert multiscales.images[1].data.shape[0] == 4  # z
+    assert multiscales.images[1].data.shape[1] == 16  # y
+    assert multiscales.images[1].data.shape[2] == 16  # x

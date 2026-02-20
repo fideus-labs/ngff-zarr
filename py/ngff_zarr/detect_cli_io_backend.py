@@ -11,11 +11,23 @@ conversion_backends = [
     ("NIBABEL", "nibabel"),
     ("ITKWASM", "itkwasm_image_io"),
     ("ITK", "itk"),
+    ("LIFFILE", "liffile"),
     ("TIFFFILE", "tifffile"),
     ("IMAGEIO", "imageio"),
 ]
 conversion_backends_values = [b[1] for b in conversion_backends]
 ConversionBackend = Enum("ConversionBackend", conversion_backends)
+
+
+def _matches_extension(extension: str, supported_extensions: tuple) -> bool:
+    """Check if extension ends with any of the supported extensions.
+
+    Checks longer extensions first to ensure precise matching
+    (e.g., '.ome.zarr' before '.zarr').
+    """
+    # Sort by length descending to check longer extensions first
+    sorted_extensions = sorted(supported_extensions, key=len, reverse=True)
+    return any(extension.endswith(ext) for ext in sorted_extensions)
 
 
 def detect_cli_io_backend(input: List[str]) -> ConversionBackend:
@@ -26,12 +38,12 @@ def detect_cli_io_backend(input: List[str]) -> ConversionBackend:
 
     # RFC-9: Support .ozx (zipped OME-Zarr) files
     ngff_zarr_supported_extensions = (".zarr", ".ome.zarr", ".ozx")
-    if extension in ngff_zarr_supported_extensions:
+    if _matches_extension(extension, ngff_zarr_supported_extensions):
         return ConversionBackend.NGFF_ZARR
 
     # Prioritize NIBABEL for NIfTI files
     nibabel_supported_extensions = (".nii", ".nii.gz")
-    if extension in nibabel_supported_extensions:
+    if _matches_extension(extension, nibabel_supported_extensions):
         return ConversionBackend.NIBABEL
 
     itkwasm_supported_extensions = (
@@ -68,7 +80,7 @@ def detect_cli_io_backend(input: List[str]) -> ConversionBackend:
         ".fdf",
     )
     if (
-        extension in itkwasm_supported_extensions
+        _matches_extension(extension, itkwasm_supported_extensions)
         and len(input) == 1
         and Path(input[0]).is_file()
         and Path(input[0]).stat().st_size < 2e9
@@ -109,16 +121,21 @@ def detect_cli_io_backend(input: List[str]) -> ConversionBackend:
         ".fdf",  # Requires pip install itk-iofdf
     )
 
-    if extension in itk_supported_extensions:
+    if _matches_extension(extension, itk_supported_extensions):
         return ConversionBackend.ITK
+
+    # Leica image file formats (LIF, LOF, XLIF, XLEF, XLCF)
+    liffile_supported_extensions = (".lif", ".lof", ".xlif", ".xlef", ".xlcf")
+    if extension in liffile_supported_extensions:
+        return ConversionBackend.LIFFILE
 
     try:
         import tifffile
 
-        tifffile_supported_extensions = [
+        tifffile_supported_extensions = tuple(
             f".{ext}" for ext in tifffile.TIFF.FILE_EXTENSIONS
-        ]
-        if extension in tifffile_supported_extensions:
+        )
+        if _matches_extension(extension, tifffile_supported_extensions):
             return ConversionBackend.TIFFFILE
     except ImportError:
         from rich import print

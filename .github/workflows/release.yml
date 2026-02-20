@@ -1,0 +1,318 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'py-v*'
+      - 'ts-v*'
+      - 'mcp-v*'
+
+permissions:
+  contents: write  # Required to create releases
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for changelog extraction
+
+      - name: Identify project and version from tag
+        id: identify
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+          # Extract project prefix and version
+          if [[ "$TAG" =~ ^(py|ts|mcp)-v(.+)$ ]]; then
+            PROJECT="${BASH_REMATCH[1]}"
+            VERSION="${BASH_REMATCH[2]}"
+            echo "project=$PROJECT" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+            # Determine if this is a pre-release
+            if [[ "$VERSION" =~ (alpha|beta|rc|dev|pre) ]]; then
+              echo "prerelease=true" >> $GITHUB_OUTPUT
+            else
+              echo "prerelease=false" >> $GITHUB_OUTPUT
+            fi
+
+            # Set project-specific variables
+            case "$PROJECT" in
+              py)
+                echo "project_name=Python Package" >> $GITHUB_OUTPUT
+                echo "project_dir=py" >> $GITHUB_OUTPUT
+                echo "changelog_path=py/CHANGELOG.md" >> $GITHUB_OUTPUT
+                echo "package_name=ngff-zarr" >> $GITHUB_OUTPUT
+                ;;
+              ts)
+                echo "project_name=TypeScript Package" >> $GITHUB_OUTPUT
+                echo "project_dir=ts" >> $GITHUB_OUTPUT
+                echo "changelog_path=ts/CHANGELOG.md" >> $GITHUB_OUTPUT
+                echo "package_name=@fideus-labs/ngff-zarr" >> $GITHUB_OUTPUT
+                ;;
+              mcp)
+                echo "project_name=MCP Package" >> $GITHUB_OUTPUT
+                echo "project_dir=mcp" >> $GITHUB_OUTPUT
+                echo "changelog_path=mcp/CHANGELOG.md" >> $GITHUB_OUTPUT
+                echo "package_name=ngff-zarr-mcp" >> $GITHUB_OUTPUT
+                ;;
+            esac
+
+            echo "✅ Detected: $PROJECT package version $VERSION"
+          else
+            echo "❌ Error: Tag format not recognized: $TAG"
+            echo "Expected format: {py|ts|mcp}-v{version}"
+            exit 1
+          fi
+
+      - name: Extract changelog
+        id: changelog
+        run: |
+          PROJECT="${{ steps.identify.outputs.project }}"
+          VERSION="${{ steps.identify.outputs.version }}"
+          CHANGELOG_PATH="${{ steps.identify.outputs.changelog_path }}"
+
+          echo "📄 Extracting changelog from $CHANGELOG_PATH for version $VERSION"
+
+          # Extract changelog content
+          CHANGELOG_CONTENT=$(.github/scripts/extract-changelog.sh "$CHANGELOG_PATH" "$VERSION" "$PROJECT")
+
+          if [ -z "$CHANGELOG_CONTENT" ]; then
+            echo "❌ Error: Failed to extract changelog content"
+            exit 1
+          fi
+
+          # Save to file for multi-line content
+          echo "$CHANGELOG_CONTENT" > /tmp/changelog.md
+          echo "changelog_file=/tmp/changelog.md" >> $GITHUB_OUTPUT
+
+          echo "✅ Changelog extracted successfully"
+          echo "--- Changelog Preview ---"
+          head -n 20 /tmp/changelog.md
+          echo "------------------------"
+
+      # ============================================================================
+      # Python Package Build (py/)
+      # ============================================================================
+
+      - name: Set up Python (for Python package)
+        if: steps.identify.outputs.project == 'py'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build dependencies (Python package)
+        if: steps.identify.outputs.project == 'py'
+        run: |
+          python -m pip install --upgrade pip
+          pip install hatch
+
+      - name: Build Python package
+        if: steps.identify.outputs.project == 'py'
+        working-directory: py
+        run: |
+          echo "🔨 Building Python package..."
+          hatch build
+          echo "✅ Build complete"
+          echo "--- Build artifacts ---"
+          ls -lh dist/
+
+      - name: Verify Python package artifacts
+        if: steps.identify.outputs.project == 'py'
+        run: |
+          if [ ! -d "py/dist" ] || [ -z "$(ls -A py/dist)" ]; then
+            echo "❌ Error: No build artifacts found in py/dist/"
+            exit 1
+          fi
+          echo "✅ Python package artifacts verified"
+
+      # ============================================================================
+      # TypeScript Package Build (ts/)
+      # ============================================================================
+
+      - name: Setup pixi (for Python test data)
+        uses: prefix-dev/setup-pixi@v0.9.3
+        with:
+          manifest-path: ./py/pyproject.toml
+          pixi-version: v0.62.2
+          frozen: true
+
+      - name: Setup pixi (for TypeScript build)
+        if: steps.identify.outputs.project == 'ts'
+        uses: prefix-dev/setup-pixi@v0.9.3
+        with:
+          manifest-path: ./ts/pixi.toml
+          pixi-version: v0.62.2
+          frozen: true
+
+      - name: Install deno (for TypeScript package)
+        if: steps.identify.outputs.project == 'ts'
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Setup Node.js (for NPM package)
+        if: steps.identify.outputs.project == 'ts'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Download test data
+        run: pixi run download-test-data
+        working-directory: py
+
+      - name: Build TypeScript packages
+        if: steps.identify.outputs.project == 'ts'
+        working-directory: ts
+        run: |
+          echo "🔨 Building TypeScript/Deno package..."
+          pixi run build
+          echo "✅ Deno build complete"
+
+          echo "🔨 Building NPM package..."
+          pixi run build-npm
+          echo "✅ NPM build complete"
+
+          echo "📦 Creating NPM tarball..."
+          cd npm
+          npm pack
+          echo "✅ NPM tarball created"
+
+          echo "--- Build artifacts ---"
+          ls -lh *.tgz
+
+      - name: Verify TypeScript package artifacts
+        if: steps.identify.outputs.project == 'ts'
+        run: |
+          if [ ! -d "ts/npm" ] || [ -z "$(ls -A ts/npm/*.tgz 2>/dev/null)" ]; then
+            echo "❌ Error: No NPM tarball found in ts/npm/"
+            exit 1
+          fi
+          echo "✅ TypeScript package artifacts verified"
+
+      # ============================================================================
+      # MCP Package Build (mcp/)
+      # ============================================================================
+
+      - name: Set up Python (for MCP package)
+        if: steps.identify.outputs.project == 'mcp'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build dependencies (MCP package)
+        if: steps.identify.outputs.project == 'mcp'
+        run: |
+          python -m pip install --upgrade pip
+          pip install hatch
+
+      - name: Build MCP package
+        if: steps.identify.outputs.project == 'mcp'
+        working-directory: mcp
+        run: |
+          echo "🔨 Building MCP package..."
+          hatch build
+          echo "✅ Build complete"
+          echo "--- Build artifacts ---"
+          ls -lh dist/
+
+      - name: Verify MCP package artifacts
+        if: steps.identify.outputs.project == 'mcp'
+        run: |
+          if [ ! -d "mcp/dist" ] || [ -z "$(ls -A mcp/dist)" ]; then
+            echo "❌ Error: No build artifacts found in mcp/dist/"
+            exit 1
+          fi
+          echo "✅ MCP package artifacts verified"
+
+      # ============================================================================
+      # Create GitHub Release
+      # ============================================================================
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "${{ steps.identify.outputs.project_name }} v${{ steps.identify.outputs.version }}"
+          body_path: ${{ steps.changelog.outputs.changelog_file }}
+          prerelease: ${{ steps.identify.outputs.prerelease }}
+          files: |
+            ${{ steps.identify.outputs.project == 'py' && 'py/dist/*' || '' }}
+            ${{ steps.identify.outputs.project == 'ts' && 'ts/npm/*.tgz' || '' }}
+            ${{ steps.identify.outputs.project == 'mcp' && 'mcp/dist/*' || '' }}
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release summary
+        run: |
+          echo "🎉 Release created successfully!"
+          echo ""
+          echo "📦 Package: ${{ steps.identify.outputs.package_name }}"
+          echo "🏷️  Tag: ${{ steps.identify.outputs.tag }}"
+          echo "📌 Version: ${{ steps.identify.outputs.version }}"
+          echo "🔖 Pre-release: ${{ steps.identify.outputs.prerelease }}"
+          echo ""
+          echo "🔗 View release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ steps.identify.outputs.tag }}"
+
+      # ============================================================================
+      # Publish to Package Registries (COMMENTED OUT - Enable after testing)
+      # ============================================================================
+
+      # Uncomment the sections below after verifying that releases work correctly
+
+      # --- Python Package Publishing (PyPI) ---
+
+      # - name: Publish Python package to PyPI
+      #   if: steps.identify.outputs.project == 'py'
+      #   uses: pypa/gh-action-pypi-publish@release/v1
+      #   with:
+      #     packages-dir: py/dist/
+      #     password: ${{ secrets.PYPI_API_TOKEN }}
+      #     skip-existing: true
+      #     verbose: true
+
+      # --- MCP Package Publishing (PyPI) ---
+
+      # - name: Publish MCP package to PyPI
+      #   if: steps.identify.outputs.project == 'mcp'
+      #   uses: pypa/gh-action-pypi-publish@release/v1
+      #   with:
+      #     packages-dir: mcp/dist/
+      #     password: ${{ secrets.PYPI_MCP_TOKEN }}  # Or use PYPI_API_TOKEN if same account
+      #     skip-existing: true
+      #     verbose: true
+
+      # --- TypeScript Package Publishing (NPM) ---
+
+      # - name: Publish to NPM
+      #   if: steps.identify.outputs.project == 'ts'
+      #   working-directory: ts/npm
+      #   run: |
+      #     echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > .npmrc
+      #     npm publish --access public
+      #   env:
+      #     NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # --- TypeScript Package Publishing (JSR - Optional) ---
+
+      # - name: Publish to JSR
+      #   if: steps.identify.outputs.project == 'ts'
+      #   working-directory: ts
+      #   run: |
+      #     deno publish --allow-dirty
+      #   env:
+      #     DENO_DEPLOY_TOKEN: ${{ secrets.DENO_DEPLOY_TOKEN }}
+
+      # ============================================================================
+      # Post-Publishing Notifications (Optional)
+      # ============================================================================
+
+      # - name: Notify publishing success
+      #   if: success()
+      #   run: |
+      #     echo "✅ Package published successfully to registry!"
+      #     echo "📦 ${{ steps.identify.outputs.package_name }} v${{ steps.identify.outputs.version }}"

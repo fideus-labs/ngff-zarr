@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 import sys
+from pathlib import Path
 
 import zarr
 from dask.array.image import imread as daimread
@@ -18,16 +19,8 @@ def cli_input_to_ngff_image(
     backend: ConversionBackend, input, output_scale: int = 0
 ) -> NgffImage:
     if backend is ConversionBackend.NGFF_ZARR:
-        # Handle both .ozx and .zarr files
-        if isinstance(input[0], str) and input[0].endswith('.ozx'):
-            # Use from_ngff_zarr which now handles .ozx files
-            multiscales = from_ngff_zarr(input[0])
-            return multiscales.images[output_scale]
-        else:
-            # Standard .zarr directory
-            store = zarr.storage.DirectoryStore(input[0])
-            multiscales = from_ngff_zarr(store)
-            return multiscales.images[output_scale]
+        multiscales = from_ngff_zarr(input[0])
+        return multiscales.images[output_scale]
     if backend is ConversionBackend.ZARR_ARRAY:
         arr = zarr.open_array(input[0], mode="r")
         return to_ngff_image(arr)
@@ -45,7 +38,8 @@ def cli_input_to_ngff_image(
         except ImportError:
             print("[red]Please install the [i]itkwasm-image-io[/i] package.")
             sys.exit(1)
-        image = itkwasm_image_io.imread(input[0])
+        # This will fail on windows systems if Path is not used and string is passed as input.
+        image = itkwasm_image_io.imread(Path(input[0]))
         return itk_image_to_ngff_image(image)
     if backend is ConversionBackend.ITK:
         try:
@@ -66,6 +60,21 @@ def cli_input_to_ngff_image(
             return itk_image_to_ngff_image(image)
         image = itk.imread(input)
         return itk_image_to_ngff_image(image)
+    if backend is ConversionBackend.LIFFILE:
+        try:
+            from liffile import LifFile
+        except ImportError:
+            print("[red]Please install the [i]liffile[/i] package.")
+            sys.exit(1)
+        from .lif_to_ngff_image import lif_to_ngff_image
+
+        with LifFile(input[0]) as lif:
+            # Default to first series for simple cli_input_to_ngff_image usage
+            # Multi-series handling is done in cli.py
+            if len(lif.images) == 0:
+                print("[red]No images found in LIF file.")
+                sys.exit(1)
+            return lif_to_ngff_image(lif.images[0])
     if backend is ConversionBackend.TIFFFILE:
         try:
             import tifffile
@@ -91,12 +100,16 @@ def cli_input_to_ngff_image(
 
         props = iio.improps(str(input[0]))
         if props.spacing is not None:
+            # Only apply spacing to spatial dimensions (x, y, z)
+            spatial_dims = [d for d in ngff_image.dims if d in {"x", "y", "z"}]
             if len(props.spacing) == 1:
-                scale = {d: props.spacing for d in ngff_image.dims}
-                ngff_image.scale = scale
+                scale = {d: props.spacing[0] for d in spatial_dims}
             else:
-                scale = {d: props.spacing[i] for i, d in enumerate(ngff_image.dims)}
-                ngff_image.scale = scale
+                # Match spacing values to spatial dims
+                # Spacing from imageio may have fewer values than spatial dims
+                n_spatial = min(len(props.spacing), len(spatial_dims))
+                scale = {spatial_dims[i]: props.spacing[i] for i in range(n_spatial)}
+            ngff_image.scale = scale
 
         return ngff_image
     return None

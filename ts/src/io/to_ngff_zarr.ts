@@ -1,17 +1,76 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 import * as zarr from "zarrita";
+
 import type { Multiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
+import { defaultCodecs } from "../utils/codecs.ts";
+import { createWriteQueue, zarrGet, zarrSet } from "../utils/worker_pool.ts";
 import type { MemoryStore } from "./from_ngff_zarr.ts";
-import { createQueue } from "../utils/create_queue.ts";
+import { isOzxPath, memoryStoreToZip } from "./rfc9_zip.ts";
+import {
+  processAxesForRfcs,
+  writeMultiscalesToMemoryStore,
+} from "./to_ngff_zarr_ozx_common.ts";
 
 export interface ToNgffZarrOptions {
   overwrite?: boolean;
+  /**
+   * OME-Zarr version to write. Defaults to "0.4" for regular Zarr files.
+   * For .ozx files (RFC-9), this must be version 0.5. If omitted for .ozx files,
+   * it defaults to 0.5. If explicitly set to any other value for .ozx files,
+   * an error will be thrown.
+   */
   version?: "0.4" | "0.5";
   chunksPerShard?: number | number[] | Record<string, number>;
+  /** List of RFC numbers to enable (e.g., [4] for RFC 4 anatomical orientation) */
+  enabledRfcs?: number[];
 }
 
+/**
+ * Options for writing to .ozx (RFC-9) format.
+ * Note: chunksPerShard is NOT supported for .ozx files and will throw an error.
+ */
+export interface ToNgffZarrOzxOptions {
+  /** List of RFC numbers to enable (e.g., [4] for RFC 4 anatomical orientation) */
+  enabledRfcs?: number[] | undefined;
+  /**
+   * Optional progress callback invoked after each chunk is written.
+   * Reports cumulative progress across all scale levels.
+   *
+   * @param completedChunks - Number of chunks written so far
+   * @param totalChunks - Total number of chunks to write across all levels
+   */
+  onProgress?:
+    | ((completedChunks: number, totalChunks: number) => void)
+    | undefined;
+}
+
+/**
+ * Write multiscales data to an OME-Zarr store.
+ *
+ * This function automatically detects .ozx paths (RFC-9 zipped OME-Zarr format)
+ * and handles them appropriately. For .ozx files:
+ * - Version 0.5 is always used when the version option is omitted (undefined)
+ * - Sharding (chunksPerShard) is not supported
+ * - An error is thrown if you explicitly specify a version other than "0.5"
+ *
+ * @param store - File path, MemoryStore, or FetchStore to write to
+ * @param multiscales - Multiscales data to write
+ * @param options - Writing options
+ *
+ * @example
+ * ```typescript
+ * // Writing to .ozx file - version 0.5 is used automatically
+ * await toNgffZarr("output.ozx", multiscales);
+ *
+ * // Writing to regular zarr with version 0.4 (default)
+ * await toNgffZarr("output.zarr", multiscales);
+ *
+ * // Writing to regular zarr with version 0.5
+ * await toNgffZarr("output.zarr", multiscales, { version: "0.5" });
+ * ```
+ */
 export async function toNgffZarr(
   store: string | MemoryStore | zarr.FetchStore,
   multiscales: Multiscales,
@@ -19,6 +78,33 @@ export async function toNgffZarr(
 ): Promise<void> {
   const _overwrite = options.overwrite ?? true;
   const _version = options.version ?? "0.4";
+  const enabledRfcs = options.enabledRfcs;
+
+  // Handle .ozx paths (RFC-9)
+  if (typeof store === "string" && isOzxPath(store)) {
+    // Validate version - RFC-9 requires version 0.5
+    // If no version is specified (undefined), we silently default to 0.5
+    // If a version is explicitly specified and it's not 0.5, throw an error
+    if (options.version !== undefined && options.version !== "0.5") {
+      throw new Error(
+        "RFC-9 (.ozx) requires OME-Zarr version 0.5. " +
+          `Got version "${options.version}". ` +
+          "For .ozx files, either omit the version option or explicitly set it to '0.5'.",
+      );
+    }
+
+    // Throw error if chunksPerShard is specified
+    if (options.chunksPerShard !== undefined) {
+      throw new Error(
+        "RFC-9 (.ozx) does not support sharding (chunksPerShard). " +
+          "zarrita does not currently support writing shards.",
+      );
+    }
+
+    // Delegate to toNgffZarrOzx (which always uses version 0.5)
+    await toNgffZarrOzx(store, multiscales, { enabledRfcs });
+    return;
+  }
 
   try {
     // Determine the appropriate store type based on the path
@@ -57,32 +143,51 @@ export async function toNgffZarr(
     // Create root location and group with zarrita v0.5.2 API
     const root = zarr.root(_resolvedStore as MemoryStore);
 
+    // Process axes - filter orientation based on enabledRfcs
+    const processedAxes = processAxesForRfcs(
+      multiscales.metadata.axes,
+      enabledRfcs,
+    );
+
+    // Prepare multiscales metadata
+    const multiscalesMetadata = {
+      version: _version,
+      name: multiscales.metadata.name,
+      axes: processedAxes,
+      datasets: multiscales.metadata.datasets,
+      ...(multiscales.metadata.coordinateTransformations && {
+        coordinateTransformations:
+          multiscales.metadata.coordinateTransformations,
+      }),
+      ...(multiscales.metadata.type && {
+        type: multiscales.metadata.type,
+      }),
+      ...(multiscales.metadata.metadata && {
+        metadata: multiscales.metadata.metadata,
+      }),
+    };
+
     // Create the root group with OME-Zarr metadata
-    const rootGroup = await zarr.create(root, {
-      attributes: {
-        multiscales: [
-          {
-            version: _version,
-            name: multiscales.metadata.name,
-            axes: multiscales.metadata.axes,
-            datasets: multiscales.metadata.datasets,
-            ...(multiscales.metadata.coordinateTransformations && {
-              coordinateTransformations:
-                multiscales.metadata.coordinateTransformations,
-            }),
-            ...(multiscales.metadata.type && {
-              type: multiscales.metadata.type,
-            }),
-            ...(multiscales.metadata.metadata && {
-              metadata: multiscales.metadata.metadata,
-            }),
-          },
-        ],
+    // For version 0.5, wrap metadata under "ome" property (including omero)
+    // For version 0.4, place multiscales and omero directly at root
+    const attributes: Record<string, unknown> = _version === "0.5"
+      ? {
+        ome: {
+          version: _version,
+          multiscales: [multiscalesMetadata],
+          ...(multiscales.metadata.omero && {
+            omero: multiscales.metadata.omero,
+          }),
+        },
+      }
+      : {
+        multiscales: [multiscalesMetadata],
         ...(multiscales.metadata.omero && {
           omero: multiscales.metadata.omero,
         }),
-      },
-    });
+      };
+
+    const rootGroup = await zarr.create(root, { attributes });
 
     // Write each image in the multiscales
     for (let i = 0; i < multiscales.images.length; i++) {
@@ -184,6 +289,7 @@ async function _writeImage(
   group: zarr.Group<MemoryStore>,
   image: NgffImage,
   arrayPath: string,
+  onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
 ): Promise<void> {
   try {
     const chunks = getChunksFromImage(image);
@@ -200,11 +306,13 @@ async function _writeImage(
       data_type: zarrDataType,
       chunk_shape: chunks,
       fill_value: 0,
+      codecs: defaultCodecs(zarrDataType),
     });
 
     await _writeArrayData(
       zarrArray as zarr.Array<zarr.DataType, MemoryStore>,
       image,
+      onProgress,
     );
   } catch (error) {
     throw new Error(
@@ -221,12 +329,13 @@ function getChunksFromImage(image: NgffImage): number[] {
     return image.data.chunks;
   }
 
-  return image.data.shape.map((dim) => Math.min(dim, 1024));
+  return image.data.shape.map((dim: number) => Math.min(dim, 1024));
 }
 
 async function _writeArrayData(
   zarrArray: zarr.Array<zarr.DataType, MemoryStore>,
   image: NgffImage,
+  onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
 ): Promise<void> {
   try {
     // Get array shape for chunk calculation - we don't need the full data here
@@ -236,7 +345,7 @@ async function _writeArrayData(
     const chunkIndices = calculateChunkIndices(shape, zarrArray.chunks);
 
     // Create a queue for parallel chunk writing
-    const writeQueue = createQueue();
+    const writeQueue = createWriteQueue();
 
     // Queue all chunks for writing
     for (const chunkIndex of chunkIndices) {
@@ -246,7 +355,7 @@ async function _writeArrayData(
     }
 
     // Wait for all chunks to be written
-    await writeQueue.onIdle();
+    await writeQueue.onIdle(onProgress);
   } catch (error) {
     throw new Error(
       `Failed to write array data: ${
@@ -277,7 +386,7 @@ async function writeChunkWithGet(
   );
 
   // Get only the chunk data we need from the source
-  const { data: chunkSourceData } = await zarr.get(image.data, sourceSelection);
+  const { data: chunkSourceData } = await zarrGet(image.data, sourceSelection);
 
   // Convert chunk data to target type
   const targetTypedArrayConstructor = getTypedArrayConstructor(zarrArray.dtype);
@@ -312,7 +421,7 @@ async function writeChunkWithGet(
   );
 
   // Write the chunk using zarrita's set function
-  await zarr.set(zarrArray, targetSelection, {
+  await zarrSet(zarrArray, targetSelection, {
     data: chunkTargetData,
     shape: chunkShape,
     stride: calculateChunkStride(chunkShape),
@@ -374,9 +483,9 @@ function convertChunkToTargetType(
       // Convert between typed arrays
       if (targetDtype === "int64" || targetDtype === "uint64") {
         // Regular number to BigInt conversion
-        const bigIntArray = new targetTypedArrayConstructor(
-          chunkData.length,
-        ) as BigInt64Array | BigUint64Array;
+        const bigIntArray = new targetTypedArrayConstructor(chunkData.length) as
+          | BigInt64Array
+          | BigUint64Array;
         for (let i = 0; i < chunkData.length; i++) {
           bigIntArray[i] = BigInt(chunkData[i]);
         }
@@ -446,4 +555,112 @@ function calculateChunkStride(chunkShape: number[]): number[] {
   }
 
   return stride;
+}
+
+/**
+ * Write OME-Zarr to .ozx ZIP file (RFC-9).
+ *
+ * This function creates an OME-Zarr hierarchy in memory and then writes it
+ * to a ZIP file following RFC-9 specification:
+ * - Root-level zarr.json is the first entry
+ * - Other zarr.json files follow in breadth-first order
+ * - ZIP-level compression is disabled (ZIP_STORED)
+ * - A comment with OME-Zarr version is added
+ *
+ * Note: Sharding is NOT supported because zarrita does not currently
+ * support writing shards. If you need sharding, use the Python implementation.
+ *
+ * @param path - Output .ozx file path
+ * @param multiscales - Multiscales data to write
+ * @param options - Options for writing
+ * @throws Error if called in a browser environment (use toNgffZarrOzxData instead)
+ *
+ * @see https://ngff.openmicroscopy.org/rfc/9/index.html
+ */
+export async function toNgffZarrOzx(
+  path: string,
+  multiscales: Multiscales,
+  options: ToNgffZarrOzxOptions = {},
+): Promise<void> {
+  // Check for browser environment
+  if (typeof window !== "undefined") {
+    throw new Error(
+      "toNgffZarrOzx cannot write files in browser environments. " +
+        "Use toNgffZarrOzxData to get the ZIP data as Uint8Array.",
+    );
+  }
+
+  // Get the ZIP data
+  const zipData = await toNgffZarrOzxData(multiscales, options);
+
+  // Write to file using fs module (works in both Node.js and Deno)
+  try {
+    // Use dynamic import for Node.js fs module
+    // Deno also supports node:fs/promises via its Node compatibility layer
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(path, zipData);
+  } catch (error) {
+    throw new Error(
+      `Failed to write .ozx file: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
+/**
+ * Create OME-Zarr .ozx ZIP data (RFC-9).
+ *
+ * This function creates an OME-Zarr hierarchy in memory and returns
+ * the ZIP data as a Uint8Array. Useful for browser environments or
+ * when you need the raw ZIP data.
+ *
+ * @param multiscales - Multiscales data to write
+ * @param options - Options for writing
+ * @returns ZIP file data as Uint8Array
+ *
+ * @see https://ngff.openmicroscopy.org/rfc/9/index.html
+ */
+export async function toNgffZarrOzxData(
+  multiscales: Multiscales,
+  options: ToNgffZarrOzxOptions = {},
+): Promise<Uint8Array> {
+  const enabledRfcs = options.enabledRfcs;
+
+  // Create a memory store to hold the zarr data
+  const memoryStore: MemoryStore = new Map<string, Uint8Array>();
+
+  // Write to the memory store using existing toNgffZarr logic
+  // but we need to inline the core logic since toNgffZarr would
+  // try to detect .ozx again
+  await _writeToMemoryStore(
+    memoryStore,
+    multiscales,
+    enabledRfcs,
+    options.onProgress ?? null,
+  );
+
+  // Convert the memory store to ZIP data
+  const zipData = memoryStoreToZip(memoryStore, { version: "0.5" });
+
+  return zipData;
+}
+
+/**
+ * Internal function to write multiscales to a memory store.
+ * Used by toNgffZarrOzxData to avoid recursion with toNgffZarr.
+ */
+async function _writeToMemoryStore(
+  store: MemoryStore,
+  multiscales: Multiscales,
+  enabledRfcs?: number[],
+  onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
+): Promise<void> {
+  await writeMultiscalesToMemoryStore(
+    store,
+    multiscales,
+    enabledRfcs,
+    _writeImage,
+    onProgress,
+  );
 }

@@ -25,7 +25,8 @@ zarr_version_major = zarr_version.major
 
 # RFC-9 requires zarr v3 (OME-Zarr 0.5)
 pytestmark = pytest.mark.skipif(
-    zarr_version_major < 3, reason="HCSPlateWriter with .ozx requires zarr-python >= 3.0.0"
+    zarr_version_major < 3,
+    reason="HCSPlateWriter with .ozx requires zarr-python >= 3.0.0",
 )
 
 # Output directory for test files
@@ -94,10 +95,10 @@ def test_hcs_plate_writer_ozx_basic():
     assert zipfile.is_zipfile(ozx_path)
 
     # Verify ZIP structure
-    with zipfile.ZipFile(ozx_path, 'r') as zf:
+    with zipfile.ZipFile(ozx_path, "r") as zf:
         files = zf.namelist()
         assert files[0] == "zarr.json"
-        
+
         # Check for version
         version_from_zip = read_ozx_version(ozx_path)
         assert version_from_zip == "0.5"
@@ -135,6 +136,7 @@ def test_hcs_plate_writer_regular_zarr():
     # Remove old directory if exists
     if zarr_path.exists():
         import shutil
+
         shutil.rmtree(zarr_path)
 
     # Create test image
@@ -186,7 +188,7 @@ def test_hcs_plate_writer_multiple_fields():
             data = np.random.randint(0, 255, (2, 32, 32), dtype=np.uint8)
             image = to_ngff_image(data=data, dims=["c", "y", "x"])
             multiscales = to_multiscales(image)
-            
+
             writer.write_well_image(
                 multiscales=multiscales,
                 row_name="A",
@@ -326,7 +328,7 @@ def test_hcs_plate_writer_default_version():
         data = np.random.randint(0, 255, (2, 32, 32), dtype=np.uint8)
         image = to_ngff_image(data=data, dims=["c", "y", "x"])
         multiscales = to_multiscales(image)
-        
+
         writer.write_well_image(
             multiscales=multiscales,
             row_name="A",
@@ -347,11 +349,11 @@ def test_hcs_plate_writer_large_plate():
     wells = []
     for row_idx, row in enumerate(rows):
         for col_idx, col in enumerate(columns):
-            wells.append(PlateWell(
-                path=f"{row.name}/{col.name}",
-                rowIndex=row_idx,
-                columnIndex=col_idx
-            ))
+            wells.append(
+                PlateWell(
+                    path=f"{row.name}/{col.name}", rowIndex=row_idx, columnIndex=col_idx
+                )
+            )
 
     plate_metadata = Plate(
         columns=columns,
@@ -376,7 +378,7 @@ def test_hcs_plate_writer_large_plate():
                 data = np.random.randint(0, 255, (2, 32, 32), dtype=np.uint8)
                 image = to_ngff_image(data=data, dims=["c", "y", "x"])
                 multiscales = to_multiscales(image)
-                
+
                 writer.write_well_image(
                     multiscales=multiscales,
                     row_name=row_name,

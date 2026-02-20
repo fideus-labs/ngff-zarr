@@ -80,6 +80,17 @@ async function handler(req: Request): Promise<Response> {
     return await serveFile(req, filePath);
   }
 
+  // Serve the fromNgffZarr test page
+  if (url.pathname === "/from_ngff_zarr_test") {
+    const filePath = join(
+      Deno.cwd(),
+      "test",
+      "browser-npm",
+      "from_ngff_zarr_test.html",
+    );
+    return await serveFile(req, filePath);
+  }
+
   // Serve the npm package files from test directory
   if (url.pathname.startsWith("/npm/")) {
     const filePath = join(

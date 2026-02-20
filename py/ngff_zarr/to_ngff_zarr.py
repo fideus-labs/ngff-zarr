@@ -2,11 +2,10 @@
 # SPDX-License-Identifier: MIT
 import sys
 import tempfile
-from collections.abc import MutableMapping
 from dataclasses import asdict
 from pathlib import Path, PurePosixPath
-from typing import Optional, Union, Tuple, Dict, List
-from packaging import version
+from typing import Literal, Optional, Union, Tuple, Dict, List
+
 import warnings
 
 from .methods._metadata import get_method_metadata
@@ -17,6 +16,7 @@ else:
     import importlib.metadata as importlib_metadata
 
 import dask.array
+from dask import __version__ as dask_version
 import numpy as np
 from itkwasm import array_like_to_numpy_array
 
@@ -27,12 +27,7 @@ from .v04.zarr_metadata import Metadata as Metadata_v04
 from .v05.zarr_metadata import Metadata as Metadata_v05
 from .rfc4 import is_rfc4_enabled
 from .rfc9_zip import is_ozx_path, write_store_to_zip
-
-# Zarr Python 3
-if hasattr(zarr.storage, "StoreLike"):
-    StoreLike = zarr.storage.StoreLike
-else:
-    StoreLike = Union[MutableMapping, str, Path, zarr.storage.BaseStore]
+from ._zarr_types import StoreLike
 from ._zarr_kwargs import zarr_kwargs
 
 
@@ -42,9 +37,13 @@ from .methods._support import _dim_scale_factors
 from .multiscales import Multiscales
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
 from .to_multiscales import to_multiscales
+from packaging.version import Version
 
-zarr_version = version.parse(zarr.__version__)
-zarr_version_major = zarr_version.major
+zarr_version = Version(zarr.__version__)
+IS_ZARR_V3_PLUS = zarr_version.major >= 3
+DASK_SUPPORTS_SHARDING = Version(dask_version) >= Version("2025.12.0")
+
+ScaleStrategy = Literal["pad", "exact"]
 
 
 def _pop_metadata_optionals(metadata_dict, enabled_rfcs: Optional[List[int]] = None):
@@ -150,7 +149,7 @@ def _write_with_tensorstore(
     }
 
     if zarr_format == 2:
-        spec["driver"] = "zarr" if zarr_version_major < 3 else "zarr2"
+        spec["driver"] = "zarr" if not IS_ZARR_V3_PLUS else "zarr2"
         spec["metadata"]["dimension_separator"] = "/"
         spec["metadata"]["dtype"] = array.dtype.str
         # Only add chunk info when creating the dataset
@@ -342,7 +341,7 @@ def _validate_ngff_parameters(
             raise ValueError(
                 "Sharding is only supported for OME-Zarr version 0.5 and later"
             )
-        if not use_tensorstore and zarr_version_major < 3:
+        if not use_tensorstore and not IS_ZARR_V3_PLUS:
             raise ValueError(
                 "Sharding requires zarr-python version >= 3.0.0b1 for OME-Zarr version >= 0.5"
             )
@@ -364,30 +363,11 @@ def _prepare_metadata(
         method_type = multiscales.method.value
         method_metadata = get_method_metadata(multiscales.method)
 
-    if version == "0.4" and isinstance(metadata, Metadata_v05):
-        metadata = Metadata_v04(
-            axes=metadata.axes,
-            datasets=metadata.datasets,
-            coordinateTransformations=metadata.coordinateTransformations,
-            name=metadata.name,
-            type=method_type,
-            metadata=method_metadata,
-        )
-    elif version == "0.5" and isinstance(metadata, Metadata_v04):
-        metadata = Metadata_v05(
-            axes=metadata.axes,
-            datasets=metadata.datasets,
-            coordinateTransformations=metadata.coordinateTransformations,
-            name=metadata.name,
-            type=method_type,
-            metadata=method_metadata,
-        )
-    else:
-        # Update the existing metadata object with the type
-        if hasattr(metadata, "type"):
-            metadata.type = method_type
+    metadata = metadata.to_version(version)
+    metadata.type = method_type
+    metadata.metadata = method_metadata
 
-    dimension_names = tuple([ax.name for ax in metadata.axes])
+    dimension_names = metadata.dimension_names
     dimension_names_kwargs = (
         {"dimension_names": dimension_names} if version != "0.4" else {}
     )
@@ -404,11 +384,7 @@ def _create_zarr_root(
 ) -> zarr.Group:
     """Create and configure the root Zarr group with proper attributes."""
     zarr_format = 2 if version == "0.4" else 3
-    format_kwargs = {"zarr_format": zarr_format} if zarr_version_major >= 3 else {}
-    _zarr_kwargs = zarr_kwargs.copy()
-
-    if zarr_format == 2 and zarr_version_major >= 3:
-        _zarr_kwargs["dimension_separator"] = "/"
+    format_kwargs = {"zarr_format": zarr_format} if IS_ZARR_V3_PLUS else {}
 
     if version == "0.4":
         root = zarr.open_group(
@@ -418,7 +394,7 @@ def _create_zarr_root(
             **format_kwargs,
         )
     else:
-        if zarr_version_major < 3:
+        if not IS_ZARR_V3_PLUS:
             raise ValueError(
                 "zarr-python version >= 3.0.0b2 required for OME-Zarr version >= 0.5"
             )
@@ -430,13 +406,16 @@ def _create_zarr_root(
             **format_kwargs,
         )
 
-    if "omero" in metadata_dict:
-        root.attrs["omero"] = metadata_dict.pop("omero")
-
     if version != "0.4":
-        # RFC 2, Zarr 3
-        root.attrs["ome"] = {"version": version, "multiscales": [metadata_dict]}
+        # RFC 2, Zarr 3 - omero goes inside ome namespace
+        ome_dict = {"version": version, "multiscales": [metadata_dict]}
+        if "omero" in metadata_dict:
+            ome_dict["omero"] = metadata_dict.pop("omero")
+        root.attrs["ome"] = ome_dict
     else:
+        # v0.4 - omero is at root level
+        if "omero" in metadata_dict:
+            root.attrs["omero"] = metadata_dict.pop("omero")
         root.attrs["multiscales"] = [metadata_dict]
 
     return root
@@ -471,7 +450,7 @@ def _configure_sharding(
 
     # Configure sharding parameters differently for v2 vs v3
     sharding_kwargs = {}
-    if zarr_version_major >= 3:
+    if IS_ZARR_V3_PLUS:
         # For Zarr v3, configure sharding as a codec
         # Use chunk_shape for internal chunks and configure sharding via codecs
         sharding_kwargs["chunk_shape"] = internal_chunk_shape
@@ -535,6 +514,33 @@ def _write_array_with_tensorstore(
             compressor=compressor,
             **kwargs,
         )
+
+
+def _prepare_zarr_kwargs(to_zarr_kwargs: Dict):
+    """Prepare zarr kwargs for dask.array.to_zarr.
+
+    This helper function ensures that correct kwargs are passed on based on which version of zarr
+    and dask is being used. The different versions support different sets of arguments. The zarr_kwargs
+    are adjusted in place and thus the original is overwritten. This is not a problem given that the
+    arguments being adjusted are the same for the zarr store in use.
+    """
+    is_zarr_f2 = to_zarr_kwargs.get("zarr_format") == 2
+
+    # The zarr v2 case does not have to be checked here as this is done in `_zarr_kwargs.py`.
+    # The reason for not doing it here is that it only has one option whereas zarr v3 depends on zarr format being used.
+    if IS_ZARR_V3_PLUS and is_zarr_f2:
+        if DASK_SUPPORTS_SHARDING:
+            # New dask uses chunk_key_encoding
+            to_zarr_kwargs["chunk_key_encoding"] = {"name": "v2", "separator": "/"}
+            to_zarr_kwargs.pop("dimension_separator", None)
+        else:
+            # Old dask uses dimension_separator
+            to_zarr_kwargs["dimension_separator"] = "/"
+            to_zarr_kwargs.pop("chunk_key_encoding", None)
+
+    # New dask doesn't accept zarr_format in zarr_array_kwargs
+    if DASK_SUPPORTS_SHARDING:
+        to_zarr_kwargs.pop("zarr_format", None)
 
 
 def _write_array_direct(
@@ -604,10 +610,12 @@ def _write_array_direct(
         else:
             array[:] = arr.compute()
     else:
-        # All other cases: use dask.array.to_zarr
+        _prepare_zarr_kwargs(to_zarr_kwargs)
+
         target = (
             zarr_array if (region is not None and zarr_array is not None) else store
         )
+
         dask.array.to_zarr(
             arr,
             target,
@@ -707,14 +715,19 @@ def _handle_large_array_writing(
 
         # Apply _find_optimal_chunk_size to the shard shape to ensure it divides evenly
         optimized_shard_shape = tuple(
-            [_find_optimal_chunk_size(s, arr.shape[i]) for i, s in enumerate(shard_shape)]
+            [
+                _find_optimal_chunk_size(s, arr.shape[i])
+                for i, s in enumerate(shard_shape)
+            ]
         )
 
         # Ensure internal_chunk_shape divides evenly into optimized_shard_shape
         if internal_chunk_shape is not None:
             # Adjust each internal chunk to be a divisor of the corresponding shard dimension
             adjusted_internal_chunks = []
-            for shard_dim, internal_dim in zip(optimized_shard_shape, internal_chunk_shape):
+            for shard_dim, internal_dim in zip(
+                optimized_shard_shape, internal_chunk_shape
+            ):
                 # Find the best divisor of shard_dim that's close to internal_dim
                 if shard_dim % internal_dim == 0:
                     # Already divides evenly
@@ -727,8 +740,10 @@ def _handle_large_array_writing(
         else:
             # No internal chunks specified, use defaults based on array chunks
             internal_chunk_shape = tuple(
-                [_find_optimal_chunk_size(c[0], s)
-                 for c, s in zip(arr.chunks, optimized_shard_shape)]
+                [
+                    _find_optimal_chunk_size(c[0], s)
+                    for c, s in zip(arr.chunks, optimized_shard_shape)
+                ]
             )
 
         # Configure the sharding codec with proper defaults
@@ -768,18 +783,33 @@ def _handle_large_array_writing(
     elif sharding_kwargs:
         # For Zarr v2 or other cases with sharding but no _shard_shape
         chunks = tuple(
-            [_find_optimal_chunk_size(c[0], arr.shape[i]) for i, c in enumerate(arr.chunks)]
+            [
+                _find_optimal_chunk_size(c[0], arr.shape[i])
+                for i, c in enumerate(arr.chunks)
+            ]
         )
         zarr_chunk_shape = chunks
         sharding_kwargs_clean = sharding_kwargs
     else:
         # No sharding
         chunks = tuple(
-            [_find_optimal_chunk_size(c[0], arr.shape[i]) for i, c in enumerate(arr.chunks)]
+            [
+                _find_optimal_chunk_size(c[0], arr.shape[i])
+                for i, c in enumerate(arr.chunks)
+            ]
         )
         chunk_kwargs = {"chunks": chunks}
         zarr_chunk_shape = chunks
         sharding_kwargs_clean = {}
+
+    if format_kwargs["zarr_format"] == 2:
+        if IS_ZARR_V3_PLUS:
+            zarr_kwargs["dimension_separator"] = zarr_kwargs["chunk_key_encoding"][
+                "separator"
+            ]
+            del zarr_kwargs["chunk_key_encoding"]
+        else:
+            zarr_kwargs["dimension_separator"] = "/"
 
     zarr_array = open_array(
         shape=arr.shape,
@@ -1007,48 +1037,108 @@ def _prepare_next_scale(
     store: StoreLike,
     path: str,
     progress: Optional[Union[NgffProgress, NgffProgressCallback]],
+    scale_strategy: ScaleStrategy = "pad",
 ) -> Optional[object]:
-    """Prepare the next scale for processing if needed."""
+    """Prepare the next scale for processing if needed.
+
+    :param scale_strategy: Strategy for handling non-power-of-2 scale factors.
+        "pad" (default) always uses incremental downsampling from the previous level,
+        which may produce slightly different sizes due to floor-division rounding.
+        "exact" uses pre-computed images from the initial to_multiscales() call when
+        incremental downsampling cannot achieve the exact target size.
+    """
+    # No next scale if we're at the last one
+    if index >= nscales - 1:
+        return None
     # Minimize task graph depth
-    if (
-        index > 1
-        and index < nscales - 2
-        and multiscales.scale_factors
-        and multiscales.method
-        and multiscales.chunks
-        and multiscales.scale_factors
-    ):
+    if multiscales.scale_factors and multiscales.method and multiscales.chunks:
         for callback in image.computed_callbacks:
             callback()
         image.computed_callbacks = []
 
         image.data = dask.array.from_zarr(store, component=path)
-        next_multiscales_factor = multiscales.scale_factors[index]
-        if isinstance(next_multiscales_factor, int):
-            next_multiscales_factor = (
-                next_multiscales_factor // multiscales.scale_factors[index - 1]
-            )
-        else:
-            updated_factors = {}
-            for d, f in next_multiscales_factor.items():
-                updated_factors[d] = f // multiscales.scale_factors[index - 1][d]
-            next_multiscales_factor = updated_factors
 
-        next_multiscales = to_multiscales(
-            image,
-            scale_factors=[
-                next_multiscales_factor,
-            ],
-            method=multiscales.method,
-            chunks=multiscales.chunks,
-            progress=progress,
-            cache=False,
+        # Get the absolute scale factor for the next level
+        next_absolute_factor = multiscales.scale_factors[index]
+        original_image = multiscales.images[0]
+        spatial_dims = {"x", "y", "z"}
+
+        # Track what scale factor was applied to reach current image
+        previous_dim_factors = {d: 1 for d in image.dims}
+        if index > 0:
+            prev_absolute_factor = multiscales.scale_factors[index - 1]
+            if isinstance(prev_absolute_factor, int):
+                for d in image.dims:
+                    if d in spatial_dims:
+                        previous_dim_factors[d] = prev_absolute_factor
+            else:
+                for d in prev_absolute_factor:
+                    previous_dim_factors[d] = prev_absolute_factor[d]
+
+        # Compute incremental factor from current image to next scale
+        dim_factors = _dim_scale_factors(
+            image.dims,
+            next_absolute_factor,
+            previous_dim_factors,
+            original_image=original_image,
+            previous_image=image,
         )
-        multiscales.images[index + 1] = next_multiscales.images[1]
-        return next_multiscales.images[1]
-    elif index < nscales - 1:
+
+        # Check whether incremental downsampling would fail to achieve the
+        # exact target size (original_size // absolute_factor).  When True,
+        # "exact" mode should fall back to the pre-computed image.
+        can_use_exact_mode = False
+        for dim in dim_factors:
+            if dim in spatial_dims:
+                dim_index = original_image.dims.index(dim)
+                original_size = original_image.data.shape[dim_index]
+                # Handle both int and dict scale_factor
+                dim_scale_factor = (
+                    next_absolute_factor[dim]
+                    if isinstance(next_absolute_factor, dict)
+                    else next_absolute_factor
+                )
+                target_size = int(original_size / dim_scale_factor)
+
+                prev_dim_index = image.dims.index(dim)
+                previous_size = image.data.shape[prev_dim_index]
+
+                # Check if floor(previous_size / dim_factors[dim]) != target_size
+                if int(previous_size / dim_factors[dim]) != target_size:
+                    can_use_exact_mode = True
+                    break
+
+        if scale_strategy == "exact" and can_use_exact_mode:
+            # Cannot achieve exact target sizes via incremental downsampling.
+            # Use the already-computed image from multiscales.images[index + 1]
+            # which was computed correctly during the initial to_multiscales call.
+            return multiscales.images[index + 1]
+        else:
+            # Downsample from current (previous) image.
+            # In "pad" mode this always runs (sizes may differ slightly due to
+            # floor-division rounding).  In "exact" mode this runs when
+            # incremental downsampling achieves the exact target.
+            source_image = image
+            # Only include spatial dimensions in the scale factors dict
+            # to avoid KeyError in methods that look up scale/translation
+            next_multiscales_factor = {
+                d: f for d, f in dim_factors.items() if d in spatial_dims
+            }
+
+            next_multiscales = to_multiscales(
+                source_image,
+                scale_factors=[
+                    next_multiscales_factor,
+                ],
+                method=multiscales.method,
+                chunks=multiscales.chunks,
+                progress=progress,
+                cache=False,
+            )
+            multiscales.images[index + 1] = next_multiscales.images[1]
+            return next_multiscales.images[1]
+    else:
         return multiscales.images[index + 1]
-    return None
 
 
 def to_ngff_zarr(
@@ -1067,12 +1157,14 @@ def to_ngff_zarr(
         ]
     ] = None,
     enabled_rfcs: Optional[List[int]] = None,
+    scale_strategy: ScaleStrategy = "pad",
     **kwargs,
 ) -> None:
     """
     Write an image pixel array and metadata to a Zarr store with the OME-NGFF standard data model.
 
-    :param store: Store or path to directory in file system. If the path ends with .ozx, writes an RFC-9 compliant zipped OME-Zarr file.
+    :param store: Store or path to directory in file system. If the path ends with .ozx, writes an RFC-9
+    compliant zipped OME-Zarr file.
     :type  store: StoreLike
 
     :param multiscales: Multiscales OME-NGFF image pixel data and metadata. Can be generated with ngff_zarr.to_multiscales.
@@ -1100,24 +1192,36 @@ def to_ngff_zarr(
     :param enabled_rfcs: List of RFC numbers to enable. If RFC 4 is included, anatomical orientation metadata will be preserved in the output.
     :type  enabled_rfcs: list of int, optional
 
+    :param scale_strategy: Strategy for handling non-power-of-2 scale factors during
+        multiscale writing. "pad" (default) always uses incremental downsampling from
+        the previous level, which is memory-efficient but may produce slightly different
+        sizes due to floor-division rounding. "exact" uses pre-computed images from
+        the initial to_multiscales() call when incremental downsampling cannot achieve
+        the exact target size (original_size // scale_factor).
+    :type  scale_strategy: "pad" or "exact", optional
+
     :param **kwargs: Passed to the zarr.create_array() or zarr.creation.create() function, e.g., compression options.
     """
     # RFC-9: Handle .ozx (zipped OME-Zarr) files
     if isinstance(store, (str, Path)) and is_ozx_path(store):
         if version != "0.5":
-            raise ValueError("RFC-9 zipped OME-Zarr (.ozx) requires OME-Zarr version 0.5")
-        
+            raise ValueError(
+                "RFC-9 zipped OME-Zarr (.ozx) requires OME-Zarr version 0.5. "
+                f"Got version '{version}'. Please set version='0.5'."
+            )
+
         # Default chunks_per_shard to 2 for .ozx files if not specified
         if chunks_per_shard is None:
             chunks_per_shard = 2
-        
+
         # Determine if we should use memory or disk for intermediate storage
         total_memory_usage = sum(memory_usage(img) for img in multiscales.images)
         use_memory_store = total_memory_usage <= config.memory_target
-        
+
         if use_memory_store:
             # Small dataset: use memory store
             from zarr.storage import MemoryStore
+
             temp_store = MemoryStore()
         else:
             # Large dataset: use temporary directory store in cache
@@ -1125,10 +1229,14 @@ def to_ngff_zarr(
                 LocalStore = zarr.storage.DirectoryStore
             else:
                 LocalStore = zarr.storage.LocalStore
-            
-            temp_dir = tempfile.mkdtemp(dir=config.cache_store.path if hasattr(config.cache_store, 'path') else None)
+
+            temp_dir = tempfile.mkdtemp(
+                dir=config.cache_store.path
+                if hasattr(config.cache_store, "path")
+                else None
+            )
             temp_store = LocalStore(temp_dir)
-        
+
         try:
             # Write to temporary store first
             _to_ngff_zarr_impl(
@@ -1141,22 +1249,28 @@ def to_ngff_zarr(
                 progress=progress,
                 chunks_per_shard=chunks_per_shard,
                 enabled_rfcs=enabled_rfcs,
+                scale_strategy=scale_strategy,
                 **kwargs,
             )
-            
+
             # Write temp store to .ozx file
             write_store_to_zip(temp_store, store, version=version)
         finally:
             # Clean up temporary directory if used
             if not use_memory_store:
                 import shutil
-                if hasattr(zarr.storage, "DirectoryStore") and isinstance(temp_store, zarr.storage.DirectoryStore):
+
+                if hasattr(zarr.storage, "DirectoryStore") and isinstance(
+                    temp_store, zarr.storage.DirectoryStore
+                ):
                     shutil.rmtree(temp_store.dir_path(), ignore_errors=True)
-                elif hasattr(zarr.storage, "LocalStore") and isinstance(temp_store, zarr.storage.LocalStore):
+                elif hasattr(zarr.storage, "LocalStore") and isinstance(
+                    temp_store, zarr.storage.LocalStore
+                ):
                     shutil.rmtree(temp_store.root, ignore_errors=True)
-        
+
         return
-    
+
     # Standard (non-.ozx) path
     _to_ngff_zarr_impl(
         store,
@@ -1168,6 +1282,7 @@ def to_ngff_zarr(
         progress=progress,
         chunks_per_shard=chunks_per_shard,
         enabled_rfcs=enabled_rfcs,
+        scale_strategy=scale_strategy,
         **kwargs,
     )
 
@@ -1188,6 +1303,7 @@ def _to_ngff_zarr_impl(
         ]
     ] = None,
     enabled_rfcs: Optional[List[int]] = None,
+    scale_strategy: ScaleStrategy = "pad",
     **kwargs,
 ) -> None:
     """
@@ -1209,16 +1325,13 @@ def _to_ngff_zarr_impl(
 
     # Format parameters
     zarr_format = 2 if version == "0.4" else 3
-    format_kwargs = {"zarr_format": zarr_format} if zarr_version_major >= 3 else {}
+    format_kwargs = {"zarr_format": zarr_format}
     _zarr_kwargs = zarr_kwargs.copy()
 
     if version == "0.4" and kwargs.get("compressors") is not None:
         raise ValueError(
             "The argument `compressors` are not supported for OME-Zarr version 0.4. (Zarr v3). Use `compression` instead."
         )
-
-    if zarr_format == 2 and zarr_version_major >= 3:
-        _zarr_kwargs["dimension_separator"] = "/"
 
     # Process each scale level
     nscales = len(multiscales.images)
@@ -1253,6 +1366,7 @@ def _to_ngff_zarr_impl(
         previous_dim_factors = dim_factors
 
         # Configure sharding if needed
+        # TODO check with recent updates to zarr by Ilan whether sharding can just be configured on zarr side.
         sharding_kwargs, internal_chunk_shape, arr = _configure_sharding(
             arr, chunks_per_shard, dims, kwargs.copy()
         )
@@ -1327,7 +1441,14 @@ def _to_ngff_zarr_impl(
 
         # Prepare next scale if needed
         next_image = _prepare_next_scale(
-            image, index, nscales, multiscales, store, path, progress
+            image,
+            index,
+            nscales,
+            multiscales,
+            store,
+            path,
+            progress,
+            scale_strategy=scale_strategy,
         )
 
     # Clean up callbacks
@@ -1337,10 +1458,13 @@ def _to_ngff_zarr_impl(
         image.computed_callbacks = []
 
     # Consolidate metadata
-    if zarr_version_major >= 3:
+    if IS_ZARR_V3_PLUS:
         with warnings.catch_warnings():
             # Ignore consolidated metadata warning
             warnings.filterwarnings("ignore", category=UserWarning)
             zarr.consolidate_metadata(store, **format_kwargs)
     else:
+        # Zarr_format is used elsewhere but for this consolidate_metadata it is not an argument in zarr v2.
+        if format_kwargs.get("zarr_format"):
+            del format_kwargs["zarr_format"]
         zarr.consolidate_metadata(store, **format_kwargs)

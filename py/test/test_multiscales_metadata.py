@@ -5,13 +5,18 @@
 Test the multiscales metadata field functionality.
 """
 
-import pytest
 import tempfile
 import json
 from pathlib import Path
 import numpy as np
 
-from ngff_zarr import Methods, to_multiscales, to_ngff_image, to_ngff_zarr, from_ngff_zarr
+from ngff_zarr import (
+    Methods,
+    to_multiscales,
+    to_ngff_image,
+    to_ngff_zarr,
+    from_ngff_zarr,
+)
 
 
 def test_multiscales_metadata_field():
@@ -21,7 +26,9 @@ def test_multiscales_metadata_field():
     image = to_ngff_image(data, dims=["y", "x"])
 
     # Test with ITKWASM_GAUSSIAN method
-    multiscales = to_multiscales(image, scale_factors=[2], method=Methods.ITKWASM_GAUSSIAN)
+    multiscales = to_multiscales(
+        image, scale_factors=[2], method=Methods.ITKWASM_GAUSSIAN
+    )
 
     # Check that metadata field is populated
     assert multiscales.metadata.metadata is not None
@@ -43,7 +50,9 @@ def test_multiscales_metadata_serialization():
         zarr_path = Path(tmp_dir) / "test.ome.zarr"
 
         # Create and save multiscales
-        multiscales = to_multiscales(image, scale_factors=[2], method=Methods.ITKWASM_GAUSSIAN)
+        multiscales = to_multiscales(
+            image, scale_factors=[2], method=Methods.ITKWASM_GAUSSIAN
+        )
         to_ngff_zarr(zarr_path, multiscales)
 
         # Read raw metadata from zarr
@@ -76,7 +85,9 @@ def test_multiscales_metadata_round_trip():
         zarr_path = Path(tmp_dir) / "test.ome.zarr"
 
         # Create and save multiscales
-        original_multiscales = to_multiscales(image, scale_factors=[2], method=Methods.ITKWASM_GAUSSIAN)
+        original_multiscales = to_multiscales(
+            image, scale_factors=[2], method=Methods.ITKWASM_GAUSSIAN
+        )
         to_ngff_zarr(zarr_path, original_multiscales)
 
         # Load back
@@ -84,9 +95,18 @@ def test_multiscales_metadata_round_trip():
 
         # Compare metadata
         assert loaded_multiscales.metadata.metadata is not None
-        assert loaded_multiscales.metadata.metadata.description == original_multiscales.metadata.metadata.description
-        assert loaded_multiscales.metadata.metadata.method == original_multiscales.metadata.metadata.method
-        assert loaded_multiscales.metadata.metadata.version == original_multiscales.metadata.metadata.version
+        assert (
+            loaded_multiscales.metadata.metadata.description
+            == original_multiscales.metadata.metadata.description
+        )
+        assert (
+            loaded_multiscales.metadata.metadata.method
+            == original_multiscales.metadata.metadata.method
+        )
+        assert (
+            loaded_multiscales.metadata.metadata.version
+            == original_multiscales.metadata.metadata.version
+        )
 
 
 def test_different_methods_have_different_metadata():
@@ -105,20 +125,26 @@ def test_different_methods_have_different_metadata():
     for method in test_methods:
         multiscales = to_multiscales(image, scale_factors=[2], method=method)
         assert multiscales.metadata.metadata is not None
-        metadata_results.append({
-            'method': method.value,
-            'description': multiscales.metadata.metadata.description,
-            'method_name': multiscales.metadata.metadata.method,
-            'version': multiscales.metadata.metadata.version
-        })
+        metadata_results.append(
+            {
+                "method": method.value,
+                "description": multiscales.metadata.metadata.description,
+                "method_name": multiscales.metadata.metadata.method,
+                "version": multiscales.metadata.metadata.version,
+            }
+        )
 
     # Check that different methods have different descriptions
-    descriptions = [m['description'] for m in metadata_results]
-    assert len(set(descriptions)) > 1, "Different methods should have different descriptions"
+    descriptions = [m["description"] for m in metadata_results]
+    assert (
+        len(set(descriptions)) > 1
+    ), "Different methods should have different descriptions"
 
     # Check that all use similar package but potentially different functions
-    method_names = [m['method_name'] for m in metadata_results]
-    assert all('itkwasm_downsample' in name for name in method_names), "All should use itkwasm_downsample package"
+    method_names = [m["method_name"] for m in metadata_results]
+    assert all(
+        "itkwasm_downsample" in name for name in method_names
+    ), "All should use itkwasm_downsample package"
 
 
 def test_metadata_field_none_when_no_method():
@@ -143,7 +169,9 @@ def test_legacy_zarr_without_metadata():
         zarr_path = Path(tmp_dir) / "test.ome.zarr"
 
         # Create and save normally first
-        multiscales = to_multiscales(image, scale_factors=[2], method=Methods.ITKWASM_GAUSSIAN)
+        multiscales = to_multiscales(
+            image, scale_factors=[2], method=Methods.ITKWASM_GAUSSIAN
+        )
         to_ngff_zarr(zarr_path, multiscales)
 
         # Manually remove metadata field to simulate legacy file
@@ -155,7 +183,7 @@ def test_legacy_zarr_without_metadata():
         if "metadata" in raw_metadata["multiscales"][0]:
             del raw_metadata["multiscales"][0]["metadata"]
 
-        with open(metadata_path, 'w') as f:
+        with open(metadata_path, "w") as f:
             json.dump(raw_metadata, f)
 
         # Should still be able to load

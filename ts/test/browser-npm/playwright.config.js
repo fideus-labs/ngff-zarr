@@ -71,6 +71,7 @@ const config = {
     },
   ],
   /* Run your local dev server before starting the tests */
+  // Note: Server is started by scripts/run_playwright.mjs instead
   // webServer: {
   //   command: "cd ../.. && deno run --allow-all test/browser/server.ts",
   //   url: "http://localhost:3000",

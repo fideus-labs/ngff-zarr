@@ -127,6 +127,101 @@ export function itkLpsToAnatomicalOrientation(
 }
 
 /**
+ * Maximum number of spatial dimensions (for ITK LPS coordinate system).
+ * LPS has 3 axes: Left/Right (X), Anterior/Posterior (Y),
+ * Inferior/Superior (Z).
+ */
+const MAX_SPATIAL_DIMENSIONS = 3;
+
+/**
+ * LPS orientation pairs: positive and negative orientations for each
+ * physical axis in the LPS coordinate system.
+ *
+ * Each row is `[positiveComponentOrientation, negativeComponentOrientation]`,
+ * where "positive component" (positive direction cosine value) indicates
+ * the direction along that axis, and "negative component" (negative
+ * direction cosine value) indicates the opposite direction.
+ *
+ * - Row 0 (L/R): positive component → RightToLeft
+ *   (positive direction points Left) / negative component → LeftToRight
+ *   (negative direction points Right)
+ * - Row 1 (A/P): positive component → AnteriorToPosterior
+ *   (positive direction points Posterior) / negative component →
+ *   PosteriorToAnterior (negative direction points Anterior)
+ * - Row 2 (I/S): positive component → InferiorToSuperior
+ *   (positive direction points Superior) / negative component →
+ *   SuperiorToInferior (negative direction points Inferior)
+ */
+const LPS_ORIENTATION_PAIRS: [
+  AnatomicalOrientationValues,
+  AnatomicalOrientationValues,
+][] = [
+  [
+    AnatomicalOrientationValues.RightToLeft,
+    AnatomicalOrientationValues.LeftToRight,
+  ],
+  [
+    AnatomicalOrientationValues.AnteriorToPosterior,
+    AnatomicalOrientationValues.PosteriorToAnterior,
+  ],
+  [
+    AnatomicalOrientationValues.InferiorToSuperior,
+    AnatomicalOrientationValues.SuperiorToInferior,
+  ],
+];
+
+/**
+ * Determine the anatomical orientation of a single image axis from its
+ * direction cosine vector in ITK LPS physical space.
+ *
+ * The direction vector is a column of the ITK direction matrix. Its
+ * dominant component (largest absolute value) determines which physical
+ * axis (L/R, A/P, or S/I) this image axis aligns with, and the sign
+ * of that component determines the direction.
+ *
+ * In LPS physical space:
+ * - Component 0: L/R axis (positive = Right→Left, negative = Left→Right)
+ * - Component 1: A/P axis (positive = Anterior→Posterior, negative = Posterior→Anterior)
+ * - Component 2: I/S axis (positive = Inferior→Superior, negative = Superior→Inferior)
+ *
+ * For 2D images, the direction column will have only 2 components, with the
+ * third component implicitly zero.
+ *
+ * @param directionColumn - Direction cosine vector for the image axis.
+ *   Can be 2-element (for 2D images) or 3-element (for 3D images).
+ *   `[lps_x, lps_y]` or `[lps_x, lps_y, lps_z]`
+ *   Must have at least 2 elements.
+ * @returns The anatomical orientation corresponding to the dominant
+ *   direction of this axis
+ * @throws Error if directionColumn has fewer than 2 elements
+ */
+export function itkDirectionToAnatomicalOrientation(
+  directionColumn: readonly number[],
+): AnatomicalOrientation {
+  if (directionColumn.length < 2) {
+    throw new Error(
+      `Direction column must have at least 2 elements for 2D/3D images, got ${directionColumn.length}`,
+    );
+  }
+  // Find the dominant physical axis (largest absolute component)
+  let dominantAxis = 0;
+  let maxAbs = Math.abs(directionColumn[0]);
+  const n = Math.min(directionColumn.length, MAX_SPATIAL_DIMENSIONS);
+  for (let i = 1; i < n; i++) {
+    const absVal = Math.abs(directionColumn[i]);
+    if (absVal > maxAbs) {
+      maxAbs = absVal;
+      dominantAxis = i;
+    }
+  }
+
+  // Positive component → positive LPS direction, negative → opposite
+  const pair = LPS_ORIENTATION_PAIRS[dominantAxis];
+  const value = directionColumn[dominantAxis] >= 0 ? pair[0] : pair[1];
+  return createAnatomicalOrientation(value);
+}
+
+/**
  * Check if RFC 4 is enabled in the list of enabled RFCs.
  */
 export function isRfc4Enabled(enabledRfcs?: number[]): boolean {

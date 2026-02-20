@@ -3,16 +3,20 @@
 import numpy as np
 import pytest
 
-from ngff_zarr import nibabel_image_to_ngff_image, extract_omero_metadata_from_nibabel, to_multiscales
-from ngff_zarr.rfc4 import AnatomicalOrientation, AnatomicalOrientationValues
+from ngff_zarr import (
+    nibabel_image_to_ngff_image,
+    extract_omero_metadata_from_nibabel,
+    to_multiscales,
+)
+from ngff_zarr.rfc4 import AnatomicalOrientationValues
 
 from ._data import test_data_dir, input_images  # noqa: F401
 
-pytest.importorskip("nibabel")
-import nibabel as nib
+nibabel = pytest.importorskip("nibabel")
+nib = nibabel
 
 
-def test_nibabel_image_to_ngff_image_basic(input_images):  # noqa: ARG001
+def test_nibabel_image_to_ngff_image_basic():
     """Test basic conversion from nibabel to NgffImage with the test file."""
     input_path = test_data_dir / "input" / "mri_denoised.nii.gz"
     img = nib.load(str(input_path))
@@ -41,8 +45,8 @@ def test_nibabel_image_to_ngff_image_basic(input_images):  # noqa: ARG001
     # For this test file, verify that memory optimization applied correctly
     # (should use optimized path if scaling is identity)
     header = img.header
-    scl_slope = header.get('scl_slope')
-    scl_inter = header.get('scl_inter')
+    scl_slope = header.get("scl_slope")
+    scl_inter = header.get("scl_inter")
 
     # Process scaling parameters same as our function
     if scl_slope is None or scl_slope == 0 or np.isnan(scl_slope):
@@ -83,12 +87,21 @@ def test_nibabel_image_to_ngff_image_identity_transform():
     assert "z" in ngff_image.axes_orientations
 
     # Check specific orientations (RAS)
-    assert ngff_image.axes_orientations["x"].value == AnatomicalOrientationValues.left_to_right
-    assert ngff_image.axes_orientations["y"].value == AnatomicalOrientationValues.posterior_to_anterior
-    assert ngff_image.axes_orientations["z"].value == AnatomicalOrientationValues.inferior_to_superior
+    assert (
+        ngff_image.axes_orientations["x"].value
+        == AnatomicalOrientationValues.left_to_right
+    )
+    assert (
+        ngff_image.axes_orientations["y"].value
+        == AnatomicalOrientationValues.posterior_to_anterior
+    )
+    assert (
+        ngff_image.axes_orientations["z"].value
+        == AnatomicalOrientationValues.inferior_to_superior
+    )
 
 
-def test_nibabel_image_to_ngff_image_no_anatomical_orientation(input_images):  # noqa: ARG001
+def test_nibabel_image_to_ngff_image_no_anatomical_orientation():
     """Test that anatomical orientations are not added when disabled."""
     input_path = test_data_dir / "input" / "mri_denoised.nii.gz"
     img = nib.load(str(input_path))
@@ -105,12 +118,14 @@ def test_nibabel_image_to_ngff_image_scaled_transform():
     data = np.random.rand(10, 10, 10).astype(np.float32)
 
     # Create scaled identity affine (no rotation, non-unit spacing, non-zero origin)
-    affine = np.array([
-        [2.0, 0.0, 0.0, 10.0],
-        [0.0, 2.0, 0.0, 20.0],
-        [0.0, 0.0, 2.0, 30.0],
-        [0.0, 0.0, 0.0, 1.0]
-    ])
+    affine = np.array(
+        [
+            [2.0, 0.0, 0.0, 10.0],
+            [0.0, 2.0, 0.0, 20.0],
+            [0.0, 0.0, 2.0, 30.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
 
     # Create nibabel image
     img = nib.Nifti1Image(data, affine)
@@ -179,7 +194,7 @@ def test_nibabel_image_to_ngff_image_unsupported_dimensions():
         nibabel_image_to_ngff_image(img)
 
 
-def test_nibabel_image_to_ngff_image_name(input_images):  # noqa: ARG001
+def test_nibabel_image_to_ngff_image_name():
     """Test that the image gets the expected name."""
     input_path = test_data_dir / "input" / "mri_denoised.nii.gz"
     img = nib.load(str(input_path))
@@ -199,8 +214,8 @@ def test_nibabel_image_to_ngff_image_memory_optimization_identity_scaling():
     img = nib.Nifti1Image(data, affine)
 
     # Ensure identity scaling parameters
-    img.header['scl_slope'] = 1.0
-    img.header['scl_inter'] = 0.0
+    img.header["scl_slope"] = 1.0
+    img.header["scl_inter"] = 0.0
 
     ngff_image = nibabel_image_to_ngff_image(img)
 
@@ -219,8 +234,8 @@ def test_nibabel_image_to_ngff_image_memory_optimization_with_scaling():
     img = nib.Nifti1Image(data, affine)
 
     # Set non-identity scaling parameters
-    img.header['scl_slope'] = 2.0
-    img.header['scl_inter'] = 10.0
+    img.header["scl_slope"] = 2.0
+    img.header["scl_inter"] = 10.0
 
     ngff_image = nibabel_image_to_ngff_image(img)
 
@@ -242,8 +257,8 @@ def test_nibabel_image_to_ngff_image_memory_optimization_no_scaling_header():
     img = nib.Nifti1Image(data, affine)
 
     # Remove scaling headers (should default to identity)
-    img.header['scl_slope'] = 0  # nibabel treats 0 as "no scaling"
-    img.header['scl_inter'] = 0
+    img.header["scl_slope"] = 0  # nibabel treats 0 as "no scaling"
+    img.header["scl_inter"] = 0
 
     ngff_image = nibabel_image_to_ngff_image(img)
 
@@ -262,8 +277,8 @@ def test_nibabel_image_to_ngff_image_memory_optimization_slope_only():
     img = nib.Nifti1Image(data, affine)
 
     # Set slope only (intercept remains 0)
-    img.header['scl_slope'] = 0.5
-    img.header['scl_inter'] = 0.0
+    img.header["scl_slope"] = 0.5
+    img.header["scl_inter"] = 0.0
 
     ngff_image = nibabel_image_to_ngff_image(img)
 
@@ -285,8 +300,8 @@ def test_nibabel_image_to_ngff_image_memory_optimization_intercept_only():
     img = nib.Nifti1Image(data, affine)
 
     # Set intercept only (slope remains 1)
-    img.header['scl_slope'] = 1.0
-    img.header['scl_inter'] = 5.0
+    img.header["scl_slope"] = 1.0
+    img.header["scl_inter"] = 5.0
 
     ngff_image = nibabel_image_to_ngff_image(img)
 
@@ -298,7 +313,7 @@ def test_nibabel_image_to_ngff_image_memory_optimization_intercept_only():
     np.testing.assert_array_equal(ngff_image.data, expected_data)
 
 
-def test_nibabel_image_to_ngff_image_ail_orientation(input_images):  # noqa: ARG001 
+def test_nibabel_image_to_ngff_image_ail_orientation():
     """Test that AIL.nii.gz generates the expected anatomical orientation."""
     input_path = test_data_dir / "input" / "AIL.nii.gz"
     img = nib.load(str(input_path))
@@ -318,9 +333,18 @@ def test_nibabel_image_to_ngff_image_ail_orientation(input_images):  # noqa: ARG
     # Verify the specific orientations for AIL (Anterior-Inferior-Left)
     # Based on nibabel output: Orientation: ('A', 'I', 'L')
     # Actual detected orientations from the function:
-    assert ngff_image.axes_orientations["x"].value == AnatomicalOrientationValues.posterior_to_anterior
-    assert ngff_image.axes_orientations["y"].value == AnatomicalOrientationValues.superior_to_inferior
-    assert ngff_image.axes_orientations["z"].value == AnatomicalOrientationValues.right_to_left
+    assert (
+        ngff_image.axes_orientations["x"].value
+        == AnatomicalOrientationValues.posterior_to_anterior
+    )
+    assert (
+        ngff_image.axes_orientations["y"].value
+        == AnatomicalOrientationValues.superior_to_inferior
+    )
+    assert (
+        ngff_image.axes_orientations["z"].value
+        == AnatomicalOrientationValues.right_to_left
+    )
 
     # Verify spatial metadata exists
     assert "x" in ngff_image.scale
@@ -331,7 +355,7 @@ def test_nibabel_image_to_ngff_image_ail_orientation(input_images):  # noqa: ARG
     assert "z" in ngff_image.translation
 
 
-def test_nibabel_image_to_ngff_image_rip_orientation(input_images):  # noqa: ARG001
+def test_nibabel_image_to_ngff_image_rip_orientation():
     """Test that RIP.nii.gz generates the expected anatomical orientation."""
     input_path = test_data_dir / "input" / "RIP.nii.gz"
     img = nib.load(str(input_path))
@@ -351,9 +375,18 @@ def test_nibabel_image_to_ngff_image_rip_orientation(input_images):  # noqa: ARG
     # Verify the specific orientations for RIP (Right-Inferior-Posterior)
     # Based on nibabel output: Orientation: ('R', 'I', 'P')
     # Actual detected orientations from the function:
-    assert ngff_image.axes_orientations["x"].value == AnatomicalOrientationValues.left_to_right
-    assert ngff_image.axes_orientations["y"].value == AnatomicalOrientationValues.superior_to_inferior
-    assert ngff_image.axes_orientations["z"].value == AnatomicalOrientationValues.anterior_to_posterior
+    assert (
+        ngff_image.axes_orientations["x"].value
+        == AnatomicalOrientationValues.left_to_right
+    )
+    assert (
+        ngff_image.axes_orientations["y"].value
+        == AnatomicalOrientationValues.superior_to_inferior
+    )
+    assert (
+        ngff_image.axes_orientations["z"].value
+        == AnatomicalOrientationValues.anterior_to_posterior
+    )
 
     # Verify spatial metadata exists
     assert "x" in ngff_image.scale
@@ -364,7 +397,7 @@ def test_nibabel_image_to_ngff_image_rip_orientation(input_images):  # noqa: ARG
     assert "z" in ngff_image.translation
 
 
-def test_nibabel_image_to_ngff_image_ail_rip_orientation_disabled(input_images):  # noqa: ARG001
+def test_nibabel_image_to_ngff_image_ail_rip_orientation_disabled():
     """Test that AIL and RIP orientations are not added when disabled."""
     ail_path = test_data_dir / "input" / "AIL.nii.gz"
     rip_path = test_data_dir / "input" / "RIP.nii.gz"
@@ -388,8 +421,8 @@ def test_extract_omero_metadata_from_nibabel_with_cal_values():
     img = nib.Nifti1Image(data, affine)
 
     # Set calibration values
-    img.header['cal_min'] = 10.0
-    img.header['cal_max'] = 90.0
+    img.header["cal_min"] = 10.0
+    img.header["cal_max"] = 90.0
 
     omero_metadata = extract_omero_metadata_from_nibabel(img)
 
@@ -405,7 +438,7 @@ def test_extract_omero_metadata_from_nibabel_with_cal_values():
     # Check the windowing values
     window = channel.window
     assert window.start == 10.0  # cal_min
-    assert window.end == 90.0    # cal_max
+    assert window.end == 90.0  # cal_max
     assert window.min == float(np.min(data))  # Data minimum
     assert window.max == float(np.max(data))  # Data maximum
 
@@ -418,8 +451,8 @@ def test_extract_omero_metadata_from_nibabel_no_cal_values():
     img = nib.Nifti1Image(data, affine)
 
     # Set calibration values to 0.0 (should not create OMERO metadata)
-    img.header['cal_min'] = 0.0
-    img.header['cal_max'] = 0.0
+    img.header["cal_min"] = 0.0
+    img.header["cal_max"] = 0.0
 
     omero_metadata = extract_omero_metadata_from_nibabel(img)
 
@@ -435,8 +468,8 @@ def test_extract_omero_metadata_from_nibabel_with_nan_values():
     img = nib.Nifti1Image(data, affine)
 
     # Set calibration values with NaN (should not create OMERO metadata)
-    img.header['cal_min'] = np.nan
-    img.header['cal_max'] = 50.0
+    img.header["cal_min"] = np.nan
+    img.header["cal_max"] = 50.0
 
     omero_metadata = extract_omero_metadata_from_nibabel(img)
 
@@ -444,8 +477,8 @@ def test_extract_omero_metadata_from_nibabel_with_nan_values():
     assert omero_metadata is None
 
     # Test with other value as NaN
-    img.header['cal_min'] = 10.0
-    img.header['cal_max'] = np.nan
+    img.header["cal_min"] = 10.0
+    img.header["cal_max"] = np.nan
 
     omero_metadata = extract_omero_metadata_from_nibabel(img)
 
@@ -475,8 +508,8 @@ def test_extract_omero_metadata_from_nibabel_one_zero_value():
     img = nib.Nifti1Image(data, affine)
 
     # Set one value to 0.0, other to non-zero (should create OMERO metadata)
-    img.header['cal_min'] = 0.0
-    img.header['cal_max'] = 75.0
+    img.header["cal_min"] = 0.0
+    img.header["cal_max"] = 75.0
 
     omero_metadata = extract_omero_metadata_from_nibabel(img)
 
@@ -490,8 +523,8 @@ def test_extract_omero_metadata_from_nibabel_one_zero_value():
     assert window.end == 75.0
 
     # Test the reverse case
-    img.header['cal_min'] = 25.0
-    img.header['cal_max'] = 0.0
+    img.header["cal_min"] = 25.0
+    img.header["cal_max"] = 0.0
 
     omero_metadata = extract_omero_metadata_from_nibabel(img)
 
@@ -513,8 +546,8 @@ def test_extract_omero_metadata_integration_with_multiscales():
     img = nib.Nifti1Image(data, affine)
 
     # Set calibration values
-    img.header['cal_min'] = 50.0
-    img.header['cal_max'] = 200.0
+    img.header["cal_min"] = 50.0
+    img.header["cal_max"] = 200.0
 
     # Convert to NgffImage
     ngff_image = nibabel_image_to_ngff_image(img)

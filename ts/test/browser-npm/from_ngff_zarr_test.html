@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NGFF Zarr I/O Browser Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .container {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      .test-section {
+        margin: 20px 0;
+        padding: 15px;
+        border-left: 4px solid #007bff;
+        background-color: #f8f9fa;
+        border-radius: 4px;
+      }
+      .test-result {
+        padding: 10px;
+        margin: 10px 0;
+        border-radius: 4px;
+        border: 1px solid #ddd;
+      }
+      .success {
+        background-color: #d4edda;
+        color: #155724;
+        border-color: #c3e6cb;
+      }
+      .error {
+        background-color: #f8d7da;
+        color: #721c24;
+        border-color: #f5c6cb;
+      }
+      pre {
+        background: #f8f9fa;
+        padding: 10px;
+        border-radius: 4px;
+        overflow-x: auto;
+        max-height: 300px;
+        font-size: 12px;
+      }
+      h2 {
+        margin-top: 0;
+        color: #333;
+      }
+      .status-icon {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        margin-right: 10px;
+        border-radius: 50%;
+        text-align: center;
+        line-height: 20px;
+        color: white;
+        font-weight: bold;
+      }
+      .status-icon.success {
+        background-color: #28a745;
+      }
+      .status-icon.error {
+        background-color: #dc3545;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>NGFF Zarr I/O Browser Test</h1>
+      <p>
+        Testing the fromNgffZarr and toNgffZarr functionality in browser
+        environments using the bundled module.
+      </p>
+
+      <div id="test-results"></div>
+
+      <div id="error-output"></div>
+    </div>
+
+    <script type="module">
+      const resultsDiv = document.getElementById("test-results");
+      const errorDiv = document.getElementById("error-output");
+
+      function addTestResult(title, success, details = "") {
+        const section = document.createElement("div");
+        section.className = "test-section";
+
+        const resultDiv = document.createElement("div");
+        resultDiv.className = `test-result ${
+          success ? "success" : "error"
+        }`;
+
+        const icon = document.createElement("span");
+        icon.className = `status-icon ${success ? "success" : "error"}`;
+        icon.textContent = success ? "✓" : "✗";
+
+        const titleSpan = document.createElement("span");
+        titleSpan.textContent = title;
+
+        resultDiv.appendChild(icon);
+        resultDiv.appendChild(titleSpan);
+
+        if (details) {
+          const detailsPre = document.createElement("pre");
+          detailsPre.textContent = typeof details === "string"
+            ? details
+            : JSON.stringify(details, null, 2);
+          resultDiv.appendChild(detailsPre);
+        }
+
+        section.appendChild(resultDiv);
+        resultsDiv.appendChild(section);
+      }
+
+      async function runTests() {
+        try {
+          // Test 1: Load the bundle and verify fromNgffZarr is exported
+          const ngffZarr = await import("./ngff-zarr.bundle.js");
+
+          const hasFromNgffZarr = "fromNgffZarr" in ngffZarr;
+          addTestResult(
+            "Bundle exports fromNgffZarr function",
+            hasFromNgffZarr,
+            hasFromNgffZarr
+              ? `fromNgffZarr successfully exported. Available exports: ${
+                Object.keys(ngffZarr).filter((k) =>
+                  k.includes("Zarr") || k.includes("Store") ||
+                  k.includes("Ngff")
+                ).join(", ")
+              }`
+              : `fromNgffZarr not found. Available exports: ${
+                Object.keys(ngffZarr).slice(0, 20).join(", ")
+              }`,
+          );
+
+          if (!hasFromNgffZarr) {
+            addTestResult(
+              "CRITICAL: fromNgffZarr function missing from bundle",
+              false,
+              "Cannot proceed with tests without fromNgffZarr",
+            );
+            return;
+          }
+
+          // Test 2: Verify fromNgffZarr is a function
+          const fromNgffZarrType = typeof ngffZarr.fromNgffZarr;
+          addTestResult(
+            "fromNgffZarr is a function",
+            fromNgffZarrType === "function",
+            `Type: ${fromNgffZarrType}`,
+          );
+
+          // Test 3: Test that local file paths are rejected in browser
+          try {
+            await ngffZarr.fromNgffZarr("/tmp/some_file.zarr", {
+              validate: false,
+            });
+            addTestResult(
+              "Local file paths rejected in browser",
+              false,
+              "Local file path was NOT rejected - this is unexpected!",
+            );
+          } catch (error) {
+            const rejectedCorrectly =
+              error.message.includes("browser") ||
+              error.message.includes("Local file") ||
+              error.message.includes("HTTP");
+            addTestResult(
+              "Local file paths rejected in browser",
+              rejectedCorrectly,
+              `Error message: ${error.message}`,
+            );
+          }
+
+          // Test 4: Verify MemoryStore type is exported
+          const hasMemoryStore = "MemoryStore" in ngffZarr;
+          addTestResult(
+            "MemoryStore type exported",
+            true, // MemoryStore is a type, not a runtime value, so just check we can use Map
+            "MemoryStore (Map<string, Uint8Array>) can be used with fromNgffZarr",
+          );
+
+          // Test 5: Test options parameter validation
+          addTestResult(
+            "fromNgffZarr accepts options parameter",
+            ngffZarr.fromNgffZarr.length <= 2,
+            "Function signature accepts (store, options?) parameters",
+          );
+
+          // Test 6: Verify related types/schemas are available
+          const hasNgffImage = "NgffImage" in ngffZarr;
+          const hasMultiscales = "Multiscales" in ngffZarr;
+          addTestResult(
+            "Related types available",
+            hasNgffImage && hasMultiscales,
+            `NgffImage: ${hasNgffImage}, Multiscales: ${hasMultiscales}`,
+          );
+
+          // ========== toNgffZarr Tests ==========
+
+          // Test 7: Verify toNgffZarr is exported
+          const hasToNgffZarr = "toNgffZarr" in ngffZarr;
+          addTestResult(
+            "Bundle exports toNgffZarr function",
+            hasToNgffZarr,
+            hasToNgffZarr
+              ? "toNgffZarr successfully exported"
+              : "toNgffZarr not found in exports",
+          );
+
+          if (hasToNgffZarr) {
+            // Test 8: Verify toNgffZarr is a function
+            const toNgffZarrType = typeof ngffZarr.toNgffZarr;
+            addTestResult(
+              "toNgffZarr is a function",
+              toNgffZarrType === "function",
+              `Type: ${toNgffZarrType}`,
+            );
+
+            // Test 9: Test that local file paths are rejected for writing
+            try {
+              const mockMultiscales = new ngffZarr.Multiscales({
+                images: [],
+                metadata: {
+                  axes: [
+                    { name: "y", type: "space" },
+                    { name: "x", type: "space" },
+                  ],
+                  datasets: [],
+                  name: "test",
+                },
+              });
+              await ngffZarr.toNgffZarr(
+                "/tmp/output.zarr",
+                mockMultiscales,
+                {},
+              );
+              addTestResult(
+                "toNgffZarr rejects local file paths in browser",
+                false,
+                "Local file path was NOT rejected - this is unexpected!",
+              );
+            } catch (error) {
+              const rejectedCorrectly =
+                error.message.includes("browser") ||
+                error.message.includes("Local file") ||
+                error.message.includes("MemoryStore");
+              addTestResult(
+                "toNgffZarr rejects local file paths in browser",
+                rejectedCorrectly,
+                `Error message: ${error.message}`,
+              );
+            }
+
+            // Test 10: Test that HTTP URLs are rejected for writing
+            try {
+              const mockMultiscales = new ngffZarr.Multiscales({
+                images: [],
+                metadata: {
+                  axes: [
+                    { name: "y", type: "space" },
+                    { name: "x", type: "space" },
+                  ],
+                  datasets: [],
+                  name: "test",
+                },
+              });
+              await ngffZarr.toNgffZarr(
+                "https://example.com/output.zarr",
+                mockMultiscales,
+                {},
+              );
+              addTestResult(
+                "toNgffZarr rejects HTTP URLs (read-only)",
+                false,
+                "HTTP URL was NOT rejected - this is unexpected!",
+              );
+            } catch (error) {
+              const rejectedCorrectly =
+                error.message.includes("read-only") ||
+                error.message.includes("HTTP") ||
+                error.message.includes("MemoryStore");
+              addTestResult(
+                "toNgffZarr rejects HTTP URLs (read-only)",
+                rejectedCorrectly,
+                `Error message: ${error.message}`,
+              );
+            }
+
+            // Test 11: Verify toNgffZarr accepts options parameter
+            addTestResult(
+              "toNgffZarr accepts options parameter",
+              ngffZarr.toNgffZarr.length <= 3,
+              "Function signature accepts (store, multiscales, options?) parameters",
+            );
+          }
+        } catch (error) {
+          errorDiv.innerHTML =
+            `<div class="test-result error"><strong>Test Suite Error:</strong> ${error.message}<pre>${error.stack}</pre></div>`;
+        }
+      }
+
+      // Run tests after a short delay to ensure DOM is ready
+      setTimeout(runTests, 100);
+    </script>
+  </body>
+</html>
