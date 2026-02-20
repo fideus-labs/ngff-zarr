@@ -85,7 +85,8 @@ export function bytesOnlyCodecs(): ZarrCodec[] {
 /**
  * Supported codec name strings accepted by {@link codecFromName}.
  *
- * Mirrors the Python ``ngff_zarr.codecs.get_available_codecs()`` list.
+ * Includes bare {@link "blosc"} (defaults to lz4 compression) as well
+ * as prefixed variants like {@link "blosc:zstd"}.
  */
 export const AVAILABLE_CODECS = [
   "none",
@@ -148,7 +149,23 @@ export function codecFromName(
   }
 
   if (name === "blosc" || name.startsWith("blosc:")) {
-    const cname = name.includes(":") ? name.split(":")[1] : "lz4";
+    let cname: string;
+
+    if (name === "blosc") {
+      // Default blosc variant when none is specified explicitly.
+      cname = "lz4";
+    } else {
+      const parts = name.split(":");
+      cname = parts[1] ?? "";
+
+      // Reject empty or unknown blosc variants to avoid silently writing
+      // unsupported Zarr metadata.
+      if (cname === "" || !AVAILABLE_CODECS.includes(name as CodecName)) {
+        throw new Error(
+          `Unknown codec: "${name}". Available: ${AVAILABLE_CODECS.join(", ")}`,
+        );
+      }
+    }
     return [
       bytes,
       {
