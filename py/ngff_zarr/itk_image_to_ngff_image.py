@@ -10,12 +10,19 @@ from .rfc4 import itk_lps_to_anatomical_orientation, itk_direction_to_anatomical
 
 
 def _flatten_direction(direction, n: int):
-    """Return direction as a flat 1-D array of length n*n.
+    """Return direction as a flat 1-D array of length ``n * n``.
 
     ``itk.dict_from_image`` returns a 2-D numpy array while
-    ``itkwasm`` returns a flat array.  This helper normalises both.
+    ``itkwasm`` returns a flat array.  This helper normalises both
+    and validates that the resulting size is ``n * n``.
     """
-    return np.asarray(direction, dtype=float).reshape(-1)
+    flat = np.asarray(direction, dtype=float).reshape(-1)
+    expected_size = n * n
+    if flat.size != expected_size:
+        raise ValueError(
+            f"Direction has length {flat.size}, but expected {expected_size} (for n={n})."
+        )
+    return flat
 
 
 def _is_identity_direction(direction, n: int) -> bool:
@@ -95,14 +102,28 @@ def itk_image_to_ngff_image(
         axes_orientations = {}
         direction = image_dict.get("direction")
         n_spatial = len(spatial_dims)
+        itk_dim = image_dict["imageType"]["dimension"]
 
         has_direction = direction is not None and len(direction) > 0
-        has_non_identity_direction = has_direction and not _is_identity_direction(
-            direction, n_spatial
+
+        # The direction matrix from ITK has shape itk_dim × itk_dim.
+        # We need the n_spatial × n_spatial spatial sub-matrix.
+        if has_direction:
+            flat_full = _flatten_direction(direction, itk_dim)
+            # Extract the spatial sub-matrix (top-left n_spatial × n_spatial)
+            flat_dir = np.array([
+                flat_full[row * itk_dim + col]
+                for row in range(n_spatial)
+                for col in range(n_spatial)
+            ])
+        else:
+            flat_dir = None
+
+        has_non_identity_direction = flat_dir is not None and not _is_identity_direction(
+            flat_dir, n_spatial
         )
 
         if has_non_identity_direction:
-            flat_dir = _flatten_direction(direction, n_spatial)
             for i, dim in enumerate(spatial_dims):
                 itk_axis_index = n_spatial - 1 - i
                 col = [

@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: MIT
 """Test RFC 4 anatomical orientation implementation."""
 
+import pytest
+
 from ngff_zarr.rfc4 import (
     AnatomicalOrientation,
     AnatomicalOrientationValues,
@@ -113,9 +115,6 @@ def test_anatomical_orientation_values_enum():
 
 
 # --- Tests for itk_direction_to_anatomical_orientation ---
-
-
-import pytest
 
 
 class TestItkDirectionToAnatomicalOrientation:

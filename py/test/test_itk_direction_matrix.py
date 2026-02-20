@@ -3,7 +3,6 @@
 """Tests for direction matrix handling in itk_image_to_ngff_image."""
 
 import numpy as np
-import pytest
 import itkwasm
 
 from ngff_zarr import itk_image_to_ngff_image
