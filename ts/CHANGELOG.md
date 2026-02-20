@@ -1,3 +1,9 @@
+## ts-v0.13.0 (2026-02-20)
+
+### ⚡ Performance
+
+- **ts**: cap worker pool to 16 ([66834bb](https://github.com/fideus-labs/ngff-zarr/commit/66834bb90d0418db60dcb0304ad4540107f701e4))
+
 ## ts-v0.12.3 (2026-02-18)
 
 ### 🐛 Bug Fixes
