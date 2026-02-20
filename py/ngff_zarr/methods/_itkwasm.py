@@ -10,6 +10,7 @@ import dask.array
 from ..ngff_image import NgffImage
 from ._support import (
     _align_chunks,
+    _can_use_map_blocks_fast_path,
     _compute_sigma,
     _dim_scale_factors,
     _get_block,
@@ -86,6 +87,47 @@ def _itkwasm_chunk_bin_shrink(
     return downsampled.data
 
 
+def _itkwasm_chunk_bin_shrink_nd(
+    block,
+    shrink_factors,
+    n_spatial_dims,
+    is_vector=False,
+):
+    """Bin-shrink a block that may include leading non-spatial dimensions.
+
+    When the block has more dimensions than the number of spatial dims
+    (e.g. it includes time and/or channel axes), iterate over every
+    combination of non-spatial indices, apply bin-shrink to each spatial
+    sub-block, and reassemble the result.
+    """
+    if block.ndim == n_spatial_dims or (is_vector and block.ndim == n_spatial_dims + 1):
+        return _itkwasm_chunk_bin_shrink(block, shrink_factors, is_vector=is_vector)
+
+    non_spatial_ndim = block.ndim - n_spatial_dims
+    if is_vector:
+        non_spatial_ndim -= 1  # channel dim is part of vector image
+    non_spatial_shape = block.shape[:non_spatial_ndim]
+
+    # Determine output spatial shape from the first sub-block
+    first_idx = (0,) * non_spatial_ndim
+    first_sub = block[first_idx]
+    first_result = _itkwasm_chunk_bin_shrink(
+        first_sub, shrink_factors, is_vector=is_vector
+    )
+    output = np.empty(non_spatial_shape + first_result.shape, dtype=block.dtype)
+    output[first_idx] = first_result
+
+    for idx in np.ndindex(*non_spatial_shape):
+        if idx == first_idx:
+            continue
+        sub_block = block[idx]
+        output[idx] = _itkwasm_chunk_bin_shrink(
+            sub_block, shrink_factors, is_vector=is_vector
+        )
+
+    return output
+
+
 def _downsample_itkwasm(
     ngff_image: NgffImage, default_chunks, out_chunks, scale_factors, smoothing
 ):
@@ -137,14 +179,101 @@ def _downsample_itkwasm(
                     break
 
         if can_downsample_incrementally:
-            # Downsample from previous image (incremental - more accurate, less memory)
-            current_image = _align_chunks(previous_image, default_chunks, dim_factors)
+            source_image = previous_image
         else:
             # Must downsample from original to get exact target size
             # Recalculate factors from original
             original_dim_factors = {d: 1 for d in dims}
             dim_factors = _dim_scale_factors(dims, scale_factor, original_dim_factors)
-            current_image = _align_chunks(ngff_image, default_chunks, dim_factors)
+            source_image = ngff_image
+
+        # --- map_blocks fast path for bin-shrink ---
+        # When all chunk sizes (including the last, possibly smaller chunk)
+        # divide evenly by the shrink factor we can skip _align_chunks,
+        # avoid per-non-spatial-dim iteration, and issue a single map_blocks
+        # call.  This produces a much smaller dask task graph.
+        #
+        # The fast path cannot handle the case where c is the last dimension
+        # but is_vector is False (many channels).  In that case itkwasm
+        # needs each channel processed individually, so we fall through to
+        # the standard path which iterates over non-spatial dims.
+        _fp_source = _spatial_dims_last_zyx(source_image)
+        _fp_c_is_last = _fp_source.dims[-1] == "c"
+        if _fp_c_is_last:
+            _fp_c_idx = _fp_source.dims.index("c")
+            _fp_num_ch = _fp_source.data.shape[_fp_c_idx]
+            _fp_is_vector = _fp_num_ch <= _MAX_VECTOR_COMPONENTS
+        else:
+            _fp_is_vector = True  # no channel dim, no concern
+
+        if (
+            smoothing == "bin_shrink"
+            and (_fp_is_vector or not _fp_c_is_last)
+            and _can_use_map_blocks_fast_path(source_image, dim_factors)
+        ):
+            current_image = _fp_source
+            if tuple(current_image.dims) != dims:
+                transposed_dims = True
+                reorder = [current_image.dims.index(dim) for dim in dims]
+
+            translation, scale = _next_scale_metadata(
+                current_image, dim_factors, spatial_dims
+            )
+
+            shrink_factors = [dim_factors[sd] for sd in spatial_dims]
+            n_spatial = len(spatial_dims)
+
+            c_is_last = _fp_c_is_last
+            is_vector = _fp_is_vector if c_is_last else False
+
+            dtype = current_image.data.dtype
+
+            # Build output chunks: input_chunk // factor for spatial dims,
+            # unchanged for non-spatial dims.
+            fast_output_chunks = []
+            for dim in current_image.dims:
+                dim_idx = current_image.dims.index(dim)
+                in_chunks = current_image.data.chunks[dim_idx]
+                if dim in _spatial_dims and dim in dim_factors:
+                    factor = dim_factors[dim]
+                    fast_output_chunks.append(tuple(c // factor for c in in_chunks))
+                else:
+                    fast_output_chunks.append(in_chunks)
+            fast_output_chunks = tuple(fast_output_chunks)
+
+            downscaled_array = map_blocks(
+                _itkwasm_chunk_bin_shrink_nd,
+                current_image.data,
+                shrink_factors=shrink_factors,
+                n_spatial_dims=n_spatial + (1 if is_vector else 0),
+                is_vector=is_vector,
+                dtype=dtype,
+                chunks=fast_output_chunks,
+            )
+
+            # Rechunk to the requested output chunks
+            out_chunks_list = []
+            for dim in current_image.dims:
+                if dim in out_chunks:
+                    out_chunks_list.append(out_chunks[dim])
+                else:
+                    out_chunks_list.append(1)
+            downscaled_array = downscaled_array.rechunk(tuple(out_chunks_list))
+
+            if transposed_dims:
+                downscaled_array = downscaled_array.transpose(reorder)
+
+            current_image = NgffImage(downscaled_array, dims, scale, translation)
+            multiscales.append(current_image)
+
+            previous_image = current_image
+            previous_dim_factors = _update_previous_dim_factors(
+                scale_factor, spatial_dims, previous_dim_factors
+            )
+            continue
+
+        # --- Standard path (align chunks + per-block computation) ---
+        current_image = _align_chunks(source_image, default_chunks, dim_factors)
 
         # Operate on a contiguous spatial block
         current_image = _spatial_dims_last_zyx(current_image)
