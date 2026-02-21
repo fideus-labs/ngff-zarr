@@ -6,7 +6,8 @@ description: |
   and project recommendations.
 
 on:
-  schedule: daily
+  schedule:
+  - cron: "54 1 * * 1-5"
   workflow_dispatch:
 
 permissions:

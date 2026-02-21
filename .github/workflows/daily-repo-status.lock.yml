@@ -28,13 +28,12 @@
 #
 # Source: githubnext/agentics/workflows/daily-repo-status.md@6d161046e38a40d68f8891b27ea86719956b550c
 #
-# frontmatter-hash: f9148f55c8b23ea9486da09b69f295806a8511f3910eefcc66b77f13cbe587c7
+# frontmatter-hash: 5a3998afcc9264028aba96eec607edc6db9cd56d3a2961c0d713572891d2d24e
 
 name: "Daily Repo Status"
 "on":
   schedule:
-  - cron: "54 1 * * *"
-    # Friendly format: daily (scattered)
+  - cron: "54 1 * * 1-5"
   workflow_dispatch:
 
 permissions: {}
