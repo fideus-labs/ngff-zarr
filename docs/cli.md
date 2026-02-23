@@ -151,6 +151,28 @@ ngff-zarr -i MR-head.nrrd -o MR-head.ozx
 ngff-zarr -i ./MR-head.ozx
 ```
 
+### High Content Screening (HCS) plate data
+
+HCS plates contain multiple wells and images. To convert a specific well and field from an HCS plate, use sub-path syntax:
+
+```shell
+# Convert well A/1, field 0
+ngff-zarr -i plate.ome.zarr/A/1/0 -o well_A1_field0.ome.zarr
+
+# Convert well B/2, field 1
+ngff-zarr -i plate.ome.zarr/B/2/1 -o well_B2_field1.ome.zarr
+```
+
+Attempting to convert an entire plate will display available wells:
+
+```shell
+$ ngff-zarr -i plate.ome.zarr -o output.ome.zarr
+Error: The input appears to be an HCS plate structure with 96 wells.
+Provide the full path: 'plate.ome.zarr/A/1/0', 'plate.ome.zarr/A/2/0', ...
+```
+
+For more details on HCS support, see [HCS Support](./hcs.md).
+
 ### More options
 
 ```shell
