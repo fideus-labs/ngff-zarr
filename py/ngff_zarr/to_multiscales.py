@@ -3,6 +3,7 @@
 import atexit
 import shutil
 import signal
+import threading
 import time
 from collections.abc import MutableMapping
 from pathlib import Path
@@ -150,8 +151,9 @@ def _large_image_serialization(
             base_path_removed = True
 
     atexit.register(remove_from_cache_store, None, None)
-    signal.signal(signal.SIGTERM, remove_from_cache_store)
-    signal.signal(signal.SIGINT, remove_from_cache_store)
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGTERM, remove_from_cache_store)
+        signal.signal(signal.SIGINT, remove_from_cache_store)
     image.computed_callbacks.append(lambda: remove_from_cache_store(None, None))
 
     data = image.data
