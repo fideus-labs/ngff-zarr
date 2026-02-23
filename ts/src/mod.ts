@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 
+export { config, setWorkerPoolSize } from "./config.ts";
 export * from "./io/from_ngff_zarr.ts";
 export * from "./io/hcs.ts";
 export * from "./io/itk_image_to_ngff_image.ts";
