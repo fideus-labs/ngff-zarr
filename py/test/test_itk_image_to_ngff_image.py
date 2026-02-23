@@ -10,7 +10,7 @@ from ._data import test_data_dir, input_images  # noqa: F401
 rng = np.random.default_rng(12345)
 
 
-def test_2d_itk_image(input_images):  # noqa: ARG001
+def test_2d_itk_image():
     itk_image = itk.imread(test_data_dir / "input" / "cthead1.png")
     ngff_image = itk_image_to_ngff_image(itk_image)
     assert np.array_equal(np.asarray(itk_image), np.asarray(ngff_image.data))
@@ -23,7 +23,7 @@ def test_2d_itk_image(input_images):  # noqa: ARG001
     assert ngff_image.axes_units is None
 
 
-def test_2d_rgb_itk_image(input_images):  # noqa: ARG001
+def test_2d_rgb_itk_image():
     array = rng.integers(0, 255, size=(224, 224, 3), dtype=np.uint8)
     itk_image = itk.image_from_array(array, is_vector=True)
     ngff_image = itk_image_to_ngff_image(itk_image)
@@ -38,7 +38,7 @@ def test_2d_rgb_itk_image(input_images):  # noqa: ARG001
     assert ngff_image.axes_units is None
 
 
-def test_2d_itk_vector_image(input_images):  # noqa: ARG001
+def test_2d_itk_vector_image():
     array = rng.random(size=(224, 224, 3), dtype=np.float32)
     itk_image = itk.image_from_array(array, is_vector=True)
     ngff_image = itk_image_to_ngff_image(itk_image)
@@ -53,7 +53,7 @@ def test_2d_itk_vector_image(input_images):  # noqa: ARG001
     assert ngff_image.axes_units is None
 
 
-def test_3d_itk_vector_image(input_images):  # noqa: ARG001
+def test_3d_itk_vector_image():
     array = rng.random(size=(224, 224, 128, 3), dtype=np.float32)
     itk_image = itk.image_from_array(array, is_vector=True)
     ngff_image = itk_image_to_ngff_image(itk_image)
@@ -70,7 +70,7 @@ def test_3d_itk_vector_image(input_images):  # noqa: ARG001
     assert ngff_image.axes_units is None
 
 
-def test_2d_itkwasm_image(input_images):  # noqa: ARG001
+def test_2d_itkwasm_image():
     itk_image = itk.imread(test_data_dir / "input" / "cthead1.png")
     itk_image_dict = itk.dict_from_image(itk_image)
     itkwasm_image = itkwasm.Image(**itk_image_dict)

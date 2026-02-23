@@ -1,10 +1,12 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 import * as zarr from "zarrita";
+import { defaultCodecs } from "../utils/codecs.ts";
 import { NgffImage } from "../types/ngff_image.ts";
 import { Multiscales } from "../types/multiscales.ts";
 import type {
   Axis,
+  AxisOrientation,
   Dataset,
   Metadata,
   Scale,
@@ -12,6 +14,7 @@ import type {
 } from "../types/zarr_metadata.ts";
 import type { AxesType, SupportedDims, Units } from "../types/units.ts";
 import type { Methods } from "../types/methods.ts";
+import type { AnatomicalOrientation } from "../types/rfc4.ts";
 
 // Create a zarr.Array for testing using an in-memory store
 async function createTestZarrArray(
@@ -28,6 +31,7 @@ async function createTestZarrArray(
     shape,
     chunk_shape: chunks,
     data_type: dtype as zarr.DataType,
+    codecs: defaultCodecs(dtype),
   });
 
   return array;
@@ -59,12 +63,17 @@ export function createAxis(
   name: SupportedDims,
   type: AxesType,
   unit?: Units,
+  orientation?: AxisOrientation | AnatomicalOrientation,
 ): Axis {
-  return {
+  const axis: Axis = {
     name,
     type,
     unit: unit || undefined,
   };
+  if (orientation) {
+    axis.orientation = orientation;
+  }
+  return axis;
 }
 
 export function createScale(scale: number[]): Scale {

@@ -1,11 +1,24 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 import type { AxesType, SupportedDims, Units } from "./units.ts";
+import { NgffVersion } from "./supported_versions.ts";
+import type { NgffImage } from "./ngff_image.ts";
+import type { AnatomicalOrientation } from "./rfc4.ts";
+
+/**
+ * Orientation metadata for spatial axes (RFC 4).
+ * This interface represents the serialized form in the zarr metadata.
+ */
+export interface AxisOrientation {
+  type: string;
+  value: string;
+}
 
 export interface Axis {
   name: SupportedDims;
   type: AxesType;
   unit: Units | undefined;
+  orientation?: AxisOrientation | AnatomicalOrientation | undefined;
 }
 
 export interface Identity {
@@ -54,7 +67,10 @@ export interface MethodMetadata {
   version: string;
 }
 
-export interface Metadata {
+/**
+ * OME-Zarr Metadata interface for data transfer
+ */
+export interface MetadataInterface {
   axes: Axis[];
   datasets: Dataset[];
   coordinateTransformations: Transform[] | undefined;
@@ -63,6 +79,71 @@ export interface Metadata {
   version: string;
   type?: string;
   metadata?: MethodMetadata;
+}
+
+/**
+ * Result from parsing zarr attributes
+ */
+export interface FromZarrAttrsResult {
+  metadata: MetadataInterface;
+  images: NgffImage[];
+}
+
+// Keep backward compatible alias
+export type Metadata = MetadataInterface;
+
+/**
+ * Result from parsing zarr attributes
+ */
+export interface FromZarrAttrsResult {
+  metadata: MetadataInterface;
+  images: NgffImage[];
+}
+
+/**
+ * Supported dimension names for backward compatibility
+ */
+export const SUPPORTED_DIMS: readonly SupportedDims[] = [
+  "t",
+  "c",
+  "z",
+  "y",
+  "x",
+] as const;
+
+/**
+ * Create a Metadata object with the specified version
+ */
+export function createMetadataWithVersion(
+  metadata: MetadataInterface,
+  targetVersion: string | NgffVersion,
+): MetadataInterface {
+  const version = typeof targetVersion === "string"
+    ? (targetVersion as NgffVersion)
+    : targetVersion;
+
+  if (version === NgffVersion.V04) {
+    return {
+      ...metadata,
+      version: "0.4",
+    };
+  } else if (version === NgffVersion.V05) {
+    return {
+      ...metadata,
+      version: "0.5",
+    };
+  } else {
+    throw new Error(
+      `Unsupported version conversion: ${metadata.version} -> ${version}`,
+    );
+  }
+}
+
+/**
+ * Get dimension names from metadata axes
+ */
+export function getDimensionNames(metadata: MetadataInterface): string[] {
+  return metadata.axes.map((ax) => ax.name);
 }
 
 export function validateColor(color: string): void {

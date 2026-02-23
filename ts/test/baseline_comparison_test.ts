@@ -18,7 +18,7 @@ import { compareImagesNode } from "@itk-wasm/compare-images";
 import type { Image as ItkWasmImage } from "itk-wasm";
 
 import { Methods } from "../src/types/methods.ts";
-import { toMultiscales } from "../src/io/to_multiscales.ts";
+import { toMultiscales } from "../src/process/to_multiscales-node.ts";
 import { toNgffZarr } from "../src/io/to_ngff_zarr.ts";
 import { fromNgffZarr } from "../src/io/from_ngff_zarr.ts";
 import { itkImageToNgffImage } from "../src/io/itk_image_to_ngff_image.ts";

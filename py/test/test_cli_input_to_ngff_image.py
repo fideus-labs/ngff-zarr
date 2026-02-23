@@ -58,6 +58,7 @@ def test_cli_input_to_ngff_image_nibabel(input_images):  # noqa: ARG001
     assert image.data.shape == (256, 256, 256)
     # Check that data is numpy array, not dask
     import numpy as np
+
     assert isinstance(image.data, np.ndarray)
 
 
@@ -67,3 +68,27 @@ def test_cli_input_to_ngff_image_imageio(input_images):  # noqa: ARG001
     ]
     image = cli_input_to_ngff_image(ConversionBackend.IMAGEIO, input)
     assert image.dims == ("y", "x")
+
+
+def test_cli_input_to_ngff_image_imageio_spacing_mismatch():
+    """Test that imageio backend handles spacing with fewer values than dims.
+
+    This tests the fix for GitHub issue #270 where props.spacing from imageio
+    has fewer elements than the image dimensions, causing an IndexError.
+    """
+    import tempfile
+    import numpy as np
+
+    # Create a 2D test image
+    data_2d = np.random.randint(0, 255, size=(64, 64), dtype=np.uint8)
+
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        import imageio.v3 as iio
+
+        iio.imwrite(f.name, data_2d)
+
+        # Test that the imageio backend doesn't crash with spacing
+        image = cli_input_to_ngff_image(ConversionBackend.IMAGEIO, [f.name])
+        assert image.dims == ("y", "x")
+        # Scale should only contain spatial dimensions
+        assert set(image.scale.keys()).issubset({"x", "y", "z"})

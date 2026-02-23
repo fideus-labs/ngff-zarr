@@ -102,7 +102,7 @@ def test_write_hcs_well_image_to_ozx():
     assert zipfile.is_zipfile(ozx_path)
 
     # Verify ZIP structure
-    with zipfile.ZipFile(ozx_path, 'r') as zf:
+    with zipfile.ZipFile(ozx_path, "r") as zf:
         files = zf.namelist()
 
         # Root zarr.json should be first
@@ -256,10 +256,15 @@ def test_hcs_ozx_zip_comment():
         )
 
     # Check ZIP comment
-    with zipfile.ZipFile(ozx_path, 'r') as zf:
-        comment = zf.comment.decode('utf-8').rstrip('\0')
+    with zipfile.ZipFile(ozx_path, "r") as zf:
+        comment = zf.comment.decode("utf-8").rstrip("\0")
         comment_dict = json.loads(comment)
 
         assert "ome" in comment_dict
         assert "version" in comment_dict["ome"]
         assert comment_dict["ome"]["version"] == "0.5"
+
+        # Verify jsonFirst flag per RFC-9
+        assert "zipFile" in comment_dict["ome"]
+        assert "centralDirectory" in comment_dict["ome"]["zipFile"]
+        assert comment_dict["ome"]["zipFile"]["centralDirectory"]["jsonFirst"] is True

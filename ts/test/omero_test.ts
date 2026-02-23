@@ -271,6 +271,136 @@ Deno.test(
   },
 );
 
+Deno.test("write omero metadata v0.5 - omero inside ome namespace", async () => {
+  // Regression test for https://github.com/fideus-labs/ngff-zarr/issues/172
+  // Verifies that omero metadata is correctly written inside the ome namespace for v0.5
+
+  // Create test data
+  const data = new Uint8Array(2 * 32 * 64 * 64);
+  for (let i = 0; i < data.length; i++) {
+    data[i] = Math.floor(Math.random() * 256);
+  }
+
+  // Create NgffImage with test data
+  const store = new Map<string, Uint8Array>();
+  const root = zarr.root(store);
+
+  const zarrArray = await zarr.create(root.resolve("test_image"), {
+    shape: [2, 32, 64, 64],
+    chunk_shape: [2, 32, 64, 64],
+    data_type: "uint8",
+  });
+
+  const image = new NgffImage({
+    data: zarrArray,
+    dims: ["c", "z", "y", "x"],
+    scale: { c: 1.0, z: 1.0, y: 1.0, x: 1.0 },
+    translation: { c: 0.0, z: 0.0, y: 0.0, x: 0.0 },
+    name: "test_image",
+    axesUnits: undefined,
+    computedCallbacks: undefined,
+  });
+
+  // Create metadata and multiscales
+  const axes = [
+    createAxis("c", "channel"),
+    createAxis("z", "space"),
+    createAxis("y", "space"),
+    createAxis("x", "space"),
+  ];
+
+  const datasets = [
+    createDataset("0", [1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 0.0]),
+  ];
+
+  const metadata = createMetadata(axes, datasets, "test_image");
+
+  // Create Omero metadata
+  const omero: Omero = {
+    channels: [
+      {
+        color: "a52a2a",
+        window: {
+          min: 0.0,
+          max: 255.0,
+          start: 0.0,
+          end: 255.0,
+        },
+        label: "C1-DAPI",
+      },
+      {
+        color: "00aeef",
+        window: {
+          min: 0.0,
+          max: 255.0,
+          start: 0.0,
+          end: 255.0,
+        },
+        label: "C2-Phalloidin",
+      },
+    ],
+  };
+
+  metadata.omero = omero;
+
+  const multiscales = createMultiscales(
+    [image],
+    metadata,
+    [2],
+    Methods.ITKWASM_GAUSSIAN,
+  );
+
+  // Write as OME-Zarr v0.5
+  const memoryStore = new Map<string, Uint8Array>();
+  await toNgffZarr(memoryStore, multiscales, { version: "0.5" });
+
+  // Verify the zarr.json structure has omero inside the ome namespace
+  const rootGroup = await zarr.open(memoryStore, { kind: "group" });
+  const rootAttrs = rootGroup.attrs as Record<string, unknown>;
+
+  // For v0.5, omero should be inside the ome namespace, not at root level
+  assertExists(rootAttrs.ome, "ome namespace should exist");
+  const omeData = rootAttrs.ome as Record<string, unknown>;
+  assertExists(
+    omeData.omero,
+    "omero should be inside the ome namespace for v0.5",
+  );
+  assertEquals(
+    rootAttrs.omero,
+    undefined,
+    "omero should NOT be at root level for v0.5",
+  );
+
+  // Verify the omero structure
+  const omeOmero = omeData.omero as {
+    channels: Array<Record<string, unknown>>;
+  };
+  assertExists(omeOmero.channels);
+  assertEquals(omeOmero.channels.length, 2);
+  assertEquals(omeOmero.channels[0].color, "a52a2a");
+  assertEquals(omeOmero.channels[0].label, "C1-DAPI");
+  assertEquals(omeOmero.channels[1].color, "00aeef");
+  assertEquals(omeOmero.channels[1].label, "C2-Phalloidin");
+
+  // Read back and verify omero metadata roundtrip
+  const readMultiscales = await fromNgffZarr(memoryStore, {
+    validate: true,
+    version: "0.5",
+  });
+  const readOmero = readMultiscales.metadata.omero;
+
+  assertExists(readOmero);
+  assertEquals(readOmero.channels.length, 2);
+  assertEquals(readOmero.channels[0].color, "a52a2a");
+  assertEquals(readOmero.channels[0].window.start, 0.0);
+  assertEquals(readOmero.channels[0].window.end, 255.0);
+  assertEquals(readOmero.channels[0].label, "C1-DAPI");
+  assertEquals(readOmero.channels[1].color, "00aeef");
+  assertEquals(readOmero.channels[1].window.start, 0.0);
+  assertEquals(readOmero.channels[1].window.end, 255.0);
+  assertEquals(readOmero.channels[1].label, "C2-Phalloidin");
+});
+
 Deno.test("validate color function", () => {
   // Test valid colors
   validateColor("1A2B3C");

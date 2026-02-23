@@ -5,6 +5,7 @@
 [![PyPI - Version](https://img.shields.io/pypi/v/ngff-zarr.svg)](https://pypi.org/project/ngff-zarr)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/ngff-zarr.svg)](https://pypi.org/project/ngff-zarr)
 [![Python CI Testing](https://github.com/thewtex/ngff-zarr/actions/workflows/python.yml/badge.svg)](https://github.com/thewtex/ngff-zarr/actions/workflows/python.yml)
+[![npm - Version](https://img.shields.io/npm/v/@fideus-labs/ngff-zarr.svg)](https://www.npmjs.com/package/@fideus-labs/ngff-zarr)
 [![Typescript CI Testing](https://github.com/thewtex/ngff-zarr/actions/workflows/typescript.yml/badge.svg)](https://github.com/thewtex/ngff-zarr/actions/workflows/typescript.yml)
 [![MCP CI Testing](https://github.com/thewtex/ngff-zarr/actions/workflows/mcp-ci.yml/badge.svg)](https://github.com/thewtex/ngff-zarr/actions/workflows/mcp-ci.yml)
 [![DOI](https://zenodo.org/badge/541840158.svg)](https://zenodo.org/badge/latestdoi/541840158)
@@ -22,9 +23,10 @@ This repository contains multiple packages implementing NGFF-Zarr support:
 
 - **[`py/`](./py/)** - Python package (ngff-zarr) - A lean and kind NGFF-Zarr
   implementation
+- **[`ts/`](./ts/)** - TypeScript/JavaScript package (@fideus-labs/ngff-zarr) -
+  Universal OME-Zarr for Deno, Node.js, and browsers
 - **[`mcp/`](./mcp/)** - Model Context Protocol (MCP) server (ngff-zarr-mcp) for
   AI integration
-- **TypeScript package** - Coming soon
 
 ## Python Package (`py/`)
 
@@ -38,7 +40,7 @@ The main Python package provides:
 - Process extremely large datasets
 - Conversion of most bioimaging file formats
 - Multiple downscaling methods
-- Supports Python>=3.9
+- Supports Python>=3.10
 - Reads OME-Zarr v0.1 to v0.5 into simple Python data classes with Dask arrays
 - Optional OME-Zarr data model validation during reading
 - Writes OME-Zarr v0.4 to v0.5
@@ -54,6 +56,38 @@ The main Python package provides:
 More information about command line usage, the Python API, library features, and
 how to contribute can be found in
 [our documentation](https://ngff-zarr.readthedocs.io/).
+
+## TypeScript/JavaScript Package (`ts/`)
+
+The TypeScript package provides universal OME-Zarr support for modern JavaScript environments:
+
+✨ **Features**
+
+- 🦕 **Deno-first** with first-class TypeScript support
+- 📦 **Universal compatibility** - Works in Deno, Node.js, and browsers
+- 🔍 **Type-safe** with Zod schema validation
+- 🗂️ **OME-Zarr v0.4 and v0.5** support
+- 🌐 **Web ready** - No filesystem dependencies, works with remote stores
+- 🏗️ **Mirrors Python API** - Familiar interfaces for Python users
+- 📚 **Lazy loading** - Efficient handling of large datasets
+
+📦 **Installation**
+
+```bash
+# Deno
+import * as ngffZarr from "jsr:@fideus-labs/ngff-zarr";
+
+# Node.js / npm
+npm install @fideus-labs/ngff-zarr
+
+# Browser (CDN)
+import * as ngffZarr from "https://esm.sh/@fideus-labs/ngff-zarr";
+```
+
+📖 **Documentation**
+
+See the [TypeScript documentation](https://ngff-zarr.readthedocs.io/en/latest/typescript.html)
+for detailed usage, API reference, and examples.
 
 ## MCP Server (`mcp/`)
 

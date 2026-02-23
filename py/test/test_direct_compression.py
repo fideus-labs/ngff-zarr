@@ -11,39 +11,41 @@ import numcodecs
 
 
 def test_tensorstore_compression():
-    if sys.platform == 'win32':
-        print('Skipping tensorstore test on Windows')
+    if sys.platform == "win32":
+        print("Skipping tensorstore test on Windows")
         return
 
-    test_input_file = Path('../mcp/test/data/input/MR-head.nrrd')
+    test_input_file = Path("../mcp/test/data/input/MR-head.nrrd")
     if test_input_file.exists():
         backend = detect_cli_io_backend([str(test_input_file)])
         ngff_image = cli_input_to_ngff_image(backend, [str(test_input_file)])
 
         # Need to convert to multiscales first
         from ngff_zarr import to_multiscales
+
         multiscales = to_multiscales(ngff_image)
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            output_path = f'{temp_dir}/test.ome.zarr'
-            print('Testing compression with tensorstore...')
+            output_path = f"{temp_dir}/test.ome.zarr"
+            print("Testing compression with tensorstore...")
 
             try:
-                compressor = numcodecs.Blosc(cname='lz4', clevel=5)
+                compressor = numcodecs.Blosc(cname="lz4", clevel=5)
                 to_ngff_zarr(
                     output_path,
                     multiscales,
-                    version='0.4',
+                    version="0.4",
                     use_tensorstore=True,
-                    compressor=compressor
+                    compressor=compressor,
                 )
-                print('Success!')
+                print("Success!")
             except Exception as e:
-                print(f'Error: {e}')
+                print(f"Error: {e}")
                 import traceback
+
                 traceback.print_exc()
     else:
-        print('Test file not found')
+        print("Test file not found")
 
 
 if __name__ == "__main__":

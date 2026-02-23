@@ -1,0 +1,42 @@
+name: Python Dask pre-sharding
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        include:
+          - python-version: "3.12"
+            zarr-version: ">=3.0.0"
+            dask-version: "==2025.11.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e "py/.[test,dask-image,itk,cli,validate]"
+
+      - name: Install Dask and Zarr
+        run: |
+          python -m pip install "dask${{ matrix.dask-version }}" "distributed${{ matrix.dask-version }}"
+          python -m pip install "zarr${{ matrix.zarr-version }}"
+
+      - name: Install tensorstore
+        run: |
+          python -m pip install -e "py/.[tensorstore]"
+
+      - name: Test with pytest
+        run: |
+          cd py && pytest --junitxml=junit/test-results.xml
+
+      - name: Publish Test Report
+        uses: mikepenz/action-junit-report@v2
+        with:
+          report_paths: "junit/test-results*.xml"

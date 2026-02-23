@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "ngff-zarr-mcp"
 description = "Model Context Protocol server for OME-Zarr image conversion"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "MIT"
 keywords = ["mcp", "ome-zarr", "image-conversion", "microscopy"]
 authors = [
@@ -21,7 +21,6 @@ classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -113,11 +112,11 @@ all = [
 ]
 
 [tool.black]
-target-version = ["py39"]
+target-version = ["py310"]
 line-length = 88
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
 line-length = 88
 
 [tool.coverage.run]
@@ -156,7 +155,7 @@ module = [
 ]
 ignore_missing_imports = true
 
-[tool.pixi.project]
+[tool.pixi.workspace]
 channels = ["conda-forge", "pyconda"]
 platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
 
@@ -164,7 +163,7 @@ platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
 ngff-zarr-mcp = { path = ".", editable = true }
 
 [tool.pixi.dependencies]
-python = ">=3.9,<3.14"
+python = ">=3.10,<3.14"
 pytest = ">=8.4.1,<9"
 pytest-asyncio = ">=1.0.0,<2"
 
@@ -181,6 +180,9 @@ format-check = "black --check --diff ."
 typecheck = "mypy ngff_zarr_mcp tests"
 build = "hatch build"
 all-checks = { depends-on = ["lint", "format-check", "typecheck"] }
+commit = { cmd = "../py/.pixi/envs/lint/bin/cz c", description = "Interactive commit helper" }
+version-check = { cmd = "../py/.pixi/envs/lint/bin/cz version -p", description = "Check current package version" }
+bump = { cmd = "../py/.pixi/envs/lint/bin/cz bump", description = "Bump MCP package version" }
 
 [tool.pixi.feature.cloud.pypi-dependencies]
 ngff-zarr-mcp = { path = ".", editable = true, extras = ["cloud"] }
@@ -193,3 +195,34 @@ default = { solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
 cloud = { features = ["cloud"], solve-group = "default" }
 all = { features = ["all"], solve-group = "default" }
+
+[tool.commitizen]
+name = "cz_ngff_zarr"
+version = "0.5.0"
+version_provider = "commitizen"
+tag_format = "mcp-v$version"
+update_changelog_on_bump = true
+changelog_file = "CHANGELOG.md"
+template = ".commitizen/templates/mcp_changelog.md.j2"
+version_files = [
+    "ngff_zarr_mcp/__about__.py:__version__"
+]
+bump_message = "chore(mcp): bump ngff-zarr-mcp to $new_version"
+annotated_tag = true
+gpg_sign = true
+major_version_zero = true
+
+[tool.commitizen.customize]
+path = "../.commitizen"
+
+[tool.commitizen.change_type_map]
+feat = "✨ Features"
+fix = "🐛 Bug Fixes"
+docs = "📚 Documentation"
+style = "💎 Style"
+refactor = "♻️ Refactoring"
+perf = "⚡ Performance"
+test = "✅ Testing"
+build = "📦 Build"
+ci = "🔧 CI/CD"
+chore = "🧹 Chores"

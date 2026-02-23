@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 name = "ngff-zarr"
 description = 'A lean and kind Open Microscopy Environment (OME) Next Generation File Format (NGFF) Zarr implementation.'
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "MIT"
 keywords = []
 authors = [{ name = "Matt McCormick", email = "matt@fideus.io" }]
@@ -20,7 +20,6 @@ classifiers = [
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -29,7 +28,7 @@ classifiers = [
   "Topic :: Scientific/Engineering",
 ]
 dependencies = [
-  "dask[array] <=2025.11.0",
+  "dask[array]!=2025.12.0,!=2026.1.0,!=2026.1.1",
   "importlib_resources",
   "itkwasm >= 1.0b183",
   "itkwasm-downsample >= 1.8.0",
@@ -67,6 +66,7 @@ cli = [
   "imageio",
   "nibabel",
   "tifffile>=2024.7.24",
+  "liffile",
   "imagecodecs",
 ]
 tensorstore = ["tensorstore"]
@@ -179,7 +179,7 @@ docs = { features = ["docs"], no-default-feature = true, solve-group = "default"
 data = { features = ["data"], no-default-feature = true, solve-group = "default" }
 
 [tool.pixi.feature.test.dependencies]
-python = ">=3.9.19,<3.14.0"
+python = ">=3.10,<3.14.0"
 
 [tool.pixi.feature.test.tasks]
 test = { cmd = "pytest", description = "Run the test suite" }
@@ -187,26 +187,34 @@ download-test-data = "pytest -k test_from_ngff_zarr --maxfail=1 -v"
 
 [tool.pixi.feature.lint.dependencies]
 pre-commit = "*"
+commitizen = "*"
+pip = "*"
+
+[tool.pixi.feature.lint.pypi-dependencies]
+cz-ngff-zarr = { path = "../.commitizen", editable = true }
 
 [tool.pixi.feature.lint.tasks]
-pre-commit-install = { cmd = "pre-commit install", description = "Install pre-commit hooks" }
+pre-commit-install = { cmd = "pre-commit install --hook-type pre-commit --hook-type commit-msg", description = "Install pre-commit hooks" }
 pre-commit-run = { cmd = "pre-commit run --all", description = "Run pre-commit hooks on all repository files" }
 lint = { depends-on = ["pre-commit-run"], description = "Run linters" }
+commit = { cmd = "cz c", description = "Interactive commit helper" }
+version-check = { cmd = "cz version -p", description = "Check current package version" }
+bump = { cmd = "cz bump", description = "Bump Python package version" }
 
 [tool.pixi.feature.docs.tasks]
-dev-docs = { cmd = "sphinx-autobuild docs docs/_build/html", description = "Build the documentation" }
+dev-docs = { cmd = "sphinx-autobuild . ./_build/html", cwd = "../docs", description = "Build the documentation" }
 
 [tool.pixi.feature.docs.target.linux-64.tasks]
-build-docs = { cmd = "make html", cwd = "docs", description = "Build the documentation" }
+build-docs = { cmd = "make html", cwd = "../docs", description = "Build the documentation" }
 
 [tool.pixi.feature.docs.target.osx-64.tasks]
-build-docs = { cmd = "make html", cwd = "docs", description = "Build the documentation" }
+build-docs = { cmd = "make html", cwd = "../docs", description = "Build the documentation" }
 
 [tool.pixi.feature.docs.target.osx-arm64.tasks]
-build-docs = { cmd = "make html", cwd = "docs", description = "Build the documentation" }
+build-docs = { cmd = "make html", cwd = "../docs", description = "Build the documentation" }
 
 [tool.pixi.feature.data.dependencies]
-python = ">=3.9.19,<4"
+python = ">=3.10,<4"
 pooch = ">=1.8.2,<2"
 
 [tool.pixi.feature.data.tasks]
@@ -214,3 +222,34 @@ hash-data = { cmd = "tar cvf ../data.tar * && gzip -9 -f ../data.tar && echo 'Ne
 
 [tool.pixi.dependencies]
 matplotlib = ">=3.10.6,<4"
+
+[tool.commitizen]
+name = "cz_ngff_zarr"
+version = "0.28.1"
+version_provider = "commitizen"
+tag_format = "py-v$version"
+update_changelog_on_bump = true
+changelog_file = "CHANGELOG.md"
+template = ".commitizen/templates/py_changelog.md.j2"
+version_files = [
+    "ngff_zarr/__about__.py:__version__"
+]
+bump_message = "chore(py): bump ngff-zarr to $new_version"
+annotated_tag = true
+gpg_sign = true
+major_version_zero = true
+
+[tool.commitizen.customize]
+path = "../.commitizen"
+
+[tool.commitizen.change_type_map]
+feat = "✨ Features"
+fix = "🐛 Bug Fixes"
+docs = "📚 Documentation"
+style = "💎 Style"
+refactor = "♻️ Refactoring"
+perf = "⚡ Performance"
+test = "✅ Testing"
+build = "📦 Build"
+ci = "🔧 CI/CD"
+chore = "🧹 Chores"

@@ -163,3 +163,125 @@ Deno.test("createMultiscales", async () => {
   assertEquals(multiscales.scaleFactors, [2, 4]);
   assertEquals(multiscales.method, Methods.ITKWASM_GAUSSIAN);
 });
+
+// RFC4 validation tests
+import {
+  hasRfc4OrientationMetadata,
+  validateRfc4Orientation,
+} from "../src/utils/rfc4_validation.ts";
+
+Deno.test("hasRfc4OrientationMetadata - returns true when orientation present", () => {
+  const axes = [
+    {
+      name: "z",
+      type: "space",
+      orientation: { type: "anatomical", value: "inferior-to-superior" },
+    },
+    {
+      name: "y",
+      type: "space",
+      orientation: { type: "anatomical", value: "anterior-to-posterior" },
+    },
+    {
+      name: "x",
+      type: "space",
+      orientation: { type: "anatomical", value: "right-to-left" },
+    },
+  ];
+  assertEquals(hasRfc4OrientationMetadata(axes), true);
+});
+
+Deno.test("hasRfc4OrientationMetadata - returns false when no orientation", () => {
+  const axes = [
+    { name: "z", type: "space" },
+    { name: "y", type: "space" },
+    { name: "x", type: "space" },
+  ];
+  assertEquals(hasRfc4OrientationMetadata(axes), false);
+});
+
+Deno.test("hasRfc4OrientationMetadata - returns false for non-space axes", () => {
+  const axes = [
+    { name: "t", type: "time" },
+    { name: "c", type: "channel" },
+  ];
+  assertEquals(hasRfc4OrientationMetadata(axes), false);
+});
+
+Deno.test("validateRfc4Orientation - valid LPS orientation", () => {
+  const axes = [
+    {
+      name: "z",
+      type: "space",
+      orientation: { type: "anatomical", value: "inferior-to-superior" },
+    },
+    {
+      name: "y",
+      type: "space",
+      orientation: { type: "anatomical", value: "anterior-to-posterior" },
+    },
+    {
+      name: "x",
+      type: "space",
+      orientation: { type: "anatomical", value: "right-to-left" },
+    },
+  ];
+  // Should not throw
+  validateRfc4Orientation(axes);
+});
+
+Deno.test("validateRfc4Orientation - invalid orientation value", () => {
+  const axes = [
+    {
+      name: "z",
+      type: "space",
+      orientation: { type: "anatomical", value: "invalid-orientation" },
+    },
+  ];
+  assertThrows(
+    () => validateRfc4Orientation(axes),
+    Error,
+    "Invalid orientation value",
+  );
+});
+
+Deno.test("validateRfc4Orientation - inconsistent orientation types", () => {
+  const axes = [
+    {
+      name: "z",
+      type: "space",
+      orientation: { type: "anatomical", value: "inferior-to-superior" },
+    },
+    {
+      name: "y",
+      type: "space",
+      orientation: { type: "other-type", value: "some-value" },
+    },
+  ];
+  assertThrows(
+    () => validateRfc4Orientation(axes),
+    Error,
+    "All spatial axis orientations must have the same type",
+  );
+});
+
+Deno.test("validateRfc4Orientation - partial orientation definition", () => {
+  const axes = [
+    {
+      name: "z",
+      type: "space",
+      orientation: { type: "anatomical", value: "inferior-to-superior" },
+    },
+    { name: "y", type: "space" }, // missing orientation
+    {
+      name: "x",
+      type: "space",
+      orientation: { type: "anatomical", value: "right-to-left" },
+    },
+  ];
+  assertThrows(
+    () => validateRfc4Orientation(axes),
+    Error,
+    "RFC 4 requires that if orientation is defined for one spatial axis",
+  );
+});

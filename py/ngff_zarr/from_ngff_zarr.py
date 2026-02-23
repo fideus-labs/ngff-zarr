@@ -1,36 +1,16 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from collections.abc import MutableMapping
 from pathlib import Path
-from typing import Union, Optional
+from typing import Optional
 import packaging.version
-import sys
 
-import dask.array
 import zarr
 import zarr.storage
 
-# Zarr Python 3
-if hasattr(zarr.storage, "StoreLike"):
-    StoreLike = zarr.storage.StoreLike
-else:
-    StoreLike = Union[MutableMapping, str, Path, zarr.storage.BaseStore]
-
-from .ngff_image import NgffImage
 from .to_multiscales import Multiscales
-from .methods import Methods
-from .rfc4_validation import validate_rfc4_orientation, has_rfc4_orientation_metadata
+from ._zarr_types import StoreLike
+
 from .rfc9_zip import is_ozx_path, read_ozx_version
-from .v04.zarr_metadata import (
-    Axis,
-    Dataset,
-    Scale,
-    Translation,
-    Omero,
-    OmeroChannel,
-    OmeroWindow,
-)
-from .validate import validate as validate_ngff
 
 zarr_version = packaging.version.parse(zarr.__version__)
 zarr_version_major = zarr_version.major
@@ -68,6 +48,7 @@ def from_ngff_zarr(
     multiscales: multiscale ngff image with dask-chunked arrays for data
 
     """
+    from .parse_metadata import _extract_method_metadata, _detect_version, _is_hcs_plate
 
     # RFC-9: Handle .ozx (zipped OME-Zarr) files
     if isinstance(store, (str, Path)) and is_ozx_path(store):
@@ -78,7 +59,7 @@ def from_ngff_zarr(
                 version = "0.5"  # Default to 0.5 for .ozx files
 
         # For zarr v3, create ZipStore directly with the path
-        store = zarr.storage.ZipStore(str(store), mode='r')
+        store = zarr.storage.ZipStore(str(store), mode="r")
 
     # Handle string URLs with storage options (zarr-python 3+ only)
     if isinstance(store, str) and storage_options is not None:
@@ -104,218 +85,66 @@ def from_ngff_zarr(
     root_attrs = root.attrs.asdict()
 
     if not version:
-        if "ome" in root_attrs:
-            version = root_attrs["ome"]["version"]
-        else:
-            version = root_attrs["multiscales"][0].get("version", "0.4")
+        version = _detect_version(root_attrs).value
 
-    if validate:
-        validate_ngff(root_attrs, version=version)
-
-    if "ome" in root_attrs:
-        metadata = root.attrs["ome"]["multiscales"][0]
-    else:
-        metadata = root.attrs["multiscales"][0]
-
-    if "axes" not in metadata:
-        from .v04.zarr_metadata import supported_dims
-
-        dims = tuple(reversed(supported_dims))
-    else:
-        dims = tuple(a["name"] if "name" in a else a for a in metadata["axes"])
-
-    name = "image"
-    if name in metadata:
-        name = metadata["name"]
-
-    units = {d: None for d in dims}
-    if "axes" in metadata:
-        for axis in metadata["axes"]:
-            if "unit" in axis:
-                units[axis["name"]] = axis["unit"]
-
-    images = []
-    datasets = []
-    for dataset in metadata["datasets"]:
-        data = dask.array.from_zarr(store, component=dataset["path"])
-        # Convert endianness to native if needed
-        if (sys.byteorder == "little" and data.dtype.byteorder == ">") or (
-            sys.byteorder == "big" and data.dtype.byteorder == "<"
-        ):
-            data = data.astype(data.dtype.newbyteorder())
-
-        scale = {d: 1.0 for d in dims}
-        translation = {d: 0.0 for d in dims}
-        coordinateTransformations = []
-        if "coordinateTransformations" in dataset:
-            for transformation in dataset["coordinateTransformations"]:
-                if "scale" in transformation:
-                    scale = transformation["scale"]
-                    scale = dict(zip(dims, scale))
-                    coordinateTransformations.append(Scale(transformation["scale"]))
-                elif "translation" in transformation:
-                    translation = transformation["translation"]
-                    translation = dict(zip(dims, translation))
-                    coordinateTransformations.append(
-                        Translation(transformation["translation"])
-                    )
-        datasets.append(
-            Dataset(
-                path=dataset["path"],
-                coordinateTransformations=coordinateTransformations,
-            )
+    # Check if this is an HCS plate structure
+    if _is_hcs_plate(root_attrs):
+        raise ValueError(
+            "The input appears to be an HCS (High Content Screening) plate structure, "
+            "which contains multiple wells and images. Use from_hcs_zarr() instead of from_ngff_zarr() "
+            "to load plate data. For CLI usage, you may need to specify a specific well/image path "
+            "within the plate (e.g., 'plate.zarr/A/1/0' for well A1, field 0)."
         )
-
-        ngff_image = NgffImage(data, dims, scale, translation, name, units)
-        images.append(ngff_image)
-
-    metadata.pop("@type", None)
-    if "axes" in metadata:
-        if "name" in metadata["axes"][0]:
-            axes = [Axis(**axis) for axis in metadata["axes"]]
-        else:
-            # v0.3
-            type_dict = {
-                "t": "time",
-                "c": "channel",
-                "z": "space",
-                "y": "space",
-                "x": "space",
-            }
-            axes = [Axis(name=axis, type=type_dict[axis]) for axis in metadata["axes"]]
-    else:
-        axes = [
-            Axis(name="t", type="time"),
-            Axis(name="c", type="channel"),
-            Axis(name="z", type="space"),
-            Axis(name="y", type="space"),
-            Axis(name="x", type="space"),
-        ]
-
-    coordinateTransformations = None
-    if "coordinateTransformations" in metadata:
-        coordinateTransformations = metadata["coordinateTransformations"]
-
-    # RFC 4 validation for anatomical orientation
-    if validate and isinstance(metadata, dict) and "axes" in metadata:
-        # Check if any axes have orientation metadata and validate if present
-        axes_data = metadata["axes"]
-        if isinstance(axes_data, list):
-            # Type cast each axis item to dict for validation
-            axes_dicts = []
-            for axis in axes_data:
-                if isinstance(axis, dict):
-                    axes_dicts.append(axis)
-            if axes_dicts and has_rfc4_orientation_metadata(axes_dicts):
-                validate_rfc4_orientation(axes_dicts)
-
-    omero = None
-    if "omero" in root.attrs:
-        omero_data = root.attrs["omero"]
-        if isinstance(omero_data, dict) and "channels" in omero_data:
-            channels_data = omero_data["channels"]
-            if isinstance(channels_data, list):
-                channels = []
-                for channel in channels_data:
-                    if not isinstance(channel, dict) or "window" not in channel:
-                        continue
-
-                    window_data = channel["window"]
-                    if not isinstance(window_data, dict):
-                        continue
-
-                    # Handle backward compatibility for OMERO window metadata
-                    # Some stores use min/max, others use start/end, some have both
-                    if "start" in window_data and "end" in window_data:
-                        # New format with start/end
-                        start = float(window_data["start"])  # type: ignore
-                        end = float(window_data["end"])  # type: ignore
-                        if "min" in window_data and "max" in window_data:
-                            # Both formats present
-                            min_val = float(window_data["min"])  # type: ignore
-                            max_val = float(window_data["max"])  # type: ignore
-                        else:
-                            # Only start/end, use them as min/max
-                            min_val = start
-                            max_val = end
-                    elif "min" in window_data and "max" in window_data:
-                        # Old format with min/max only
-                        min_val = float(window_data["min"])  # type: ignore
-                        max_val = float(window_data["max"])  # type: ignore
-                        # Use min/max as start/end for backward compatibility
-                        start = min_val
-                        end = max_val
-                    else:
-                        # Invalid window data, skip this channel
-                        continue
-
-                    channels.append(
-                        OmeroChannel(
-                            color=str(channel["color"]),  # type: ignore
-                            label=str(channel.get("label", None))
-                            if channel.get("label") is not None
-                            else None,  # type: ignore
-                            window=OmeroWindow(
-                                min=min_val,
-                                max=max_val,
-                                start=start,
-                                end=end,
-                            ),
-                        )
-                    )
-
-                if channels:
-                    omero = Omero(channels=channels)
-
-    # Extract method type and convert to Methods enum
-    method = None
-    method_type = None
-    method_metadata = None
-    if isinstance(metadata, dict):
-        if "type" in metadata and metadata["type"] is not None:
-            method_type = metadata["type"]
-            # Find the corresponding Methods enum
-            for method_enum in Methods:
-                if method_enum.value == method_type:
-                    method = method_enum
-                    break
-
-        # Extract method metadata if present
-        if "metadata" in metadata and metadata["metadata"] is not None:
-            from .v04.zarr_metadata import MethodMetadata
-
-            metadata_dict = metadata["metadata"]
-            if isinstance(metadata_dict, dict):
-                method_metadata = MethodMetadata(
-                    description=str(metadata_dict.get("description", "")),
-                    method=str(metadata_dict.get("method", "")),
-                    version=str(metadata_dict.get("version", "")),
-                )
 
     if version == "0.5":
         from .v05.zarr_metadata import Metadata
 
-        metadata_obj = Metadata(
-            axes=axes,
-            datasets=datasets,
-            name=name,
-            coordinateTransformations=coordinateTransformations,
-            omero=omero,
-            type=method_type,
-            metadata=method_metadata,
+        # Validate v0.5 structure before accessing
+        if "ome" not in root_attrs:
+            raise ValueError(
+                f"Expected OME-Zarr v{version} format with 'ome' key in root attributes, "
+                f"but 'ome' key is missing. The store may not be a valid OME-Zarr or may be v0.4 format. "
+                f"Available keys: {list(root_attrs.keys())}"
+            )
+        if "multiscales" not in root_attrs["ome"]:
+            available_keys = list(root_attrs["ome"].keys())
+            error_msg = (
+                f"Expected OME-Zarr v{version} format with 'multiscales' under 'ome' key, "
+                f"but 'multiscales' key is missing. Available keys under 'ome': {available_keys}\n\n"
+                "Possible causes:\n"
+                "  1. The file may be corrupted or incomplete\n"
+                "  2. The file may not be a valid OME-Zarr image (it could be an HCS plate root that "
+                "requires navigating to a specific well/field)\n"
+                "  3. The file may use a custom or unsupported metadata structure\n\n"
+            )
+
+            # Provide additional generic guidance when 'multiscales' is missing under 'ome'
+            error_msg += (
+                "The 'ome' key is present but doesn't contain the required 'multiscales' metadata. "
+                "Please verify that this is a valid OME-Zarr file."
+            )
+
+            raise ValueError(error_msg)
+
+        metadata_obj, images = Metadata._from_zarr_attrs(
+            root_attrs, store, validate=validate
         )
+        method, method_type, method_metadata = _extract_method_metadata(
+            root_attrs["ome"]["multiscales"][0]
+        )
+
     else:
         from .v04.zarr_metadata import Metadata
 
-        metadata_obj = Metadata(
-            axes=axes,
-            datasets=datasets,
-            name=name,
-            version=metadata["version"],
-            coordinateTransformations=coordinateTransformations,
-            omero=omero,
-            type=method_type,
-            metadata=method_metadata,
+        # v0.4 metadata validation is handled by Metadata._from_zarr_attrs
+        metadata_obj, images = Metadata._from_zarr_attrs(
+            root_attrs, store, validate=validate
         )
+        method, method_type, method_metadata = _extract_method_metadata(
+            root_attrs["multiscales"][0]
+        )
+
+    metadata_obj.type = method_type
+    metadata_obj.metadata = method_metadata
 
     return Multiscales(images, metadata_obj, method=method)

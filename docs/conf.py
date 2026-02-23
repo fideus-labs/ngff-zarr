@@ -11,7 +11,7 @@
 from datetime import date
 
 project = "ngff-zarr"
-copyright = f"{date.today().year}, NumFOCUS"
+copyright = f"{date.today().year}, Fideus Labs LLC"
 author = "Matt McCormick"
 
 extensions = [

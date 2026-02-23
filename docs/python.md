@@ -189,7 +189,7 @@ The `.ozx` extension is automatically detected and handled appropriately.
 To write an OME-Zarr dataset as a `.ozx` file, simply use the `.ozx` extension:
 
 ```python
->>> nz.to_ngff_zarr('cthead1.ozx', multiscales)
+>>> nz.to_ngff_zarr('cthead1.ozx', multiscales, version='0.5')
 ```
 
 All RFC-9 recommendations are followed. By default, `.ozx` files are written using OME-Zarr version 0.5 (Zarr v3 format), which is recommended for the ZIP-based format.
@@ -322,6 +322,67 @@ nz.to_ngff_zarr('lightsheet.ome.zarr',
                 use_tensorstore=True,
                 version=version)
 ```
+
+## TIFF and OME-TIFF Files
+
+NGFF-Zarr provides support for converting TIFF files, including multi-series
+OME-TIFF files, to OME-Zarr. When reading OME-TIFF files, physical size metadata
+(PhysicalSizeX/Y/Z and units) is automatically extracted and applied.
+
+### Convert all series from a TIFF file
+
+```python
+from ngff_zarr import tiff_file_to_ngff_images, to_multiscales, to_ngff_zarr
+
+# Convert all series from a multi-series TIFF
+images = tiff_file_to_ngff_images("multi_series.ome.tiff")
+
+for name, ngff_image in images:
+    print(f"Series: {name}")
+    print(f"  Shape: {ngff_image.data.shape}")
+    print(f"  Scale: {ngff_image.scale}")
+    print(f"  Units: {ngff_image.axes_units}")
+
+    # Generate multiscales and write to OME-Zarr
+    # Note: series names are automatically sanitized for filesystem safety
+    multiscales = to_multiscales(ngff_image, scale_factors=[2, 4])
+    to_ngff_zarr(f"{name}.ome.zarr", multiscales)
+```
+
+### Select specific series
+
+```python
+from ngff_zarr import tiff_file_to_ngff_images
+
+# By index
+images = tiff_file_to_ngff_images("multi_series.ome.tiff", series=0)
+
+# By glob pattern
+images = tiff_file_to_ngff_images("multi_series.ome.tiff", series="*GFP*")
+
+# Multiple selections
+images = tiff_file_to_ngff_images("multi_series.ome.tiff", series=[0, 2, "*Red*"])
+```
+
+### OME metadata extraction
+
+When reading OME-TIFF files, physical sizes and units are automatically extracted:
+
+```python
+from ngff_zarr import tiff_file_to_ngff_images
+
+images = tiff_file_to_ngff_images("sample.ome.tiff")
+name, ngff_image = images[0]
+
+# Physical sizes from OME-XML (e.g., {'x': 0.5, 'y': 0.5, 'z': 2.0})
+print(f"Scale: {ngff_image.scale}")
+
+# Units normalized to NGFF format (e.g., {'x': 'micrometer', ...})
+print(f"Units: {ngff_image.axes_units}")
+```
+
+For more details on TIFF conversion including unit mapping and pyramidal TIFF
+handling, see the [TIFF documentation](./tiff.md).
 
 ## High Content Screening (HCS)
 

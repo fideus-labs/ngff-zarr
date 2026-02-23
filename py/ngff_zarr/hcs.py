@@ -287,9 +287,12 @@ class HCSWell:
         # Cache images to avoid reloading
         if image_path not in self._images:
             # For ZipStore (e.g., .ozx files), we need to access via subpath in the store
-            if hasattr(zarr.storage, "ZipStore") and isinstance(self.store, zarr.storage.ZipStore):
+            if hasattr(zarr.storage, "ZipStore") and isinstance(
+                self.store, zarr.storage.ZipStore
+            ):
                 # For zarr v3, use StorePath to navigate to subpaths within the zip
                 from zarr.storage import StorePath
+
                 store_path = StorePath(self.store, path=image_path)
                 self._images[image_path] = from_ngff_zarr(store_path)
             elif isinstance(self.store, (str, Path)):
@@ -300,6 +303,7 @@ class HCSWell:
                 # For other store types, try StorePath approach
                 try:
                     from zarr.storage import StorePath
+
                     store_path = StorePath(self.store, path=image_path)
                     self._images[image_path] = from_ngff_zarr(store_path)
                 except (ImportError, Exception):
@@ -362,7 +366,7 @@ def from_hcs_zarr(
     # RFC-9: Handle .ozx (zipped OME-Zarr) files
     if isinstance(store, (str, Path)) and is_ozx_path(store):
         # For zarr v3, create ZipStore directly with the path
-        store = zarr.storage.ZipStore(str(store), mode='r')
+        store = zarr.storage.ZipStore(str(store), mode="r")
 
     root = zarr.open_group(store, mode="r")
     root_attrs = root.attrs.asdict()
@@ -689,12 +693,15 @@ class HCSPlateWriter:
         try:
             if exc_type is None and self.is_ozx:
                 # Only create .ozx if no exception occurred
-                write_store_to_zip(self._temp_store, self.final_store, version=self.version)
+                write_store_to_zip(
+                    self._temp_store, self.final_store, version=self.version
+                )
                 logging.info(f"Created HCS plate in .ozx format: {self.final_store}")
         finally:
             # Clean up temporary directory
             if self._temp_dir is not None:
                 import shutil
+
                 shutil.rmtree(self._temp_dir, ignore_errors=True)
 
         return False  # Don't suppress exceptions
@@ -932,13 +939,11 @@ def write_hcs_well_image(
         ],
         "version": well_metadata.version or version,
     }
-    if version == '0.4':
+    if version == "0.4":
         well_group.attrs["well"] = well_dict
-    elif version == '0.5':
+    elif version == "0.5":
         well_dict.pop("version", None)  # version goes at top level in 0.5
-        well_group.attrs["ome"] = {
-            'well': well_dict,
-            'version': version}
+        well_group.attrs["ome"] = {"well": well_dict, "version": version}
     else:
         raise ValueError(f"Unsupported OME-Zarr version: {version}")
 

@@ -4,12 +4,21 @@
 # SPDX-License-Identifier: MIT
 
 from .__about__ import __version__
+from ._supported_versions import SUPPORTED_VERSIONS
 from .cli_input_to_ngff_image import cli_input_to_ngff_image
+from .compute_omero import (
+    GLASBEY_COLORS,
+    compute_omero_from_multiscales,
+    compute_omero_from_ngff_image,
+)
 from .config import config
 from .detect_cli_io_backend import ConversionBackend, detect_cli_io_backend
 from .from_ngff_zarr import from_ngff_zarr
 from .itk_image_to_ngff_image import itk_image_to_ngff_image
-from .nibabel_image_to_ngff_image import nibabel_image_to_ngff_image, extract_omero_metadata_from_nibabel
+from .nibabel_image_to_ngff_image import (
+    nibabel_image_to_ngff_image,
+    extract_omero_metadata_from_nibabel,
+)
 from .memory_usage import memory_usage
 from .methods import Methods
 from .multiscales import Multiscales
@@ -18,9 +27,16 @@ from .ngff_image_to_itk_image import ngff_image_to_itk_image
 from .task_count import task_count
 from .to_multiscales import to_multiscales
 from .to_ngff_image import to_ngff_image
-from .to_ngff_zarr import to_ngff_zarr
+from .to_ngff_zarr import to_ngff_zarr, ScaleStrategy
 from .validate import validate
-from .hcs import from_hcs_zarr, to_hcs_zarr, write_hcs_well_image, HCSPlate, HCSWell, HCSPlateWriter
+from .hcs import (
+    from_hcs_zarr,
+    to_hcs_zarr,
+    write_hcs_well_image,
+    HCSPlate,
+    HCSWell,
+    HCSPlateWriter,
+)
 from .v04.zarr_metadata import (
     AxesType,
     SpatialDims,
@@ -59,13 +75,28 @@ from .rfc4 import (
 )
 from .rfc9_zip import (
     is_ozx_path,
+    read_ozx_json_first,
     read_ozx_version,
     write_store_to_zip,
+)
+from .lif_to_ngff_image import (
+    lif_to_ngff_image,
+    lif_file_to_ngff_images,
+    lif_to_hcs_plate,
+    has_mosaic_dimension,
+)
+from .tiff_to_ngff_image import (
+    tiff_file_to_ngff_images,
 )
 
 __all__ = [
     "__version__",
+    "SUPPORTED_VERSIONS",
     "config",
+    # OMERO computation
+    "compute_omero_from_ngff_image",
+    "compute_omero_from_multiscales",
+    "GLASBEY_COLORS",
     "NgffImage",
     "Multiscales",
     "to_ngff_image",
@@ -78,6 +109,7 @@ __all__ = [
     "to_multiscales",
     "Methods",
     "to_ngff_zarr",
+    "ScaleStrategy",
     "from_ngff_zarr",
     "detect_cli_io_backend",
     "ConversionBackend",
@@ -127,6 +159,14 @@ __all__ = [
     "remove_anatomical_orientation_from_axis",
     # RFC 9 - Zipped OME-Zarr (.ozx)
     "is_ozx_path",
+    "read_ozx_json_first",
     "read_ozx_version",
     "write_store_to_zip",
+    # LIF (Leica Image Format) support
+    "lif_to_ngff_image",
+    "lif_file_to_ngff_images",
+    "lif_to_hcs_plate",
+    "has_mosaic_dimension",
+    # TIFF support
+    "tiff_file_to_ngff_images",
 ]
