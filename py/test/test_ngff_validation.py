@@ -1,16 +1,16 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 import zarr
 from ngff_zarr import (
     Multiscales,
+    from_ngff_zarr,
     to_multiscales,
     to_ngff_zarr,
     validate,
-    from_ngff_zarr,
 )
 from packaging import version
 

@@ -2,18 +2,17 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 """Test for index out of range issue in write_hcs_well_image function."""
 
-import pytest
 import tempfile
-from packaging import version
 from pathlib import Path
 
-import numpy as np
 import dask.array as da
+import numpy as np
+import pytest
 import zarr
-
 from ngff_zarr import NgffImage, to_multiscales
 from ngff_zarr.hcs import HCSPlate, to_hcs_zarr, write_hcs_well_image
 from ngff_zarr.v04.zarr_metadata import Plate, PlateColumn, PlateRow, PlateWell
+from packaging import version
 
 zarr_version = version.parse(zarr.__version__)
 
@@ -95,20 +94,20 @@ def test_write_hcs_well_image_index_out_of_range():
 
             # Verify the data was written correctly
             well_path = output_path / row_name / column_name / "0"
-            assert (
-                well_path.exists()
-            ), f"Well {row_name}/{column_name}/0 was not created"
+            assert well_path.exists(), (
+                f"Well {row_name}/{column_name}/0 was not created"
+            )
 
             # Check that the multiscales structure exists
-            assert (
-                well_path / ".zattrs"
-            ).exists(), f"Multiscales metadata not found for {row_name}/{column_name}"
+            assert (well_path / ".zattrs").exists(), (
+                f"Multiscales metadata not found for {row_name}/{column_name}"
+            )
 
             # Check that the first scale level exists
             scale_path = well_path / "scale0"
-            assert (
-                scale_path.exists()
-            ), f"Scale 0 data not found for {row_name}/{column_name}"
+            assert scale_path.exists(), (
+                f"Scale 0 data not found for {row_name}/{column_name}"
+            )
 
     # Test error case: try to write to a well that doesn't exist in the metadata
     with tempfile.TemporaryDirectory() as tmpdir:

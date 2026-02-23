@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: MIT
 """Test HCS well path support in from_ngff_zarr."""
 
-import pytest
 from pathlib import Path
 
+import pytest
 from ngff_zarr.from_ngff_zarr import from_ngff_zarr
 from ngff_zarr.hcs import from_hcs_zarr
 from ngff_zarr.parse_metadata import _parse_hcs_path
@@ -41,16 +41,16 @@ def test_parse_hcs_path():
 
     # Test .ome.zarr extension
     store, subpath = _parse_hcs_path("/path/to/plate.ome.zarr/B/2/0")
-    assert (
-        store == "/path/to/plate.ome.zarr"
-    ), f"Expected store '/path/to/plate.ome.zarr', got '{store}'"
+    assert store == "/path/to/plate.ome.zarr", (
+        f"Expected store '/path/to/plate.ome.zarr', got '{store}'"
+    )
     assert subpath == "B/2/0", f"Expected subpath 'B/2/0', got '{subpath}'"
 
     # Edge case: multiple .zarr segments — deepest (last) store should be selected
     store, subpath = _parse_hcs_path("/a.zarr/b/plate.zarr/A/1/0")
-    assert (
-        store == "/a.zarr/b/plate.zarr"
-    ), f"Expected deepest store '/a.zarr/b/plate.zarr', got '{store}'"
+    assert store == "/a.zarr/b/plate.zarr", (
+        f"Expected deepest store '/a.zarr/b/plate.zarr', got '{store}'"
+    )
     assert subpath == "A/1/0", f"Expected subpath 'A/1/0', got '{subpath}'"
 
     # Edge case: trailing slash on subpath should be stripped

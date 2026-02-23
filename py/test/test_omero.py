@@ -1,27 +1,26 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from packaging import version
-
-import pytest
 import numpy as np
+import pytest
 import zarr
-from zarr.storage import MemoryStore
 from ngff_zarr import (
     Omero,
     OmeroChannel,
     OmeroWindow,
     from_ngff_zarr,
-    to_ngff_image,
     to_multiscales,
+    to_ngff_image,
     to_ngff_zarr,
 )
+from packaging import version
+from zarr.storage import MemoryStore
 
 from ._data import test_data_dir
 
 zarr_version = version.parse(zarr.__version__)
 
 
-def test_read_omero(input_images):  # noqa: ARG001
+def test_read_omero(input_images):
     dataset_name = "13457537"
     store_path = test_data_dir / "input" / f"{dataset_name}.zarr"
     multiscales = from_ngff_zarr(store_path, validate=True)
@@ -158,9 +157,9 @@ def test_write_omero_v05():
 
     # For v0.5, omero should be inside the ome namespace, not at root level
     assert "ome" in root_attrs
-    assert (
-        "omero" in root_attrs["ome"]
-    ), "omero should be inside the ome namespace for v0.5"
+    assert "omero" in root_attrs["ome"], (
+        "omero should be inside the ome namespace for v0.5"
+    )
     assert "omero" not in root_attrs, "omero should NOT be at root level for v0.5"
 
     # Verify the omero structure

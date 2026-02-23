@@ -2,11 +2,10 @@
 # SPDX-License-Identifier: MIT
 import sys
 import tempfile
+import warnings
 from dataclasses import asdict
 from pathlib import Path, PurePosixPath
-from typing import Literal, Optional, Union, Tuple, Dict, List
-
-import warnings
+from typing import Literal
 
 from .methods._metadata import get_method_metadata
 
@@ -16,28 +15,26 @@ else:
     import importlib.metadata as importlib_metadata
 
 import dask.array
-from dask import __version__ as dask_version
 import numpy as np
-from itkwasm import array_like_to_numpy_array
-
 import zarr
 import zarr.storage
-from ._zarr_open_array import open_array
-from .v04.zarr_metadata import Metadata as Metadata_v04
-from .v05.zarr_metadata import Metadata as Metadata_v05
-from .rfc4 import is_rfc4_enabled
-from .rfc9_zip import is_ozx_path, write_store_to_zip
-from ._zarr_types import StoreLike
+from dask import __version__ as dask_version
+from itkwasm import array_like_to_numpy_array
+from packaging.version import Version
+
 from ._zarr_kwargs import zarr_kwargs
-
-
+from ._zarr_open_array import open_array
+from ._zarr_types import StoreLike
 from .config import config
 from .memory_usage import memory_usage
 from .methods._support import _dim_scale_factors
 from .multiscales import Multiscales
+from .rfc4 import is_rfc4_enabled
+from .rfc9_zip import is_ozx_path, write_store_to_zip
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
 from .to_multiscales import to_multiscales
-from packaging.version import Version
+from .v04.zarr_metadata import Metadata as Metadata_v04
+from .v05.zarr_metadata import Metadata as Metadata_v05
 
 zarr_version = Version(zarr.__version__)
 IS_ZARR_V3_PLUS = zarr_version.major >= 3
@@ -46,7 +43,7 @@ DASK_SUPPORTS_SHARDING = Version(dask_version) >= Version("2025.12.0")
 ScaleStrategy = Literal["pad", "exact"]
 
 
-def _pop_metadata_optionals(metadata_dict, enabled_rfcs: Optional[List[int]] = None):
+def _pop_metadata_optionals(metadata_dict, enabled_rfcs: list[int] | None = None):
     for ax in metadata_dict["axes"]:
         if ax["unit"] is None:
             ax.pop("unit")
@@ -196,7 +193,7 @@ def _write_with_tensorstore(
                             "name": "gzip",
                             "configuration": {"level": getattr(compressor, "level", 6)},
                         }
-                    elif codec_id == "blosc":
+                    if codec_id == "blosc":
                         return {
                             "name": "blosc",
                             "configuration": {
@@ -207,20 +204,19 @@ def _write_with_tensorstore(
                                 else "noshuffle",
                             },
                         }
-                    elif codec_id == "zstd":
+                    if codec_id == "zstd":
                         return {
                             "name": "zstd",
                             "configuration": {"level": getattr(compressor, "level", 3)},
                         }
-                    elif codec_id == "lz4":
+                    if codec_id == "lz4":
                         return {"name": "lz4"}
-                    else:
-                        # Fallback: try to use the codec_id as name
-                        return {"name": codec_id}
-                elif isinstance(compressor, str):
+                    # Fallback: try to use the codec_id as name
+                    return {"name": codec_id}
+                if isinstance(compressor, str):
                     # Simple codec name
                     return {"name": compressor}
-                elif isinstance(compressor, dict):
+                if isinstance(compressor, dict):
                     # Already in codec format
                     return compressor
                 return None
@@ -328,7 +324,7 @@ def _write_with_tensorstore(
 
 def _validate_ngff_parameters(
     version: str,
-    chunks_per_shard: Optional[Union[int, Tuple[int, ...], Dict[str, int]]],
+    chunks_per_shard: int | tuple[int, ...] | dict[str, int] | None,
     use_tensorstore: bool,
     store: StoreLike,
 ) -> None:
@@ -351,8 +347,8 @@ def _validate_ngff_parameters(
 
 
 def _prepare_metadata(
-    multiscales: Multiscales, version: str, enabled_rfcs: Optional[List[int]] = None
-) -> Tuple[Union[Metadata_v04, Metadata_v05], Tuple[str, ...], Dict]:
+    multiscales: Multiscales, version: str, enabled_rfcs: list[int] | None = None
+) -> tuple[Metadata_v04 | Metadata_v05, tuple[str, ...], dict]:
     """Prepare and convert metadata to the proper version format."""
     metadata = multiscales.metadata
 
@@ -377,10 +373,10 @@ def _prepare_metadata(
 
 def _create_zarr_root(
     store: StoreLike,
-    chunk_store: Optional[StoreLike],
+    chunk_store: StoreLike | None,
     version: str,
     overwrite: bool,
-    metadata_dict: Dict,
+    metadata_dict: dict,
 ) -> zarr.Group:
     """Create and configure the root Zarr group with proper attributes."""
     zarr_format = 2 if version == "0.4" else 3
@@ -423,10 +419,10 @@ def _create_zarr_root(
 
 def _configure_sharding(
     arr: dask.array.Array,
-    chunks_per_shard: Optional[Union[int, Tuple[int, ...], Dict[str, int]]],
-    dims: Tuple[str, ...],
-    kwargs: Dict,
-) -> Tuple[Dict, Optional[Tuple[int, ...]], dask.array.Array]:
+    chunks_per_shard: int | tuple[int, ...] | dict[str, int] | None,
+    dims: tuple[str, ...],
+    kwargs: dict,
+) -> tuple[dict, tuple[int, ...] | None, dask.array.Array]:
     """Configure sharding parameters if sharding is enabled."""
     if chunks_per_shard is None:
         return {}, None, arr
@@ -471,13 +467,13 @@ def _write_array_with_tensorstore(
     store_path: str,
     path: str,
     arr: dask.array.Array,
-    chunks: Union[Tuple[int, ...], List[int]],
-    shards: Optional[Tuple[int, ...]],
-    internal_chunk_shape: Optional[Tuple[int, ...]],
+    chunks: tuple[int, ...] | list[int],
+    shards: tuple[int, ...] | None,
+    internal_chunk_shape: tuple[int, ...] | None,
     zarr_format: int,
-    dimension_names: Optional[Tuple[str, ...]],
-    region: Tuple[slice, ...],
-    full_array_shape: Optional[Tuple[int, ...]] = None,
+    dimension_names: tuple[str, ...] | None,
+    region: tuple[slice, ...],
+    full_array_shape: tuple[int, ...] | None = None,
     create_dataset: bool = True,
     **kwargs,
 ) -> None:
@@ -516,7 +512,7 @@ def _write_array_with_tensorstore(
         )
 
 
-def _prepare_zarr_kwargs(to_zarr_kwargs: Dict):
+def _prepare_zarr_kwargs(to_zarr_kwargs: dict):
     """Prepare zarr kwargs for dask.array.to_zarr.
 
     This helper function ensures that correct kwargs are passed on based on which version of zarr
@@ -547,11 +543,11 @@ def _write_array_direct(
     arr: dask.array.Array,
     store: StoreLike,
     path: str,
-    sharding_kwargs: Dict,
-    zarr_kwargs: Dict,
-    format_kwargs: Dict,
-    dimension_names_kwargs: Dict,
-    region: Optional[Tuple[slice, ...]] = None,
+    sharding_kwargs: dict,
+    zarr_kwargs: dict,
+    format_kwargs: dict,
+    dimension_names_kwargs: dict,
+    region: tuple[slice, ...] | None = None,
     zarr_array=None,
     **kwargs,
 ) -> None:
@@ -633,20 +629,20 @@ def _handle_large_array_writing(
     arr: dask.array.Array,
     store: StoreLike,
     path: str,
-    dims: Tuple[str, ...],
-    dim_factors: Dict[str, int],
-    chunks: Tuple[int, ...],
-    sharding_kwargs: Dict,
-    zarr_kwargs: Dict,
-    format_kwargs: Dict,
-    dimension_names_kwargs: Dict,
+    dims: tuple[str, ...],
+    dim_factors: dict[str, int],
+    chunks: tuple[int, ...],
+    sharding_kwargs: dict,
+    zarr_kwargs: dict,
+    format_kwargs: dict,
+    dimension_names_kwargs: dict,
     use_tensorstore: bool,
-    store_path: Optional[str],
+    store_path: str | None,
     zarr_format: int,
-    dimension_names: Tuple[str, ...],
-    internal_chunk_shape: Optional[Tuple[int, ...]],
-    shards: Optional[Tuple[int, ...]],
-    progress: Optional[Union[NgffProgress, NgffProgressCallback]],
+    dimension_names: tuple[str, ...],
+    internal_chunk_shape: tuple[int, ...] | None,
+    shards: tuple[int, ...] | None,
+    progress: NgffProgress | NgffProgressCallback | None,
     index: int,
     nscales: int,
     **kwargs,
@@ -747,8 +743,8 @@ def _handle_large_array_writing(
             )
 
         # Configure the sharding codec with proper defaults
-        from zarr.codecs.sharding import ShardingCodec
         from zarr.codecs.bytes import BytesCodec
+        from zarr.codecs.sharding import ShardingCodec
         from zarr.codecs.zstd import ZstdCodec
 
         # Default inner codecs for sharding
@@ -882,14 +878,14 @@ def _handle_large_array_writing(
 
 def _compute_write_regions(
     image,
-    dims: Tuple[str, ...],
+    dims: tuple[str, ...],
     arr: dask.array.Array,
-    shape: Tuple[int, ...],
+    shape: tuple[int, ...],
     x_index: int,
     y_index: int,
-    chunks: Tuple[int, ...],
-    shrink_factors: List[int],
-) -> List[Tuple[slice, ...]]:
+    chunks: tuple[int, ...],
+    shrink_factors: list[int],
+) -> list[tuple[slice, ...]]:
     """Compute the regions for writing a large array in chunks."""
     regions = []
 
@@ -948,16 +944,16 @@ def _compute_write_regions(
 
 def _compute_plane_regions(
     image,
-    dims: Tuple[str, ...],
+    dims: tuple[str, ...],
     arr: dask.array.Array,
-    shape: Tuple[int, ...],
+    shape: tuple[int, ...],
     x_index: int,
     y_index: int,
     z_index: int,
-    chunks: Tuple[int, ...],
-    shrink_factors: List[int],
+    chunks: tuple[int, ...],
+    shrink_factors: list[int],
     slab_index: int,
-) -> List[Tuple[slice, ...]]:
+) -> list[tuple[slice, ...]]:
     """Compute regions for a single z-slab, dividing into planes and strips if needed."""
     plane_regions = []
     z_chunks = chunks[z_index]
@@ -1036,9 +1032,9 @@ def _prepare_next_scale(
     multiscales: Multiscales,
     store: StoreLike,
     path: str,
-    progress: Optional[Union[NgffProgress, NgffProgressCallback]],
+    progress: NgffProgress | NgffProgressCallback | None,
     scale_strategy: ScaleStrategy = "pad",
-) -> Optional[object]:
+) -> object | None:
     """Prepare the next scale for processing if needed.
 
     :param scale_strategy: Strategy for handling non-power-of-2 scale factors.
@@ -1064,7 +1060,7 @@ def _prepare_next_scale(
         spatial_dims = {"x", "y", "z"}
 
         # Track what scale factor was applied to reach current image
-        previous_dim_factors = {d: 1 for d in image.dims}
+        previous_dim_factors = dict.fromkeys(image.dims, 1)
         if index > 0:
             prev_absolute_factor = multiscales.scale_factors[index - 1]
             if isinstance(prev_absolute_factor, int):
@@ -1113,32 +1109,30 @@ def _prepare_next_scale(
             # Use the already-computed image from multiscales.images[index + 1]
             # which was computed correctly during the initial to_multiscales call.
             return multiscales.images[index + 1]
-        else:
-            # Downsample from current (previous) image.
-            # In "pad" mode this always runs (sizes may differ slightly due to
-            # floor-division rounding).  In "exact" mode this runs when
-            # incremental downsampling achieves the exact target.
-            source_image = image
-            # Only include spatial dimensions in the scale factors dict
-            # to avoid KeyError in methods that look up scale/translation
-            next_multiscales_factor = {
-                d: f for d, f in dim_factors.items() if d in spatial_dims
-            }
+        # Downsample from current (previous) image.
+        # In "pad" mode this always runs (sizes may differ slightly due to
+        # floor-division rounding).  In "exact" mode this runs when
+        # incremental downsampling achieves the exact target.
+        source_image = image
+        # Only include spatial dimensions in the scale factors dict
+        # to avoid KeyError in methods that look up scale/translation
+        next_multiscales_factor = {
+            d: f for d, f in dim_factors.items() if d in spatial_dims
+        }
 
-            next_multiscales = to_multiscales(
-                source_image,
-                scale_factors=[
-                    next_multiscales_factor,
-                ],
-                method=multiscales.method,
-                chunks=multiscales.chunks,
-                progress=progress,
-                cache=False,
-            )
-            multiscales.images[index + 1] = next_multiscales.images[1]
-            return next_multiscales.images[1]
-    else:
-        return multiscales.images[index + 1]
+        next_multiscales = to_multiscales(
+            source_image,
+            scale_factors=[
+                next_multiscales_factor,
+            ],
+            method=multiscales.method,
+            chunks=multiscales.chunks,
+            progress=progress,
+            cache=False,
+        )
+        multiscales.images[index + 1] = next_multiscales.images[1]
+        return next_multiscales.images[1]
+    return multiscales.images[index + 1]
 
 
 def to_ngff_zarr(
@@ -1147,16 +1141,10 @@ def to_ngff_zarr(
     version: str = "0.4",
     overwrite: bool = True,
     use_tensorstore: bool = False,
-    chunk_store: Optional[StoreLike] = None,
-    progress: Optional[Union[NgffProgress, NgffProgressCallback]] = None,
-    chunks_per_shard: Optional[
-        Union[
-            int,
-            Tuple[int, ...],
-            Dict[str, int],
-        ]
-    ] = None,
-    enabled_rfcs: Optional[List[int]] = None,
+    chunk_store: StoreLike | None = None,
+    progress: NgffProgress | NgffProgressCallback | None = None,
+    chunks_per_shard: int | tuple[int, ...] | dict[str, int] | None = None,
+    enabled_rfcs: list[int] | None = None,
     scale_strategy: ScaleStrategy = "pad",
     **kwargs,
 ) -> None:
@@ -1293,16 +1281,10 @@ def _to_ngff_zarr_impl(
     version: str = "0.4",
     overwrite: bool = True,
     use_tensorstore: bool = False,
-    chunk_store: Optional[StoreLike] = None,
-    progress: Optional[Union[NgffProgress, NgffProgressCallback]] = None,
-    chunks_per_shard: Optional[
-        Union[
-            int,
-            Tuple[int, ...],
-            Dict[str, int],
-        ]
-    ] = None,
-    enabled_rfcs: Optional[List[int]] = None,
+    chunk_store: StoreLike | None = None,
+    progress: NgffProgress | NgffProgressCallback | None = None,
+    chunks_per_shard: int | tuple[int, ...] | dict[str, int] | None = None,
+    enabled_rfcs: list[int] | None = None,
     scale_strategy: ScaleStrategy = "pad",
     **kwargs,
 ) -> None:
@@ -1340,7 +1322,7 @@ def _to_ngff_zarr_impl(
 
     next_image = multiscales.images[0]
     dims = next_image.dims
-    previous_dim_factors = {d: 1 for d in dims}
+    previous_dim_factors = dict.fromkeys(dims, 1)
 
     for index in range(nscales):
         if progress:
@@ -1362,7 +1344,7 @@ def _to_ngff_zarr_impl(
                 dims, multiscales.scale_factors[index], previous_dim_factors
             )
         else:
-            dim_factors = {d: 1 for d in dims}
+            dim_factors = dict.fromkeys(dims, 1)
         previous_dim_factors = dim_factors
 
         # Configure sharding if needed

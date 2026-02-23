@@ -3,7 +3,6 @@
 import sys
 from enum import Enum
 from pathlib import Path
-from typing import List
 
 conversion_backends = [
     ("NGFF_ZARR", "ngff_zarr"),
@@ -30,7 +29,7 @@ def _matches_extension(extension: str, supported_extensions: tuple) -> bool:
     return any(extension.endswith(ext) for ext in sorted_extensions)
 
 
-def detect_cli_io_backend(input: List[str]) -> ConversionBackend:
+def detect_cli_io_backend(input: list[str]) -> ConversionBackend:
     input_path = Path(input[0])
 
     if (input_path / ".zarray").exists():

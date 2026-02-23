@@ -69,9 +69,9 @@ def test_lru_cache():
     print(f"After adding d: {list(cache.cache.keys())}")
 
     # "a" should be evicted since it was the first added (LRU)
-    assert (
-        "a" not in cache
-    ), f"'a' should be evicted, but cache contains: {list(cache.cache.keys())}"
+    assert "a" not in cache, (
+        f"'a' should be evicted, but cache contains: {list(cache.cache.keys())}"
+    )
     assert "b" in cache
     assert "c" in cache
     assert "d" in cache

@@ -5,8 +5,8 @@
 Test script to verify HCS cache behavior.
 """
 
-from ngff_zarr.hcs import LRUCache, from_hcs_zarr
 from ngff_zarr.config import config
+from ngff_zarr.hcs import LRUCache, from_hcs_zarr
 
 
 def test_lru_cache():

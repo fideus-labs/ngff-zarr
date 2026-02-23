@@ -1,15 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from typing import Optional
 
-from .methods import Methods
 from ._supported_versions import NgffVersion
-from .v04.zarr_metadata import Omero, OmeroChannel, OmeroWindow, MethodMetadata
+from .methods import Methods
+from .v04.zarr_metadata import MethodMetadata, Omero, OmeroChannel, OmeroWindow
 
 
 def _extract_method_metadata(
     metadata_dict: dict,
-) -> tuple[Optional[Methods], Optional[str], Optional[MethodMetadata]]:
+) -> tuple[Methods | None, str | None, MethodMetadata | None]:
     method = None
     method_type = None
     method_metadata = None
@@ -36,7 +35,7 @@ def _extract_method_metadata(
     return method, method_type, method_metadata
 
 
-def _parse_omero(omero_data: dict) -> Optional[Omero]:
+def _parse_omero(omero_data: dict) -> Omero | None:
     """Parse OMERO metadata dictionary into Omero dataclass."""
     omero = None
     if isinstance(omero_data, dict) and "channels" in omero_data:
@@ -97,7 +96,7 @@ def _parse_omero(omero_data: dict) -> Optional[Omero]:
     return omero
 
 
-def _parse_hcs_path(store_path: str) -> tuple[str, Optional[str]]:
+def _parse_hcs_path(store_path: str) -> tuple[str, str | None]:
     """Parse a potential HCS path into store and sub-path components.
 
     Parameters
@@ -174,7 +173,7 @@ def _detect_version(root_attrs: dict) -> NgffVersion:
 
     Handles both regular image groups and HCS plate structures.
     """
-    version_str: Optional[str] = None
+    version_str: str | None = None
 
     # Check for v0.5+ format (has "ome" key)
     if "ome" in root_attrs:

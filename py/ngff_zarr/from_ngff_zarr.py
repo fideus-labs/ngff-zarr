@@ -1,16 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 from pathlib import Path
-from typing import Optional
-import packaging.version
 
+import packaging.version
 import zarr
 import zarr.storage
 
-from .to_multiscales import Multiscales
 from ._zarr_types import StoreLike
-
 from .rfc9_zip import is_ozx_path, read_ozx_version
+from .to_multiscales import Multiscales
 
 zarr_version = packaging.version.parse(zarr.__version__)
 zarr_version_major = zarr_version.major
@@ -22,8 +20,8 @@ REMOTE_URL_SCHEMES = ("s3://", "gs://", "azure://", "http://", "https://")
 def from_ngff_zarr(
     store: StoreLike,
     validate: bool = False,
-    version: Optional[str] = None,
-    storage_options: Optional[dict] = None,
+    version: str | None = None,
+    storage_options: dict | None = None,
 ) -> Multiscales:
     """
     Read an OME-Zarr NGFF Multiscales data structure from a Zarr store.
@@ -57,8 +55,8 @@ def from_ngff_zarr(
 
     """
     from .parse_metadata import (
-        _extract_method_metadata,
         _detect_version,
+        _extract_method_metadata,
         _is_hcs_plate,
         _parse_hcs_path,
     )

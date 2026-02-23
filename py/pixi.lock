@@ -7742,8 +7742,8 @@ packages:
   timestamp: 1738196177597
 - pypi: ./
   name: ngff-zarr
-  version: 0.28.1
-  sha256: 88e6681c859041bcbed1c02d2ce157634c0df770cc5692a7926abfb51f332353
+  version: 0.29.0
+  sha256: eaefc08b05057164a8dc94477ea8bf6e3d713f070a71ab46c2b676bcf7e05795
   requires_dist:
   - dask[array]!=2025.12.0,!=2026.1.0,!=2026.1.1
   - importlib-resources

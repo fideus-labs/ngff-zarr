@@ -54,9 +54,8 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "pytest-cov",
-    "black>=23.1.0",
     "mypy>=1.0.0",
-    "ruff>=0.0.243",
+    "ruff>=0.5.0",
     "hatch",
     "types-aiofiles",
     "types-psutil",
@@ -87,37 +86,13 @@ dependencies = [
 test = "pytest {args:tests}"
 test-cov = "pytest --cov-report=term-missing --cov-config=pyproject.toml --cov=ngff_zarr_mcp {args:tests}"
 
-[tool.hatch.envs.lint]
-detached = true
-dependencies = [
-    "black>=23.1.0",
-    "mypy>=1.0.0",
-    "ruff>=0.0.243",
-]
-
-[tool.hatch.envs.lint.scripts]
-typing = "mypy --install-types --non-interactive {args:ngff_zarr_mcp tests}"
-style = [
-    "ruff {args:.}",
-    "black --check --diff {args:.}",
-]
-fmt = [
-    "black {args:.}",
-    "ruff --fix {args:.}",
-    "style",
-]
-all = [
-    "style",
-    "typing",
-]
-
-[tool.black]
-target-version = ["py310"]
-line-length = 88
-
 [tool.ruff]
 target-version = "py310"
 line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+extend-ignore = ["E501"]
 
 [tool.coverage.run]
 source_pkgs = ["ngff_zarr_mcp", "tests"]
@@ -175,8 +150,8 @@ ngff-zarr = { path = "../py", editable = true, extras = ["cli", "tensorstore"] }
 test = "pytest tests/"
 test-cov = "pytest --cov-report=term-missing --cov-config=pyproject.toml --cov=ngff_zarr_mcp tests/"
 lint = "ruff check ."
-format = "black ."
-format-check = "black --check --diff ."
+format = "ruff format ."
+format-check = "ruff format --check --diff ."
 typecheck = "mypy ngff_zarr_mcp tests"
 build = "hatch build"
 all-checks = { depends-on = ["lint", "format-check", "typecheck"] }
