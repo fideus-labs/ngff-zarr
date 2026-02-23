@@ -34,6 +34,11 @@ export const config = {
    *
    * Changing this value only affects pools created **after** the change.
    * Use {@link setWorkerPoolSize} to also terminate existing pools.
+   *
+   * **Performance note:** The default cap of 16 is intentional — very high
+   * values can cause thread-scheduling overhead and increased memory usage
+   * that outweigh any concurrency gains.  Values in the range 4–16 are
+   * recommended for most workloads.
    */
   workerPoolSize: DEFAULT_POOL_SIZE,
 };
@@ -44,6 +49,13 @@ export const config = {
  * This is a convenience wrapper that updates {@link config.workerPoolSize}
  * and tears down the codec, write-scheduling, and omero worker pools so
  * they are lazily recreated with the new size on next use.
+ *
+ * **Performance note:** The default pool size is capped at 16 workers
+ * (`Math.min(navigator.hardwareConcurrency || 4, 16)`) to avoid thread
+ * contention on high-core-count systems.  Setting a very large value (e.g.
+ * hundreds of workers) can lead to excessive memory consumption, OS
+ * thread-scheduling overhead, and diminishing — or even negative — returns
+ * in throughput.  Recommended values are typically in the range of 4–16.
  *
  * @param size - Positive integer for the new pool size.
  *
