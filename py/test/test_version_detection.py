@@ -378,6 +378,22 @@ def _create_bf2raw_v04_image_subgroup(parent, name, data):
 
     Sets up a numbered subgroup (e.g., "0") with standard multiscales metadata
     and array data, mimicking what bioformats2raw produces.
+
+    Parameters
+    ----------
+    parent :
+        Parent Zarr group or container under which the image subgroup will be
+        created.
+    name : str
+        Name of the image subgroup to create (for example, ``"0"``).
+    data : numpy.ndarray
+        Array data to store in the subgroup at path ``"0"``.
+
+    Returns
+    -------
+    image_group
+        The created image subgroup containing the array data and multiscales
+        metadata.
     """
     if zarr_version_major >= 3:
         image_group = parent.create_group(name)
@@ -557,7 +573,10 @@ def test_from_ngff_zarr_bioformats2raw_with_explicit_subpath(tmp_path):
     loaded = from_ngff_zarr(f"{store_path}/1")
     assert loaded is not None
     assert len(loaded.images) > 0
+    # Shape must match data1 (32×32), not data0 (64×64), proving correct image was loaded
     assert loaded.images[0].data.shape == (32, 32)
+    # Value-level check: loaded data must match data1, not data0
+    np.testing.assert_array_equal(loaded.images[0].data.compute(), data1)
 
 
 def test_from_ngff_zarr_bioformats2raw_with_ome_series():

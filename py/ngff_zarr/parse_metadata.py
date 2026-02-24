@@ -227,7 +227,7 @@ def _get_bioformats2raw_series(root) -> list:
         series = ome_attrs.get("series")
         if isinstance(series, list) and series:
             return list(series)
-    except (KeyError, Exception):
+    except (KeyError, AttributeError):
         pass
 
     # Fallback: enumerate subgroups that are not the OME metadata group
@@ -239,7 +239,7 @@ def _get_bioformats2raw_series(root) -> list:
             child = root[key]
             if isinstance(child, zarr.Group):
                 image_paths.append(key)
-        except Exception:
+        except (KeyError, TypeError):
             continue
 
     # Sort numerically if all paths are numeric, otherwise alphabetically
