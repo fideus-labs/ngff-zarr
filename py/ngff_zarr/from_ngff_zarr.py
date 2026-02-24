@@ -36,6 +36,11 @@ def from_ngff_zarr(
         for well A1, field 0). To load the entire plate structure, use
         from_hcs_zarr() instead.
 
+        For bioformats2raw containers with a single image, the function
+        will automatically navigate into the image subgroup. For containers
+        with multiple images, provide the path to a specific image
+        (e.g., 'container.ome.zarr/0').
+
     validate : bool
         If True, validate the NGFF metadata against the schema.
 
@@ -57,6 +62,8 @@ def from_ngff_zarr(
     from .parse_metadata import (
         _detect_version,
         _extract_method_metadata,
+        _get_bioformats2raw_series,
+        _is_bioformats2raw,
         _is_hcs_plate,
         _parse_hcs_path,
     )
@@ -150,9 +157,33 @@ def from_ngff_zarr(
                 "For programmatic access to the full plate, use from_hcs_zarr() instead of from_ngff_zarr()."
             ) from None
 
-    # Navigate to sub-path if provided (for HCS well/image access)
-    # We get metadata from the subpath but pass the subpath to _from_zarr_attrs
-    # so it can correctly construct data paths
+    # Check if this is a bioformats2raw container layout
+    if _is_bioformats2raw(root_attrs_initial) and not subpath:
+        image_paths = _get_bioformats2raw_series(root)
+
+        if not image_paths:
+            raise ValueError(
+                "The input is a bioformats2raw container but no image subgroups were found. "
+                "The container may be empty or malformed."
+            )
+        if len(image_paths) == 1:
+            # Single image: navigate into it silently
+            subpath = image_paths[0]
+        else:
+            # Multiple images: require user to specify which one
+            display_store = str(original_store).replace("\\", "/")
+            examples = [f"'{display_store}/{p}'" for p in image_paths[:5]]
+            examples_str = ", ".join(examples)
+            more = f" (and {len(image_paths) - 5} more)" if len(image_paths) > 5 else ""
+            raise ValueError(
+                f"The input is a bioformats2raw container with {len(image_paths)} images. "
+                f"To load a specific image, provide the full path including the image index:\n"
+                f"  Available images: {examples_str}{more}\n"
+                f"For example: ngff-zarr -i {display_store}/{image_paths[0]}"
+            )
+
+    # Navigate to sub-path if provided (for HCS well/image access,
+    # or bioformats2raw image navigation)
     if subpath:
         try:
             root = root[subpath]
