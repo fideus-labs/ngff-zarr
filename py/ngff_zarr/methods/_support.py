@@ -1,6 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from typing import List
 import copy
 
 import numpy as np
@@ -221,7 +220,7 @@ def _align_chunks(previous_image, default_chunks, dim_factors):
     return previous_image
 
 
-def _compute_sigma(shrink_factors: List[int]) -> List[float]:
+def _compute_sigma(shrink_factors: list[int]) -> list[float]:
     """Compute Gaussian kernel sigma values in pixel units for downsampling.
     sigma = sqrt((k^2 - 1^2)/(2*sqrt(2*ln(2)))^2)
     Ref https://discourse.itk.org/t/resampling-to-isotropic-signal-processing-theory/1403/16

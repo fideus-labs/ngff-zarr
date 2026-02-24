@@ -2,16 +2,14 @@
 # SPDX-License-Identifier: MIT
 """Tests for OME-Zarr version detection."""
 
-import pytest
 import numpy as np
 import packaging.version
+import pytest
 import zarr
-from zarr.storage import MemoryStore
-
-from ngff_zarr import to_ngff_zarr, from_ngff_zarr, to_multiscales, to_ngff_image
-from ngff_zarr.parse_metadata import _detect_version
+from ngff_zarr import from_ngff_zarr, to_multiscales, to_ngff_image, to_ngff_zarr
 from ngff_zarr._supported_versions import NgffVersion
-
+from ngff_zarr.parse_metadata import _detect_version
+from zarr.storage import MemoryStore
 
 zarr_version = packaging.version.parse(zarr.__version__)
 zarr_version_major = zarr_version.major

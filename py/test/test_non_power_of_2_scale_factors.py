@@ -4,10 +4,9 @@
 
 import tempfile
 
+import ngff_zarr as nz
 import numpy as np
 import pytest
-
-import ngff_zarr as nz
 
 
 def test_non_power_of_2_scale_factors():
@@ -239,9 +238,9 @@ def test_scale_strategy_power_of_2_same_result():
         for i in range(len(pad_result.images)):
             pad_shape = pad_result.images[i].data.shape
             exact_shape = exact_result.images[i].data.shape
-            assert (
-                pad_shape == exact_shape
-            ), f"Level {i}: pad={pad_shape} != exact={exact_shape}"
+            assert pad_shape == exact_shape, (
+                f"Level {i}: pad={pad_shape} != exact={exact_shape}"
+            )
 
         # Verify the exact expected shapes
         expected = [(128, 128), (64, 64), (32, 32), (16, 16)]

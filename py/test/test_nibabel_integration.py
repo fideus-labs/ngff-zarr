@@ -32,12 +32,12 @@ try:
     backend_nii = detect_cli_io_backend(["test.nii"])
     print(f"✓ Backend detection: .nii.gz -> {backend_nii_gz}, .nii -> {backend_nii}")
 
-    assert (
-        backend_nii_gz == ConversionBackend.NIBABEL
-    ), f"Expected NIBABEL, got {backend_nii_gz}"
-    assert (
-        backend_nii == ConversionBackend.NIBABEL
-    ), f"Expected NIBABEL, got {backend_nii}"
+    assert backend_nii_gz == ConversionBackend.NIBABEL, (
+        f"Expected NIBABEL, got {backend_nii_gz}"
+    )
+    assert backend_nii == ConversionBackend.NIBABEL, (
+        f"Expected NIBABEL, got {backend_nii}"
+    )
     print("✓ Backend detection tests passed")
 
     # Test with real file

@@ -1,34 +1,32 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from typing import List, Optional, Union
 from dataclasses import dataclass
 
-from ..v04.zarr_metadata import Axis, Transform, Dataset, Omero, MethodMetadata
 from .._supported_versions import NgffVersion
 from .._zarr_types import StoreLike
+from ..v04.zarr_metadata import Axis, Dataset, MethodMetadata, Omero, Transform
 
 
 @dataclass
 class Metadata:
-    axes: List[Axis]
-    datasets: List[Dataset]
-    coordinateTransformations: Optional[List[Transform]]
-    omero: Optional[Omero] = None
+    axes: list[Axis]
+    datasets: list[Dataset]
+    coordinateTransformations: list[Transform] | None
+    omero: Omero | None = None
     name: str = "image"
-    type: Optional[str] = None
-    metadata: Optional[MethodMetadata] = None
+    type: str | None = None
+    metadata: MethodMetadata | None = None
 
-    def to_version(self, version: Union[str, NgffVersion]) -> "Metadata":
+    def to_version(self, version: str | NgffVersion) -> "Metadata":
         """Convert metadata to specified NGFF version."""
         if isinstance(version, str):
             version = NgffVersion(version)
 
         if version == NgffVersion.V04:
             return self._to_v04()
-        elif version == NgffVersion.V05:
+        if version == NgffVersion.V05:
             return self
-        else:
-            raise ValueError(f"Unsupported version conversion: 0.5 -> {version}")
+        raise ValueError(f"Unsupported version conversion: 0.5 -> {version}")
 
     @classmethod
     def from_version(cls, metadata: "Metadata") -> "Metadata":
@@ -37,8 +35,7 @@ class Metadata:
 
         if isinstance(metadata, Metadata_v04):
             return cls._from_v04(metadata)
-        else:
-            raise ValueError(f"Unsupported metadata type: {type(metadata)}")
+        raise ValueError(f"Unsupported metadata type: {type(metadata)}")
 
     def _to_v04(self) -> "Metadata":
         from ..v04.zarr_metadata import Metadata as Metadata_v04
@@ -73,7 +70,7 @@ class Metadata:
         root_attrs: dict,
         store: StoreLike,
         validate: bool = False,
-        subpath: Optional[str] = None,
+        subpath: str | None = None,
     ) -> tuple["Metadata", list["NgffImage"]]:  # noqa: F821
         from ..v04.zarr_metadata import Metadata as Metadata_v04
 

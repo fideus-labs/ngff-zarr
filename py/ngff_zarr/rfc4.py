@@ -7,9 +7,10 @@ to OME-NGFF axes, based on the LinkML schema.
 """
 
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Optional, Literal, Dict
 from enum import Enum
+from typing import Literal
 
 
 class AnatomicalOrientationValues(str, Enum):
@@ -67,7 +68,7 @@ class AnatomicalOrientation:
 
 
 # Convenience constants for common coordinate systems
-LPS: Dict[str, AnatomicalOrientation] = {
+LPS: dict[str, AnatomicalOrientation] = {
     "x": AnatomicalOrientation(
         type="anatomical", value=AnatomicalOrientationValues.right_to_left
     ),
@@ -96,7 +97,7 @@ Example usage:
     )
 """
 
-RAS: Dict[str, AnatomicalOrientation] = {
+RAS: dict[str, AnatomicalOrientation] = {
     "x": AnatomicalOrientation(
         type="anatomical", value=AnatomicalOrientationValues.left_to_right
     ),
@@ -128,7 +129,7 @@ Example usage:
 
 def itk_lps_to_anatomical_orientation(
     axis_name: str,
-) -> Optional[AnatomicalOrientation]:
+) -> AnatomicalOrientation | None:
     """
     Convert ITK LPS coordinate system to anatomical orientation.
 
@@ -151,7 +152,7 @@ def itk_lps_to_anatomical_orientation(
     return LPS.get(axis_name)
 
 
-def is_rfc4_enabled(enabled_rfcs: Optional[list[int]]) -> bool:
+def is_rfc4_enabled(enabled_rfcs: list[int] | None) -> bool:
     """Check if RFC 4 is enabled in the list of enabled RFCs."""
     return enabled_rfcs is not None and 4 in enabled_rfcs
 

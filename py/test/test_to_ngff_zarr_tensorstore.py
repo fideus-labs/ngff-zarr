@@ -1,25 +1,24 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-import tempfile
-from packaging import version
 import logging
 import pathlib
+import tempfile
 import time
 import uuid
 
+import numpy as np
 import pytest
 import zarr
 from dask_image import imread
-import numpy as np
-
 from ngff_zarr import (
     Methods,
-    to_multiscales,
-    to_ngff_zarr,
-    from_ngff_zarr,
     config,
+    from_ngff_zarr,
+    to_multiscales,
     to_ngff_image,
+    to_ngff_zarr,
 )
+from packaging import version
 
 from ._data import verify_against_baseline
 

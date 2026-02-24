@@ -10,14 +10,13 @@ import packaging.version
 import pytest
 import zarr
 from dask_image import imread
-
 from ngff_zarr import (
     Methods,
+    config,
     from_ngff_zarr,
     to_multiscales,
     to_ngff_image,
     to_ngff_zarr,
-    config,
 )
 from ngff_zarr.rfc9_zip import is_ozx_path, read_ozx_json_first, read_ozx_version
 
@@ -334,9 +333,9 @@ def test_ozx_zarr_json_ordering():
         if first_data_file_index is not None:
             # All zarr.json files should come before first data file
             for idx in zarr_json_indices:
-                assert (
-                    idx < first_data_file_index
-                ), f"zarr.json at index {idx} should come before data files at {first_data_file_index}"
+                assert idx < first_data_file_index, (
+                    f"zarr.json at index {idx} should come before data files at {first_data_file_index}"
+                )
 
 
 def test_ozx_no_compression():
@@ -358,9 +357,9 @@ def test_ozx_no_compression():
     with zipfile.ZipFile(ozx_path, "r") as zf:
         for info in zf.infolist():
             # ZIP_STORED = 0, ZIP_DEFLATED = 8
-            assert (
-                info.compress_type == zipfile.ZIP_STORED
-            ), f"File {info.filename} uses compression type {info.compress_type}, expected ZIP_STORED (0)"
+            assert info.compress_type == zipfile.ZIP_STORED, (
+                f"File {info.filename} uses compression type {info.compress_type}, expected ZIP_STORED (0)"
+            )
 
 
 def test_roundtrip_ozx(input_images):
