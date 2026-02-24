@@ -126,6 +126,7 @@ pretty = true
 
 [[tool.mypy.overrides]]
 module = [
+    "ngff_zarr.*",
     "numcodecs.*",
 ]
 ignore_missing_imports = true
