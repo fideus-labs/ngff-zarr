@@ -13,6 +13,9 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-24.04
+    environment:
+      name: publish
+      url: https://pypi.org/p/ngff-zarr
     permissions:
       contents: write  # Required to create releases
       id-token: write  # Required for PyPI trusted publishing (OIDC)
