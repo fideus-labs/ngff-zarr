@@ -1,3 +1,9 @@
+## ts-v0.14.0 (2026-02-24)
+
+### ✨ Features
+
+- **ts**: add configurable worker pool size via config.workerPoolSize ([3b308dd](https://github.com/fideus-labs/ngff-zarr/commit/3b308dd11af49d610c801d5074ed4a04f40aa8a0))
+
 ## ts-v0.13.0 (2026-02-20)
 
 ### ⚡ Performance
