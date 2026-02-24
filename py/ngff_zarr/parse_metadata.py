@@ -168,6 +168,89 @@ def _is_hcs_plate(root_attrs: dict) -> bool:
     return False
 
 
+def _is_bioformats2raw(root_attrs: dict) -> bool:
+    """Check if root attributes indicate a bioformats2raw container layout.
+
+    bioformats2raw produces OME-Zarr containers where the root level has a
+    ``bioformats2raw.layout`` key (v0.4) or an ``ome`` key containing
+    ``bioformats2raw.layout`` (v0.5), with the actual image data stored in
+    numbered subdirectories (0/, 1/, ...).
+
+    Returns True if the root is a bioformats2raw container (not a regular
+    image group).
+    """
+    # v0.4: bioformats2raw.layout at root level
+    if "bioformats2raw.layout" in root_attrs:
+        return True
+
+    # v0.5: bioformats2raw.layout under ome key, but without multiscales
+    # (if multiscales is present under ome, it's a regular v0.5 image)
+    if (
+        "ome" in root_attrs
+        and isinstance(root_attrs["ome"], dict)
+        and "bioformats2raw.layout" in root_attrs["ome"]
+        and "multiscales" not in root_attrs["ome"]
+    ):
+        return True
+
+    return False
+
+
+def _get_bioformats2raw_series(root) -> list:
+    """Get the list of image paths from a bioformats2raw container.
+
+    Reads the ``series`` array from the ``OME`` subgroup if available,
+    otherwise falls back to enumerating subgroups in the root.
+
+    Parameters
+    ----------
+    root : zarr.Group
+        The root zarr group of the bioformats2raw container.
+
+    Returns
+    -------
+    list of str
+        Sorted list of image path strings (e.g., ``["0", "1", "2"]``).
+    """
+    import zarr
+
+    # Try reading the OME subgroup's series metadata
+    try:
+        ome_group = root["OME"]
+        ome_attrs = ome_group.attrs.asdict()
+        # v0.5: series under "ome" key
+        if "ome" in ome_attrs and isinstance(ome_attrs["ome"], dict):
+            series = ome_attrs["ome"].get("series")
+            if isinstance(series, list) and series:
+                return list(series)
+        # v0.4: series at root of OME group
+        series = ome_attrs.get("series")
+        if isinstance(series, list) and series:
+            return list(series)
+    except (KeyError, Exception):
+        pass
+
+    # Fallback: enumerate subgroups that are not the OME metadata group
+    image_paths = []
+    for key in root.keys():
+        if key == "OME":
+            continue
+        try:
+            child = root[key]
+            if isinstance(child, zarr.Group):
+                image_paths.append(key)
+        except Exception:
+            continue
+
+    # Sort numerically if all paths are numeric, otherwise alphabetically
+    try:
+        image_paths.sort(key=int)
+    except ValueError:
+        image_paths.sort()
+
+    return image_paths
+
+
 def _detect_version(root_attrs: dict) -> NgffVersion:
     """Detect NGFF version from root attributes.
 
