@@ -11,7 +11,7 @@
  */
 
 /** Default pool size: `Math.min(navigator.hardwareConcurrency || 4, 16)`. */
-const DEFAULT_POOL_SIZE = Math.min(
+const DEFAULT_POOL_SIZE: number = Math.min(
   (typeof navigator !== "undefined" && navigator?.hardwareConcurrency) || 4,
   16,
 );
