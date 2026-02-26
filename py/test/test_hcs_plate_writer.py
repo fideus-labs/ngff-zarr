@@ -9,7 +9,6 @@ import numpy as np
 import packaging.version
 import pytest
 import zarr
-
 from ngff_zarr import to_multiscales, to_ngff_image
 from ngff_zarr.hcs import HCSPlateWriter, from_hcs_zarr
 from ngff_zarr.rfc9_zip import read_ozx_version

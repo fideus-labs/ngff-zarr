@@ -1,26 +1,27 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 from pathlib import Path
-from typing import Optional
-import packaging.version
 
+import packaging.version
 import zarr
 import zarr.storage
 
-from .to_multiscales import Multiscales
 from ._zarr_types import StoreLike
-
 from .rfc9_zip import is_ozx_path, read_ozx_version
+from .to_multiscales import Multiscales
 
 zarr_version = packaging.version.parse(zarr.__version__)
 zarr_version_major = zarr_version.major
+
+# Supported remote URL schemes for storage
+REMOTE_URL_SCHEMES = ("s3://", "gs://", "azure://", "http://", "https://")
 
 
 def from_ngff_zarr(
     store: StoreLike,
     validate: bool = False,
-    version: Optional[str] = None,
-    storage_options: Optional[dict] = None,
+    version: str | None = None,
+    storage_options: dict | None = None,
 ) -> Multiscales:
     """
     Read an OME-Zarr NGFF Multiscales data structure from a Zarr store.
@@ -29,6 +30,16 @@ def from_ngff_zarr(
         Store or path to directory in file system. Can be a string URL
         (e.g., 's3://bucket/path') for remote storage. For .ozx files,
         provide the path to the .ozx file.
+
+        For HCS (High Content Screening) plates, provide the path to a
+        specific well and field within the plate (e.g., 'plate.zarr/A/1/0'
+        for well A1, field 0). To load the entire plate structure, use
+        from_hcs_zarr() instead.
+
+        For bioformats2raw containers with a single image, the function
+        will automatically navigate into the image subgroup. For containers
+        with multiple images, provide the path to a specific image
+        (e.g., 'container.ome.zarr/0').
 
     validate : bool
         If True, validate the NGFF metadata against the schema.
@@ -48,7 +59,23 @@ def from_ngff_zarr(
     multiscales: multiscale ngff image with dask-chunked arrays for data
 
     """
-    from .parse_metadata import _extract_method_metadata, _detect_version, _is_hcs_plate
+    from .parse_metadata import (
+        _detect_version,
+        _extract_method_metadata,
+        _get_bioformats2raw_series,
+        _is_bioformats2raw,
+        _is_hcs_plate,
+        _parse_hcs_path,
+    )
+
+    # Parse potential HCS sub-paths (e.g., 'plate.zarr/A/1/0')
+    original_store = store
+    subpath = None
+    if isinstance(store, (str, Path)):
+        store_str = str(store)
+        # Only parse for local file paths (not URLs)
+        if not store_str.startswith(REMOTE_URL_SCHEMES):
+            store, subpath = _parse_hcs_path(store_str)
 
     # RFC-9: Handle .ozx (zipped OME-Zarr) files
     if isinstance(store, (str, Path)) and is_ozx_path(store):
@@ -63,7 +90,7 @@ def from_ngff_zarr(
 
     # Handle string URLs with storage options (zarr-python 3+ only)
     if isinstance(store, str) and storage_options is not None:
-        if store.startswith(("s3://", "gs://", "azure://", "http://", "https://")):
+        if store.startswith(REMOTE_URL_SCHEMES):
             if zarr_version_major >= 3 and hasattr(zarr.storage, "FsspecStore"):
                 store = zarr.storage.FsspecStore.from_url(
                     store, storage_options=storage_options
@@ -82,19 +109,94 @@ def from_ngff_zarr(
             else {"zarr_format": 3}
         )
     root = zarr.open_group(store, mode="r", **format_kwargs)
+
+    # Check root-level attributes first to see if this is an HCS plate
+    root_attrs_initial = root.attrs.asdict()
+    is_hcs_plate_root = _is_hcs_plate(root_attrs_initial)
+
+    # If this is an HCS plate and no subpath was provided, error with guidance
+    if is_hcs_plate_root and not subpath:
+        # Try to provide helpful error message with available wells
+        try:
+            from .hcs import from_hcs_zarr
+
+            # Attempt to load plate metadata to provide well information
+            plate = from_hcs_zarr(original_store, validate=False)
+
+            # Build helpful error message with well examples
+            well_examples = []
+            if plate.metadata.wells:
+                # Normalize store path to forward slashes for display (Windows-friendly)
+                display_store = str(original_store).replace("\\", "/")
+                # Show up to 3 well examples
+                for well in plate.metadata.wells[:3]:
+                    well_path = well.path
+                    # Add field 0 as example
+                    well_examples.append(f"'{display_store}/{well_path}/0'")
+
+            examples_str = (
+                ", ".join(well_examples) if well_examples else "'plate.zarr/A/1/0'"
+            )
+
+            raise ValueError(
+                f"The input appears to be an HCS (High Content Screening) plate structure "
+                f"with {len(plate.metadata.wells)} wells. "
+                f"To convert a specific well/image, provide the full path including well and field:\n"
+                f"  Examples: {examples_str}\n"
+                f"For programmatic access to the full plate, use from_hcs_zarr() instead of from_ngff_zarr()."
+            )
+        except ValueError:
+            # Re-raise ValueError (from our error message above)
+            raise
+        except Exception:
+            # Fallback to generic error if we can't load plate metadata
+            raise ValueError(
+                "The input appears to be an HCS (High Content Screening) plate structure, "
+                "which contains multiple wells and images. To convert a specific well/image, "
+                "provide the full path including well and field (e.g., 'plate.zarr/A/1/0' for well A1, field 0). "
+                "For programmatic access to the full plate, use from_hcs_zarr() instead of from_ngff_zarr()."
+            ) from None
+
+    # Check if this is a bioformats2raw container layout
+    if _is_bioformats2raw(root_attrs_initial) and not subpath:
+        image_paths = _get_bioformats2raw_series(root)
+
+        if not image_paths:
+            raise ValueError(
+                "The input is a bioformats2raw container but no image subgroups were found. "
+                "The container may be empty or malformed."
+            )
+        if len(image_paths) == 1:
+            # Single image: navigate into it silently
+            subpath = image_paths[0]
+        else:
+            # Multiple images: require user to specify which one
+            display_store = str(original_store).replace("\\", "/")
+            examples = [f"'{display_store}/{p}'" for p in image_paths[:5]]
+            examples_str = ", ".join(examples)
+            more = f" (and {len(image_paths) - 5} more)" if len(image_paths) > 5 else ""
+            raise ValueError(
+                f"The input is a bioformats2raw container with {len(image_paths)} images. "
+                f"To load a specific image, provide the full path including the image index:\n"
+                f"  Available images: {examples_str}{more}\n"
+                f"For example: ngff-zarr -i {display_store}/{image_paths[0]}"
+            )
+
+    # Navigate to sub-path if provided (for HCS well/image access,
+    # or bioformats2raw image navigation)
+    if subpath:
+        try:
+            root = root[subpath]
+        except KeyError:
+            raise ValueError(
+                f"Sub-path '{subpath}' not found in store. "
+                f"Ensure the path is correct (e.g., 'A/1/0' for well A1, field 0)."
+            )
+
     root_attrs = root.attrs.asdict()
 
     if not version:
         version = _detect_version(root_attrs).value
-
-    # Check if this is an HCS plate structure
-    if _is_hcs_plate(root_attrs):
-        raise ValueError(
-            "The input appears to be an HCS (High Content Screening) plate structure, "
-            "which contains multiple wells and images. Use from_hcs_zarr() instead of from_ngff_zarr() "
-            "to load plate data. For CLI usage, you may need to specify a specific well/image path "
-            "within the plate (e.g., 'plate.zarr/A/1/0' for well A1, field 0)."
-        )
 
     if version == "0.5":
         from .v05.zarr_metadata import Metadata
@@ -127,7 +229,7 @@ def from_ngff_zarr(
             raise ValueError(error_msg)
 
         metadata_obj, images = Metadata._from_zarr_attrs(
-            root_attrs, store, validate=validate
+            root_attrs, store, validate=validate, subpath=subpath
         )
         method, method_type, method_metadata = _extract_method_metadata(
             root_attrs["ome"]["multiscales"][0]
@@ -138,7 +240,7 @@ def from_ngff_zarr(
 
         # v0.4 metadata validation is handled by Metadata._from_zarr_attrs
         metadata_obj, images = Metadata._from_zarr_attrs(
-            root_attrs, store, validate=validate
+            root_attrs, store, validate=validate, subpath=subpath
         )
         method, method_type, method_metadata = _extract_method_metadata(
             root_attrs["multiscales"][0]

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from typing import Dict, Tuple
+
 import numpy as np
 
 from .ngff_image import NgffImage
@@ -57,7 +57,7 @@ def decompose_affine_with_shear(affine):
 
 def extract_spatial_metadata(
     img,
-) -> Tuple[Dict[str, float], Dict[str, float], np.ndarray]:
+) -> tuple[dict[str, float], dict[str, float], np.ndarray]:
     """Extract translation, scale, and orientation from NIfTI spatial metadata."""
     # Get the affine transformation matrix
     affine = img.affine

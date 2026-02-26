@@ -18,7 +18,7 @@ import warnings
 import xml.etree.ElementTree as ET
 from functools import reduce
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING
 
 import dask.array as da
 import zarr
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 # Based on tifffile axis conventions:
 #   X: width, Y: height, Z: depth, S: sample (RGB), C: channel, T: time
 #   I: sequence, Q: other/unknown, R: reduction/tiles, etc.
-TIFF_AXIS_TO_NGFF: Dict[str, Optional[str]] = {
+TIFF_AXIS_TO_NGFF: dict[str, str | None] = {
     "x": "x",
     "y": "y",
     "z": "z",
@@ -61,7 +61,7 @@ SPATIAL_DIMS = {"x", "y", "z"}
 
 # Mapping from OME unit symbols/names to NGFF-compatible unit names
 # Based on OME-XML specification and UDUNITS-2
-OME_UNIT_TO_NGFF: Dict[str, str] = {
+OME_UNIT_TO_NGFF: dict[str, str] = {
     # Micrometers (most common in microscopy)
     "µm": "micrometer",
     "um": "micrometer",
@@ -89,7 +89,7 @@ OME_UNIT_TO_NGFF: Dict[str, str] = {
 }
 
 
-def _normalize_unit(ome_unit: Optional[str]) -> Optional[str]:
+def _normalize_unit(ome_unit: str | None) -> str | None:
     """
     Convert an OME unit string to an NGFF-compatible unit name.
 
@@ -118,8 +118,8 @@ def _normalize_unit(ome_unit: Optional[str]) -> Optional[str]:
 
 def _map_tiff_axes_to_ngff(
     tiff_axes: str,
-    tiff_shape: Tuple[int, ...],
-) -> Tuple[Tuple[str, ...], Tuple[int, ...], List[int], List[int]]:
+    tiff_shape: tuple[int, ...],
+) -> tuple[tuple[str, ...], tuple[int, ...], list[int], list[int]]:
     """
     Map TIFF axes to NGFF-compatible dimensions, flattening channel-like dims.
 
@@ -149,11 +149,11 @@ def _map_tiff_axes_to_ngff(
     axes_lower = tiff_axes.lower()
 
     # Track channel-like dimensions for potential flattening
-    channel_indices: List[int] = []
-    channel_sizes: List[int] = []
-    other_dims: List[Tuple[int, str, int]] = []  # (orig_idx, ngff_dim, size)
-    dropped_axes: List[str] = []
-    dropped_indices: List[int] = []
+    channel_indices: list[int] = []
+    channel_sizes: list[int] = []
+    other_dims: list[tuple[int, str, int]] = []  # (orig_idx, ngff_dim, size)
+    dropped_axes: list[str] = []
+    dropped_indices: list[int] = []
 
     for i, (axis, size) in enumerate(zip(axes_lower, tiff_shape)):
         ngff_dim = TIFF_AXIS_TO_NGFF.get(axis)
@@ -171,9 +171,7 @@ def _map_tiff_axes_to_ngff(
     if dropped_axes:
         supported = ", ".join(
             sorted(
-                k.upper()
-                for k in TIFF_AXIS_TO_NGFF.keys()
-                if TIFF_AXIS_TO_NGFF[k] is not None
+                k.upper() for k in TIFF_AXIS_TO_NGFF if TIFF_AXIS_TO_NGFF[k] is not None
             )
         )
         warnings.warn(
@@ -184,8 +182,8 @@ def _map_tiff_axes_to_ngff(
         )
 
     # Build output dimensions and shape
-    ngff_dims_list: List[str] = []
-    ngff_shape_list: List[int] = []
+    ngff_dims_list: list[str] = []
+    ngff_shape_list: list[int] = []
 
     # Sort other_dims by original index to maintain order
     other_dims.sort(key=lambda x: x[0])
@@ -230,11 +228,11 @@ def _map_tiff_axes_to_ngff(
 def _reshape_tiff_for_channels(
     data: da.Array,
     tiff_axes: str,
-    tiff_shape: Tuple[int, ...],
-    ngff_dims: Tuple[str, ...],
-    ngff_shape: Tuple[int, ...],
-    channel_indices: List[int],
-    dropped_indices: List[int],
+    tiff_shape: tuple[int, ...],
+    ngff_dims: tuple[str, ...],
+    ngff_shape: tuple[int, ...],
+    channel_indices: list[int],
+    dropped_indices: list[int],
 ) -> da.Array:
     """
     Reshape TIFF data array to match NGFF dimensions.
@@ -272,7 +270,7 @@ def _reshape_tiff_for_channels(
 
     # Step 1: Handle dropped axes by selecting first slice
     if dropped_indices:
-        slices: List[Union[int, slice]] = [slice(None)] * len(tiff_shape)
+        slices: list[int | slice] = [slice(None)] * len(tiff_shape)
         for idx in sorted(dropped_indices, reverse=True):
             slices[idx] = 0  # Take first slice of dropped dimension
         data = data[tuple(slices)]
@@ -324,7 +322,7 @@ def _reshape_tiff_for_channels(
 def _extract_ome_pixel_metadata(
     tif: "tifffile.TiffFile",
     series_index: int = 0,
-) -> Tuple[Optional[Dict[str, float]], Optional[Dict[str, str]]]:
+) -> tuple[dict[str, float] | None, dict[str, str] | None]:
     """
     Extract scale and units from OME-XML metadata for a specific series.
 
@@ -389,8 +387,8 @@ def _extract_ome_pixel_metadata(
     if pixels is None:
         return None, None
 
-    scale: Dict[str, float] = {}
-    units: Dict[str, str] = {}
+    scale: dict[str, float] = {}
+    units: dict[str, str] = {}
 
     # Extract physical sizes for each dimension
     dim_mapping = {
@@ -432,7 +430,7 @@ def _extract_ome_pixel_metadata(
 def _extract_ome_channel_names(
     tif: "tifffile.TiffFile",
     series_index: int = 0,
-) -> Optional[List[str]]:
+) -> list[str] | None:
     """
     Extract channel names from OME-XML metadata for a specific series.
 
@@ -542,9 +540,9 @@ def _build_multiscales_from_pyramid(
     tif: "tifffile.TiffFile",
     series_idx: int,
     tiff_series: "tifffile.TiffPageSeries",
-    ome_scale: Optional[Dict[str, float]],
-    ome_units: Optional[Dict[str, str]],
-    ome_channel_names: Optional[List[str]],
+    ome_scale: dict[str, float] | None,
+    ome_units: dict[str, str] | None,
+    ome_channel_names: list[str] | None,
 ) -> "Multiscales":
     """Build a Multiscales object from a pyramidal TIFF's existing pyramid levels.
 
@@ -587,7 +585,7 @@ def _build_multiscales_from_pyramid(
     tiff_axes = tiff_series.axes if tiff_series.axes else None
 
     # Get ordered dataset paths from multiscales metadata
-    paths: List[str] = []
+    paths: list[str] = []
     if isinstance(root, zarr.Group) and "multiscales" in root.attrs:
         multiscales_meta = root.attrs["multiscales"]
         if multiscales_meta:
@@ -609,10 +607,10 @@ def _build_multiscales_from_pyramid(
     level0_data = root[paths[0]]
 
     # Map TIFF axes for level 0
-    dims: Optional[Tuple[str, ...]] = None
-    ngff_shape: Optional[Tuple[int, ...]] = None
-    channel_indices: List[int] = []
-    dropped_indices: List[int] = []
+    dims: tuple[str, ...] | None = None
+    ngff_shape: tuple[int, ...] | None = None
+    channel_indices: list[int] = []
+    dropped_indices: list[int] = []
 
     if tiff_axes:
         dims, ngff_shape, channel_indices, dropped_indices = _map_tiff_axes_to_ngff(
@@ -682,8 +680,8 @@ def _build_multiscales_from_pyramid(
     images = [ngff_image_0]
     for path in paths[1:]:
         arr = root[path]
-        level_scale: Dict[str, float] = {}
-        level_translation: Dict[str, float] = {}
+        level_scale: dict[str, float] = {}
+        level_translation: dict[str, float] = {}
 
         for dim in ngff_image_0.dims:
             dim_idx = list(ngff_image_0.dims).index(dim)
@@ -701,19 +699,15 @@ def _build_multiscales_from_pyramid(
 
         # Convert to dask array first
         level_data = da.from_zarr(arr)
-        
+
         # Apply the same axis mapping and channel reshaping that was applied to level 0
         # Pyramid levels have the same axis structure as the original TIFF,
         # just with downsampled spatial dimensions
-        if (
-            tiff_axes
-            and dims is not None
-            and ngff_shape is not None
-        ):
+        if tiff_axes and dims is not None and ngff_shape is not None:
             # For this pyramid level, calculate what shape it should have after reshaping
             # by substituting the actual spatial dimensions from this level
             level_expected_shape = list(ngff_shape)
-            
+
             # Map TIFF axes to find where spatial dimensions are in the ORIGINAL shape
             tiff_axes_lower = tiff_axes.lower()
             for tiff_idx, tiff_ax in enumerate(tiff_axes_lower):
@@ -722,7 +716,7 @@ def _build_multiscales_from_pyramid(
                     # This is a spatial dimension - use the downsampled size
                     ngff_idx = list(dims).index(ngff_ax)
                     level_expected_shape[ngff_idx] = arr.shape[tiff_idx]
-            
+
             # Only reshape if shapes don't already match
             if level_data.shape != tuple(level_expected_shape):
                 level_data = _reshape_tiff_for_channels(
@@ -734,7 +728,7 @@ def _build_multiscales_from_pyramid(
                     channel_indices,
                     dropped_indices,
                 )
-        
+
         level_image = NgffImage(
             data=level_data,
             dims=ngff_image_0.dims,
@@ -785,10 +779,10 @@ def _build_multiscales_from_pyramid(
 
 
 def tiff_file_to_ngff_images(
-    tiff_path: Union[str, Path],
-    series: Optional[Union[int, str, List[Union[int, str]]]] = None,
+    tiff_path: str | Path,
+    series: int | str | list[int | str] | None = None,
     reuse_existing_pyramids: bool = False,
-) -> "List[Tuple[str, Union[NgffImage, Multiscales]]]":
+) -> "list[tuple[str, NgffImage | Multiscales]]":
     """
     Convert a TIFF file to a list of (name, NgffImage) or (name, Multiscales) pairs.
 
@@ -936,10 +930,10 @@ def tiff_file_to_ngff_images(
             # Get dims from the series axes with proper mapping
             # TIFF axes like 'S' (sample/RGB) need to be mapped to NGFF 'c' (channel)
             tiff_axes = tiff_series.axes if tiff_series.axes else None
-            dims: Optional[Tuple[str, ...]] = None
-            ngff_shape: Optional[Tuple[int, ...]] = None
-            channel_indices: List[int] = []
-            dropped_indices: List[int] = []
+            dims: tuple[str, ...] | None = None
+            ngff_shape: tuple[int, ...] | None = None
+            channel_indices: list[int] = []
+            dropped_indices: list[int] = []
 
             if tiff_axes:
                 # Map TIFF axes to NGFF dims (handles S->c, drops unsupported axes)

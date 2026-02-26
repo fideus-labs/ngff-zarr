@@ -2,22 +2,22 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 """Test HCS Zarr format version selection."""
 
-import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-import zarr
+from unittest.mock import MagicMock, patch
 
-from ngff_zarr.hcs import to_hcs_zarr, write_hcs_well_image, HCSPlate
+import dask.array as da
+import numpy as np
+import pytest
+import zarr
+from ngff_zarr import NgffImage, to_multiscales
+from ngff_zarr.hcs import HCSPlate, to_hcs_zarr, write_hcs_well_image
 from ngff_zarr.v04.zarr_metadata import (
     Plate,
     PlateColumn,
     PlateRow,
     PlateWell,
 )
-from ngff_zarr import NgffImage, to_multiscales
-import numpy as np
-import dask.array as da
 
 
 @pytest.fixture
@@ -73,17 +73,17 @@ def test_to_hcs_zarr_uses_correct_zarr_format_v04(basic_plate_metadata):
 
         # Verify the zarr format by checking the store structure
         # Zarr format 2 should have .zgroup and .zattrs files
-        assert (
-            output_path / ".zgroup"
-        ).exists(), "Expected .zgroup file for zarr format 2"
-        assert (
-            output_path / ".zattrs"
-        ).exists(), "Expected .zattrs file for zarr format 2"
+        assert (output_path / ".zgroup").exists(), (
+            "Expected .zgroup file for zarr format 2"
+        )
+        assert (output_path / ".zattrs").exists(), (
+            "Expected .zattrs file for zarr format 2"
+        )
 
         # Zarr format 3 would have zarr.json instead
-        assert not (
-            output_path / "zarr.json"
-        ).exists(), "Should not have zarr.json for zarr format 2"
+        assert not (output_path / "zarr.json").exists(), (
+            "Should not have zarr.json for zarr format 2"
+        )
 
         # Verify the metadata structure
         root = zarr.open_group(str(output_path), mode="r")
@@ -295,23 +295,23 @@ def test_zarr_format_selection_logic():
     # Test version 0.4 -> zarr format 2
     version = "0.4"
     zarr_format = 2 if version == "0.4" else 3
-    assert (
-        zarr_format == 2
-    ), f"Expected zarr_format 2 for version 0.4, got {zarr_format}"
+    assert zarr_format == 2, (
+        f"Expected zarr_format 2 for version 0.4, got {zarr_format}"
+    )
 
     # Test version 0.5 -> zarr format 3
     version = "0.5"
     zarr_format = 2 if version == "0.4" else 3
-    assert (
-        zarr_format == 3
-    ), f"Expected zarr_format 3 for version 0.5, got {zarr_format}"
+    assert zarr_format == 3, (
+        f"Expected zarr_format 3 for version 0.5, got {zarr_format}"
+    )
 
     # Test other versions -> zarr format 3
     for version in ["0.3", "0.6", "1.0"]:
         zarr_format = 2 if version == "0.4" else 3
-        assert (
-            zarr_format == 3
-        ), f"Expected zarr_format 3 for version {version}, got {zarr_format}"
+        assert zarr_format == 3, (
+            f"Expected zarr_format 3 for version {version}, got {zarr_format}"
+        )
 
 
 def test_write_hcs_well_image_integration(basic_plate_metadata, sample_multiscales):

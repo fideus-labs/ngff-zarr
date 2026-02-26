@@ -2,16 +2,15 @@
 # SPDX-License-Identifier: MIT
 import pytest
 import zarr
-from packaging import version
-
 from ngff_zarr import ConversionBackend, cli_input_to_ngff_image
+from packaging import version
 
 from ._data import test_data_dir
 
 zarr_version = version.parse(zarr.__version__)
 
 
-def test_cli_input_to_ngff_image_itk(input_images):  # noqa: ARG001
+def test_cli_input_to_ngff_image_itk(input_images):
     input = [
         test_data_dir / "input" / "cthead1.png",
     ]
@@ -19,7 +18,7 @@ def test_cli_input_to_ngff_image_itk(input_images):  # noqa: ARG001
     assert image.dims == ("y", "x")
 
 
-def test_cli_input_to_ngff_image_itk_glob(input_images):  # noqa: ARG001
+def test_cli_input_to_ngff_image_itk_glob(input_images):
     input = [
         test_data_dir / "input" / "lung_series" / "*.png",
     ]
@@ -27,7 +26,7 @@ def test_cli_input_to_ngff_image_itk_glob(input_images):  # noqa: ARG001
     assert image.dims == ("z", "y", "x")
 
 
-def test_cli_input_to_ngff_image_itk_list(input_images):  # noqa: ARG001
+def test_cli_input_to_ngff_image_itk_list(input_images):
     input = [
         test_data_dir / "input" / "lung_series" / "LIDC2-025.png",
         test_data_dir / "input" / "lung_series" / "LIDC2-026.png",
@@ -41,7 +40,7 @@ def test_cli_input_to_ngff_image_itk_list(input_images):  # noqa: ARG001
     zarr_version >= version.parse("3.0.0b1"),
     reason="Skipping because Zarr version is greater than 3, ZarrTiffStore not yet supported",
 )
-def test_cli_input_to_ngff_image_tifffile(input_images):  # noqa: ARG001
+def test_cli_input_to_ngff_image_tifffile(input_images):
     input = [
         test_data_dir / "input" / "bat-cochlea-volume.tif",
     ]
@@ -49,7 +48,7 @@ def test_cli_input_to_ngff_image_tifffile(input_images):  # noqa: ARG001
     assert image.dims == ("z", "y", "x")
 
 
-def test_cli_input_to_ngff_image_nibabel(input_images):  # noqa: ARG001
+def test_cli_input_to_ngff_image_nibabel(input_images):
     input = [
         test_data_dir / "input" / "mri_denoised.nii.gz",
     ]
@@ -62,7 +61,7 @@ def test_cli_input_to_ngff_image_nibabel(input_images):  # noqa: ARG001
     assert isinstance(image.data, np.ndarray)
 
 
-def test_cli_input_to_ngff_image_imageio(input_images):  # noqa: ARG001
+def test_cli_input_to_ngff_image_imageio(input_images):
     input = [
         test_data_dir / "input" / "cthead1.png",
     ]
@@ -77,6 +76,7 @@ def test_cli_input_to_ngff_image_imageio_spacing_mismatch():
     has fewer elements than the image dimensions, causing an IndexError.
     """
     import tempfile
+
     import numpy as np
 
     # Create a 2D test image

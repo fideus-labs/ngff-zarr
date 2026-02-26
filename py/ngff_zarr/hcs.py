@@ -16,14 +16,18 @@ Memory Management:
     - Cache sizes can be configured via ngff_zarr.config or function parameters
 """
 
-from pathlib import Path
-from typing import Optional, List
 import logging
 from collections import OrderedDict
-from packaging import version as pkg_version
+from pathlib import Path
+from typing import Optional
 
 import zarr
+from packaging import version as pkg_version
 
+from .from_ngff_zarr import from_ngff_zarr
+from .multiscales import Multiscales
+from .rfc9_zip import is_ozx_path, write_store_to_zip
+from .to_ngff_zarr import to_ngff_zarr
 from .v04.zarr_metadata import (
     Plate,
     PlateAcquisition,
@@ -33,10 +37,6 @@ from .v04.zarr_metadata import (
     Well,
     WellImage,
 )
-from .multiscales import Multiscales
-from .from_ngff_zarr import from_ngff_zarr
-from .to_ngff_zarr import to_ngff_zarr
-from .rfc9_zip import is_ozx_path, write_store_to_zip
 
 
 class LRUCache:
@@ -101,8 +101,8 @@ class HCSPlate:
         self,
         store,
         plate_metadata: Plate,
-        well_cache_size: Optional[int] = None,
-        image_cache_size: Optional[int] = None,
+        well_cache_size: int | None = None,
+        image_cache_size: int | None = None,
     ):
         self.store = store
         self.metadata = plate_metadata
@@ -115,27 +115,27 @@ class HCSPlate:
         self._wells = LRUCache(max_size=cache_size)
 
     @property
-    def name(self) -> Optional[str]:
+    def name(self) -> str | None:
         return self.metadata.name
 
     @property
-    def rows(self) -> List[PlateRow]:
+    def rows(self) -> list[PlateRow]:
         return self.metadata.rows
 
     @property
-    def columns(self) -> List[PlateColumn]:
+    def columns(self) -> list[PlateColumn]:
         return self.metadata.columns
 
     @property
-    def wells(self) -> List[PlateWell]:
+    def wells(self) -> list[PlateWell]:
         return self.metadata.wells
 
     @property
-    def acquisitions(self) -> Optional[List[PlateAcquisition]]:
+    def acquisitions(self) -> list[PlateAcquisition] | None:
         return self.metadata.acquisitions
 
     @property
-    def field_count(self) -> Optional[int]:
+    def field_count(self) -> int | None:
         return self.metadata.field_count
 
     def get_well(self, row_name: str, column_name: str) -> Optional["HCSWell"]:
@@ -190,7 +190,7 @@ class HCSWell:
         well_path: str,
         well_metadata: PlateWell,
         well_group_metadata: Well,
-        image_cache_size: Optional[int] = None,
+        image_cache_size: int | None = None,
     ):
         self.store = store
         self.path = well_path
@@ -209,7 +209,7 @@ class HCSWell:
         store,
         well_path: str,
         well_metadata: PlateWell,
-        image_cache_size: Optional[int] = None,
+        image_cache_size: int | None = None,
     ) -> "HCSWell":
         """Load a well from a zarr store."""
         root = zarr.open_group(store, mode="r")
@@ -273,10 +273,10 @@ class HCSWell:
         return self.plate_metadata.columnIndex
 
     @property
-    def images(self) -> List[WellImage]:
+    def images(self) -> list[WellImage]:
         return self.metadata.images
 
-    def get_image(self, field_index: int = 0) -> Optional[Multiscales]:
+    def get_image(self, field_index: int = 0) -> Multiscales | None:
         """Get a field of view (image) by index."""
         if field_index < 0 or field_index >= len(self.metadata.images):
             return None
@@ -319,7 +319,7 @@ class HCSWell:
 
     def get_image_by_acquisition(
         self, acquisition_id: int, field_index: int = 0
-    ) -> Optional[Multiscales]:
+    ) -> Multiscales | None:
         """Get a field of view by acquisition ID and field index."""
         # Find images for the specified acquisition
         acquisition_images = [
@@ -339,8 +339,8 @@ class HCSWell:
 def from_hcs_zarr(
     store,
     validate: bool = False,
-    well_cache_size: Optional[int] = None,
-    image_cache_size: Optional[int] = None,
+    well_cache_size: int | None = None,
+    image_cache_size: int | None = None,
 ) -> HCSPlate:
     """
     Read an HCS plate from an OME-Zarr NGFF store.
@@ -713,7 +713,7 @@ class HCSPlateWriter:
         column_name: str,
         field_index: int = 0,
         acquisition_id: int = 0,
-        well_metadata: Optional[Well] = None,
+        well_metadata: Well | None = None,
         **kwargs,
     ) -> None:
         """
@@ -762,7 +762,7 @@ def write_hcs_well_image(
     column_name: str,
     field_index: int = 0,
     acquisition_id: int = 0,
-    well_metadata: Optional[Well] = None,
+    well_metadata: Well | None = None,
     version: str = "0.4",
     **kwargs,
 ) -> None:

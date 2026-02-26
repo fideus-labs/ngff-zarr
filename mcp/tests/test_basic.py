@@ -5,7 +5,7 @@
 import pytest
 
 from ngff_zarr_mcp.models import ConversionOptions
-from ngff_zarr_mcp.utils import get_supported_formats, get_available_methods
+from ngff_zarr_mcp.utils import get_available_methods, get_supported_formats
 
 
 def test_get_supported_formats():

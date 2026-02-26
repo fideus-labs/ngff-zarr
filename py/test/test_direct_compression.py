@@ -3,11 +3,12 @@
 # SPDX-License-Identifier: MIT
 """Test script to test tensorstore compression directly."""
 
-import tempfile
 import sys
+import tempfile
 from pathlib import Path
-from ngff_zarr import to_ngff_zarr, cli_input_to_ngff_image, detect_cli_io_backend
+
 import numcodecs
+from ngff_zarr import cli_input_to_ngff_image, detect_cli_io_backend, to_ngff_zarr
 
 
 def test_tensorstore_compression():
