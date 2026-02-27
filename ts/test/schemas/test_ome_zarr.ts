@@ -259,6 +259,20 @@ Deno.test("Well Schema V0.5 - basic validation", () => {
   assertEquals(result.success, true);
 });
 
+Deno.test("Well Schema V0.5 - accepts paths with allowed special characters", () => {
+  const validPaths = ["0_a-b.image", "my-image", "img_01", "test.v2", "a", "0"];
+  for (const path of validPaths) {
+    const well = {
+      ome: {
+        well: { images: [{ path }] },
+        version: "0.5",
+      },
+    };
+    const result = WellSchemaV05.safeParse(well);
+    assertEquals(result.success, true, `Path "${path}" should be valid`);
+  }
+});
+
 Deno.test("Well Schema V0.5 - rejects invalid image path format", () => {
   const wellWithInvalidPath = {
     ome: {
@@ -275,6 +289,45 @@ Deno.test("Well Schema V0.5 - rejects invalid image path format", () => {
 
   const result = WellSchemaV05.safeParse(wellWithInvalidPath);
   assertEquals(result.success, false);
+});
+
+Deno.test("Well Schema V0.5 - rejects periods-only paths", () => {
+  const invalidPaths = [".", ".."];
+  for (const path of invalidPaths) {
+    const well = {
+      ome: {
+        well: { images: [{ path }] },
+        version: "0.5",
+      },
+    };
+    const result = WellSchemaV05.safeParse(well);
+    assertEquals(result.success, false, `Path "${path}" should be rejected`);
+  }
+});
+
+Deno.test("Well Schema V0.5 - rejects paths starting with __", () => {
+  const well = {
+    ome: {
+      well: { images: [{ path: "__something" }] },
+      version: "0.5",
+    },
+  };
+  const result = WellSchemaV05.safeParse(well);
+  assertEquals(result.success, false);
+});
+
+Deno.test("Well Schema V0.5 - rejects paths with forbidden characters", () => {
+  const invalidPaths = ["!@#$%^&*()+={}[]", "path with spaces", ""];
+  for (const path of invalidPaths) {
+    const well = {
+      ome: {
+        well: { images: [{ path }] },
+        version: "0.5",
+      },
+    };
+    const result = WellSchemaV05.safeParse(well);
+    assertEquals(result.success, false, `Path "${path}" should be rejected`);
+  }
 });
 
 Deno.test("Label Schema V0.4 - basic validation", () => {

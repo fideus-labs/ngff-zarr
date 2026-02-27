@@ -212,12 +212,23 @@ export const PlateSchemaV05 = z.object({
 });
 
 // Well schemas
-export const WellImageSchema: z.ZodType<{
-  acquisition?: number | undefined;
-  path: string;
-}> = z.object({
+export const WellImageSchema = z.object({
   acquisition: z.number().optional(),
-  path: z.string().regex(/^[A-Za-z0-9]+$/),
+  path: z
+    .string()
+    .min(1)
+    .regex(
+      /^[A-Za-z0-9_.\-]+$/,
+      "Path must only contain a-z, A-Z, 0-9, -, _, .",
+    )
+    .refine(
+      (val: string) => !/^\.+$/.test(val),
+      "Path must not consist only of periods",
+    )
+    .refine(
+      (val: string) => !val.startsWith("__"),
+      "Path must not start with '__'",
+    ),
 });
 
 export const WellSchemaV05 = z.object({
