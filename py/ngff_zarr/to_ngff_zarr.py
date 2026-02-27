@@ -935,8 +935,8 @@ def _compute_write_regions(
             else:
                 region = [slice(arr.shape[i]) for i in range(arr.ndim)]
                 region[z_index] = slice(
-                    slab_index * z_chunks,
-                    min((slab_index + 1) * z_chunks, arr.shape[z_index]),
+                    slab_index * slab_slices,
+                    min((slab_index + 1) * slab_slices, arr.shape[z_index]),
                 )
                 regions.append(tuple(region))
     else:
