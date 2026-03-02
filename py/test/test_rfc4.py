@@ -5,9 +5,9 @@
 from ngff_zarr.rfc4 import (
     AnatomicalOrientation,
     AnatomicalOrientationValues,
-    itk_lps_to_anatomical_orientation,
-    is_rfc4_enabled,
     add_anatomical_orientation_to_axis,
+    is_rfc4_enabled,
+    itk_lps_to_anatomical_orientation,
     remove_anatomical_orientation_from_axis,
 )
 

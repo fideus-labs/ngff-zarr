@@ -1,3 +1,23 @@
+## py-v0.30.0 (2026-02-24)
+
+### ✨ Features
+
+- **py**: add HCS well path auto-detection in CLI ([c4822cf](https://github.com/fideus-labs/ngff-zarr/commit/c4822cff43979a410220f5f4ae246698d2dafc6a))
+- **py**: add HCS well path support to from_ngff_zarr ([c21eaa7](https://github.com/fideus-labs/ngff-zarr/commit/c21eaa744c54925ae318c3eca46a98c77c98355c))
+
+### 🐛 Bug Fixes
+
+- **py**: apply PR review feedback for HCS path handling ([99061e1](https://github.com/fideus-labs/ngff-zarr/commit/99061e1f16f20a9d2550740f00f2c7d459b6f148))
+- **py**: pass multithreading error in to_multiscales ([f807c6c](https://github.com/fideus-labs/ngff-zarr/commit/f807c6cc9a42138781f55ddc250e33b22fdbcc08))
+
+## py-v0.29.0 (2026-02-20)
+
+### ✨ Features
+
+- **py**: improve NGFF version detection error messages ([7b03514](https://github.com/fideus-labs/ngff-zarr/commit/7b035144f117dfb8d07338121041ac63b5d5bf0b))
+- **py**: integrate channel names with OMERO metadata computation ([c4d5601](https://github.com/fideus-labs/ngff-zarr/commit/c4d5601b4d8e7d88415ba163c3dd37fc776aff5d))
+- **py**: add channel name extraction from OME-XML metadata ([9efb0b5](https://github.com/fideus-labs/ngff-zarr/commit/9efb0b561c053a42255778dc0d73b2510c269938))
+
 ## py-v0.28.1 (2026-02-18)
 
 ### 🐛 Bug Fixes

@@ -11,9 +11,10 @@ Requires the `liffile` package: pip install liffile
 """
 
 import re
+from collections.abc import Sequence
 from functools import reduce
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any
 
 import dask
 import dask.array as da
@@ -29,7 +30,7 @@ from .v04.zarr_metadata import (
 
 # Mapping from LIF dimension names to OME-NGFF dimension names
 # LIF uses uppercase, OME-NGFF uses lowercase for spatial dims
-LIF_DIM_TO_NGFF: Dict[str, Optional[str]] = {
+LIF_DIM_TO_NGFF: dict[str, str | None] = {
     "X": "x",
     "Y": "y",
     "Z": "z",
@@ -57,7 +58,7 @@ def _get_lif_image_data_delayed(lif_image: Any) -> np.ndarray:
 
 def _extract_scale_translation(
     lif_image: Any, ngff_dims: Sequence[str]
-) -> Tuple[Dict[str, float], Dict[str, float]]:
+) -> tuple[dict[str, float], dict[str, float]]:
     """
     Extract scale (pixel spacing) and translation (origin) from LIF image coordinates.
 
@@ -75,8 +76,8 @@ def _extract_scale_translation(
     translation : Dict[str, float]
         Origin offset for spatial dimensions.
     """
-    scale: Dict[str, float] = {}
-    translation: Dict[str, float] = {}
+    scale: dict[str, float] = {}
+    translation: dict[str, float] = {}
 
     coords = getattr(lif_image, "coords", {})
 
@@ -108,7 +109,7 @@ def _extract_scale_translation(
 
 def _map_lif_dims_to_ngff(
     lif_dims: Sequence[str], lif_shape: Sequence[int]
-) -> Tuple[Tuple[str, ...], Tuple[int, ...]]:
+) -> tuple[tuple[str, ...], tuple[int, ...]]:
     """
     Map LIF dimensions to OME-NGFF dimensions, flattening channel-like dims.
 
@@ -130,9 +131,9 @@ def _map_lif_dims_to_ngff(
     channel_like_dims = {"C", "λ", "Λ", "S"}
 
     # First pass: identify channel indices and their sizes
-    channel_indices: List[int] = []
-    channel_sizes: List[int] = []
-    other_dims: List[Tuple[int, str, int]] = []  # (original_idx, ngff_name, size)
+    channel_indices: list[int] = []
+    channel_sizes: list[int] = []
+    other_dims: list[tuple[int, str, int]] = []  # (original_idx, ngff_name, size)
 
     for i, (dim, size) in enumerate(zip(lif_dims, lif_shape)):
         ngff_dim = LIF_DIM_TO_NGFF.get(dim)
@@ -150,8 +151,8 @@ def _map_lif_dims_to_ngff(
             other_dims.append((i, dim.lower(), size))
 
     # Build output dimensions and shape
-    ngff_dims_list: List[str] = []
-    ngff_shape_list: List[int] = []
+    ngff_dims_list: list[str] = []
+    ngff_shape_list: list[int] = []
 
     # Sort other_dims by original index to maintain order
     other_dims.sort(key=lambda x: x[0])
@@ -283,7 +284,7 @@ def _reshape_for_flattened_channels(
 
 def lif_to_ngff_image(
     lif_image: Any,
-    name: Optional[str] = None,
+    name: str | None = None,
 ) -> NgffImage:
     """
     Convert a single LifImage to an NgffImage.
@@ -351,9 +352,9 @@ def lif_to_ngff_image(
 
 
 def lif_file_to_ngff_images(
-    lif_path: Union[str, Path],
-    series: Optional[Union[int, str, List[Union[int, str]]]] = None,
-) -> List[Tuple[str, NgffImage]]:
+    lif_path: str | Path,
+    series: int | str | list[int | str] | None = None,
+) -> list[tuple[str, NgffImage]]:
     """
     Convert a LIF file to a list of (name, NgffImage) pairs.
 
@@ -389,7 +390,7 @@ def lif_file_to_ngff_images(
         msg = "liffile package is required. Install with: pip install liffile"
         raise ImportError(msg) from e
 
-    results: List[Tuple[str, NgffImage]] = []
+    results: list[tuple[str, NgffImage]] = []
 
     with LifFile(lif_path) as lif:
         all_images = list(lif.images)
@@ -400,7 +401,7 @@ def lif_file_to_ngff_images(
         elif isinstance(series, int):
             # Explicit index - validate it exists
             if series < 0 or series >= len(all_images):
-                msg = f"Series index {series} is out of bounds. File has {len(all_images)} series (indices 0-{len(all_images)-1})."
+                msg = f"Series index {series} is out of bounds. File has {len(all_images)} series (indices 0-{len(all_images) - 1})."
                 raise IndexError(msg)
             indices_to_convert = [series]
         elif isinstance(series, str):
@@ -415,7 +416,7 @@ def lif_file_to_ngff_images(
                 if isinstance(s, int):
                     # Explicit index - validate it exists
                     if s < 0 or s >= len(all_images):
-                        msg = f"Series index {s} is out of bounds. File has {len(all_images)} series (indices 0-{len(all_images)-1})."
+                        msg = f"Series index {s} is out of bounds. File has {len(all_images)} series (indices 0-{len(all_images) - 1})."
                         raise IndexError(msg)
                     indices_to_convert.append(s)
                 elif isinstance(s, str):
@@ -461,7 +462,7 @@ def has_mosaic_dimension(lif_image: Any) -> bool:
         idx = dims.index("M") if isinstance(dims, (list, tuple)) else None
         if idx is not None:
             return lif_image.shape[idx] > 1
-        elif "M" in sizes:
+        if "M" in sizes:
             return sizes["M"] > 1
 
     return False
@@ -471,7 +472,7 @@ def lif_to_hcs_plate(
     lif_image: Any,
     plate_name: str = "plate",
     version: str = "0.4",
-) -> Tuple[Plate, List[Tuple[str, str, int, NgffImage]]]:
+) -> tuple[Plate, list[tuple[str, str, int, NgffImage]]]:
     """
     Convert a LIF image with mosaic dimension to HCS plate structure.
 
@@ -539,7 +540,7 @@ def lif_to_hcs_plate(
     )
 
     # Extract individual mosaic positions as separate images
-    well_images: List[Tuple[str, str, int, NgffImage]] = []
+    well_images: list[tuple[str, str, int, NgffImage]] = []
 
     # Get the full data
     lif_dims = lif_image.dims

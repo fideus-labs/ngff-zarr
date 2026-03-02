@@ -1,15 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 import tempfile
-from packaging import version
 
-import pytest
-
-import zarr.storage
-import zarr
 import numpy as np
-
-from ngff_zarr import Methods, to_multiscales, to_ngff_zarr, from_ngff_zarr, NgffImage
+import pytest
+import zarr
+import zarr.storage
+from ngff_zarr import Methods, NgffImage, from_ngff_zarr, to_multiscales, to_ngff_zarr
+from packaging import version
 
 from ._data import verify_against_baseline
 

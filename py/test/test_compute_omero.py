@@ -4,7 +4,6 @@
 
 import numpy as np
 import pytest
-
 from ngff_zarr import (
     GLASBEY_COLORS,
     compute_omero_from_multiscales,

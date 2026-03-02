@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from collections.abc import MutableMapping
-from typing import Hashable, Mapping, Optional, Sequence, Union
+from collections.abc import Hashable, Mapping, MutableMapping, Sequence
 
 import dask
 from dask.array.core import Array as DaskArray
@@ -58,13 +57,13 @@ def _extract_array_from_group(group: ZarrGroup):
 
 
 def to_ngff_image(
-    data: Union[ArrayLike, MutableMapping, str, ZarrArray, ZarrGroup],
-    dims: Optional[Sequence[SupportedDims]] = None,
-    scale: Optional[Union[Mapping[Hashable, float]]] = None,
-    translation: Optional[Union[Mapping[Hashable, float]]] = None,
+    data: ArrayLike | MutableMapping | str | ZarrArray | ZarrGroup,
+    dims: Sequence[SupportedDims] | None = None,
+    scale: Mapping[Hashable, float] | None = None,
+    translation: Mapping[Hashable, float] | None = None,
     name: str = "image",
-    axes_units: Optional[Mapping[str, Units]] = None,
-    channel_names: Optional[Sequence[str]] = None,
+    axes_units: Mapping[str, Units] | None = None,
+    channel_names: Sequence[str] | None = None,
 ) -> NgffImage:
     """
     Create an image with pixel array and metadata to following the OME-NGFF data model.

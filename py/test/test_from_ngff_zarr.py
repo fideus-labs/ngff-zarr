@@ -1,5 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+import packaging.version
+import pytest
+import zarr
 from dask_image import imread
 from ngff_zarr import (
     from_ngff_zarr,
@@ -8,9 +11,6 @@ from ngff_zarr import (
     to_ngff_zarr,
 )
 from zarr.storage import MemoryStore
-import packaging.version
-import zarr
-import pytest
 
 from ._data import test_data_dir, verify_against_baseline
 
@@ -46,7 +46,7 @@ def test_from_ngff_zarr(input_images):
     )
 
 
-def test_omero_zarr_from_ngff_zarr_to_ngff_zarr(input_images):  # noqa: ARG001
+def test_omero_zarr_from_ngff_zarr_to_ngff_zarr(input_images):
     dataset_name = "13457537"
     store_path = test_data_dir / "input" / f"{dataset_name}.zarr"
     version = "0.4"
@@ -98,7 +98,7 @@ def test_from_ngff_zarr_with_storage_options(input_images):
 )
 def test_from_ngff_zarr_string_url_with_storage_options():
     """Test that string URLs with storage_options create appropriate stores."""
-    from unittest.mock import patch, MagicMock
+    from unittest.mock import MagicMock, patch
 
     # Mock the FsspecStore.from_url method
     with patch("zarr.storage.FsspecStore.from_url") as mock_from_url:
@@ -148,8 +148,8 @@ def test_from_ngff_zarr_string_url_with_storage_options():
 def test_omero_metadata_backward_compatibility():
     """Test that OMERO metadata with only min/max or only start/end is handled correctly."""
     import numpy as np
-    from zarr.storage import MemoryStore
     from ngff_zarr import from_ngff_zarr
+    from zarr.storage import MemoryStore
 
     # Create a test store with OMERO metadata using only min/max (old format)
     store = MemoryStore()

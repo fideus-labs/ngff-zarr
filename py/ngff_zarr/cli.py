@@ -14,6 +14,7 @@ from pathlib import Path
 
 import dask.utils
 import zarr
+import zarr.storage
 from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
@@ -28,7 +29,6 @@ from rich.progress import (
 )
 from rich.spinner import Spinner
 from rich_argparse import RichHelpFormatter
-import zarr.storage
 
 if hasattr(zarr.storage, "DirectoryStore"):
     LocalStore = zarr.storage.DirectoryStore
@@ -409,7 +409,7 @@ def main():
         "--chunks-per-shard",
         nargs="+",
         type=int,
-        help="Number of chunks along each axis in a shard. If not set, no sharding. Either a single integer or integer per dimension, e.g. 64 or 8 16 32",
+        help="Number of chunks along each axis in a shard. If not set, no sharding. Either a single integer or integer per dimension, e.g. 4 or 2 4 8",
         metavar="CHUNKS_PER_SHARD",
     )
     processing_group.add_argument(
@@ -498,7 +498,7 @@ def main():
         )
         client = Client(cluster)
 
-        def shutdown_client(sig_id, frame):  # noqa: ARG001
+        def shutdown_client(sig_id, frame):
             client.shutdown()
 
         atexit.register(shutdown_client, None, None)
@@ -649,8 +649,8 @@ def main():
             return
 
         if args.output and output_backend is ConversionBackend.IMAGEIO:
-            import numpy as np
             import imageio.v3 as iio
+            import numpy as np
 
             ngff_image = cli_input_to_ngff_image(
                 input_backend, args.input, args.output_scale
@@ -825,11 +825,11 @@ def main():
             try:
                 from liffile import LifFile
 
+                from .hcs import HCSPlateWriter
                 from .lif_to_ngff_image import (
                     lif_file_to_ngff_images,
                     lif_to_hcs_plate,
                 )
-                from .hcs import HCSPlateWriter
 
                 with LifFile(args.input[0]) as lif:
                     # Get series to convert based on --series argument
