@@ -38,7 +38,7 @@ tools:
     - "find docs -name '*.md' -o -name '*.mdx'"
     - "find docs -maxdepth 1 -ls"
     - "find docs -name '*.md' -exec cat {} +"
-    - "grep -r '*' docs"
+    - "grep -rF '*' docs"
     - "git"
     - "find pkg/parser/schemas -name '*.json'"
     - "cat pkg/parser/schemas/*.json"
