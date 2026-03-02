@@ -17,7 +17,7 @@ import pytest
 # The well image path pattern from ome/ngff-spec#71 that will appear
 # in a future spec version. We test the rules here directly so they
 # are ready when the schema is updated.
-WELL_IMAGE_PATH_PATTERN = re.compile(r"^[A-Za-z0-9_.\-]+$")
+WELL_IMAGE_PATH_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 PERIODS_ONLY_PATTERN = re.compile(r"^\.+$")
 DOUBLE_UNDERSCORE_PREFIX = "__"
 

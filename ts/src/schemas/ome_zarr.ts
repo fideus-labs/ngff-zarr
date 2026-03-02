@@ -218,7 +218,7 @@ export const WellImageSchema = z.object({
     .string()
     .min(1)
     .regex(
-      /^[A-Za-z0-9_.\-]+$/,
+      /^[-A-Za-z0-9_.]+$/,
       "Path must only contain a-z, A-Z, 0-9, -, _, .",
     )
     .refine(
