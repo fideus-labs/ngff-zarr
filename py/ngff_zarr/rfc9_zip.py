@@ -60,10 +60,19 @@ def _enumerate_fs_files(root_dir: Path) -> list[str]:
 
 def _order_files_rfc9(all_files: list[str]) -> list[str]:
     """Order files per RFC-9: root zarr.json first, other zarr.json next, then rest sorted."""
-    zarr_jsons = [f for f in all_files if f.endswith("zarr.json")]
-    if "zarr.json" in zarr_jsons:
-        zarr_jsons.remove("zarr.json")
-        zarr_jsons.insert(0, "zarr.json")
+    # Collect and deterministically order all zarr.json files
+    has_root = "zarr.json" in all_files
+    non_root_zarr_jsons = [
+        f for f in all_files if f.endswith("zarr.json") and f != "zarr.json"
+    ]
+    # Sort non-root zarr.json by path depth (shallower first) then lexicographically
+    non_root_zarr_jsons_sorted = sorted(
+        non_root_zarr_jsons, key=lambda p: (p.count("/"), p)
+    )
+    if has_root:
+        zarr_jsons = ["zarr.json"] + non_root_zarr_jsons_sorted
+    else:
+        zarr_jsons = non_root_zarr_jsons_sorted
 
     other_files = [f for f in all_files if not f.endswith("zarr.json")]
     return zarr_jsons + sorted(other_files)
