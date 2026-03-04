@@ -1,3 +1,14 @@
+## py-v0.31.0 (2026-03-04)
+
+### ✨ Features
+
+- **py,ts**: relax well image path constraints per ome/ngff-spec#71 ([32b7723](https://github.com/fideus-labs/ngff-zarr/commit/32b7723a79698272dea694348f24505ff8efa6d9))
+- **py**: add support for bioformats2raw container layout ([07b1e4f](https://github.com/fideus-labs/ngff-zarr/commit/07b1e4fb082256ca9a64db0392244aad3e7603f1))
+
+### 🐛 Bug Fixes
+
+- **ci**: avoid duplicate pixi binary install in release workflow ([07dbd36](https://github.com/fideus-labs/ngff-zarr/commit/07dbd3642a3dc44fb06f48523fcf0221d1d00607))
+
 ## py-v0.30.0 (2026-02-24)
 
 ### ✨ Features
