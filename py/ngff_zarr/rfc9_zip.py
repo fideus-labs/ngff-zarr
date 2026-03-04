@@ -161,7 +161,7 @@ def write_store_to_zip(
                     raise ValueError(
                         f"Could not read data for {file_path} from {root_dir}"
                     )
-                zf.writestr(file_path, full_path.read_bytes())
+                zf.write(full_path, arcname=file_path)
         else:
             # Non-filesystem store (e.g. MemoryStore): data is already in
             # memory, so bulk-reading via asyncio.gather is fine.
