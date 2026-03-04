@@ -212,7 +212,10 @@ export const PlateSchemaV05 = z.object({
 });
 
 // Well schemas
-export const WellImageSchema = z.object({
+export const WellImageSchema: z.ZodType<{
+  acquisition?: number | undefined;
+  path: string;
+}> = z.object({
   acquisition: z.number().optional(),
   path: z
     .string()
