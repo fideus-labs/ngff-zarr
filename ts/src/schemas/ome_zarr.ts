@@ -217,7 +217,7 @@ export interface WellImage {
   path: string;
 }
 
-export const WellImageSchema: z.ZodSchema<WellImage> = z.object({
+export const WellImageSchema: z.ZodType<WellImage> = z.object({
   acquisition: z.number().optional(),
   path: z
     .string()
@@ -298,7 +298,6 @@ export type PlateColumn = z.infer<typeof PlateColumnSchema>;
 export type PlateRow = z.infer<typeof PlateRowSchema>;
 export type PlateWell = z.infer<typeof PlateWellSchema>;
 export type PlateV05 = z.infer<typeof PlateSchemaV05>;
-export type WellImage = z.infer<typeof WellImageSchema>;
 export type WellV05 = z.infer<typeof WellSchemaV05>;
 export type OmeSeries = z.infer<typeof OmeSeriesSchema>;
 export type OmeMetadata = z.infer<typeof OmeMetadataSchema>;
