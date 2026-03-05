@@ -43,9 +43,12 @@ The central workflow follows this pattern across all implementations:
 ```bash
 pixi run --as-is test                    # Run pytest test suite
 pixi run --as-is pytest path/to/test.py::test_name  # Single test
-pixi run --as-is lint                    # Pre-commit hooks (ruff, black)
+pixi run --as-is lint                    # Pre-commit hooks (ruff)
 pixi run --as-is format                  # Format code
 ```
+
+> **Note:** The `lint` task runs all pre-commit hooks including `ruff format`.
+> Always run `lint` before committing to catch both linting and formatting issues.
 
 ### MCP Server (mcp/)
 
@@ -176,7 +179,7 @@ This will install hooks for:
 
 ## Python Code Style Guidelines
 
-- **Line length**: 88 characters (Black/Ruff standard)
+- **Line length**: 88 characters (Ruff standard)
 - **Imports**: Use absolute imports, group by standard/third-party/local
 - **Types**: Use type hints, especially for public APIs
 - **Naming**: snake_case for functions/variables, PascalCase for classes
@@ -184,10 +187,84 @@ This will install hooks for:
 - **Docstrings**: Use for public functions/classes
 - **Comments**: Minimal, focus on why not what
 
+## Python Formatting Requirements (CRITICAL for AI Agents)
+
+All Python code MUST pass `ruff format` and `ruff check` before committing.
+The pre-commit hooks enforce this automatically for local commits, but AI
+coding agents that commit via GitHub (Copilot, etc.) bypass these hooks. This
+causes a ping-pong cycle where human maintainers must repeatedly reformat
+AI-written code.
+
+**Before committing any Python changes, always run:**
+
+```bash
+pixi run --as-is lint      # from py/ directory — runs all pre-commit hooks
+```
+
+Run it until it passes cleanly with no file modifications. If it modifies
+files, stage the changes and run it again.
+
+### Common AI Formatting Mistakes
+
+AI agents frequently produce code that conflicts with `ruff format`. Follow
+these conventions to prevent reformatting churn:
+
+1. **No trailing whitespace on blank lines** — blank lines inside indented
+   blocks must be completely empty (zero characters before the newline):
+   ```python
+   # WRONG — blank line has spaces:
+   def foo():
+       x = 1
+       ····
+       y = 2
+
+   # RIGHT — blank line is truly empty:
+   def foo():
+       x = 1
+
+       y = 2
+   ```
+
+2. **No backslash line continuations** — use parentheses instead:
+   ```python
+   # WRONG:
+   assert img.shape == expected, \
+       f"Shape mismatch: {img.shape}"
+
+   # RIGHT:
+   assert (
+       img.shape == expected
+   ), f"Shape mismatch: {img.shape}"
+   ```
+
+3. **No spaces around the `**` (power) operator**:
+   ```python
+   # WRONG:
+   x = 2 ** i
+
+   # RIGHT:
+   x = 2**i
+   ```
+
+4. **Long lines (>88 chars) in assert statements** must use parenthesized
+   form, not backslash continuations.
+
+5. **Blank line after mid-function imports**:
+   ```python
+   # WRONG:
+   from foo import Bar
+   assert isinstance(x, Bar)
+
+   # RIGHT:
+   from foo import Bar
+
+   assert isinstance(x, Bar)
+   ```
+
 ## Key Python Conventions
 
 - Use `pytest` for testing with fixtures in conftest.py
-- Follow Ruff linting rules (see pyproject.toml [tool.lint])
+- Follow Ruff linting and formatting rules (see pyproject.toml [tool.ruff.lint])
 - Use `dask.array` for large array processing
 - Import from `.__about__` for version info
 - Use `pathlib.Path` over os.path

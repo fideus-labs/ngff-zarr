@@ -2,13 +2,14 @@
 # SPDX-License-Identifier: MIT
 """Tests for convert_to_ome_zarr function."""
 
-import pytest
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
 
-from ngff_zarr_mcp.tools import convert_to_ome_zarr
+import pytest
+
 from ngff_zarr_mcp.models import ConversionOptions
+from ngff_zarr_mcp.tools import convert_to_ome_zarr
 
 
 @pytest.fixture

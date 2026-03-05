@@ -5,17 +5,17 @@
 Test the multiscales metadata field functionality.
 """
 
-import tempfile
 import json
+import tempfile
 from pathlib import Path
-import numpy as np
 
+import numpy as np
 from ngff_zarr import (
     Methods,
+    from_ngff_zarr,
     to_multiscales,
     to_ngff_image,
     to_ngff_zarr,
-    from_ngff_zarr,
 )
 
 
@@ -136,15 +136,15 @@ def test_different_methods_have_different_metadata():
 
     # Check that different methods have different descriptions
     descriptions = [m["description"] for m in metadata_results]
-    assert (
-        len(set(descriptions)) > 1
-    ), "Different methods should have different descriptions"
+    assert len(set(descriptions)) > 1, (
+        "Different methods should have different descriptions"
+    )
 
     # Check that all use similar package but potentially different functions
     method_names = [m["method_name"] for m in metadata_results]
-    assert all(
-        "itkwasm_downsample" in name for name in method_names
-    ), "All should use itkwasm_downsample package"
+    assert all("itkwasm_downsample" in name for name in method_names), (
+        "All should use itkwasm_downsample package"
+    )
 
 
 def test_metadata_field_none_when_no_method():

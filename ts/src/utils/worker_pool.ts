@@ -10,8 +10,9 @@
  * - **Write scheduling pool**: Used by `createWriteQueue()` for bounding
  *   concurrent chunk-level write pipelines (get + transform + set).
  *
- * Both pools are lazily initialized singletons with pool size
- * `Math.min(navigator?.hardwareConcurrency || 4, 16)`.
+ * Both pools are lazily initialized singletons whose size is controlled
+ * by {@link config.workerPoolSize} (default:
+ * `Math.min(navigator?.hardwareConcurrency || 4, 16)`).
  */
 
 import type {
@@ -32,6 +33,8 @@ import type {
 } from "zarrita";
 import * as zarr from "zarrita";
 
+import { config } from "../config.ts";
+
 export type { ChunkCache } from "@fideus-labs/fizarrita";
 
 // fizarrita uses npm:zarrita while this project uses jsr:@zarrita/zarrita.
@@ -40,12 +43,6 @@ export type { ChunkCache } from "@fideus-labs/fizarrita";
 // explicit `as any` casts when calling into fizarrita.
 // deno-lint-ignore no-explicit-any
 type AnyZarrArray = any;
-
-/** Pool size for both codec and write scheduling pools. */
-const POOL_SIZE = Math.min(
-  (typeof navigator !== "undefined" && navigator?.hardwareConcurrency) || 4,
-  16,
-);
 
 /** Whether SharedArrayBuffer is available in this environment. */
 const USE_SHARED_ARRAY_BUFFER = typeof SharedArrayBuffer !== "undefined";
@@ -58,7 +55,7 @@ let _codecPool: WorkerPool | null = null;
 
 function getCodecPool(): WorkerPool {
   if (!_codecPool) {
-    _codecPool = new WorkerPool(POOL_SIZE);
+    _codecPool = new WorkerPool(config.workerPoolSize);
   }
   return _codecPool;
 }
@@ -71,7 +68,7 @@ let _writePool: WorkerPool | null = null;
 
 function getWritePool(): WorkerPool {
   if (!_writePool) {
-    _writePool = new WorkerPool(POOL_SIZE);
+    _writePool = new WorkerPool(config.workerPoolSize);
   }
   return _writePool;
 }
@@ -269,7 +266,7 @@ export type ChunkQueue = {
  * outer scheduling tasks do not compete with inner codec worker tasks.
  *
  * Each queued function runs with one pool slot held; the pool bounds
- * concurrency to `Math.min(navigator?.hardwareConcurrency || 4, 16)`.
+ * concurrency to {@link config.workerPoolSize}.
  */
 export function createWriteQueue(): ChunkQueue {
   const pool = getWritePool();

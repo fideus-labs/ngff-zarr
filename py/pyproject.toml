@@ -100,7 +100,12 @@ filterwarnings = [
 log_cli_level = "INFO"
 testpaths = ["tests"]
 
-[tool.lint]
+[tool.ruff]
+src = ["ngff_zarr"]
+exclude = []
+line-length = 88
+
+[tool.ruff.lint]
 select = [
   "E",
   "F",
@@ -129,38 +134,48 @@ select = [
   "PD",  # pandas-vet
 ]
 extend-ignore = [
-  "PLR",  # Design related pylint codes
-  "E501", # Line too long
+  "PLR",     # Design related pylint codes
+  "PLC",     # Convention codes (lazy imports are intentional, etc.)
+  "PLW",     # Warning codes
+  "E501",    # Line too long
+  "EM",      # flake8-errmsg (exception string formatting)
+  "G004",    # Logging statement uses f-string
+  "NPY002",  # Replace legacy np.random calls (pervasive in tests)
+  "T201",    # print found (used intentionally in CLI code)
+  "B905",    # zip() without explicit strict= parameter
+  "B904",    # raise in except should use from
+  "B007",    # Loop control variable not used within loop body
+  "B011",    # Do not assert False
+  "B028",    # No stacklevel keyword in warnings.warn
+  "EXE001",  # Shebang present but file is not executable
+  "RUF005",  # Consider iterable unpacking instead of concatenation
+  "RUF022",  # __all__ is not sorted
+  "RUF043",  # pytest.raises match uses metacharacters
+  "RUF059",  # Unused unpacked variable
+  "PTH",     # flake8-use-pathlib (too many pre-existing violations)
+  "PGH003",  # Use specific rule codes when ignoring type issues
+  "RET504",  # Unnecessary assignment before return
+  "SIM",     # flake8-simplify (too many pre-existing violations)
+  "ARG001",  # Unused function argument
+  "UP007",   # Use X | Y for type annotations (requires Python 3.10+)
+  "UP036",   # Version block is outdated
+  "PT006",   # Wrong type for pytest parametrize names
+  "PT011",   # pytest.raises too broad
+  "PT012",   # pytest.raises block should contain single statement
+  "PT015",   # assert False should be pytest.fail
+  "C416",    # Unnecessary comprehension
+  "ICN001",  # Import alias does not follow convention
 ]
 unfixable = [
   "T20",  # Removes print statements
   "F841", # Removes unused variables
 ]
-flake8-unused-arguments.ignore-variadic-names = true
 
-[tool.lint.per-file-ignores]
+[tool.ruff.lint.flake8-unused-arguments]
+ignore-variadic-names = true
+
+[tool.ruff.lint.per-file-ignores]
 "tests/**" = ["T20"]
-
-[tool.ruff]
-src = ["src"]
-exclude = []
-line-length = 88
-
-[tool.pylint]
-py-version = "3.8"
-ignore-paths = ["src/ngff_zarr/__about__.py"]
-reports.output-format = "colorized"
-similarities.ignore-imports = "yes"
-messages_control.disable = [
-  "design",
-  "fixme",
-  "line-too-long",
-  "missing-module-docstring",
-  "wrong-import-position",
-]
-
-[tool.black]
-line-length = 88
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
@@ -225,7 +240,7 @@ matplotlib = ">=3.10.6,<4"
 
 [tool.commitizen]
 name = "cz_ngff_zarr"
-version = "0.29.0"
+version = "0.31.0"
 version_provider = "commitizen"
 tag_format = "py-v$version"
 update_changelog_on_bump = true

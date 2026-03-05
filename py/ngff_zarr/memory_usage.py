@@ -1,11 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from typing import Optional, Set
 
 from .ngff_image import NgffImage
 
 
-def memory_usage(image: NgffImage, constrained_dims: Optional[Set[str]] = None) -> int:
+def memory_usage(image: NgffImage, constrained_dims: set[str] | None = None) -> int:
     """Approximate array partition memory usage in bytes.
 
     Assumes array will have the same memory usage resulting from an array chunk."""

@@ -2,15 +2,14 @@
 # SPDX-License-Identifier: MIT
 import numpy as np
 import pytest
-
 from ngff_zarr import (
-    nibabel_image_to_ngff_image,
     extract_omero_metadata_from_nibabel,
+    nibabel_image_to_ngff_image,
     to_multiscales,
 )
 from ngff_zarr.rfc4 import AnatomicalOrientationValues
 
-from ._data import test_data_dir, input_images  # noqa: F401
+from ._data import input_images, test_data_dir  # noqa: F401
 
 nibabel = pytest.importorskip("nibabel")
 nib = nibabel

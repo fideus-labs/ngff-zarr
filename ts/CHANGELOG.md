@@ -1,3 +1,19 @@
+## ts-v0.15.0 (2026-03-04)
+
+### ✨ Features
+
+- **py,ts**: relax well image path constraints per ome/ngff-spec#71 ([32b7723](https://github.com/fideus-labs/ngff-zarr/commit/32b7723a79698272dea694348f24505ff8efa6d9))
+
+### 🐛 Bug Fixes
+
+- **ci**: avoid duplicate pixi binary install in release workflow ([07dbd36](https://github.com/fideus-labs/ngff-zarr/commit/07dbd3642a3dc44fb06f48523fcf0221d1d00607))
+
+## ts-v0.14.0 (2026-02-24)
+
+### ✨ Features
+
+- **ts**: add configurable worker pool size via config.workerPoolSize ([3b308dd](https://github.com/fideus-labs/ngff-zarr/commit/3b308dd11af49d610c801d5074ed4a04f40aa8a0))
+
 ## ts-v0.13.0 (2026-02-20)
 
 ### ⚡ Performance

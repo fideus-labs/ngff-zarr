@@ -1,6 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from typing import Tuple
 
 import numpy as np
 from dask.array import concatenate, expand_dims, map_blocks, map_overlap, take
@@ -11,14 +10,14 @@ from ._support import (
     _can_use_map_blocks_fast_path,
     _compute_sigma,
     _dim_scale_factors,
-    _update_previous_dim_factors,
     _get_block,
-    _spatial_dims,
-    _next_scale_metadata,
     _next_block_shape,
+    _next_scale_metadata,
+    _spatial_dims,
+    _update_previous_dim_factors,
 )
 
-_image_dims: Tuple[str, str, str, str] = ("x", "y", "z", "t")
+_image_dims: tuple[str, str, str, str] = ("x", "y", "z", "t")
 
 
 def _compute_itk_gaussian_kernel_radius(input_size, sigma_values) -> list:
@@ -137,7 +136,7 @@ def _downsample_itk_bin_shrink(
     ]
     previous_image = ngff_image
     dims = ngff_image.dims
-    previous_dim_factors = {d: 1 for d in dims}
+    previous_dim_factors = dict.fromkeys(dims, 1)
     spatial_dims = [dim for dim in dims if dim in _spatial_dims]
     spatial_dims = _image_dims[: len(spatial_dims)]
     for scale_factor in scale_factors:
@@ -289,7 +288,7 @@ def _downsample_itk_gaussian(
     ]
     previous_image = ngff_image
     dims = ngff_image.dims
-    previous_dim_factors = {d: 1 for d in dims}
+    previous_dim_factors = dict.fromkeys(dims, 1)
     spatial_dims = [dim for dim in dims if dim in _spatial_dims]
     spatial_dims = _image_dims[: len(spatial_dims)]
     for scale_factor in scale_factors:

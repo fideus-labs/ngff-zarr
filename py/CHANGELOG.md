@@ -1,3 +1,26 @@
+## py-v0.31.0 (2026-03-04)
+
+### ✨ Features
+
+- **py,ts**: relax well image path constraints per ome/ngff-spec#71 ([32b7723](https://github.com/fideus-labs/ngff-zarr/commit/32b7723a79698272dea694348f24505ff8efa6d9))
+- **py**: add support for bioformats2raw container layout ([07b1e4f](https://github.com/fideus-labs/ngff-zarr/commit/07b1e4fb082256ca9a64db0392244aad3e7603f1))
+
+### 🐛 Bug Fixes
+
+- **ci**: avoid duplicate pixi binary install in release workflow ([07dbd36](https://github.com/fideus-labs/ngff-zarr/commit/07dbd3642a3dc44fb06f48523fcf0221d1d00607))
+
+## py-v0.30.0 (2026-02-24)
+
+### ✨ Features
+
+- **py**: add HCS well path auto-detection in CLI ([c4822cf](https://github.com/fideus-labs/ngff-zarr/commit/c4822cff43979a410220f5f4ae246698d2dafc6a))
+- **py**: add HCS well path support to from_ngff_zarr ([c21eaa7](https://github.com/fideus-labs/ngff-zarr/commit/c21eaa744c54925ae318c3eca46a98c77c98355c))
+
+### 🐛 Bug Fixes
+
+- **py**: apply PR review feedback for HCS path handling ([99061e1](https://github.com/fideus-labs/ngff-zarr/commit/99061e1f16f20a9d2550740f00f2c7d459b6f148))
+- **py**: pass multithreading error in to_multiscales ([f807c6c](https://github.com/fideus-labs/ngff-zarr/commit/f807c6cc9a42138781f55ddc250e33b22fdbcc08))
+
 ## py-v0.29.0 (2026-02-20)
 
 ### ✨ Features

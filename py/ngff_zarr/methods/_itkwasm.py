@@ -1,11 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from typing import Tuple
 from itertools import product
 
+import dask.array
 import numpy as np
 from dask.array import map_blocks, map_overlap
-import dask.array
 
 from ..ngff_image import NgffImage
 from ._support import (
@@ -14,14 +13,14 @@ from ._support import (
     _compute_sigma,
     _dim_scale_factors,
     _get_block,
+    _next_block_shape,
+    _next_scale_metadata,
     _spatial_dims,
     _spatial_dims_last_zyx,
-    _next_scale_metadata,
-    _next_block_shape,
     _update_previous_dim_factors,
 )
 
-_image_dims: Tuple[str, str, str, str] = ("x", "y", "z", "t")
+_image_dims: tuple[str, str, str, str] = ("x", "y", "z", "t")
 
 # Maximum number of components to use vector mode for itkwasm downsampling.
 # Images with more components will iterate over channels individually to avoid
@@ -143,7 +142,7 @@ def _downsample_itkwasm(
 
     # Track previous image for incremental downsampling
     previous_image = ngff_image
-    previous_dim_factors = {d: 1 for d in dims}
+    previous_dim_factors = dict.fromkeys(dims, 1)
 
     for scale_factor in scale_factors:
         # Calculate incremental factors to achieve exact target size
@@ -183,7 +182,7 @@ def _downsample_itkwasm(
         else:
             # Must downsample from original to get exact target size
             # Recalculate factors from original
-            original_dim_factors = {d: 1 for d in dims}
+            original_dim_factors = dict.fromkeys(dims, 1)
             dim_factors = _dim_scale_factors(dims, scale_factor, original_dim_factors)
             source_image = ngff_image
 

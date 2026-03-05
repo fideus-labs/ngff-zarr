@@ -1,15 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 import numpy as np
-from zarr.storage import MemoryStore
-
 from ngff_zarr import (
     Methods,
+    from_ngff_zarr,
     to_multiscales,
     to_ngff_image,
     to_ngff_zarr,
-    from_ngff_zarr,
 )
+from zarr.storage import MemoryStore
 
 
 def test_multiscales_type_roundtrip():

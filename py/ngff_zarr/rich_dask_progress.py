@@ -1,6 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from typing import Dict, Optional, Set
 
 from dask.callbacks import Callback
 from rich.progress import TaskID
@@ -26,8 +25,8 @@ class NgffProgress:
 class NgffProgressCallback(Callback, NgffProgress):
     def __init__(self, rich_progress):
         self.rich = rich_progress
-        self.tasks: Dict[str, Optional[TaskID]] = {}
-        self.hide_after_finished: Set[str] = set()
+        self.tasks: dict[str, TaskID | None] = {}
+        self.hide_after_finished: set[str] = set()
         self.next_task = None
 
     def add_callback_task(self, description: str):
