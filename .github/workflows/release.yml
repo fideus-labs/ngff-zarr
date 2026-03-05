@@ -18,7 +18,7 @@ jobs:
       url: https://pypi.org/p/ngff-zarr
     permissions:
       contents: write  # Required to create releases
-      id-token: write  # Required for PyPI trusted publishing (OIDC)
+      id-token: write  # Required for trusted publishing (PyPI, NPM, JSR via OIDC)
 
     steps:
       - name: Checkout repository
@@ -285,23 +285,19 @@ jobs:
           skip-existing: true
           verbose: true
 
-      # --- TypeScript Package Publishing (NPM) ---
+      # --- TypeScript Package Publishing (NPM - Trusted Publishing / OIDC) ---
 
-      # - name: Publish to NPM
-      #   if: steps.identify.outputs.project == 'ts'
-      #   working-directory: ts/npm
-      #   run: |
-      #     echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > .npmrc
-      #     npm publish --access public
-      #   env:
-      #     NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish to NPM
+        if: steps.identify.outputs.project == 'ts'
+        working-directory: ts/npm
+        run: |
+          npm install -g npm@latest
+          npm publish --provenance --access public
 
-      # --- TypeScript Package Publishing (JSR - Optional) ---
+      # --- TypeScript Package Publishing (JSR - OIDC) ---
 
-      # - name: Publish to JSR
-      #   if: steps.identify.outputs.project == 'ts'
-      #   working-directory: ts
-      #   run: |
-      #     deno publish --allow-dirty
-      #   env:
-      #     DENO_DEPLOY_TOKEN: ${{ secrets.DENO_DEPLOY_TOKEN }}
+      - name: Publish to JSR
+        if: steps.identify.outputs.project == 'ts'
+        working-directory: ts
+        run: |
+          deno publish --allow-dirty
