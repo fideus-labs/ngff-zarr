@@ -4,16 +4,15 @@
 
 import tempfile
 from pathlib import Path
-from typing import List, Optional
 
 import zarr
 from ngff_zarr import (  # type: ignore[import-untyped]
-    detect_cli_io_backend,
+    Methods,
     cli_input_to_ngff_image,
+    detect_cli_io_backend,
+    from_ngff_zarr,
     to_multiscales,
     to_ngff_zarr,
-    from_ngff_zarr,
-    Methods,
 )
 
 # Import validation function if available
@@ -29,22 +28,22 @@ except ImportError:
 from .models import (
     ConversionOptions,
     ConversionResult,
-    StoreInfo,
     OptimizationOptions,
+    StoreInfo,
     ValidationResult,
 )
 from .utils import (
     analyze_zarr_store,
-    setup_dask_config,
-    validate_conversion_options,
-    prepare_input_files,
     is_url,
     is_zarr_store,
+    prepare_input_files,
+    setup_dask_config,
+    validate_conversion_options,
 )
 
 
 async def convert_to_ome_zarr(
-    input_paths: List[str], options: ConversionOptions
+    input_paths: list[str], options: ConversionOptions
 ) -> ConversionResult:
     """Convert input images to OME-Zarr format."""
 
@@ -267,7 +266,7 @@ async def convert_to_ome_zarr(
 
 async def read_ngff_zarr(
     store_path: str,
-    storage_options: Optional[dict] = None,
+    storage_options: dict | None = None,
     validate: bool = False,
 ) -> ConversionResult:
     """Read OME-Zarr NGFF data from a store.

@@ -1,15 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from packaging import version
 from pathlib import Path
 
 import pytest
-
-import zarr.storage
 import zarr
-
-from ngff_zarr import to_ngff_zarr, from_ngff_zarr
-
+import zarr.storage
+from ngff_zarr import from_ngff_zarr, to_ngff_zarr
+from packaging import version
 
 zarr_version = version.parse(zarr.__version__)
 

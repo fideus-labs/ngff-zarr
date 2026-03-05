@@ -6,6 +6,7 @@ from pathlib import Path
 import dask.config
 from platformdirs import user_cache_dir
 from zarr.storage import StoreLike
+
 from ._zarr_kwargs import zarr_kwargs
 
 if dask.config.get("temporary-directory") is not None:

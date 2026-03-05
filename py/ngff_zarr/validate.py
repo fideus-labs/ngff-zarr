@@ -1,18 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from typing import Dict
-from pathlib import Path
 import json
-from packaging import version as packaging_version
+from pathlib import Path
 
 from importlib_resources import files as file_resources
+from packaging import version as packaging_version
 
 NGFF_URI = "https://ngff.openmicroscopy.org"
 
 
 def load_schema(
     version: str = "0.4", model: str = "image", strict: bool = False
-) -> Dict:
+) -> dict:
     strict_str = ""
     if strict:
         strict_str = "strict_"
@@ -30,7 +29,7 @@ def load_schema(
 
 
 def validate(
-    ngff_dict: Dict, version: str = "0.4", model: str = "image", strict: bool = False
+    ngff_dict: dict, version: str = "0.4", model: str = "image", strict: bool = False
 ):
     try:
         from jsonschema import Draft202012Validator

@@ -10,13 +10,12 @@ in ZIP archives according to RFC-9 specification.
 import json
 import zipfile
 from pathlib import Path
-from typing import Union, Optional
 
 import zarr
 import zarr.storage
 
 
-def is_ozx_path(path: Union[str, Path]) -> bool:
+def is_ozx_path(path: str | Path) -> bool:
     """
     Check if a path refers to a .ozx file.
 
@@ -34,8 +33,8 @@ def is_ozx_path(path: Union[str, Path]) -> bool:
 
 
 def write_store_to_zip(
-    source_store: Union[zarr.storage.StoreLike, str, Path],
-    zip_path: Union[str, Path],
+    source_store: zarr.storage.StoreLike | str | Path,
+    zip_path: str | Path,
     version: str = "0.5",
     compression: int = zipfile.ZIP_STORED,
 ) -> None:
@@ -73,6 +72,7 @@ def write_store_to_zip(
     >>> write_store_to_zip("my_plate.ome.zarr", "my_plate.ozx", version="0.5")
     """
     import asyncio
+
     from zarr.core.buffer import default_buffer_prototype
 
     zip_path = Path(zip_path)
@@ -222,7 +222,7 @@ def write_store_to_zip(
         zf.comment = comment_json.encode("utf-8")
 
 
-def read_ozx_version(zip_path: Union[str, Path]) -> Optional[str]:
+def read_ozx_version(zip_path: str | Path) -> str | None:
     """
     Read the OME-Zarr version from a .ozx file's ZIP comment.
 
@@ -253,7 +253,7 @@ def read_ozx_version(zip_path: Union[str, Path]) -> Optional[str]:
     return None
 
 
-def read_ozx_json_first(zip_path: Union[str, Path]) -> bool:
+def read_ozx_json_first(zip_path: str | Path) -> bool:
     """
     Read the jsonFirst flag from a .ozx file's ZIP comment.
 

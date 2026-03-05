@@ -1,20 +1,19 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+import asyncio
+import json
 import sys
 from pathlib import Path
-import json
-import asyncio
-from packaging import version
 
-import zarr
 import pooch
 import pytest
+import zarr
+from deepdiff import DeepDiff
 from itkwasm_image_io import imread
 from ngff_zarr import itk_image_to_ngff_image, to_ngff_zarr
 from ngff_zarr._zarr_kwargs import zarr_kwargs
-
+from packaging import version
 from zarr.storage import MemoryStore
-from deepdiff import DeepDiff
 
 test_data_ipfs_cid = "bafybeifqibhcomn4u42aqrgvttyfteysbspvzez5sbezcqj5yylzzafpma"
 test_data_sha256 = "323a8f030980171c20dc064cd977d831cfd7402bd9b7ffa7c1d6d6750ea8fe99"

@@ -5,6 +5,7 @@
 [![PyPI - Version](https://img.shields.io/pypi/v/ngff-zarr.svg)](https://pypi.org/project/ngff-zarr)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/ngff-zarr.svg)](https://pypi.org/project/ngff-zarr)
 [![Python CI Testing](https://github.com/thewtex/ngff-zarr/actions/workflows/python.yml/badge.svg)](https://github.com/thewtex/ngff-zarr/actions/workflows/python.yml)
+[![npm - Version](https://img.shields.io/npm/v/@fideus-labs/ngff-zarr.svg)](https://www.npmjs.com/package/@fideus-labs/ngff-zarr)
 [![Typescript CI Testing](https://github.com/thewtex/ngff-zarr/actions/workflows/typescript.yml/badge.svg)](https://github.com/thewtex/ngff-zarr/actions/workflows/typescript.yml)
 [![MCP CI Testing](https://github.com/thewtex/ngff-zarr/actions/workflows/mcp-ci.yml/badge.svg)](https://github.com/thewtex/ngff-zarr/actions/workflows/mcp-ci.yml)
 [![DOI](https://zenodo.org/badge/541840158.svg)](https://zenodo.org/badge/latestdoi/541840158)

@@ -7,9 +7,12 @@
  * browser and Node versions of toMultiscales.
  */
 
-import { NgffImage } from "../types/ngff_image.ts";
-import { Multiscales } from "../types/multiscales.ts";
 import { Methods } from "../types/methods.ts";
+import type { Multiscales } from "../types/multiscales.ts";
+import type { NgffImage } from "../types/ngff_image.ts";
+import type { ZarrCodec } from "../utils/codecs.ts";
+// deno-lint-ignore no-unused-vars
+import { bytesOnlyCodecs, defaultCodecs } from "../utils/codecs.ts";
 import {
   createAxis,
   createDataset,
@@ -18,10 +21,24 @@ import {
 } from "../utils/factory.ts";
 import { getMethodMetadata } from "../utils/method_metadata.ts";
 
+export type { ZarrCodec };
+
 export interface ToMultiscalesOptions {
   scaleFactors?: (Record<string, number> | number)[];
   method?: Methods;
   chunks?: number | number[] | Record<string, number>;
+
+  /**
+   * Codec pipeline for intermediate zarr arrays created during
+   * downsampling.  When omitted the default blosc+zstd pipeline is
+   * used ({@link defaultCodecs}).
+   *
+   * Pass {@link bytesOnlyCodecs | `bytesOnlyCodecs()`} to skip
+   * compression entirely — useful when the multiscale result will be
+   * immediately re-encoded into another format (e.g. OME-TIFF) and
+   * the compress/decompress round-trip would be wasted work.
+   */
+  codecs?: ZarrCodec[];
 }
 
 /**
@@ -32,6 +49,7 @@ export type DownsampleFunction = (
   scaleFactors: (Record<string, number> | number)[],
   smoothing: "gaussian" | "bin_shrink" | "label_image",
   chunks?: number | number[] | Record<string, number>,
+  codecs?: ZarrCodec[],
 ) => Promise<NgffImage[]>;
 
 /**
@@ -52,6 +70,7 @@ export async function toMultiscalesCore(
     scaleFactors = [2, 4],
     method = Methods.ITKWASM_GAUSSIAN,
     chunks: _chunks,
+    codecs,
   } = options;
 
   let images: NgffImage[];
@@ -74,6 +93,7 @@ export async function toMultiscalesCore(
       scaleFactors as (Record<string, number> | number)[],
       smoothing,
       _chunks,
+      codecs,
     );
   } else {
     // Fallback: create only the base image (no actual downsampling)

@@ -2,13 +2,12 @@
 # SPDX-License-Identifier: MIT
 """Test high content screening (HCS) functionality."""
 
-import pytest
 import tempfile
 from pathlib import Path
-from packaging import version
 
+import pytest
 import zarr
-from ngff_zarr.hcs import from_hcs_zarr, to_hcs_zarr, HCSPlate, HCSWell
+from ngff_zarr.hcs import HCSPlate, HCSWell, from_hcs_zarr, to_hcs_zarr
 from ngff_zarr.v04.zarr_metadata import (
     Plate,
     PlateAcquisition,
@@ -18,6 +17,7 @@ from ngff_zarr.v04.zarr_metadata import (
     Well,
     WellImage,
 )
+from packaging import version
 
 zarr_version = version.parse(zarr.__version__)
 

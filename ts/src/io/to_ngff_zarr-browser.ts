@@ -3,13 +3,15 @@
 // Browser-compatible version of to_ngff_zarr that doesn't import @zarrita/storage
 // (which contains Node.js-specific modules like node:fs, node:buffer, node:path)
 import * as zarr from "zarrita";
+
 import type { Multiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
-import type { MemoryStore } from "./from_ngff_zarr-browser.ts";
-import { createWriteQueue, zarrGet, zarrSet } from "../utils/worker_pool.ts";
 import { defaultCodecs } from "../utils/codecs.ts";
+import { createWriteQueue, zarrGet, zarrSet } from "../utils/worker_pool.ts";
+import type { MemoryStore } from "./from_ngff_zarr-browser.ts";
 import { memoryStoreToZip } from "./rfc9_zip.ts";
 import { writeMultiscalesToMemoryStore } from "./to_ngff_zarr_ozx_common.ts";
+
 export { isOzxPath } from "./rfc9_zip.ts";
 
 export interface ToNgffZarrOptions {
@@ -25,6 +27,16 @@ export interface ToNgffZarrOptions {
 export interface ToNgffZarrOzxOptions {
   /** List of RFC numbers to enable (e.g., [4] for RFC 4 anatomical orientation) */
   enabledRfcs?: number[] | undefined;
+  /**
+   * Optional progress callback invoked after each chunk is written.
+   * Reports cumulative progress across all scale levels.
+   *
+   * @param completedChunks - Number of chunks written so far
+   * @param totalChunks - Total number of chunks to write across all levels
+   */
+  onProgress?:
+    | ((completedChunks: number, totalChunks: number) => void)
+    | undefined;
 }
 
 /**
@@ -203,6 +215,7 @@ async function _writeImage(
   group: zarr.Group<MemoryStore>,
   image: NgffImage,
   arrayPath: string,
+  onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
 ): Promise<void> {
   try {
     const chunks = getChunksFromImage(image);
@@ -225,6 +238,7 @@ async function _writeImage(
     await _writeArrayData(
       zarrArray as zarr.Array<zarr.DataType, MemoryStore>,
       image,
+      onProgress,
     );
   } catch (error) {
     throw new Error(
@@ -247,6 +261,7 @@ function getChunksFromImage(image: NgffImage): number[] {
 async function _writeArrayData(
   zarrArray: zarr.Array<zarr.DataType, MemoryStore>,
   image: NgffImage,
+  onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
 ): Promise<void> {
   try {
     // Get array shape for chunk calculation - we don't need the full data here
@@ -266,7 +281,7 @@ async function _writeArrayData(
     }
 
     // Wait for all chunks to be written
-    await writeQueue.onIdle();
+    await writeQueue.onIdle(onProgress);
   } catch (error) {
     throw new Error(
       `Failed to write array data: ${
@@ -394,9 +409,9 @@ function convertChunkToTargetType(
       // Convert between typed arrays
       if (targetDtype === "int64" || targetDtype === "uint64") {
         // Regular number to BigInt conversion
-        const bigIntArray = new targetTypedArrayConstructor(
-          chunkData.length,
-        ) as BigInt64Array | BigUint64Array;
+        const bigIntArray = new targetTypedArrayConstructor(chunkData.length) as
+          | BigInt64Array
+          | BigUint64Array;
         for (let i = 0; i < chunkData.length; i++) {
           bigIntArray[i] = BigInt(chunkData[i]);
         }
@@ -499,6 +514,7 @@ export async function toNgffZarrOzx(
     multiscales,
     enabledRfcs,
     _writeImage,
+    _options.onProgress ?? null,
   );
 
   // Convert the memory store to ZIP data

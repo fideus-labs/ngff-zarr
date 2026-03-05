@@ -1,11 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-import pytest
 import tempfile
 from pathlib import Path
 
-from ngff_zarr_mcp.tools import convert_to_ome_zarr
+import pytest
+
 from ngff_zarr_mcp.models import ConversionOptions
+from ngff_zarr_mcp.tools import convert_to_ome_zarr
 
 
 @pytest.fixture

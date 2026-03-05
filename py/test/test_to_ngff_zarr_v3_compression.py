@@ -1,16 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 import json
-from packaging import version
 import tempfile
 
 import pytest
-
-import zarr.storage
 import zarr
-
-
+import zarr.storage
 from ngff_zarr import Methods, to_multiscales, to_ngff_zarr
+from packaging import version
 
 from ._data import verify_against_baseline
 

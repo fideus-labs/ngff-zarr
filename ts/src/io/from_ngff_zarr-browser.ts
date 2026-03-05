@@ -33,11 +33,12 @@ export type MemoryStore = Map<string, Uint8Array>;
 
 /**
  * Browser-compatible version of fromNgffZarr.
- * Supports HTTP/HTTPS URLs, MemoryStore (Map), and FetchStore.
+ * Supports HTTP/HTTPS URLs, MemoryStore (Map), FetchStore, and any
+ * zarrita-compatible Readable store (e.g. TiffStore from @fideus-labs/fiff).
  * Does NOT support local file paths (use the full version in Node.js/Deno).
  */
 export async function fromNgffZarr(
-  store: string | MemoryStore | zarr.FetchStore,
+  store: string | MemoryStore | zarr.FetchStore | zarr.Readable,
   options: FromNgffZarrOptions = {},
 ): Promise<Multiscales> {
   const validate = options.validate ?? false;
@@ -45,25 +46,39 @@ export async function fromNgffZarr(
 
   try {
     // Determine the appropriate store type based on the path
-    let resolvedStore: MemoryStore | zarr.FetchStore;
-    if (store instanceof Map || store instanceof zarr.FetchStore) {
+    let resolvedStore: MemoryStore | zarr.FetchStore | zarr.Readable;
+    if (
+      typeof store === "object" &&
+      store !== null &&
+      "get" in store &&
+      typeof (store as zarr.Readable).get === "function"
+    ) {
+      // Duck-type check for zarrita Readable stores (e.g. TiffStore, FetchStore, MemoryStore)
+      resolvedStore = store as zarr.Readable;
+    } else if (store instanceof Map || store instanceof zarr.FetchStore) {
+      // Defensive fallback for Map/FetchStore (normally caught by duck-type check above)
       resolvedStore = store;
-    } else if (store.startsWith("http://") || store.startsWith("https://")) {
+    } else if (
+      typeof store === "string" &&
+      (store.startsWith("http://") || store.startsWith("https://"))
+    ) {
       // Use FetchStore for HTTP/HTTPS URLs
       resolvedStore = new zarr.FetchStore(store);
     } else {
       // Local file paths are not supported in browser environments
       throw new Error(
-        "Local file paths are not supported in browser environments. Use HTTP/HTTPS URLs or MemoryStore instead.",
+        "Local file paths are not supported in browser environments. Use HTTP/HTTPS URLs, MemoryStore, or a Readable store instead.",
       );
     }
 
     // Try to use consolidated metadata for better performance
-    let optimizedStore;
+    let optimizedStore: zarr.Readable | zarr.Listable<zarr.Readable>;
     try {
-      optimizedStore = await zarr.tryWithConsolidated(resolvedStore);
+      optimizedStore = await zarr.tryWithConsolidated(
+        resolvedStore as zarr.Readable,
+      );
     } catch {
-      optimizedStore = resolvedStore;
+      optimizedStore = resolvedStore as zarr.Readable;
     }
 
     const root = await zarr.open(optimizedStore as zarr.Readable, {
