@@ -114,16 +114,18 @@ def test_legacy_zarr_without_type():
     # For v0.5, metadata is under "ome"; for v0.4, at root
     if "ome" in root.attrs:
         ome_attrs = dict(root.attrs["ome"])
-        metadata = ome_attrs["multiscales"][0]
-        if "type" in metadata:
-            del metadata["type"]
-        ome_attrs["multiscales"] = [metadata]
+        multiscales_list = list(ome_attrs["multiscales"])
+        first_entry = dict(multiscales_list[0])
+        first_entry.pop("type", None)
+        multiscales_list[0] = first_entry
+        ome_attrs["multiscales"] = multiscales_list
         root.attrs["ome"] = ome_attrs
     else:
-        metadata = root.attrs["multiscales"][0]
-        if "type" in metadata:
-            del metadata["type"]
-        root.attrs["multiscales"] = [metadata]
+        multiscales_list = list(root.attrs["multiscales"])
+        first_entry = dict(multiscales_list[0])
+        first_entry.pop("type", None)
+        multiscales_list[0] = first_entry
+        root.attrs["multiscales"] = multiscales_list
 
     # Read back from zarr
     loaded_multiscales = from_ngff_zarr(store)
