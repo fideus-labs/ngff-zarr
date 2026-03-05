@@ -191,6 +191,11 @@ def _multiscales_to_ngff_zarr(
             output_store = output_store.path
 
     codec_kwargs = {}
+    if args.compression_level is not None and args.codec is None:
+        live.console.print(
+            "[red]Error: --compression-level requires --codec to be specified."
+        )
+        sys.exit(1)
     if args.codec is not None:
         from .codecs import codec_from_name
 

@@ -875,6 +875,23 @@ def _handle_large_array_writing(
         else:
             zarr_kwargs["dimension_separator"] = "/"
 
+    # For non-sharding paths (codecs_kwargs is empty), propagate user-supplied
+    # compression settings that were not captured by the sharding setup above.
+    if not codecs_kwargs:
+        user_compressor = kwargs.get("compressor")
+        zarr_fmt = format_kwargs["zarr_format"]
+        if zarr_fmt == 2 and user_compressor is not None:
+            zarr_kwargs["compressor"] = user_compressor
+            user_filters = kwargs.get("filters")
+            if user_filters is not None:
+                zarr_kwargs["filters"] = user_filters
+        elif zarr_fmt == 3 and user_compressor is not None:
+            from zarr.codecs.bytes import BytesCodec
+
+            v3_codec = _numcodecs_to_zarr_v3_codec(user_compressor)
+            if v3_codec is not None:
+                codecs_kwargs["codecs"] = [BytesCodec(), v3_codec]
+
     zarr_array = open_array(
         shape=arr.shape,
         dtype=arr.dtype,
@@ -1394,7 +1411,8 @@ def _to_ngff_zarr_impl(
 
     if version == "0.4" and kwargs.get("compressors") is not None:
         raise ValueError(
-            "The argument `compressors` are not supported for OME-Zarr version 0.4. (Zarr v3). Use `compression` instead."
+            "The argument `compressors` is not supported for OME-Zarr version 0.4 "
+            "(Zarr v2). Use `compressor` instead."
         )
 
     # Process each scale level

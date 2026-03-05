@@ -144,6 +144,22 @@ Deno.test("codecFromName throws on unknown codec", () => {
   );
 });
 
+Deno.test("codecFromName throws on unknown blosc variant", () => {
+  assertThrows(
+    () => codecFromName("blosc:bogus", "uint8"),
+    Error,
+    'Unknown codec: "blosc:bogus"',
+  );
+});
+
+Deno.test("codecFromName throws on empty blosc variant", () => {
+  assertThrows(
+    () => codecFromName("blosc:", "uint8"),
+    Error,
+    'Unknown codec: "blosc:"',
+  );
+});
+
 // ---------------------------------------------------------------------------
 // consistency: defaultCodecs matches codecFromName('blosc:zstd')
 // ---------------------------------------------------------------------------

@@ -29,7 +29,8 @@ def get_available_codecs() -> List[str]:
     try:
         import numcodecs  # noqa: F401
 
-        blosc_variants = ["blosc", "blosclz", "lz4", "lz4hc", "snappy", "zlib", "zstd"]
+        codecs.append("blosc")
+        blosc_variants = ["blosclz", "lz4", "lz4hc", "snappy", "zlib", "zstd"]
         codecs.extend([f"blosc:{v}" for v in blosc_variants])
     except ImportError:
         pass
@@ -60,10 +61,19 @@ def codec_from_name(name: str, level: Optional[int] = None) -> Any:
     ValueError
         If *name* is not recognised.
     """
-    import numcodecs
-
+    # Allow the "none" codec to work even when numcodecs is not installed.
     if name == "none":
         return None
+
+    # All other codecs require numcodecs; provide a clear error if missing.
+    try:
+        import numcodecs
+    except ImportError as exc:
+        raise ImportError(
+            f"Compression codec {name!r} requires the 'numcodecs' package, which "
+            "is not installed. Install 'numcodecs' to use compressed codecs, or "
+            "use 'none' to disable compression."
+        ) from exc
 
     if name == "gzip":
         return numcodecs.GZip(level=level if level is not None else 6)

@@ -19,13 +19,14 @@ class TestGetAvailableCodecs:
     def test_includes_blosc_variants(self):
         """numcodecs is installed in the test env so blosc should appear."""
         codecs = get_available_codecs()
+        assert "blosc" in codecs
         assert "blosc:lz4" in codecs
         assert "blosc:zstd" in codecs
         assert "blosc:zlib" in codecs
         assert "blosc:lz4hc" in codecs
         assert "blosc:blosclz" in codecs
         assert "blosc:snappy" in codecs
-        assert "blosc:blosc" in codecs
+        assert "blosc:blosc" not in codecs
 
     def test_returns_list(self):
         codecs = get_available_codecs()
