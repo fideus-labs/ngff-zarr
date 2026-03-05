@@ -99,12 +99,16 @@ def _itkwasm_chunk_bin_shrink_nd(
     combination of non-spatial indices, apply bin-shrink to each spatial
     sub-block, and reassemble the result.
     """
-    if block.ndim == n_spatial_dims or (is_vector and block.ndim == n_spatial_dims + 1):
+    # n_spatial_dims counts only spatial axes; for vector images, there is an
+    # additional channel axis. Any remaining leading axes are treated as
+    # non-spatial and iterated over.
+    non_spatial_ndim = block.ndim - n_spatial_dims - (1 if is_vector else 0)
+    if non_spatial_ndim == 0:
+        # Block is exactly spatial (and optional channel for vector images),
+        # so we can call the underlying 2D/3D bin-shrink implementation
+        # directly.
         return _itkwasm_chunk_bin_shrink(block, shrink_factors, is_vector=is_vector)
 
-    non_spatial_ndim = block.ndim - n_spatial_dims
-    if is_vector:
-        non_spatial_ndim -= 1  # channel dim is part of vector image
     non_spatial_shape = block.shape[:non_spatial_ndim]
 
     # Determine output spatial shape from the first sub-block
@@ -211,6 +215,8 @@ def _downsample_itkwasm(
             and _can_use_map_blocks_fast_path(source_image, dim_factors)
         ):
             current_image = _fp_source
+            transposed_dims = False
+            reorder = None
             if tuple(current_image.dims) != dims:
                 transposed_dims = True
                 reorder = [current_image.dims.index(dim) for dim in dims]
@@ -244,7 +250,7 @@ def _downsample_itkwasm(
                 _itkwasm_chunk_bin_shrink_nd,
                 current_image.data,
                 shrink_factors=shrink_factors,
-                n_spatial_dims=n_spatial + (1 if is_vector else 0),
+                n_spatial_dims=n_spatial,
                 is_vector=is_vector,
                 dtype=dtype,
                 chunks=fast_output_chunks,
@@ -276,6 +282,8 @@ def _downsample_itkwasm(
 
         # Operate on a contiguous spatial block
         current_image = _spatial_dims_last_zyx(current_image)
+        transposed_dims = False
+        reorder = None
         if tuple(current_image.dims) != dims:
             transposed_dims = True
             reorder = [current_image.dims.index(dim) for dim in dims]
