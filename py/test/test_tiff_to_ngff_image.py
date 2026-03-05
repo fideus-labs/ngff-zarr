@@ -466,6 +466,107 @@ def test_tiff_file_to_ngff_images_unsupported_axis_warning():
     assert img.data.shape == (5, 100, 100)
 
 
+def test_tiff_file_to_ngff_images_with_channel_names():
+    """Test that channel names are extracted from OME-XML metadata."""
+    try:
+        import tifffile
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    # Create an OME-TIFF with channel names
+    tmpdir = Path(tempfile.mkdtemp())
+    tiff_path = tmpdir / "with_channel_names.ome.tiff"
+
+    with tifffile.TiffWriter(tiff_path, ome=True) as tif:
+        tif.write(
+            np.random.rand(3, 100, 100).astype(np.uint8),
+            photometric="minisblack",
+            metadata={
+                "axes": "CYX",
+                "Channel": {"Name": ["DAPI", "GFP", "RFP"]},
+            },
+        )
+
+    images = tiff_file_to_ngff_images(tiff_path)
+    assert len(images) == 1
+
+    name, img = images[0]
+    assert img.data.shape == (3, 100, 100)
+    assert img.dims == ("c", "y", "x")
+
+    # Check that channel names were extracted
+    assert img.channel_names is not None
+    assert len(img.channel_names) == 3
+    assert img.channel_names == ["DAPI", "GFP", "RFP"]
+
+
+def test_tiff_file_to_ngff_images_with_partial_channel_names():
+    """Test handling of OME-TIFF with some channels lacking names."""
+    try:
+        import tifffile
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    # Create an OME-TIFF where some channels have names and others don't
+    tmpdir = Path(tempfile.mkdtemp())
+    tiff_path = tmpdir / "partial_channel_names.ome.tiff"
+
+    # Note: tifffile's ome=True mode handles Channel metadata differently
+    # We'll create a more explicit OME-XML for this test
+    with tifffile.TiffWriter(tiff_path, ome=True) as tif:
+        tif.write(
+            np.random.rand(3, 100, 100).astype(np.uint8),
+            photometric="minisblack",
+            metadata={
+                "axes": "CYX",
+                "Channel": {"Name": ["DAPI", "", "RFP"]},
+            },
+        )
+
+    images = tiff_file_to_ngff_images(tiff_path)
+    assert len(images) == 1
+
+    name, img = images[0]
+    # Channel names should be present even if some are empty
+    assert img.channel_names is not None
+    assert len(img.channel_names) == 3
+    assert img.channel_names[0] == "DAPI"
+    assert img.channel_names[1] == ""  # Empty string for unnamed channel
+    assert img.channel_names[2] == "RFP"
+
+
+def test_tiff_file_to_ngff_images_without_channel_names():
+    """Test that non-OME TIFF or OME-TIFF without channel names has None."""
+    try:
+        import tifffile
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    # Create a plain TIFF without OME metadata
+    tmpdir = Path(tempfile.mkdtemp())
+    tiff_path = tmpdir / "no_channel_names.tiff"
+
+    with tifffile.TiffWriter(tiff_path) as tif:  # Not ome=True
+        tif.write(
+            np.random.rand(3, 100, 100).astype(np.uint8),
+            photometric="minisblack",
+            metadata={"axes": "CYX"},
+        )
+
+    images = tiff_file_to_ngff_images(tiff_path)
+    assert len(images) == 1
+
+    name, img = images[0]
+    # Should have None for channel names
+    assert img.channel_names is None
+
+
 def test_tiff_file_to_ngff_images_corrupted_file():
     """Test that corrupted TIFF files raise appropriate errors."""
     try:

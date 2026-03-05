@@ -243,8 +243,6 @@ Large TIFF/SVS files can take hours to convert. To optimize performance:
 - Use SSD storage for both input and output
 - Validate file integrity before starting long conversions
 
-See the [FAQ](./faq.md#my-tiffsvs-conversion-is-taking-extremely-long-hoursdays) for detailed optimization strategies.
-
 ## API Reference
 
 ### `tiff_file_to_ngff_images(tiff_path, series=None)`

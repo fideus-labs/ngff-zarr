@@ -150,20 +150,9 @@ If this command fails or shows errors, the file is likely corrupted.
 4. **Contact the data provider** if the file came from an external source
 5. **Use the original acquisition software** to re-export the image if possible
 
-**Recent improvements:**
-
-As of the latest version, ngff-zarr provides better error messages when encountering corrupted files, helping you identify the issue early rather than waiting for the conversion to fail after hours of processing.
-
 ### My TIFF/SVS conversion is taking extremely long (hours/days)
 
 Very large whole-slide imaging (WSI) files like SVS can take significant time to convert, but there are ways to optimize the process:
-
-**Expected performance:**
-
-- Small files (< 1GB): Minutes
-- Medium files (1-10GB): 15-60 minutes
-- Large files (10-50GB): 1-4 hours
-- Very large files (> 50GB): Several hours to days
 
 **Optimization tips:**
 
@@ -185,11 +174,5 @@ Very large whole-slide imaging (WSI) files like SVS can take significant time to
    ```
 
 4. **Use SSD storage** for both input and output if possible, as I/O can be a bottleneck
-
-5. **Monitor system resources** during conversion to identify bottlenecks:
-   ```bash
-   # In a separate terminal
-   htop  # or 'top' on macOS/Linux
-   ```
 
 If conversion is taking unexpectedly long and then fails with an error, the file is likely corrupted. See the section above for diagnosis and solutions.

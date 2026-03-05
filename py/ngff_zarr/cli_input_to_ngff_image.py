@@ -10,8 +10,8 @@ from rich import print
 from .detect_cli_io_backend import ConversionBackend
 from .from_ngff_zarr import from_ngff_zarr
 from .itk_image_to_ngff_image import itk_image_to_ngff_image
-from .nibabel_image_to_ngff_image import nibabel_image_to_ngff_image
 from .ngff_image import NgffImage
+from .nibabel_image_to_ngff_image import nibabel_image_to_ngff_image
 from .to_ngff_image import to_ngff_image
 
 
@@ -111,7 +111,7 @@ def cli_input_to_ngff_image(
             # Only apply spacing to spatial dimensions (x, y, z)
             spatial_dims = [d for d in ngff_image.dims if d in {"x", "y", "z"}]
             if len(props.spacing) == 1:
-                scale = {d: props.spacing[0] for d in spatial_dims}
+                scale = dict.fromkeys(spatial_dims, props.spacing[0])
             else:
                 # Match spacing values to spatial dims
                 # Spacing from imageio may have fewer values than spatial dims
