@@ -65,7 +65,11 @@ def test_multiscales_type_in_metadata():
     import zarr
 
     root = zarr.open_group(store, mode="r")
-    metadata = root.attrs["multiscales"][0]
+    # For v0.5, metadata is under "ome"; for v0.4, at root
+    if "ome" in root.attrs:
+        metadata = root.attrs["ome"]["multiscales"][0]
+    else:
+        metadata = root.attrs["multiscales"][0]
 
     assert "type" in metadata
     assert metadata["type"] == "itkwasm_gaussian"
@@ -107,10 +111,19 @@ def test_legacy_zarr_without_type():
     import zarr
 
     root = zarr.open_group(store, mode="a")
-    metadata = root.attrs["multiscales"][0]
-    if "type" in metadata:
-        del metadata["type"]
-    root.attrs["multiscales"] = [metadata]
+    # For v0.5, metadata is under "ome"; for v0.4, at root
+    if "ome" in root.attrs:
+        ome_attrs = dict(root.attrs["ome"])
+        metadata = ome_attrs["multiscales"][0]
+        if "type" in metadata:
+            del metadata["type"]
+        ome_attrs["multiscales"] = [metadata]
+        root.attrs["ome"] = ome_attrs
+    else:
+        metadata = root.attrs["multiscales"][0]
+        if "type" in metadata:
+            del metadata["type"]
+        root.attrs["multiscales"] = [metadata]
 
     # Read back from zarr
     loaded_multiscales = from_ngff_zarr(store)
