@@ -11,11 +11,9 @@ produces a much smaller dask task graph.
 
 import dask.array as da
 import numpy as np
-from zarr.storage import MemoryStore
-
 from ngff_zarr import Methods, to_multiscales, to_ngff_image, to_ngff_zarr
 from ngff_zarr.methods._support import _can_use_map_blocks_fast_path
-
+from zarr.storage import MemoryStore
 
 # ---------------------------------------------------------------------------
 # Unit tests for the helper
