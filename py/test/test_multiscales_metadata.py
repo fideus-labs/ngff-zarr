@@ -10,6 +10,8 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+import pytest
+import zarr
 from ngff_zarr import (
     Methods,
     from_ngff_zarr,
@@ -17,6 +19,9 @@ from ngff_zarr import (
     to_ngff_image,
     to_ngff_zarr,
 )
+from packaging import version
+
+zarr_version = version.parse(zarr.__version__)
 
 
 def test_multiscales_metadata_field():
@@ -41,6 +46,10 @@ def test_multiscales_metadata_field():
     assert "itkwasm_downsample" in multiscales.metadata.metadata.method
 
 
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="zarr version >= 3.0.0b2 required for OME-Zarr version >= 0.5",
+)
 def test_multiscales_metadata_serialization():
     """Test that the metadata field is correctly serialized to zarr."""
     import zarr
@@ -80,6 +89,10 @@ def test_multiscales_metadata_serialization():
         assert isinstance(metadata_field["version"], str)
 
 
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="zarr version >= 3.0.0b2 required for OME-Zarr version >= 0.5",
+)
 def test_multiscales_metadata_round_trip():
     """Test round-trip: save to zarr and load back."""
     data = np.random.randint(0, 255, (32, 32), dtype=np.uint8)

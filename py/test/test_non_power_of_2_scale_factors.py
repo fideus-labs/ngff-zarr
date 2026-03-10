@@ -7,6 +7,15 @@ import tempfile
 import ngff_zarr as nz
 import numpy as np
 import pytest
+import zarr
+from packaging import version
+
+zarr_version = version.parse(zarr.__version__)
+
+pytestmark = pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="zarr version >= 3.0.0b2 required for OME-Zarr version >= 0.5",
+)
 
 
 def test_non_power_of_2_scale_factors():
