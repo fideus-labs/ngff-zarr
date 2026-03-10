@@ -213,7 +213,7 @@ export const PlateSchemaV05 = z.object({
 
 // Well schemas
 export interface WellImage {
-  acquisition?: number;
+  acquisition?: number | undefined;
   path: string;
 }
 
