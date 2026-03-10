@@ -1,3 +1,19 @@
+## py-v0.31.1 (2026-03-10)
+
+### ♻️ Refactoring
+
+- **py**: deterministic ozx content order ([597cd4f](https://github.com/fideus-labs/ngff-zarr/commit/597cd4f7be54dbb47bd8b53418f7fec5029ee2e5))
+
+### ⚡ Performance
+
+- **py**: add map_blocks fast path for bin-shrink downsampling ([54dd014](https://github.com/fideus-labs/ngff-zarr/commit/54dd014dbb96bbd71e58ec9c27369b18f30f4aef))
+- **py**: avoid loading full file into memory for ozx ([04e72af](https://github.com/fideus-labs/ngff-zarr/commit/04e72af0d83cdf1c4174a312b67c874fe3195f68))
+- **py**: stream ozx zip creation to avoid loading entire dataset into memory ([bef151e](https://github.com/fideus-labs/ngff-zarr/commit/bef151e7968c4c290c7b58594feca141491b0be4))
+
+### 🐛 Bug Fixes
+
+- **py**: fix _itkwasm_chunk_bin_shrink_nd dimensionality math and transposed_dims initialization ([5a711b8](https://github.com/fideus-labs/ngff-zarr/commit/5a711b85037388b701971ff83c958968c1e3ec17))
+
 ## py-v0.31.0 (2026-03-04)
 
 ### ✨ Features
