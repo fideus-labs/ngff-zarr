@@ -1,3 +1,15 @@
+## ts-v0.15.1 (2026-03-10)
+
+### ♻️ Refactoring
+
+- **ts**: named WellImage export ([5a647e6](https://github.com/fideus-labs/ngff-zarr/commit/5a647e670e021e31bf5c3d4f4ee4cf6621a074c3))
+
+### 🐛 Bug Fixes
+
+- **ts**: use number | undefined in WellImage interface for exactOptionalPropertyTypes ([5feb06a](https://github.com/fideus-labs/ngff-zarr/commit/5feb06afcf051e487e7c4c8e209ef075b808f594))
+- **ts**: resolve duplicate WellImage identifier and use ZodType annotation ([7d6d8ba](https://github.com/fideus-labs/ngff-zarr/commit/7d6d8ba2533941ef60ed6c59ebece19656cb9301))
+- **ts**: add explicit type annotation to WellImageSchema for JSR public API ([c177cd3](https://github.com/fideus-labs/ngff-zarr/commit/c177cd31490cbd099eeabf7cd10ef979a33918d8))
+
 ## ts-v0.15.0 (2026-03-04)
 
 ### ✨ Features
