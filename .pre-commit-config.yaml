@@ -3,7 +3,6 @@ exclude: (^.pixi/|.snap|pixi.lock)
 default_install_hook_types:
   - pre-commit
   - commit-msg
-  - pre-push
 
 ci:
   autoupdate_commit_msg: "ENH: update pre-commit hooks"
@@ -42,8 +41,8 @@ repos:
     hooks:
       - id: shellcheck
 
-  - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.5.4
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.2
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
@@ -55,6 +54,3 @@ repos:
     hooks:
       - id: commitizen
         stages: [commit-msg]
-      - id: commitizen-branch
-        stages: [pre-push]
-        args: ["--use-default-range"]

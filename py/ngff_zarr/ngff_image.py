@@ -1,12 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Mapping, Optional, Sequence
 
 from dask.array.core import Array as DaskArray
 
-from .v04.zarr_metadata import Units
 from .rfc4 import AnatomicalOrientation
+from .v04.zarr_metadata import Units
 
 ComputedCallback = Callable[[], None]
 
@@ -15,9 +15,10 @@ ComputedCallback = Callable[[], None]
 class NgffImage:
     data: DaskArray
     dims: Sequence[str]
-    scale: Dict[str, float]
-    translation: Dict[str, float]
+    scale: dict[str, float]
+    translation: dict[str, float]
     name: str = "image"
-    axes_units: Optional[Mapping[str, Units]] = None
-    axes_orientations: Optional[Mapping[str, AnatomicalOrientation]] = None
-    computed_callbacks: List[ComputedCallback] = field(default_factory=list)
+    axes_units: Mapping[str, Units] | None = None
+    axes_orientations: Mapping[str, AnatomicalOrientation] | None = None
+    channel_names: list[str] | None = None
+    computed_callbacks: list[ComputedCallback] = field(default_factory=list)

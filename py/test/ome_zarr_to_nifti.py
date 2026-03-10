@@ -24,7 +24,6 @@ from pathlib import Path
 
 import nibabel as nib
 import numpy as np
-
 from ngff_zarr import from_ngff_zarr
 from ngff_zarr.ngff_image import NgffImage
 from ngff_zarr.rfc4 import AnatomicalOrientationValues

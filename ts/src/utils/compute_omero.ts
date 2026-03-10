@@ -16,6 +16,7 @@ import type { WorkerPoolTask } from "@fideus-labs/worker-pool";
 import { WorkerPool } from "@fideus-labs/worker-pool";
 import type { Array as ZarrArray, DataType, Readable } from "zarrita";
 
+import { config } from "../config.ts";
 import type { Multiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { Omero } from "../types/zarr_metadata.ts";
@@ -57,12 +58,6 @@ type AnyZarrArray = any;
 // Worker pool for omero computation
 // ---------------------------------------------------------------------------
 
-/** Pool size for the omero worker pool. */
-const POOL_SIZE = Math.min(
-  typeof navigator !== "undefined" ? navigator?.hardwareConcurrency || 4 : 4,
-  128,
-);
-
 /** Blob URL used by inlined browser builds — set by inline_worker.ts. */
 let workerBlobUrl: string | null = null;
 
@@ -70,7 +65,7 @@ let _omeroPool: WorkerPool | null = null;
 
 function getOmeroPool(): WorkerPool {
   if (!_omeroPool) {
-    _omeroPool = new WorkerPool(POOL_SIZE);
+    _omeroPool = new WorkerPool(config.workerPoolSize);
   }
   return _omeroPool;
 }

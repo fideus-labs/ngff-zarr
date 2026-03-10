@@ -13,9 +13,8 @@ from pathlib import Path
 
 import numpy as np
 import zarr
-from packaging import version
-
 from ngff_zarr import to_ngff_image
+from packaging import version
 
 # Check Zarr version for API compatibility
 zarr_version = version.parse(zarr.__version__)

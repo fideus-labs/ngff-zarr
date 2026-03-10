@@ -3,7 +3,8 @@
 """Compute OMERO metadata from NgffImage data."""
 
 import re
-from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple, Union
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import dask.array as da
 
@@ -17,7 +18,7 @@ from .v04.zarr_metadata import Omero, OmeroChannel, OmeroWindow
 # Extended from HoloViews default colors using the Glasbey algorithm
 # for maximum distinguishability across 256 categorical colors.
 # See: https://colorcet.holoviz.org/user_guide/Categorical.html
-GLASBEY_COLORS: List[str] = [
+GLASBEY_COLORS: list[str] = [
     "30A2DA",
     "FC4F30",
     "E5AE38",
@@ -277,7 +278,7 @@ GLASBEY_COLORS: List[str] = [
 ]
 
 
-def _validate_quantiles(quantiles: Tuple[float, float]) -> None:
+def _validate_quantiles(quantiles: tuple[float, float]) -> None:
     """Validate that quantiles are in valid range and properly ordered.
 
     Args:
@@ -313,11 +314,12 @@ def _validate_color(color: str) -> None:
         raise ValueError(f"Color must be a string, got {type(color).__name__}")
     if not re.fullmatch(r"[0-9A-Fa-f]{6}", color):
         raise ValueError(
-            f"Color must be a 6-digit hexadecimal string without # prefix, got '{color}'"
+            f"Color must be a 6-digit hexadecimal string "
+            f"without # prefix, got '{color}'"
         )
 
 
-def get_default_colors(n_channels: int) -> List[str]:
+def get_default_colors(n_channels: int) -> list[str]:
     """Get default colors for channels.
 
     For a single channel, returns white (FFFFFF).
@@ -337,9 +339,9 @@ def get_default_colors(n_channels: int) -> List[str]:
 
 def _compute_channel_statistics(
     data: da.Array,
-    quantiles: Tuple[float, float],
+    quantiles: tuple[float, float],
     dense: bool = False,
-) -> Tuple[float, float, float, float]:
+) -> tuple[float, float, float, float]:
     """Compute min, max, and quantiles for a single channel.
 
     Uses dask.array operations to efficiently compute statistics without
@@ -393,18 +395,17 @@ def _compute_channel_statistics(
         return _compute_quantiles_dense(
             flat_data, quantiles, float(min_val), float(max_val), data.dtype
         )
-    else:
-        return _compute_quantiles_approximate(
-            flat_data, quantiles, float(min_val), float(max_val)
-        )
+    return _compute_quantiles_approximate(
+        flat_data, quantiles, float(min_val), float(max_val)
+    )
 
 
 def _compute_quantiles_approximate(
     flat_data: da.Array,
-    quantiles: Tuple[float, float],
+    quantiles: tuple[float, float],
     min_val: float,
     max_val: float,
-) -> Tuple[float, float, float, float]:
+) -> tuple[float, float, float, float]:
     """Compute quantiles using Dask's approximate percentile algorithm.
 
     This is fast and memory-efficient but may produce less accurate results
@@ -440,11 +441,11 @@ def _compute_quantiles_approximate(
 
 def _compute_quantiles_dense(
     flat_data: da.Array,
-    quantiles: Tuple[float, float],
+    quantiles: tuple[float, float],
     min_val: float,
     max_val: float,
     dtype: "np.dtype",
-) -> Tuple[float, float, float, float]:
+) -> tuple[float, float, float, float]:
     """Compute quantiles using histogram-based dense sampling.
 
     Builds a fine-grained histogram over the full data using ``da.histogram``,
@@ -504,9 +505,9 @@ def _compute_quantiles_dense(
 
 def compute_omero_from_ngff_image(
     ngff_image: NgffImage,
-    quantiles: Tuple[float, float] = (0.02, 0.98),
-    colors: Optional[Sequence[str]] = None,
-    labels: Optional[Sequence[str]] = None,
+    quantiles: tuple[float, float] = (0.02, 0.98),
+    colors: Sequence[str] | None = None,
+    labels: Sequence[str] | None = None,
     dense: bool = False,
 ) -> Omero:
     """Compute OMERO metadata from an NgffImage.
@@ -532,7 +533,11 @@ def compute_omero_from_ngff_image(
                 If not provided, uses white for single channel or Glasbey
                 progression for multi-channel.
         labels: Optional list of label strings for each channel.
-                If not provided, uses empty strings.
+                If not provided, uses channel_names from NgffImage if available.
+                If channel_names is also not available or has fewer entries than
+                channels, uses empty strings for remaining channels.
+                When explicitly provided, must have at least as many labels as
+                channels (ValueError raised if insufficient).
         dense: If True, use histogram-based dense sampling for exact quantile
                computation over the full data. If False (default), use Dask's
                approximate percentile algorithm which is faster but may
@@ -543,12 +548,30 @@ def compute_omero_from_ngff_image(
 
     Raises:
         ValueError: If quantiles are invalid, colors are invalid format,
-                    or not enough colors/labels provided.
+                    or not enough colors/labels explicitly provided.
+
+    Note:
+        The behavior differs between explicit labels and channel_names from NgffImage:
+        - Explicit labels parameter: Must provide at least as many labels as
+          channels, otherwise ValueError is raised. This ensures intentional
+          labeling is complete.
+        - channel_names from NgffImage: Can be shorter than the number of
+          channels, in which case remaining channels get empty string labels.
+          This allows partial metadata from sources like OME-XML where not all
+          channels may have names.
 
     Example:
+        >>> # Using channel_names from NgffImage (e.g., from OME-TIFF)
         >>> image = to_ngff_image(data, dims=["c", "z", "y", "x"])
+        >>> image.channel_names = ["DAPI", "GFP", "RFP"]
         >>> omero = compute_omero_from_ngff_image(image)
-        >>> multiscales.metadata.omero = omero
+        >>> omero.channels[0].label  # "DAPI"
+
+        >>> # Explicit labels override channel_names
+        >>> omero = compute_omero_from_ngff_image(
+        ...     image, labels=["Red", "Green", "Blue"]
+        ... )
+        >>> omero.channels[0].label  # "Red"
     """
     # Validate quantiles
     _validate_quantiles(quantiles)
@@ -584,17 +607,26 @@ def compute_omero_from_ngff_image(
                 f"Not enough labels provided. Got {len(labels)}, need {n_channels}."
             )
         channel_labels = list(labels[:n_channels])
+    elif ngff_image.channel_names is not None:
+        # Use channel names from the image if available
+        if len(ngff_image.channel_names) >= n_channels:
+            channel_labels = list(ngff_image.channel_names[:n_channels])
+        else:
+            # Pad with empty strings if not enough names
+            channel_labels = list(ngff_image.channel_names) + [""] * (
+                n_channels - len(ngff_image.channel_names)
+            )
     else:
         channel_labels = [""] * n_channels
 
     # Compute statistics for each channel
-    channels: List[OmeroChannel] = []
+    channels: list[OmeroChannel] = []
 
     for ch_idx in range(n_channels):
         if has_channel_dim:
             # Extract this channel's data
             # Build a slice tuple to select this channel
-            slices: List[Union[int, slice]] = [slice(None)] * len(data.shape)
+            slices: list[int | slice] = [slice(None)] * len(data.shape)
             slices[c_index] = ch_idx
             channel_data = data[tuple(slices)]
         else:
@@ -626,9 +658,9 @@ def compute_omero_from_ngff_image(
 
 def compute_omero_from_multiscales(
     multiscales: "Multiscales",  # noqa: F821
-    quantiles: Tuple[float, float] = (0.02, 0.98),
-    colors: Optional[Sequence[str]] = None,
-    labels: Optional[Sequence[str]] = None,
+    quantiles: tuple[float, float] = (0.02, 0.98),
+    colors: Sequence[str] | None = None,
+    labels: Sequence[str] | None = None,
     dense: bool = False,
 ) -> Omero:
     """Compute OMERO metadata from a Multiscales object.

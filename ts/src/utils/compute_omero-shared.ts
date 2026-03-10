@@ -438,31 +438,49 @@ export function mergeAccumulators(
   a: ChannelStatisticsAccumulator,
   b: ChannelStatisticsAccumulator,
 ): ChannelStatisticsAccumulator {
-  const merged: ChannelStatisticsAccumulator = {
-    min: Math.min(a.min, b.min),
-    max: Math.max(a.max, b.max),
-    count: a.count + b.count,
-    sample: [...a.sample, ...b.sample],
-  };
+  const totalCount = a.count + b.count;
 
-  // Downsample if combined reservoir exceeds limit
-  if (merged.sample.length > QUANTILE_SAMPLE_SIZE) {
-    // Use reservoir sampling over the concatenated sample for unbiased downsampling
-    const k = QUANTILE_SAMPLE_SIZE;
-    const n = merged.sample.length;
-
-    // Treat the first k elements as the initial reservoir and
-    // stream the remaining elements, applying the reservoir update rule.
-    for (let i = k; i < n; i++) {
-      const j = Math.floor(Math.random() * (i + 1));
-      if (j < k) {
-        merged.sample[j] = merged.sample[i];
-      }
-    }
-    merged.sample.length = k;
+  // When neither accumulator has data, return an empty accumulator
+  if (totalCount === 0) {
+    return {
+      min: Math.min(a.min, b.min),
+      max: Math.max(a.max, b.max),
+      count: 0,
+      sample: [],
+    };
   }
 
-  return merged;
+  // Build a merged sample that is proportionally representative of each
+  // population.  Each accumulator's reservoir is a uniform random sample
+  // of its population, so we select from each reservoir in proportion to
+  // its population size (count) to keep the combined sample unbiased.
+  const k = QUANTILE_SAMPLE_SIZE;
+  const aWeight = a.count / totalCount;
+  const aTarget = Math.round(k * aWeight);
+  const bTarget = k - aTarget;
+
+  // Helper: take `want` random elements from `src` (Fisher-Yates partial shuffle)
+  function subsample(src: number[], want: number): number[] {
+    if (want >= src.length) return src.slice();
+    const arr = src.slice();
+    for (let i = 0; i < want; i++) {
+      const j = i + Math.floor(Math.random() * (arr.length - i));
+      const tmp = arr[i];
+      arr[i] = arr[j];
+      arr[j] = tmp;
+    }
+    return arr.slice(0, want);
+  }
+
+  const aSamples = subsample(a.sample, aTarget);
+  const bSamples = subsample(b.sample, bTarget);
+
+  return {
+    min: Math.min(a.min, b.min),
+    max: Math.max(a.max, b.max),
+    count: totalCount,
+    sample: aSamples.concat(bSamples),
+  };
 }
 
 /**

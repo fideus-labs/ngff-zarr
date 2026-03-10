@@ -1,12 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from typing import Optional
 
 import numpy as np
 from dask.array.core import Array as DaskArray
 
-from .ngff_image import NgffImage
 from .methods._support import _channel_dim_last
+from .ngff_image import NgffImage
 
 
 def _dtype_to_component_type(dtype):
@@ -39,8 +38,8 @@ def _dtype_to_component_type(dtype):
 def ngff_image_to_itk_image(
     ngff_image: NgffImage,
     wasm: bool = True,
-    t_index: Optional[int] = None,
-    c_index: Optional[int] = None,
+    t_index: int | None = None,
+    c_index: int | None = None,
 ):
     """Convert a NgffImage to an ITK image."""
     from itkwasm import IntTypes, PixelTypes
