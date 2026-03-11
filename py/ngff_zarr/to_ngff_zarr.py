@@ -45,7 +45,7 @@ DASK_SUPPORTS_SHARDING = Version(dask_version) >= Version("2025.12.0")
 
 ScaleStrategy = Literal["pad", "exact"]
 
-def _pop_metadata_optionals(metadata_dict, enabled_rfcs: Optional[List[int]] = None):
+def _pop_metadata_optionals(metadata_dict, enabled_rfcs: list[int] | None = None):
     # Collect all axes that need cleaning
     axes_to_clean = []
     if "axes" in metadata_dict:
