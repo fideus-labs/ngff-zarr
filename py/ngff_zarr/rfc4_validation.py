@@ -6,14 +6,14 @@ This module provides validation for RFC 4 anatomical orientation metadata
 against the JSON schema.
 """
 
-from typing import Dict, List, Any
-from pathlib import Path
 import json
+from pathlib import Path
+from typing import Any
 
 from importlib_resources import files as file_resources
 
 
-def load_rfc4_orientation_schema() -> Dict:
+def load_rfc4_orientation_schema() -> dict:
     """Load the RFC 4 orientation JSON schema."""
     schema = (
         file_resources("ngff_zarr")
@@ -23,7 +23,7 @@ def load_rfc4_orientation_schema() -> Dict:
     return json.loads(schema)
 
 
-def validate_rfc4_orientation(axes: List[Dict[str, Any]]) -> None:
+def validate_rfc4_orientation(axes: list[dict[str, Any]]) -> None:
     """
     Validate RFC 4 anatomical orientation metadata against the JSON schema.
 
@@ -133,7 +133,7 @@ def validate_rfc4_orientation(axes: List[Dict[str, Any]]) -> None:
     validator.validate(axes_structure)
 
 
-def has_rfc4_orientation_metadata(axes: List[Dict[str, Any]]) -> bool:
+def has_rfc4_orientation_metadata(axes: list[dict[str, Any]]) -> bool:
     """
     Check if the axes contain RFC 4 anatomical orientation metadata.
 

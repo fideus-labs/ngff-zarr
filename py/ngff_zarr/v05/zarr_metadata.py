@@ -1,11 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from typing import List, Optional, Union, TYPE_CHECKING
+from typing import Union, TYPE_CHECKING
 from dataclasses import dataclass
 
-from ..v04.zarr_metadata import Axis, Transform, Dataset, Omero, MethodMetadata
 from .._supported_versions import NgffVersion
 from .._zarr_types import StoreLike
+from ..v04.zarr_metadata import Axis, Dataset, MethodMetadata, Omero, Transform
 
 if TYPE_CHECKING:
     from ..v06.zarr_metadata import Metadata as Metadata_v06
@@ -14,22 +14,22 @@ if TYPE_CHECKING:
 
 @dataclass
 class Metadata:
-    axes: List[Axis]
-    datasets: List[Dataset]
-    coordinateTransformations: Optional[List[Transform]]
-    omero: Optional[Omero] = None
+    axes: list[Axis]
+    datasets: list[Dataset]
+    coordinateTransformations: list[Transform] | None
+    omero: Omero | None = None
     name: str = "image"
-    type: Optional[str] = None
-    metadata: Optional[MethodMetadata] = None
+    type: str | None = None
+    metadata: MethodMetadata | None = None
 
-    def to_version(self, version: Union[str, NgffVersion]) -> "Metadata":
+    def to_version(self, version: str | NgffVersion) -> "Metadata":
         """Convert metadata to specified NGFF version."""
         if isinstance(version, str):
             version = NgffVersion(version)
 
         if version == NgffVersion.V04:
             return self._to_v04()
-        elif version == NgffVersion.V05:
+        if version == NgffVersion.V05:
             return self
         elif version == NgffVersion.V06:
             return self._to_v06()
@@ -94,11 +94,12 @@ class Metadata:
         root_attrs: dict,
         store: StoreLike,
         validate: bool = False,
+        subpath: str | None = None,
     ) -> tuple["Metadata", list["NgffImage"]]:  # noqa: F821
         from ..v04.zarr_metadata import Metadata as Metadata_v04
 
         v4_metadata, images = Metadata_v04._from_zarr_attrs(
-            root_attrs["ome"], store, validate=validate
+            root_attrs["ome"], store, validate=validate, subpath=subpath
         )
         metadata = cls._from_v04(v4_metadata)
         return metadata, images

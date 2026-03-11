@@ -431,6 +431,59 @@ export function finalizeStatistics(
 }
 
 /**
+ * Merge two channel statistics accumulators.
+ * Used to combine partial results from parallel per-chunk workers.
+ */
+export function mergeAccumulators(
+  a: ChannelStatisticsAccumulator,
+  b: ChannelStatisticsAccumulator,
+): ChannelStatisticsAccumulator {
+  const totalCount = a.count + b.count;
+
+  // When neither accumulator has data, return an empty accumulator
+  if (totalCount === 0) {
+    return {
+      min: Math.min(a.min, b.min),
+      max: Math.max(a.max, b.max),
+      count: 0,
+      sample: [],
+    };
+  }
+
+  // Build a merged sample that is proportionally representative of each
+  // population.  Each accumulator's reservoir is a uniform random sample
+  // of its population, so we select from each reservoir in proportion to
+  // its population size (count) to keep the combined sample unbiased.
+  const k = QUANTILE_SAMPLE_SIZE;
+  const aWeight = a.count / totalCount;
+  const aTarget = Math.round(k * aWeight);
+  const bTarget = k - aTarget;
+
+  // Helper: take `want` random elements from `src` (Fisher-Yates partial shuffle)
+  function subsample(src: number[], want: number): number[] {
+    if (want >= src.length) return src.slice();
+    const arr = src.slice();
+    for (let i = 0; i < want; i++) {
+      const j = i + Math.floor(Math.random() * (arr.length - i));
+      const tmp = arr[i];
+      arr[i] = arr[j];
+      arr[j] = tmp;
+    }
+    return arr.slice(0, want);
+  }
+
+  const aSamples = subsample(a.sample, aTarget);
+  const bSamples = subsample(b.sample, bTarget);
+
+  return {
+    min: Math.min(a.min, b.min),
+    max: Math.max(a.max, b.max),
+    count: totalCount,
+    sample: aSamples.concat(bSamples),
+  };
+}
+
+/**
  * Compute channel statistics from array data (non-streaming version).
  * For datasets larger than QUANTILE_SAMPLE_SIZE, uses reservoir sampling.
  */
@@ -493,19 +546,29 @@ export interface ComputeOmeroOptions {
   colors?: string[] | undefined;
   /** Optional list of label strings for each channel. */
   labels?: string[] | undefined;
+  /**
+   * Optional decoded-chunk cache. When provided, decoded chunks are cached
+   * during omero computation so that subsequent zarrGet() calls with the
+   * same cache get cache hits (no re-decode). Any object with get(key)
+   * and set(key, value) works — a plain Map is the simplest option.
+   */
+  cache?: import("@fideus-labs/fizarrita").ChunkCache | undefined;
+  /**
+   * Optional progress callback invoked after each chunk is processed.
+   *
+   * @param completedChunks - Number of chunks processed so far
+   * @param totalChunks - Total number of chunks to process
+   */
+  onProgress?:
+    | ((completedChunks: number, totalChunks: number) => void)
+    | undefined;
 }
 
 /**
  * Options for computing OMERO metadata from multiscales.
  */
 export interface ComputeOmeroFromMultiscalesOptions
-  extends ComputeOmeroOptions {
-  /**
-   * If true (default), use the lowest resolution (smallest) image for faster computation.
-   * If false, use the highest resolution (largest) image for more accurate statistics.
-   */
-  useLowestResolution?: boolean;
-}
+  extends ComputeOmeroOptions {}
 
 /**
  * Build Omero metadata from channel accumulators.

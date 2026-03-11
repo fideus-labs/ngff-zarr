@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: MIT
 import sys
 import tempfile
+import warnings
 from dataclasses import asdict
 from pathlib import Path, PurePosixPath
-from typing import Optional, Union, Tuple, Dict, List
-import warnings
+from typing import Literal
 
 from .methods._metadata import get_method_metadata
 
@@ -15,34 +15,35 @@ else:
     import importlib.metadata as importlib_metadata
 
 import dask.array
-from dask import __version__ as dask_version
 import numpy as np
-from itkwasm import array_like_to_numpy_array
-
 import zarr
 import zarr.storage
-from ._zarr_open_array import open_array
-from .v04.zarr_metadata import Metadata as Metadata_v04
-from .v05.zarr_metadata import Metadata as Metadata_v05
-from .rfc4 import is_rfc4_enabled
-from .rfc9_zip import is_ozx_path, write_store_to_zip
-from ._zarr_types import StoreLike
+from dask import __version__ as dask_version
+from itkwasm import array_like_to_numpy_array
+from packaging.version import Version
+
 from ._zarr_kwargs import zarr_kwargs
 from ._supported_versions import NgffVersion
 
 
+from ._zarr_open_array import open_array
+from ._zarr_types import StoreLike
 from .config import config
 from .memory_usage import memory_usage
 from .methods._support import _dim_scale_factors
 from .multiscales import Multiscales
+from .rfc4 import is_rfc4_enabled
+from .rfc9_zip import is_ozx_path, write_store_to_zip
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
 from .to_multiscales import to_multiscales
-from packaging.version import Version
+from .v04.zarr_metadata import Metadata as Metadata_v04
+from .v05.zarr_metadata import Metadata as Metadata_v05
 
 zarr_version = Version(zarr.__version__)
 IS_ZARR_V3_PLUS = zarr_version.major >= 3
 DASK_SUPPORTS_SHARDING = Version(dask_version) >= Version("2025.12.0")
 
+ScaleStrategy = Literal["pad", "exact"]
 
 def _pop_metadata_optionals(metadata_dict, enabled_rfcs: Optional[List[int]] = None):
     # Collect all axes that need cleaning
@@ -201,7 +202,7 @@ def _write_with_tensorstore(
                             "name": "gzip",
                             "configuration": {"level": getattr(compressor, "level", 6)},
                         }
-                    elif codec_id == "blosc":
+                    if codec_id == "blosc":
                         return {
                             "name": "blosc",
                             "configuration": {
@@ -212,20 +213,19 @@ def _write_with_tensorstore(
                                 else "noshuffle",
                             },
                         }
-                    elif codec_id == "zstd":
+                    if codec_id == "zstd":
                         return {
                             "name": "zstd",
                             "configuration": {"level": getattr(compressor, "level", 3)},
                         }
-                    elif codec_id == "lz4":
+                    if codec_id == "lz4":
                         return {"name": "lz4"}
-                    else:
-                        # Fallback: try to use the codec_id as name
-                        return {"name": codec_id}
-                elif isinstance(compressor, str):
+                    # Fallback: try to use the codec_id as name
+                    return {"name": codec_id}
+                if isinstance(compressor, str):
                     # Simple codec name
                     return {"name": compressor}
-                elif isinstance(compressor, dict):
+                if isinstance(compressor, dict):
                     # Already in codec format
                     return compressor
                 return None
@@ -332,8 +332,8 @@ def _write_with_tensorstore(
 
 
 def _validate_ngff_parameters(
-    version: Union[str, NgffVersion],
-    chunks_per_shard: Optional[Union[int, Tuple[int, ...], Dict[str, int]]],
+    version: str | NgffVersion,
+    chunks_per_shard: int | tuple[int, ...] | dict[str, int] | None,
     use_tensorstore: bool,
     store: StoreLike,
 ) -> None:
@@ -359,8 +359,8 @@ def _validate_ngff_parameters(
 
 
 def _prepare_metadata(
-    multiscales: Multiscales, version: str, enabled_rfcs: Optional[List[int]] = None
-) -> Tuple[Union[Metadata_v04, Metadata_v05], Tuple[str, ...], Dict]:
+    multiscales: Multiscales, version: str, enabled_rfcs: list[int] | None = None
+) -> tuple[Metadata_v04 | Metadata_v05, tuple[str, ...], dict]:
     """Prepare and convert metadata to the proper version format."""
     metadata = multiscales.metadata
 
@@ -385,10 +385,10 @@ def _prepare_metadata(
 
 def _create_zarr_root(
     store: StoreLike,
-    chunk_store: Optional[StoreLike],
+    chunk_store: StoreLike | None,
     version: str,
     overwrite: bool,
-    metadata_dict: Dict,
+    metadata_dict: dict,
 ) -> zarr.Group:
     """Create and configure the root Zarr group with proper attributes."""
     zarr_format = 2 if version == "0.4" else 3
@@ -431,10 +431,10 @@ def _create_zarr_root(
 
 def _configure_sharding(
     arr: dask.array.Array,
-    chunks_per_shard: Optional[Union[int, Tuple[int, ...], Dict[str, int]]],
-    dims: Tuple[str, ...],
-    kwargs: Dict,
-) -> Tuple[Dict, Optional[Tuple[int, ...]], dask.array.Array]:
+    chunks_per_shard: int | tuple[int, ...] | dict[str, int] | None,
+    dims: tuple[str, ...],
+    kwargs: dict,
+) -> tuple[dict, tuple[int, ...] | None, dask.array.Array]:
     """Configure sharding parameters if sharding is enabled."""
     if chunks_per_shard is None:
         return {}, None, arr
@@ -479,13 +479,13 @@ def _write_array_with_tensorstore(
     store_path: str,
     path: str,
     arr: dask.array.Array,
-    chunks: Union[Tuple[int, ...], List[int]],
-    shards: Optional[Tuple[int, ...]],
-    internal_chunk_shape: Optional[Tuple[int, ...]],
+    chunks: tuple[int, ...] | list[int],
+    shards: tuple[int, ...] | None,
+    internal_chunk_shape: tuple[int, ...] | None,
     zarr_format: int,
-    dimension_names: Optional[Tuple[str, ...]],
-    region: Tuple[slice, ...],
-    full_array_shape: Optional[Tuple[int, ...]] = None,
+    dimension_names: tuple[str, ...] | None,
+    region: tuple[slice, ...],
+    full_array_shape: tuple[int, ...] | None = None,
     create_dataset: bool = True,
     **kwargs,
 ) -> None:
@@ -524,7 +524,7 @@ def _write_array_with_tensorstore(
         )
 
 
-def _prepare_zarr_kwargs(to_zarr_kwargs: Dict):
+def _prepare_zarr_kwargs(to_zarr_kwargs: dict):
     """Prepare zarr kwargs for dask.array.to_zarr.
 
     This helper function ensures that correct kwargs are passed on based on which version of zarr
@@ -555,11 +555,11 @@ def _write_array_direct(
     arr: dask.array.Array,
     store: StoreLike,
     path: str,
-    sharding_kwargs: Dict,
-    zarr_kwargs: Dict,
-    format_kwargs: Dict,
-    dimension_names_kwargs: Dict,
-    region: Optional[Tuple[slice, ...]] = None,
+    sharding_kwargs: dict,
+    zarr_kwargs: dict,
+    format_kwargs: dict,
+    dimension_names_kwargs: dict,
+    region: tuple[slice, ...] | None = None,
     zarr_array=None,
     **kwargs,
 ) -> None:
@@ -641,20 +641,20 @@ def _handle_large_array_writing(
     arr: dask.array.Array,
     store: StoreLike,
     path: str,
-    dims: Tuple[str, ...],
-    dim_factors: Dict[str, int],
-    chunks: Tuple[int, ...],
-    sharding_kwargs: Dict,
-    zarr_kwargs: Dict,
-    format_kwargs: Dict,
-    dimension_names_kwargs: Dict,
+    dims: tuple[str, ...],
+    dim_factors: dict[str, int],
+    chunks: tuple[int, ...],
+    sharding_kwargs: dict,
+    zarr_kwargs: dict,
+    format_kwargs: dict,
+    dimension_names_kwargs: dict,
     use_tensorstore: bool,
-    store_path: Optional[str],
+    store_path: str | None,
     zarr_format: int,
-    dimension_names: Tuple[str, ...],
-    internal_chunk_shape: Optional[Tuple[int, ...]],
-    shards: Optional[Tuple[int, ...]],
-    progress: Optional[Union[NgffProgress, NgffProgressCallback]],
+    dimension_names: tuple[str, ...],
+    internal_chunk_shape: tuple[int, ...] | None,
+    shards: tuple[int, ...] | None,
+    progress: NgffProgress | NgffProgressCallback | None,
     index: int,
     nscales: int,
     **kwargs,
@@ -755,8 +755,8 @@ def _handle_large_array_writing(
             )
 
         # Configure the sharding codec with proper defaults
-        from zarr.codecs.sharding import ShardingCodec
         from zarr.codecs.bytes import BytesCodec
+        from zarr.codecs.sharding import ShardingCodec
         from zarr.codecs.zstd import ZstdCodec
 
         # Default inner codecs for sharding
@@ -890,14 +890,14 @@ def _handle_large_array_writing(
 
 def _compute_write_regions(
     image,
-    dims: Tuple[str, ...],
+    dims: tuple[str, ...],
     arr: dask.array.Array,
-    shape: Tuple[int, ...],
+    shape: tuple[int, ...],
     x_index: int,
     y_index: int,
-    chunks: Tuple[int, ...],
-    shrink_factors: List[int],
-) -> List[Tuple[slice, ...]]:
+    chunks: tuple[int, ...],
+    shrink_factors: list[int],
+) -> list[tuple[slice, ...]]:
     """Compute the regions for writing a large array in chunks."""
     regions = []
 
@@ -956,16 +956,16 @@ def _compute_write_regions(
 
 def _compute_plane_regions(
     image,
-    dims: Tuple[str, ...],
+    dims: tuple[str, ...],
     arr: dask.array.Array,
-    shape: Tuple[int, ...],
+    shape: tuple[int, ...],
     x_index: int,
     y_index: int,
     z_index: int,
-    chunks: Tuple[int, ...],
-    shrink_factors: List[int],
+    chunks: tuple[int, ...],
+    shrink_factors: list[int],
     slab_index: int,
-) -> List[Tuple[slice, ...]]:
+) -> list[tuple[slice, ...]]:
     """Compute regions for a single z-slab, dividing into planes and strips if needed."""
     plane_regions = []
     z_chunks = chunks[z_index]
@@ -1044,9 +1044,17 @@ def _prepare_next_scale(
     multiscales: Multiscales,
     store: StoreLike,
     path: str,
-    progress: Optional[Union[NgffProgress, NgffProgressCallback]],
-) -> Optional[object]:
-    """Prepare the next scale for processing if needed."""
+    progress: NgffProgress | NgffProgressCallback | None,
+    scale_strategy: ScaleStrategy = "pad",
+) -> object | None:
+    """Prepare the next scale for processing if needed.
+
+    :param scale_strategy: Strategy for handling non-power-of-2 scale factors.
+        "pad" (default) always uses incremental downsampling from the previous level,
+        which may produce slightly different sizes due to floor-division rounding.
+        "exact" uses pre-computed images from the initial to_multiscales() call when
+        incremental downsampling cannot achieve the exact target size.
+    """
     # No next scale if we're at the last one
     if index >= nscales - 1:
         return None
@@ -1058,26 +1066,74 @@ def _prepare_next_scale(
 
         image.data = dask.array.from_zarr(store, component=path)
 
-        # Fetch scale factor for this index; used directly for index 0,
-        # converted to a relative factor for index > 0
-        next_multiscales_factor = multiscales.scale_factors[index]
+        # Get the absolute scale factor for the next level
+        next_absolute_factor = multiscales.scale_factors[index]
+        original_image = multiscales.images[0]
+        spatial_dims = {"x", "y", "z"}
 
-        # For subsequent levels (index > 0), compute relative scale factor
+        # Track what scale factor was applied to reach current image
+        previous_dim_factors = dict.fromkeys(image.dims, 1)
         if index > 0:
-            # If scales have been passed as list of integers
-            if isinstance(next_multiscales_factor, int):
-                next_multiscales_factor = (
-                    next_multiscales_factor // multiscales.scale_factors[index - 1]
-                )
-            # If scales have been passed as dict of per-dimension factors
+            prev_absolute_factor = multiscales.scale_factors[index - 1]
+            if isinstance(prev_absolute_factor, int):
+                for d in image.dims:
+                    if d in spatial_dims:
+                        previous_dim_factors[d] = prev_absolute_factor
             else:
-                updated_factors = {}
-                for d, f in next_multiscales_factor.items():
-                    updated_factors[d] = f // multiscales.scale_factors[index - 1][d]
-                next_multiscales_factor = updated_factors
+                for d in prev_absolute_factor:
+                    previous_dim_factors[d] = prev_absolute_factor[d]
+
+        # Compute incremental factor from current image to next scale
+        dim_factors = _dim_scale_factors(
+            image.dims,
+            next_absolute_factor,
+            previous_dim_factors,
+            original_image=original_image,
+            previous_image=image,
+        )
+
+        # Check whether incremental downsampling would fail to achieve the
+        # exact target size (original_size // absolute_factor).  When True,
+        # "exact" mode should fall back to the pre-computed image.
+        can_use_exact_mode = False
+        for dim in dim_factors:
+            if dim in spatial_dims:
+                dim_index = original_image.dims.index(dim)
+                original_size = original_image.data.shape[dim_index]
+                # Handle both int and dict scale_factor
+                dim_scale_factor = (
+                    next_absolute_factor[dim]
+                    if isinstance(next_absolute_factor, dict)
+                    else next_absolute_factor
+                )
+                target_size = int(original_size / dim_scale_factor)
+
+                prev_dim_index = image.dims.index(dim)
+                previous_size = image.data.shape[prev_dim_index]
+
+                # Check if floor(previous_size / dim_factors[dim]) != target_size
+                if int(previous_size / dim_factors[dim]) != target_size:
+                    can_use_exact_mode = True
+                    break
+
+        if scale_strategy == "exact" and can_use_exact_mode:
+            # Cannot achieve exact target sizes via incremental downsampling.
+            # Use the already-computed image from multiscales.images[index + 1]
+            # which was computed correctly during the initial to_multiscales call.
+            return multiscales.images[index + 1]
+        # Downsample from current (previous) image.
+        # In "pad" mode this always runs (sizes may differ slightly due to
+        # floor-division rounding).  In "exact" mode this runs when
+        # incremental downsampling achieves the exact target.
+        source_image = image
+        # Only include spatial dimensions in the scale factors dict
+        # to avoid KeyError in methods that look up scale/translation
+        next_multiscales_factor = {
+            d: f for d, f in dim_factors.items() if d in spatial_dims
+        }
 
         next_multiscales = to_multiscales(
-            image,
+            source_image,
             scale_factors=[
                 next_multiscales_factor,
             ],
@@ -1088,8 +1144,7 @@ def _prepare_next_scale(
         )
         multiscales.images[index + 1] = next_multiscales.images[1]
         return next_multiscales.images[1]
-    else:
-        return multiscales.images[index + 1]
+    return multiscales.images[index + 1]
 
 
 def to_ngff_zarr(
@@ -1098,16 +1153,11 @@ def to_ngff_zarr(
     version: str = "0.4",
     overwrite: bool = True,
     use_tensorstore: bool = False,
-    chunk_store: Optional[StoreLike] = None,
-    progress: Optional[Union[NgffProgress, NgffProgressCallback]] = None,
-    chunks_per_shard: Optional[
-        Union[
-            int,
-            Tuple[int, ...],
-            Dict[str, int],
-        ]
-    ] = None,
-    enabled_rfcs: Optional[List[int]] = None,
+    chunk_store: StoreLike | None = None,
+    progress: NgffProgress | NgffProgressCallback | None = None,
+    chunks_per_shard: int | tuple[int, ...] | dict[str, int] | None = None,
+    enabled_rfcs: list[int] | None = None,
+    scale_strategy: ScaleStrategy = "pad",
     **kwargs,
 ) -> None:
     """
@@ -1141,6 +1191,14 @@ def to_ngff_zarr(
 
     :param enabled_rfcs: List of RFC numbers to enable. If RFC 4 is included, anatomical orientation metadata will be preserved in the output.
     :type  enabled_rfcs: list of int, optional
+
+    :param scale_strategy: Strategy for handling non-power-of-2 scale factors during
+        multiscale writing. "pad" (default) always uses incremental downsampling from
+        the previous level, which is memory-efficient but may produce slightly different
+        sizes due to floor-division rounding. "exact" uses pre-computed images from
+        the initial to_multiscales() call when incremental downsampling cannot achieve
+        the exact target size (original_size // scale_factor).
+    :type  scale_strategy: "pad" or "exact", optional
 
     :param **kwargs: Passed to the zarr.create_array() or zarr.creation.create() function, e.g., compression options.
     """
@@ -1191,6 +1249,7 @@ def to_ngff_zarr(
                 progress=progress,
                 chunks_per_shard=chunks_per_shard,
                 enabled_rfcs=enabled_rfcs,
+                scale_strategy=scale_strategy,
                 **kwargs,
             )
 
@@ -1223,6 +1282,7 @@ def to_ngff_zarr(
         progress=progress,
         chunks_per_shard=chunks_per_shard,
         enabled_rfcs=enabled_rfcs,
+        scale_strategy=scale_strategy,
         **kwargs,
     )
 
@@ -1233,16 +1293,11 @@ def _to_ngff_zarr_impl(
     version: str = "0.4",
     overwrite: bool = True,
     use_tensorstore: bool = False,
-    chunk_store: Optional[StoreLike] = None,
-    progress: Optional[Union[NgffProgress, NgffProgressCallback]] = None,
-    chunks_per_shard: Optional[
-        Union[
-            int,
-            Tuple[int, ...],
-            Dict[str, int],
-        ]
-    ] = None,
-    enabled_rfcs: Optional[List[int]] = None,
+    chunk_store: StoreLike | None = None,
+    progress: NgffProgress | NgffProgressCallback | None = None,
+    chunks_per_shard: int | tuple[int, ...] | dict[str, int] | None = None,
+    enabled_rfcs: list[int] | None = None,
+    scale_strategy: ScaleStrategy = "pad",
     **kwargs,
 ) -> None:
     """
@@ -1279,7 +1334,7 @@ def _to_ngff_zarr_impl(
 
     next_image = multiscales.images[0]
     dims = next_image.dims
-    previous_dim_factors = {d: 1 for d in dims}
+    previous_dim_factors = dict.fromkeys(dims, 1)
 
     for index in range(nscales):
         if progress:
@@ -1301,7 +1356,7 @@ def _to_ngff_zarr_impl(
                 dims, multiscales.scale_factors[index], previous_dim_factors
             )
         else:
-            dim_factors = {d: 1 for d in dims}
+            dim_factors = dict.fromkeys(dims, 1)
         previous_dim_factors = dim_factors
 
         # Configure sharding if needed
@@ -1380,7 +1435,14 @@ def _to_ngff_zarr_impl(
 
         # Prepare next scale if needed
         next_image = _prepare_next_scale(
-            image, index, nscales, multiscales, store, path, progress
+            image,
+            index,
+            nscales,
+            multiscales,
+            store,
+            path,
+            progress,
+            scale_strategy=scale_strategy,
         )
 
     # Clean up callbacks

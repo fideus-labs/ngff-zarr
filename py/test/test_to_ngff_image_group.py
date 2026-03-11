@@ -13,9 +13,8 @@ from pathlib import Path
 
 import numpy as np
 import zarr
-from packaging import version
-
 from ngff_zarr import to_ngff_image
+from packaging import version
 
 # Check Zarr version for API compatibility
 zarr_version = version.parse(zarr.__version__)
@@ -72,7 +71,7 @@ def test_to_ngff_image_with_empty_zarr_group():
     # Test that to_ngff_image raises ValueError for empty group
     import pytest
 
-    with pytest.raises(ValueError, match="Zarr Group is empty"):
+    with pytest.raises(ValueError, match="no arrays found"):
         to_ngff_image(reopened_group)
 
 

@@ -464,3 +464,232 @@ def test_tiff_file_to_ngff_images_unsupported_axis_warning():
     # Q axis should be dropped (first slice taken)
     assert img.dims == ("z", "y", "x")
     assert img.data.shape == (5, 100, 100)
+
+
+def test_tiff_file_to_ngff_images_with_channel_names():
+    """Test that channel names are extracted from OME-XML metadata."""
+    try:
+        import tifffile
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    # Create an OME-TIFF with channel names
+    tmpdir = Path(tempfile.mkdtemp())
+    tiff_path = tmpdir / "with_channel_names.ome.tiff"
+
+    with tifffile.TiffWriter(tiff_path, ome=True) as tif:
+        tif.write(
+            np.random.rand(3, 100, 100).astype(np.uint8),
+            photometric="minisblack",
+            metadata={
+                "axes": "CYX",
+                "Channel": {"Name": ["DAPI", "GFP", "RFP"]},
+            },
+        )
+
+    images = tiff_file_to_ngff_images(tiff_path)
+    assert len(images) == 1
+
+    name, img = images[0]
+    assert img.data.shape == (3, 100, 100)
+    assert img.dims == ("c", "y", "x")
+
+    # Check that channel names were extracted
+    assert img.channel_names is not None
+    assert len(img.channel_names) == 3
+    assert img.channel_names == ["DAPI", "GFP", "RFP"]
+
+
+def test_tiff_file_to_ngff_images_with_partial_channel_names():
+    """Test handling of OME-TIFF with some channels lacking names."""
+    try:
+        import tifffile
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    # Create an OME-TIFF where some channels have names and others don't
+    tmpdir = Path(tempfile.mkdtemp())
+    tiff_path = tmpdir / "partial_channel_names.ome.tiff"
+
+    # Note: tifffile's ome=True mode handles Channel metadata differently
+    # We'll create a more explicit OME-XML for this test
+    with tifffile.TiffWriter(tiff_path, ome=True) as tif:
+        tif.write(
+            np.random.rand(3, 100, 100).astype(np.uint8),
+            photometric="minisblack",
+            metadata={
+                "axes": "CYX",
+                "Channel": {"Name": ["DAPI", "", "RFP"]},
+            },
+        )
+
+    images = tiff_file_to_ngff_images(tiff_path)
+    assert len(images) == 1
+
+    name, img = images[0]
+    # Channel names should be present even if some are empty
+    assert img.channel_names is not None
+    assert len(img.channel_names) == 3
+    assert img.channel_names[0] == "DAPI"
+    assert img.channel_names[1] == ""  # Empty string for unnamed channel
+    assert img.channel_names[2] == "RFP"
+
+
+def test_tiff_file_to_ngff_images_without_channel_names():
+    """Test that non-OME TIFF or OME-TIFF without channel names has None."""
+    try:
+        import tifffile
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    # Create a plain TIFF without OME metadata
+    tmpdir = Path(tempfile.mkdtemp())
+    tiff_path = tmpdir / "no_channel_names.tiff"
+
+    with tifffile.TiffWriter(tiff_path) as tif:  # Not ome=True
+        tif.write(
+            np.random.rand(3, 100, 100).astype(np.uint8),
+            photometric="minisblack",
+            metadata={"axes": "CYX"},
+        )
+
+    images = tiff_file_to_ngff_images(tiff_path)
+    assert len(images) == 1
+
+    name, img = images[0]
+    # Should have None for channel names
+    assert img.channel_names is None
+
+
+def test_tiff_sample_axis_sets_rgb_channel_colors(tmp_path):
+    """Test that TIFF images with S (sample) axis get RGB channel_colors set."""
+    try:
+        import tifffile
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    tiff_path = tmp_path / "rgb_yxs.tiff"
+
+    # Create a 2D RGB image with YXS axes
+    data = np.random.randint(0, 256, (100, 100, 3), dtype=np.uint8)
+
+    with tifffile.TiffWriter(tiff_path) as tif:
+        tif.write(data, photometric="rgb")
+
+    images = tiff_file_to_ngff_images(tiff_path)
+    assert len(images) == 1
+
+    _, img = images[0]
+    # S axis should be mapped to c with RGB channel_colors assigned
+    assert img.dims == ("y", "x", "c")
+    assert img.channel_colors is not None
+    assert img.channel_colors == ["FF0000", "00FF00", "0000FF"]
+
+
+def test_tiff_sample_axis_rgba_sets_four_channel_colors(tmp_path):
+    """Test that a 4-sample (RGBA) TIFF gets 4 RGB+alpha channel_colors."""
+    try:
+        import tifffile
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    tiff_path = tmp_path / "rgba_yxs.tiff"
+
+    # Create a 2D RGBA image with YXS axes (4 samples)
+    data = np.random.randint(0, 256, (100, 100, 4), dtype=np.uint8)
+
+    with tifffile.TiffWriter(tiff_path) as tif:
+        tif.write(data, photometric="rgb", extrasamples=["unassalpha"])
+
+    images = tiff_file_to_ngff_images(tiff_path)
+    assert len(images) == 1
+
+    _, img = images[0]
+    assert img.channel_colors is not None
+    assert img.channel_colors == ["FF0000", "00FF00", "0000FF", "FFFFFF"]
+
+
+def test_ome_tiff_channel_colors_from_xml(tmp_path):
+    """Test that channel colors are extracted from OME-XML Color attributes."""
+    try:
+        import tifffile
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    tiff_path = tmp_path / "colored.ome.tiff"
+
+    # Create OME-TIFF with channel color metadata
+    # OME color integers (RGBA format as signed int32):
+    #   Red   (FF FF 00 00): int32 = -65536       -> hex "FF0000"
+    #   Green (FF 00 FF 00): int32 = -16711936     -> hex "00FF00"
+    #   Blue  (FF 00 00 FF): int32 = -16776961     -> hex "0000FF"
+    ome_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">
+  <Image ID="Image:0" Name="test">
+    <Pixels ID="Pixels:0" Type="uint8" SizeX="100" SizeY="100" SizeC="3"
+            SizeZ="1" SizeT="1" DimensionOrder="XYZCT"
+            PhysicalSizeX="0.5" PhysicalSizeXUnit="um"
+            PhysicalSizeY="0.5" PhysicalSizeYUnit="um">
+      <Channel ID="Channel:0:0" Name="Red" Color="-65536"/>
+      <Channel ID="Channel:0:1" Name="Green" Color="-16711936"/>
+      <Channel ID="Channel:0:2" Name="Blue" Color="-16776961"/>
+      <TiffData/>
+    </Pixels>
+  </Image>
+</OME>"""
+
+    data = np.random.randint(0, 256, (3, 100, 100), dtype=np.uint8)
+
+    with tifffile.TiffWriter(tiff_path, ome=False) as tif:
+        tif.write(
+            data,
+            photometric="minisblack",
+            description=ome_xml,
+            metadata=None,
+        )
+
+    images = tiff_file_to_ngff_images(tiff_path)
+    assert len(images) == 1
+
+    _, img = images[0]
+    assert img.channel_colors is not None
+    assert img.channel_colors[0] == "FF0000"
+    assert img.channel_colors[1] == "00FF00"
+    assert img.channel_colors[2] == "0000FF"
+
+
+def test_non_rgb_multichannel_tiff_no_channel_colors(tmp_path):
+    """Test that multi-channel TIFFs without S axis have no channel_colors."""
+    try:
+        import tifffile
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    tiff_path = tmp_path / "multichannel.tiff"
+
+    # 3-channel fluorescence image with C axis (not S)
+    data = np.random.randint(0, 65535, (3, 100, 100), dtype=np.uint16)
+
+    with tifffile.TiffWriter(tiff_path) as tif:
+        tif.write(data, photometric="minisblack", metadata={"axes": "CYX"})
+
+    images = tiff_file_to_ngff_images(tiff_path)
+    assert len(images) == 1
+
+    _, img = images[0]
+    # No S axis and no OME-XML colors -> channel_colors should be None
+    assert img.channel_colors is None

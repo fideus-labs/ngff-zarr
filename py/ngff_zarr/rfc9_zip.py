@@ -10,13 +10,12 @@ in ZIP archives according to RFC-9 specification.
 import json
 import zipfile
 from pathlib import Path
-from typing import Union, Optional
 
 import zarr
 import zarr.storage
 
 
-def is_ozx_path(path: Union[str, Path]) -> bool:
+def is_ozx_path(path: str | Path) -> bool:
     """
     Check if a path refers to a .ozx file.
 
@@ -33,9 +32,66 @@ def is_ozx_path(path: Union[str, Path]) -> bool:
     return str(path).endswith(".ozx")
 
 
+def _get_store_root_path(source_store) -> Path | None:
+    """Return the filesystem root Path for a store, or None for non-filesystem stores."""
+    if isinstance(source_store, (str, Path)):
+        return Path(source_store)
+    if hasattr(zarr.storage, "LocalStore") and isinstance(
+        source_store, zarr.storage.LocalStore
+    ):
+        return Path(source_store.root)
+    if hasattr(zarr.storage, "DirectoryStore") and isinstance(
+        source_store, zarr.storage.DirectoryStore
+    ):
+        return Path(source_store.dir_path())
+    return None
+
+
+def _enumerate_fs_files(root_dir: Path) -> list[str]:
+    """Enumerate all files under root_dir as forward-slash-separated relative paths."""
+    all_files = []
+    for file_path in root_dir.rglob("*"):
+        if file_path.is_file():
+            rel_path = file_path.relative_to(root_dir)
+            # Convert to forward slashes for ZIP
+            all_files.append(str(rel_path).replace("\\", "/"))
+    return all_files
+
+
+def _order_files_rfc9(all_files: list[str]) -> list[str]:
+    """Order files per RFC-9: root zarr.json first, other zarr.json next, then rest sorted."""
+    # Collect and deterministically order all zarr.json files
+    has_root = "zarr.json" in all_files
+    non_root_zarr_jsons = [
+        f for f in all_files if f.endswith("zarr.json") and f != "zarr.json"
+    ]
+    # Sort non-root zarr.json by path depth (shallower first) then lexicographically
+    non_root_zarr_jsons_sorted = sorted(
+        non_root_zarr_jsons, key=lambda p: (p.count("/"), p)
+    )
+    if has_root:
+        zarr_jsons = ["zarr.json"] + non_root_zarr_jsons_sorted
+    else:
+        zarr_jsons = non_root_zarr_jsons_sorted
+
+    other_files = [f for f in all_files if not f.endswith("zarr.json")]
+    return zarr_jsons + sorted(other_files)
+
+
+def _write_rfc9_comment(zf: zipfile.ZipFile, version: str) -> None:
+    """Write the RFC-9 ZIP comment with version and jsonFirst flag."""
+    comment_dict = {
+        "ome": {
+            "version": version,
+            "zipFile": {"centralDirectory": {"jsonFirst": True}},
+        }
+    }
+    zf.comment = json.dumps(comment_dict).encode("utf-8")
+
+
 def write_store_to_zip(
-    source_store: Union[zarr.storage.StoreLike, str, Path],
-    zip_path: Union[str, Path],
+    source_store: zarr.storage.StoreLike | str | Path,
+    zip_path: str | Path,
     version: str = "0.5",
     compression: int = zipfile.ZIP_STORED,
 ) -> None:
@@ -48,6 +104,10 @@ def write_store_to_zip(
     - ZIP-level compression should be disabled (ZIP_STORED)
     - ZIP64 format should be used
     - A comment with OME-Zarr version should be added
+
+    Files are streamed one at a time from filesystem-backed stores so that
+    peak memory stays proportional to the largest single file (typically one
+    chunk or shard) rather than the entire dataset.
 
     This function can be used to convert any existing zarr store (including HCS plates)
     to .ozx format after it has been written.
@@ -72,49 +132,18 @@ def write_store_to_zip(
     >>> # After writing plate with to_hcs_zarr or HCSPlateWriter
     >>> write_store_to_zip("my_plate.ome.zarr", "my_plate.ozx", version="0.5")
     """
-    import asyncio
-    from zarr.core.buffer import default_buffer_prototype
-
     zip_path = Path(zip_path)
 
-    # Get the buffer prototype for zarr v3 stores
-    proto = default_buffer_prototype()
+    # Determine if the source is filesystem-backed
+    root_dir = _get_store_root_path(source_store)
 
-    # Handle string/Path inputs by converting to appropriate store or using filesystem directly
-    if isinstance(source_store, (str, Path)):
-        # For path strings, enumerate files directly from filesystem
-        root_dir = Path(source_store)
-        all_files = []
-        for file_path in root_dir.rglob("*"):
-            if file_path.is_file():
-                # Get relative path from root
-                rel_path = file_path.relative_to(root_dir)
-                # Convert to forward slashes for ZIP
-                all_files.append(str(rel_path).replace("\\", "/"))
-    elif hasattr(zarr.storage, "LocalStore") and isinstance(
-        source_store, zarr.storage.LocalStore
-    ):
-        # Get the root directory from LocalStore
-        root_dir = Path(source_store.root)
-        all_files = []
-        for file_path in root_dir.rglob("*"):
-            if file_path.is_file():
-                # Get relative path from root
-                rel_path = file_path.relative_to(root_dir)
-                # Convert to forward slashes for ZIP
-                all_files.append(str(rel_path).replace("\\", "/"))
-    elif hasattr(zarr.storage, "DirectoryStore") and isinstance(
-        source_store, zarr.storage.DirectoryStore
-    ):
-        # For DirectoryStore (zarr v2), use dir_path()
-        root_dir = Path(source_store.dir_path())
-        all_files = []
-        for file_path in root_dir.rglob("*"):
-            if file_path.is_file():
-                rel_path = file_path.relative_to(root_dir)
-                all_files.append(str(rel_path).replace("\\", "/"))
+    if root_dir is not None:
+        # Filesystem-backed store: enumerate files from disk
+        all_files = _enumerate_fs_files(root_dir)
     else:
-        # For other store types, use async list()
+        # Non-filesystem store (e.g. MemoryStore): enumerate via async list()
+        import asyncio
+
         async def get_all_files():
             items = []
             async for item in source_store.list():
@@ -126,103 +155,61 @@ def write_store_to_zip(
     if not all_files:
         raise ValueError(f"No files found in source store of type {type(source_store)}")
 
-    # Get zarr.json files - root first, then in breadth-first order
-    zarr_jsons = [f for f in all_files if f.endswith("zarr.json")]
-    if "zarr.json" in zarr_jsons:
-        zarr_jsons.remove("zarr.json")
-        zarr_jsons.insert(0, "zarr.json")
-
-    # Other files
-    other_files = [f for f in all_files if not f.endswith("zarr.json")]
-
-    # Order: zarr.json files first, then everything else sorted
-    ordered_files = zarr_jsons + sorted(other_files)
-
-    # Read file data based on store type
-    if isinstance(source_store, (str, Path)):
-        # Read files directly from filesystem for path strings
-        root_dir = Path(source_store)
-        file_data = {}
-        for file_path in ordered_files:
-            full_path = root_dir / file_path
-            if full_path.exists():
-                file_data[file_path] = full_path.read_bytes()
-            else:
-                raise ValueError(f"Could not read data for {file_path} from {root_dir}")
-    elif hasattr(zarr.storage, "LocalStore") and isinstance(
-        source_store, zarr.storage.LocalStore
-    ):
-        # Read files directly from filesystem
-        root_dir = Path(source_store.root)
-        file_data = {}
-        for file_path in ordered_files:
-            full_path = root_dir / file_path
-            if full_path.exists():
-                file_data[file_path] = full_path.read_bytes()
-            else:
-                raise ValueError(f"Could not read data for {file_path} from {root_dir}")
-    elif hasattr(zarr.storage, "DirectoryStore") and isinstance(
-        source_store, zarr.storage.DirectoryStore
-    ):
-        # Read files directly from filesystem
-        root_dir = Path(source_store.dir_path())
-        file_data = {}
-        for file_path in ordered_files:
-            full_path = root_dir / file_path
-            if full_path.exists():
-                file_data[file_path] = full_path.read_bytes()
-            else:
-                raise ValueError(f"Could not read data for {file_path} from {root_dir}")
-    else:
-        # For other store types, use async get()
-        # Helper async function to get file data
-        async def get_file_data(file_path: str):
-            """Get data from store using zarr v3 async API"""
-            try:
-                result = await source_store.get(file_path, proto)
-                if result:
-                    return result.to_bytes()
-                return None
-            except (KeyError, FileNotFoundError):
-                # File not found in store - this is an error condition
-                return None
-
-        # Gather all file data in a single event loop (more efficient than creating one per file)
-        async def get_all_file_data(file_paths):
-            results = await asyncio.gather(*(get_file_data(fp) for fp in file_paths))
-            return dict(zip(file_paths, results))
-
-        file_data = asyncio.run(get_all_file_data(ordered_files))
+    ordered_files = _order_files_rfc9(all_files)
 
     # Create ZIP archive with ZIP64 support
     with zipfile.ZipFile(
         zip_path, mode="w", compression=compression, allowZip64=True
     ) as zf:
-        # Write files in order
-        for file_path in ordered_files:
-            data = file_data[file_path]
-            if data is None:
-                raise ValueError(
-                    f"Could not read data for {file_path} from source store"
+        if root_dir is not None:
+            # Filesystem-backed: stream one file at a time to keep memory
+            # proportional to the largest single file, not the whole dataset.
+            for file_path in ordered_files:
+                full_path = root_dir / file_path
+                if not full_path.exists():
+                    raise ValueError(
+                        f"Could not read data for {file_path} from {root_dir}"
+                    )
+                zf.write(full_path, arcname=file_path)
+        else:
+            # Non-filesystem store (e.g. MemoryStore): data is already in
+            # memory, so bulk-reading via asyncio.gather is fine.
+            import asyncio
+
+            from zarr.core.buffer import default_buffer_prototype
+
+            proto = default_buffer_prototype()
+
+            async def get_file_data(fp: str):
+                """Get data from store using zarr v3 async API."""
+                try:
+                    result = await source_store.get(fp, proto)
+                    if result:
+                        return result.to_bytes()
+                    return None
+                except (KeyError, FileNotFoundError):
+                    return None
+
+            async def get_all_file_data(file_paths):
+                results = await asyncio.gather(
+                    *(get_file_data(fp) for fp in file_paths)
                 )
+                return dict(zip(file_paths, results))
 
-            # Write to ZIP
-            zf.writestr(file_path, data)
+            file_data = asyncio.run(get_all_file_data(ordered_files))
 
-        # Add OME-Zarr version comment as per RFC-9
-        # Include jsonFirst flag to indicate zarr.json files are ordered
-        # breadth-first and precede other content
-        comment_dict = {
-            "ome": {
-                "version": version,
-                "zipFile": {"centralDirectory": {"jsonFirst": True}},
-            }
-        }
-        comment_json = json.dumps(comment_dict)
-        zf.comment = comment_json.encode("utf-8")
+            for file_path in ordered_files:
+                data = file_data[file_path]
+                if data is None:
+                    raise ValueError(
+                        f"Could not read data for {file_path} from source store"
+                    )
+                zf.writestr(file_path, data)
+
+        _write_rfc9_comment(zf, version)
 
 
-def read_ozx_version(zip_path: Union[str, Path]) -> Optional[str]:
+def read_ozx_version(zip_path: str | Path) -> str | None:
     """
     Read the OME-Zarr version from a .ozx file's ZIP comment.
 
@@ -253,7 +240,7 @@ def read_ozx_version(zip_path: Union[str, Path]) -> Optional[str]:
     return None
 
 
-def read_ozx_json_first(zip_path: Union[str, Path]) -> bool:
+def read_ozx_json_first(zip_path: str | Path) -> bool:
     """
     Read the jsonFirst flag from a .ozx file's ZIP comment.
 

@@ -14,6 +14,7 @@ from pathlib import Path
 
 import dask.utils
 import zarr
+import zarr.storage
 from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
@@ -28,7 +29,6 @@ from rich.progress import (
 )
 from rich.spinner import Spinner
 from rich_argparse import RichHelpFormatter
-import zarr.storage
 
 if hasattr(zarr.storage, "DirectoryStore"):
     LocalStore = zarr.storage.DirectoryStore
@@ -153,7 +153,7 @@ def _apply_omero_metadata(live, args, multiscales):
             quantiles=quantiles,
             colors=colors,
             labels=labels,
-            use_lowest_resolution=True,  # Use lowest resolution for speed
+            dense=args.omero_dense,
         )
         multiscales.metadata.omero = omero
         if not args.quiet:
@@ -200,10 +200,8 @@ def _multiscales_to_ngff_zarr(
     )
 
 
-def _ngff_image_to_multiscales(
-    live, ngff_image, args, progress, rich_dask_progress, subtitle, method
-):
-    data = ngff_image.data
+def _apply_cli_metadata_overrides(ngff_image, args, live):
+    """Apply user CLI metadata overrides (dims, scale, translation, units, name) to an NgffImage."""
     if args.dims:
         if len(args.dims) != len(ngff_image.dims):
             live.console.print(
@@ -254,6 +252,13 @@ def _ngff_image_to_multiscales(
         ngff_image.axes_units = unit_pairs
     if args.name:
         ngff_image.name = args.name
+
+
+def _ngff_image_to_multiscales(
+    live, ngff_image, args, progress, rich_dask_progress, subtitle, method
+):
+    data = ngff_image.data
+    _apply_cli_metadata_overrides(ngff_image, args, live)
 
     # Generate Multiscales
     cache = data.nbytes > config.memory_target
@@ -384,6 +389,12 @@ def main():
         metavar="LABEL",
         help="Labels for channels (e.g., DAPI GFP RFP)",
     )
+    omero_group.add_argument(
+        "--omero-dense",
+        action="store_true",
+        help="Use histogram-based dense sampling for exact OMERO quantile computation. "
+        "More accurate than the default approximate method for large datasets.",
+    )
 
     processing_group = parser.add_argument_group("processing", "Processing options")
     processing_group.add_argument(
@@ -398,7 +409,7 @@ def main():
         "--chunks-per-shard",
         nargs="+",
         type=int,
-        help="Number of chunks along each axis in a shard. If not set, no sharding. Either a single integer or integer per dimension, e.g. 64 or 8 16 32",
+        help="Number of chunks along each axis in a shard. If not set, no sharding. Either a single integer or integer per dimension, e.g. 4 or 2 4 8",
         metavar="CHUNKS_PER_SHARD",
     )
     processing_group.add_argument(
@@ -487,7 +498,7 @@ def main():
         )
         client = Client(cluster)
 
-        def shutdown_client(sig_id, frame):  # noqa: ARG001
+        def shutdown_client(sig_id, frame):
             client.shutdown()
 
         atexit.register(shutdown_client, None, None)
@@ -638,8 +649,8 @@ def main():
             return
 
         if args.output and output_backend is ConversionBackend.IMAGEIO:
-            import numpy as np
             import imageio.v3 as iio
+            import numpy as np
 
             ngff_image = cli_input_to_ngff_image(
                 input_backend, args.input, args.output_scale
@@ -736,6 +747,7 @@ def main():
                 if importlib.util.find_spec("tifffile") is None:
                     raise ImportError("tifffile not found")
 
+                from .multiscales import Multiscales as MultiscalesType
                 from .tiff_to_ngff_image import tiff_file_to_ngff_images
 
                 # Get series to convert based on --series argument
@@ -748,14 +760,16 @@ def main():
                         pass  # Keep as string (pattern or "all")
 
                 series_list = tiff_file_to_ngff_images(
-                    args.input[0], series=series_spec
+                    args.input[0],
+                    series=series_spec,
+                    reuse_existing_pyramids=True,
                 )
 
                 if len(series_list) == 0:
                     live.console.print("[red]No matching series found in TIFF file.")
                     sys.exit(1)
 
-                for series_name, ngff_image in series_list:
+                for series_name, result in series_list:
                     # Determine output path for this series
                     if args.output:
                         if len(series_list) > 1:
@@ -771,15 +785,27 @@ def main():
                     else:
                         series_store = None
 
-                    multiscales = _ngff_image_to_multiscales(
-                        live,
-                        ngff_image,
-                        args,
-                        progress,
-                        rich_dask_progress,
-                        subtitle,
-                        method,
-                    )
+                    if isinstance(result, MultiscalesType):
+                        # Pyramidal TIFF: reuse existing pyramid levels
+                        multiscales = result
+                        # Apply CLI metadata overrides to the base image
+                        _apply_cli_metadata_overrides(multiscales.images[0], args, live)
+                        if not args.quiet:
+                            n_levels = len(multiscales.images)
+                            live.console.log(
+                                f"[green]Reusing {n_levels} existing pyramid levels"
+                            )
+                    else:
+                        # Single-level: generate multiscales via downsampling
+                        multiscales = _ngff_image_to_multiscales(
+                            live,
+                            result,
+                            args,
+                            progress,
+                            rich_dask_progress,
+                            subtitle,
+                            method,
+                        )
                     _multiscales_to_ngff_zarr(
                         live,
                         args,
@@ -799,11 +825,11 @@ def main():
             try:
                 from liffile import LifFile
 
+                from .hcs import HCSPlateWriter
                 from .lif_to_ngff_image import (
                     lif_file_to_ngff_images,
                     lif_to_hcs_plate,
                 )
-                from .hcs import HCSPlateWriter
 
                 with LifFile(args.input[0]) as lif:
                     # Get series to convert based on --series argument

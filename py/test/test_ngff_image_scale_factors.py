@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-import pytest
 import numpy as np
+import pytest
 from ngff_zarr.to_multiscales import _ngff_image_scale_factors
 from ngff_zarr.to_ngff_image import to_ngff_image
 
@@ -28,7 +28,7 @@ def test_scale_factors(shape, expected_factors):
     image = to_ngff_image(array)
     chunk_length = 64
     image.data = image.data.rechunk(chunk_length)
-    chunk_dims = {dim: chunk_length for dim in image.dims}
+    chunk_dims = dict.fromkeys(image.dims, chunk_length)
     scale_factors = _ngff_image_scale_factors(image, chunk_length, chunk_dims)
     assert scale_factors == expected_factors
 

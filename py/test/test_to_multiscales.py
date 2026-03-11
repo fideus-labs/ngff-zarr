@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-import pytest
 import numpy as np
-from ngff_zarr.to_ngff_image import to_ngff_image
+import pytest
 from ngff_zarr.to_multiscales import to_multiscales
+from ngff_zarr.to_ngff_image import to_ngff_image
 
 rng = np.random.default_rng(12345)
 

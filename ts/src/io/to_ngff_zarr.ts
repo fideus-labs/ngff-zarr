@@ -1,11 +1,12 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 import * as zarr from "zarrita";
+
 import type { Multiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
-import type { MemoryStore } from "./from_ngff_zarr.ts";
+import { defaultCodecs } from "../utils/codecs.ts";
 import { createWriteQueue, zarrGet, zarrSet } from "../utils/worker_pool.ts";
-import { DEFAULT_CODECS } from "../utils/codecs.ts";
+import type { MemoryStore } from "./from_ngff_zarr.ts";
 import { isOzxPath, memoryStoreToZip } from "./rfc9_zip.ts";
 import {
   processAxesForRfcs,
@@ -33,6 +34,16 @@ export interface ToNgffZarrOptions {
 export interface ToNgffZarrOzxOptions {
   /** List of RFC numbers to enable (e.g., [4] for RFC 4 anatomical orientation) */
   enabledRfcs?: number[] | undefined;
+  /**
+   * Optional progress callback invoked after each chunk is written.
+   * Reports cumulative progress across all scale levels.
+   *
+   * @param completedChunks - Number of chunks written so far
+   * @param totalChunks - Total number of chunks to write across all levels
+   */
+  onProgress?:
+    | ((completedChunks: number, totalChunks: number) => void)
+    | undefined;
 }
 
 /**
@@ -278,6 +289,7 @@ async function _writeImage(
   group: zarr.Group<MemoryStore>,
   image: NgffImage,
   arrayPath: string,
+  onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
 ): Promise<void> {
   try {
     const chunks = getChunksFromImage(image);
@@ -294,12 +306,13 @@ async function _writeImage(
       data_type: zarrDataType,
       chunk_shape: chunks,
       fill_value: 0,
-      codecs: [...DEFAULT_CODECS],
+      codecs: defaultCodecs(zarrDataType),
     });
 
     await _writeArrayData(
       zarrArray as zarr.Array<zarr.DataType, MemoryStore>,
       image,
+      onProgress,
     );
   } catch (error) {
     throw new Error(
@@ -322,6 +335,7 @@ function getChunksFromImage(image: NgffImage): number[] {
 async function _writeArrayData(
   zarrArray: zarr.Array<zarr.DataType, MemoryStore>,
   image: NgffImage,
+  onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
 ): Promise<void> {
   try {
     // Get array shape for chunk calculation - we don't need the full data here
@@ -341,7 +355,7 @@ async function _writeArrayData(
     }
 
     // Wait for all chunks to be written
-    await writeQueue.onIdle();
+    await writeQueue.onIdle(onProgress);
   } catch (error) {
     throw new Error(
       `Failed to write array data: ${
@@ -469,9 +483,9 @@ function convertChunkToTargetType(
       // Convert between typed arrays
       if (targetDtype === "int64" || targetDtype === "uint64") {
         // Regular number to BigInt conversion
-        const bigIntArray = new targetTypedArrayConstructor(
-          chunkData.length,
-        ) as BigInt64Array | BigUint64Array;
+        const bigIntArray = new targetTypedArrayConstructor(chunkData.length) as
+          | BigInt64Array
+          | BigUint64Array;
         for (let i = 0; i < chunkData.length; i++) {
           bigIntArray[i] = BigInt(chunkData[i]);
         }
@@ -619,7 +633,12 @@ export async function toNgffZarrOzxData(
   // Write to the memory store using existing toNgffZarr logic
   // but we need to inline the core logic since toNgffZarr would
   // try to detect .ozx again
-  await _writeToMemoryStore(memoryStore, multiscales, enabledRfcs);
+  await _writeToMemoryStore(
+    memoryStore,
+    multiscales,
+    enabledRfcs,
+    options.onProgress ?? null,
+  );
 
   // Convert the memory store to ZIP data
   const zipData = memoryStoreToZip(memoryStore, { version: "0.5" });
@@ -635,11 +654,13 @@ async function _writeToMemoryStore(
   store: MemoryStore,
   multiscales: Multiscales,
   enabledRfcs?: number[],
+  onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
 ): Promise<void> {
   await writeMultiscalesToMemoryStore(
     store,
     multiscales,
     enabledRfcs,
     _writeImage,
+    onProgress,
   );
 }

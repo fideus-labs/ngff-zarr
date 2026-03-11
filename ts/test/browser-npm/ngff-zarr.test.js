@@ -506,8 +506,7 @@ test.describe("OMERO WebWorker Computation Tests", () => {
           hasComputeOmeroFromNgffImage: "computeOmeroFromNgffImage" in ngffZarr,
           hasComputeOmeroFromMultiscales: "computeOmeroFromMultiscales" in
             ngffZarr,
-          hasTerminateOmeroWorker: "terminateOmeroWorker" in ngffZarr,
-          hasIsUsingWorker: "isUsingWorker" in ngffZarr,
+          hasTerminateOmeroWorkerPool: "terminateOmeroWorkerPool" in ngffZarr,
           hasGetDefaultColors: "getDefaultColors" in ngffZarr,
           hasGLASBEY_COLORS: "GLASBEY_COLORS" in ngffZarr,
           typeOfComputeOmero: typeof ngffZarr.computeOmeroFromNgffImage,
@@ -523,8 +522,7 @@ test.describe("OMERO WebWorker Computation Tests", () => {
     expect(loadResult.success).toBeTruthy();
     expect(loadResult.hasComputeOmeroFromNgffImage).toBeTruthy();
     expect(loadResult.hasComputeOmeroFromMultiscales).toBeTruthy();
-    expect(loadResult.hasTerminateOmeroWorker).toBeTruthy();
-    expect(loadResult.hasIsUsingWorker).toBeTruthy();
+    expect(loadResult.hasTerminateOmeroWorkerPool).toBeTruthy();
     expect(loadResult.hasGetDefaultColors).toBeTruthy();
     expect(loadResult.hasGLASBEY_COLORS).toBeTruthy();
     expect(loadResult.typeOfComputeOmero).toBe("function");
@@ -563,14 +561,16 @@ test.describe("OMERO WebWorker Computation Tests", () => {
     expect(colorsResult.firstGlasbey).toBe("30A2DA");
   });
 
-  test("terminateOmeroWorker should not throw", async ({ page }) => {
+  test("terminateOmeroWorkerPool should not throw", async ({ page }) => {
     const terminateResult = await page.evaluate(async () => {
       try {
-        const { terminateOmeroWorker } = await import("./ngff-zarr.bundle.js");
+        const { terminateOmeroWorkerPool } = await import(
+          "./ngff-zarr.bundle.js"
+        );
 
-        // Should not throw even if worker was never created
-        terminateOmeroWorker();
-        terminateOmeroWorker(); // Call twice to ensure idempotent
+        // Should not throw even if worker pool was never created
+        terminateOmeroWorkerPool();
+        terminateOmeroWorkerPool(); // Call twice to ensure idempotent
 
         return { success: true };
       } catch (error) {
@@ -584,36 +584,31 @@ test.describe("OMERO WebWorker Computation Tests", () => {
     expect(terminateResult.success).toBeTruthy();
   });
 
-  test("should verify WebWorker support detection", async ({ page }) => {
-    // This test verifies that the WebWorker support detection and initialization
-    // works correctly in the browser. We don't test actual OMERO computation here
-    // because it requires zarrita arrays, and dynamically importing zarrita from CDN
-    // in browser tests has CORS/security restrictions. The actual computation logic
-    // is thoroughly tested in Deno unit tests.
+  test("should support Worker API and worker pool lifecycle", async ({ page }) => {
+    // This test verifies that the browser environment supports Workers
+    // and that the worker pool lifecycle (terminate, re-create) works.
+    // Actual OMERO computation is tested in Deno unit tests since it
+    // requires zarrita arrays which can't be dynamically imported in
+    // browser tests due to CORS/security restrictions.
     const workerResult = await page.evaluate(async () => {
       try {
-        const { isUsingWorker, terminateOmeroWorker } = await import(
+        const { terminateOmeroWorkerPool } = await import(
           "./ngff-zarr.bundle.js"
         );
 
-        // Check if worker support detection works
-        const workerSupported = isUsingWorker();
+        // Browser should have Worker support
+        const hasWorkerApi = typeof Worker !== "undefined";
 
-        // Terminate should not throw even if worker was never started
-        terminateOmeroWorker();
+        // Terminate should not throw even if pool was never created
+        terminateOmeroWorkerPool();
 
-        // Check again after termination - should be able to reinitialize
-        const workerSupportedAfterTerminate = isUsingWorker();
-
-        // Clean up
-        terminateOmeroWorker();
+        // Terminate again — should be idempotent
+        terminateOmeroWorkerPool();
 
         return {
           success: true,
-          workerSupported,
-          workerSupportedAfterTerminate,
-          // Both should be true in a browser environment that supports Workers
-          canDetectWorkerSupport: typeof workerSupported === "boolean",
+          hasWorkerApi,
+          typeOfTerminate: typeof terminateOmeroWorkerPool,
         };
       } catch (error) {
         return {
@@ -629,11 +624,10 @@ test.describe("OMERO WebWorker Computation Tests", () => {
       console.log("Stack:", workerResult.stack);
     }
     expect(workerResult.success).toBeTruthy();
-    expect(workerResult.canDetectWorkerSupport).toBeTruthy();
-    // In browsers, Worker should be supported
-    expect(workerResult.workerSupported).toBeTruthy();
-    // After termination and re-check, worker should be re-initializable
-    expect(workerResult.workerSupportedAfterTerminate).toBeTruthy();
+    // In browsers, Worker API should be available
+    expect(workerResult.hasWorkerApi).toBeTruthy();
+    // terminateOmeroWorkerPool should be a function
+    expect(workerResult.typeOfTerminate).toBe("function");
   });
 
   test("should have shared OMERO computation functions for benchmarking", async ({ page }) => {

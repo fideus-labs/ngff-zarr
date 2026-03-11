@@ -3,26 +3,42 @@
 // Browser-compatible version of from_ngff_zarr that doesn't import @zarrita/storage
 // (which contains Node.js-specific modules like node:fs, node:buffer, node:path)
 import * as zarr from "zarrita";
+
+import { MetadataSchema } from "../schemas/zarr_metadata.ts";
 import { Multiscales } from "../types/multiscales.ts";
 import { NgffImage } from "../types/ngff_image.ts";
-import type { Metadata, Omero } from "../types/zarr_metadata.ts";
-import { MetadataSchema } from "../schemas/zarr_metadata.ts";
 import type { Units } from "../types/units.ts";
+import type { Metadata, Omero } from "../types/zarr_metadata.ts";
+import { extractMethodMetadata } from "../utils/parse_metadata.ts";
+
+export type { ChunkCache } from "../utils/worker_pool.ts";
 
 export interface FromNgffZarrOptions {
+  /** Enable schema validation of OME-Zarr metadata. */
   validate?: boolean;
+  /** Expected OME-Zarr version. */
   version?: "0.4" | "0.5";
+  /**
+   * Optional decoded-chunk cache passed to `zarrGet` calls.
+   *
+   * Any object with `get(key)` and `set(key, value)` works — a plain `Map`
+   * is the simplest option. For bounded memory use an LRU cache.
+   *
+   * @see {@link https://github.com/fideus-labs/worker-pool/tree/main/fizarrita#chunk-caching}
+   */
+  cache?: import("../utils/worker_pool.ts").ChunkCache;
 }
 
 export type MemoryStore = Map<string, Uint8Array>;
 
 /**
  * Browser-compatible version of fromNgffZarr.
- * Supports HTTP/HTTPS URLs, MemoryStore (Map), and FetchStore.
+ * Supports HTTP/HTTPS URLs, MemoryStore (Map), FetchStore, and any
+ * zarrita-compatible Readable store (e.g. TiffStore from @fideus-labs/fiff).
  * Does NOT support local file paths (use the full version in Node.js/Deno).
  */
 export async function fromNgffZarr(
-  store: string | MemoryStore | zarr.FetchStore,
+  store: string | MemoryStore | zarr.FetchStore | zarr.Readable,
   options: FromNgffZarrOptions = {},
 ): Promise<Multiscales> {
   const validate = options.validate ?? false;
@@ -30,26 +46,39 @@ export async function fromNgffZarr(
 
   try {
     // Determine the appropriate store type based on the path
-    let resolvedStore: MemoryStore | zarr.FetchStore;
-    if (store instanceof Map || store instanceof zarr.FetchStore) {
+    let resolvedStore: MemoryStore | zarr.FetchStore | zarr.Readable;
+    if (
+      typeof store === "object" &&
+      store !== null &&
+      "get" in store &&
+      typeof (store as zarr.Readable).get === "function"
+    ) {
+      // Duck-type check for zarrita Readable stores (e.g. TiffStore, FetchStore, MemoryStore)
+      resolvedStore = store as zarr.Readable;
+    } else if (store instanceof Map || store instanceof zarr.FetchStore) {
+      // Defensive fallback for Map/FetchStore (normally caught by duck-type check above)
       resolvedStore = store;
-    } else if (store.startsWith("http://") || store.startsWith("https://")) {
+    } else if (
+      typeof store === "string" &&
+      (store.startsWith("http://") || store.startsWith("https://"))
+    ) {
       // Use FetchStore for HTTP/HTTPS URLs
       resolvedStore = new zarr.FetchStore(store);
     } else {
       // Local file paths are not supported in browser environments
       throw new Error(
-        "Local file paths are not supported in browser environments. Use HTTP/HTTPS URLs or MemoryStore instead.",
+        "Local file paths are not supported in browser environments. Use HTTP/HTTPS URLs, MemoryStore, or a Readable store instead.",
       );
     }
 
     // Try to use consolidated metadata for better performance
-    let optimizedStore;
+    let optimizedStore: zarr.Readable | zarr.Listable<zarr.Readable>;
     try {
-      // @ts-ignore: tryWithConsolidated typing
-      optimizedStore = await zarr.tryWithConsolidated(resolvedStore);
+      optimizedStore = await zarr.tryWithConsolidated(
+        resolvedStore as zarr.Readable,
+      );
     } catch {
-      optimizedStore = resolvedStore;
+      optimizedStore = resolvedStore as zarr.Readable;
     }
 
     const root = await zarr.open(optimizedStore as zarr.Readable, {
@@ -190,12 +219,15 @@ export async function fromNgffZarr(
       }
 
       const dims = metadata.axes.map((axis) => axis.name);
-      const axesUnits = metadata.axes.reduce((acc, axis) => {
-        if (axis.unit) {
-          acc[axis.name] = axis.unit;
-        }
-        return acc;
-      }, {} as Record<string, Units>);
+      const axesUnits = metadata.axes.reduce(
+        (acc, axis) => {
+          if (axis.unit) {
+            acc[axis.name] = axis.unit;
+          }
+          return acc;
+        },
+        {} as Record<string, Units>,
+      );
 
       const ngffImage = new NgffImage({
         data: zarrArray,
@@ -210,11 +242,22 @@ export async function fromNgffZarr(
       images.push(ngffImage);
     }
 
+    // Extract method metadata from the multiscales entry (mirrors non-browser version)
+    const { method, methodType, methodMetadata } = extractMethodMetadata(
+      multiscalesMetadata as Record<string, unknown>,
+    );
+    if (methodType) {
+      metadata.type = methodType;
+    }
+    if (methodMetadata) {
+      metadata.metadata = methodMetadata;
+    }
+
     return new Multiscales({
       images,
       metadata,
       scaleFactors: undefined,
-      method: undefined,
+      method,
       chunks: undefined,
     });
   } catch (error) {

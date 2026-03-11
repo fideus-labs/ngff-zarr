@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: MIT
 """Integration test for RFC 4 anatomical orientation."""
 
-import numpy as np
 import tempfile
 from pathlib import Path
 
+import numpy as np
 from ngff_zarr import NgffImage, to_multiscales, to_ngff_zarr
 from ngff_zarr.rfc4 import AnatomicalOrientation, AnatomicalOrientationValues
 
@@ -128,9 +128,9 @@ def test_rfc4_integration_without_enabled_rfcs():
 
         # Check that no spatial axes have orientation
         for axis in axes_metadata:
-            assert (
-                "orientation" not in axis
-            ), f"Axis {axis['name']} should not have orientation when RFC 4 is disabled"
+            assert "orientation" not in axis, (
+                f"Axis {axis['name']} should not have orientation when RFC 4 is disabled"
+            )
 
 
 def test_rfc4_integration_with_other_rfcs():

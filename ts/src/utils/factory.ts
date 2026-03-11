@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 import * as zarr from "zarrita";
-import { DEFAULT_CODECS } from "../utils/codecs.ts";
+import { defaultCodecs } from "../utils/codecs.ts";
 import { NgffImage } from "../types/ngff_image.ts";
 import { Multiscales } from "../types/multiscales.ts";
 import type {
@@ -31,7 +31,7 @@ async function createTestZarrArray(
     shape,
     chunk_shape: chunks,
     data_type: dtype as zarr.DataType,
-    codecs: [...DEFAULT_CODECS],
+    codecs: defaultCodecs(dtype),
   });
 
   return array;
