@@ -45,6 +45,7 @@ from .rfc4 import (
     AnatomicalOrientationValues,
     add_anatomical_orientation_to_axis,
     is_rfc4_enabled,
+    itk_direction_to_anatomical_orientation,
     itk_lps_to_anatomical_orientation,
     remove_anatomical_orientation_from_axis,
 )
@@ -153,6 +154,7 @@ __all__ = [
     "AnatomicalOrientationValues",
     "LPS",
     "RAS",
+    "itk_direction_to_anatomical_orientation",
     "itk_lps_to_anatomical_orientation",
     "is_rfc4_enabled",
     "add_anatomical_orientation_to_axis",

@@ -2,11 +2,13 @@
 # SPDX-License-Identifier: MIT
 """Test RFC 4 anatomical orientation implementation."""
 
+import pytest
 from ngff_zarr.rfc4 import (
     AnatomicalOrientation,
     AnatomicalOrientationValues,
     add_anatomical_orientation_to_axis,
     is_rfc4_enabled,
+    itk_direction_to_anatomical_orientation,
     itk_lps_to_anatomical_orientation,
     remove_anatomical_orientation_from_axis,
 )
@@ -109,3 +111,110 @@ def test_anatomical_orientation_values_enum():
     assert (
         AnatomicalOrientationValues.superior_to_inferior.value == "superior-to-inferior"
     )
+
+
+# --- Tests for itk_direction_to_anatomical_orientation ---
+
+
+class TestItkDirectionToAnatomicalOrientation:
+    """Unit tests for itk_direction_to_anatomical_orientation."""
+
+    # Primary axis directions (3D)
+
+    def test_positive_x(self):
+        o = itk_direction_to_anatomical_orientation([1, 0, 0])
+        assert o.value == AnatomicalOrientationValues.right_to_left
+
+    def test_negative_x(self):
+        o = itk_direction_to_anatomical_orientation([-1, 0, 0])
+        assert o.value == AnatomicalOrientationValues.left_to_right
+
+    def test_positive_y(self):
+        o = itk_direction_to_anatomical_orientation([0, 1, 0])
+        assert o.value == AnatomicalOrientationValues.anterior_to_posterior
+
+    def test_negative_y(self):
+        o = itk_direction_to_anatomical_orientation([0, -1, 0])
+        assert o.value == AnatomicalOrientationValues.posterior_to_anterior
+
+    def test_positive_z(self):
+        o = itk_direction_to_anatomical_orientation([0, 0, 1])
+        assert o.value == AnatomicalOrientationValues.inferior_to_superior
+
+    def test_negative_z(self):
+        o = itk_direction_to_anatomical_orientation([0, 0, -1])
+        assert o.value == AnatomicalOrientationValues.superior_to_inferior
+
+    # Oblique with dominant component
+
+    def test_oblique_dominant_positive_x(self):
+        o = itk_direction_to_anatomical_orientation([0.9, 0.3, 0.2])
+        assert o.value == AnatomicalOrientationValues.right_to_left
+
+    def test_oblique_dominant_negative_x(self):
+        o = itk_direction_to_anatomical_orientation([-0.8, 0.3, 0.1])
+        assert o.value == AnatomicalOrientationValues.left_to_right
+
+    def test_oblique_dominant_positive_y(self):
+        o = itk_direction_to_anatomical_orientation([0.2, 0.85, 0.3])
+        assert o.value == AnatomicalOrientationValues.anterior_to_posterior
+
+    def test_oblique_dominant_negative_y(self):
+        o = itk_direction_to_anatomical_orientation([0.1, -0.9, 0.2])
+        assert o.value == AnatomicalOrientationValues.posterior_to_anterior
+
+    def test_oblique_dominant_positive_z(self):
+        o = itk_direction_to_anatomical_orientation([0.2, 0.3, 0.88])
+        assert o.value == AnatomicalOrientationValues.inferior_to_superior
+
+    def test_oblique_dominant_negative_z(self):
+        o = itk_direction_to_anatomical_orientation([0.1, 0.2, -0.95])
+        assert o.value == AnatomicalOrientationValues.superior_to_inferior
+
+    # 2D cases
+
+    def test_2d_positive_x(self):
+        o = itk_direction_to_anatomical_orientation([1, 0])
+        assert o.value == AnatomicalOrientationValues.right_to_left
+
+    def test_2d_negative_x(self):
+        o = itk_direction_to_anatomical_orientation([-1, 0])
+        assert o.value == AnatomicalOrientationValues.left_to_right
+
+    def test_2d_positive_y(self):
+        o = itk_direction_to_anatomical_orientation([0, 1])
+        assert o.value == AnatomicalOrientationValues.anterior_to_posterior
+
+    def test_2d_negative_y(self):
+        o = itk_direction_to_anatomical_orientation([0, -1])
+        assert o.value == AnatomicalOrientationValues.posterior_to_anterior
+
+    def test_2d_oblique_dominant_x(self):
+        o = itk_direction_to_anatomical_orientation([0.8, 0.4])
+        assert o.value == AnatomicalOrientationValues.right_to_left
+
+    def test_2d_oblique_dominant_y(self):
+        o = itk_direction_to_anatomical_orientation([0.3, 0.9])
+        assert o.value == AnatomicalOrientationValues.anterior_to_posterior
+
+    # Edge cases
+
+    def test_equal_xy_favors_first(self):
+        o = itk_direction_to_anatomical_orientation([0.707, 0.707, 0])
+        assert o.value == AnatomicalOrientationValues.right_to_left
+
+    def test_equal_magnitude_negative_x(self):
+        o = itk_direction_to_anatomical_orientation([-0.707, 0.707, 0])
+        assert o.value == AnatomicalOrientationValues.left_to_right
+
+    def test_near_zero_tiny_x(self):
+        o = itk_direction_to_anatomical_orientation([0.001, 0, 0])
+        assert o.value == AnatomicalOrientationValues.right_to_left
+
+    def test_too_few_elements_raises(self):
+        with pytest.raises(ValueError, match="at least 2 elements"):
+            itk_direction_to_anatomical_orientation([1.0])
+
+    def test_type_is_anatomical(self):
+        o = itk_direction_to_anatomical_orientation([1, 0, 0])
+        assert o.type == "anatomical"

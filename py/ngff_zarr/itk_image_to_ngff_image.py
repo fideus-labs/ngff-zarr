@@ -3,9 +3,40 @@
 from dataclasses import asdict
 
 import dask.array
+import numpy as np
 
 from .ngff_image import NgffImage
-from .rfc4 import itk_lps_to_anatomical_orientation
+from .rfc4 import (
+    itk_direction_to_anatomical_orientation,
+    itk_lps_to_anatomical_orientation,
+)
+
+
+def _flatten_direction(direction, n: int):
+    """Return direction as a flat 1-D array of length ``n * n``.
+
+    ``itk.dict_from_image`` returns a 2-D numpy array while
+    ``itkwasm`` returns a flat array.  This helper normalises both
+    and validates that the resulting size is ``n * n``.
+    """
+    flat = np.asarray(direction, dtype=float).reshape(-1)
+    expected_size = n * n
+    if flat.size != expected_size:
+        raise ValueError(
+            f"Direction has length {flat.size}, but expected {expected_size} (for n={n})."
+        )
+    return flat
+
+
+def _is_identity_direction(direction, n: int) -> bool:
+    """Check whether a direction matrix is the identity matrix."""
+    flat = _flatten_direction(direction, n)
+    for row in range(n):
+        for col in range(n):
+            expected = 1 if row == col else 0
+            if flat[row * n + col] != expected:
+                return False
+    return True
 
 
 def itk_image_to_ngff_image(
@@ -72,10 +103,44 @@ def itk_image_to_ngff_image(
     axes_orientations = None
     if add_anatomical_orientation:
         axes_orientations = {}
-        for dim in spatial_dims:
-            orientation = itk_lps_to_anatomical_orientation(dim)
-            if orientation is not None:
-                axes_orientations[dim] = orientation
+        direction = image_dict.get("direction")
+        n_spatial = len(spatial_dims)
+        itk_dim = image_dict["imageType"]["dimension"]
+
+        has_direction = direction is not None and len(direction) > 0
+
+        # The direction matrix from ITK has shape itk_dim x itk_dim.
+        # We need the n_spatial x n_spatial spatial sub-matrix.
+        if has_direction:
+            flat_full = _flatten_direction(direction, itk_dim)
+            # Extract the spatial sub-matrix (top-left n_spatial x n_spatial)
+            flat_dir = np.array(
+                [
+                    flat_full[row * itk_dim + col]
+                    for row in range(n_spatial)
+                    for col in range(n_spatial)
+                ]
+            )
+        else:
+            flat_dir = None
+
+        has_non_identity_direction = (
+            flat_dir is not None and not _is_identity_direction(flat_dir, n_spatial)
+        )
+
+        if has_non_identity_direction:
+            for i, dim in enumerate(spatial_dims):
+                itk_axis_index = n_spatial - 1 - i
+                col = [
+                    flat_dir[row * n_spatial + itk_axis_index]
+                    for row in range(n_spatial)
+                ]
+                axes_orientations[dim] = itk_direction_to_anatomical_orientation(col)
+        else:
+            for dim in spatial_dims:
+                orientation = itk_lps_to_anatomical_orientation(dim)
+                if orientation is not None:
+                    axes_orientations[dim] = orientation
 
     return NgffImage(
         data, dims, scale, translation, axes_orientations=axes_orientations
