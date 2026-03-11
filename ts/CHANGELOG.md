@@ -1,3 +1,9 @@
+## ts-v0.16.0 (2026-03-11)
+
+### ✨ Features
+
+- **py,ts**: add bidirectional anatomical orientation ↔ ITK direction matrix conversion ([e427ca4](https://github.com/fideus-labs/ngff-zarr/commit/e427ca4e5e131a97b9b566a5fd79ac6020110dd9))
+
 ## ts-v0.15.1 (2026-03-10)
 
 ### ♻️ Refactoring
