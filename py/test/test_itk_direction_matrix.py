@@ -4,7 +4,9 @@
 
 import itkwasm
 import numpy as np
+import pytest
 from ngff_zarr import itk_image_to_ngff_image
+from ngff_zarr.itk_image_to_ngff_image import _flatten_direction
 from ngff_zarr.rfc4 import AnatomicalOrientationValues
 
 
@@ -241,3 +243,33 @@ class TestDisabledOrientation:
         img = _make_itkwasm_image([10, 20, 30], np.eye(3))
         ngff = itk_image_to_ngff_image(img, add_anatomical_orientation=False)
         assert ngff.axes_orientations is None
+
+
+class TestDirectionValidation:
+    """Tests for direction matrix validation and error handling."""
+
+    def test_invalid_direction_length_raises(self):
+        """_flatten_direction should raise ValueError for wrong-length input."""
+        with pytest.raises(ValueError, match="expected 9"):
+            _flatten_direction([1.0, 0.0, 0.0, 0.0], n=3)
+
+    def test_near_identity_direction_falls_back_to_lps(self):
+        """A near-identity matrix (tiny floating-point noise) should use LPS mapping."""
+        # Introduce sub-epsilon noise around identity
+        near_identity = np.eye(3) + np.full((3, 3), 1e-8)
+        img = _make_itkwasm_image([10, 20, 30], near_identity)
+        ngff = itk_image_to_ngff_image(img)
+
+        # Should fall back to standard LPS orientations (same as true identity)
+        assert (
+            ngff.axes_orientations["x"].value
+            == AnatomicalOrientationValues.right_to_left
+        )
+        assert (
+            ngff.axes_orientations["y"].value
+            == AnatomicalOrientationValues.anterior_to_posterior
+        )
+        assert (
+            ngff.axes_orientations["z"].value
+            == AnatomicalOrientationValues.inferior_to_superior
+        )

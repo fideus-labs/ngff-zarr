@@ -217,6 +217,9 @@ def itk_direction_to_anatomical_orientation(
     ------
     ValueError
         If *direction_column* has fewer than 2 elements.
+    ValueError
+        If all components of *direction_column* are effectively zero (below
+        1e-9), which would make the orientation undefined.
     """
     if len(direction_column) < 2:
         raise ValueError(
@@ -224,14 +227,23 @@ def itk_direction_to_anatomical_orientation(
             f"got {len(direction_column)}"
         )
 
+    n = min(len(direction_column), _MAX_SPATIAL_DIMENSIONS)
+
+    # Validate the direction vector is not effectively zero before any further
+    # computation — an all-zero column would produce an arbitrary orientation.
+    max_abs = max(abs(direction_column[i]) for i in range(n))
+    if max_abs < 1e-9:
+        raise ValueError(
+            "Direction column is effectively zero; anatomical orientation is undefined."
+        )
+
     # Find the dominant physical axis (largest absolute component)
     dominant_axis = 0
-    max_abs = abs(direction_column[0])
-    n = min(len(direction_column), _MAX_SPATIAL_DIMENSIONS)
+    cur_max = abs(direction_column[0])
     for i in range(1, n):
         abs_val = abs(direction_column[i])
-        if abs_val > max_abs:
-            max_abs = abs_val
+        if abs_val > cur_max:
+            cur_max = abs_val
             dominant_axis = i
 
     # Positive component → positive LPS direction, negative → opposite

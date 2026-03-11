@@ -12,7 +12,7 @@ from .rfc4 import (
 )
 
 
-def _flatten_direction(direction, n: int):
+def _flatten_direction(direction, n: int) -> np.ndarray:
     """Return direction as a flat 1-D array of length ``n * n``.
 
     ``itk.dict_from_image`` returns a 2-D numpy array while
@@ -29,14 +29,13 @@ def _flatten_direction(direction, n: int):
 
 
 def _is_identity_direction(direction, n: int) -> bool:
-    """Check whether a direction matrix is the identity matrix."""
+    """Check whether a direction matrix is (numerically) the identity matrix."""
     flat = _flatten_direction(direction, n)
-    for row in range(n):
-        for col in range(n):
-            expected = 1 if row == col else 0
-            if flat[row * n + col] != expected:
-                return False
-    return True
+    # Reshape to (n, n) and use a tolerance-based comparison to handle
+    # small floating-point perturbations in the direction matrix.
+    matrix = flat.reshape((n, n))
+    identity = np.eye(n, dtype=float)
+    return bool(np.allclose(matrix, identity, atol=1e-6, rtol=1e-6))
 
 
 def itk_image_to_ngff_image(
@@ -130,6 +129,10 @@ def itk_image_to_ngff_image(
 
         if has_non_identity_direction:
             for i, dim in enumerate(spatial_dims):
+                # spatial_dims is ordered [z, y, x] (fastest-varying last),
+                # while ITK axis 0 corresponds to x (fastest-varying).
+                # Reversing the index maps spatial_dims[i] to ITK axis
+                # (n_spatial - 1 - i): z→2, y→1, x→0 for 3D images.
                 itk_axis_index = n_spatial - 1 - i
                 col = [
                     flat_dir[row * n_spatial + itk_axis_index]
