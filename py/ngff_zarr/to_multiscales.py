@@ -647,6 +647,20 @@ def to_multiscales(
             ngff_image, default_chunks, out_chunks, scale_factors, label="mode"
         )
 
+    # Propagate channel_names and channel_colors from the input image to
+    # all generated pyramid levels so that OMERO computation (which may
+    # use a lower-resolution level) can access them.
+    # Copy the lists to avoid shared-mutation aliasing between levels.
+    src_channel_names = ngff_image.channel_names
+    src_channel_colors = ngff_image.channel_colors
+    if src_channel_names is not None or src_channel_colors is not None:
+        for img in images:
+            if img is not ngff_image:  # skip the base level (already has them)
+                if img.channel_names is None and src_channel_names is not None:
+                    img.channel_names = list(src_channel_names)
+                if img.channel_colors is None and src_channel_colors is not None:
+                    img.channel_colors = list(src_channel_colors)
+
     axes = []
     for dim in ngff_image.dims:
         unit = None

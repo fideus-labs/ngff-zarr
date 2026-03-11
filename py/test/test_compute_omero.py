@@ -624,3 +624,142 @@ class TestChannelNamesIntegration:
         assert omero.channels[0].label == "DAPI"
         assert omero.channels[1].label == ""
         assert omero.channels[2].label == "RFP"
+
+
+class TestChannelColorsIntegration:
+    """Tests for channel_colors field integration with compute_omero_from_ngff_image."""
+
+    def test_channel_colors_used_when_no_explicit_colors(self):
+        """Test that channel_colors from NgffImage are used when colors param is None."""
+        data = np.ones((3, 10, 10), dtype=np.float32)
+        image = to_ngff_image(data, dims=["c", "y", "x"])
+        image.channel_colors = ["FF0000", "00FF00", "0000FF"]
+
+        omero = compute_omero_from_ngff_image(image)
+
+        assert omero.channels[0].color == "FF0000"
+        assert omero.channels[1].color == "00FF00"
+        assert omero.channels[2].color == "0000FF"
+
+    def test_explicit_colors_override_channel_colors(self):
+        """Test that explicit colors parameter overrides channel_colors."""
+        data = np.ones((3, 10, 10), dtype=np.float32)
+        image = to_ngff_image(data, dims=["c", "y", "x"])
+        image.channel_colors = ["FF0000", "00FF00", "0000FF"]
+
+        # Explicit colors should override channel_colors
+        omero = compute_omero_from_ngff_image(
+            image, colors=["AABBCC", "DDEEFF", "112233"]
+        )
+
+        assert omero.channels[0].color == "AABBCC"
+        assert omero.channels[1].color == "DDEEFF"
+        assert omero.channels[2].color == "112233"
+
+    def test_channel_colors_none_falls_back_to_glasbey(self):
+        """Test that when channel_colors is None, Glasbey colors are used."""
+        data = np.ones((3, 10, 10), dtype=np.float32)
+        image = to_ngff_image(data, dims=["c", "y", "x"])
+
+        assert image.channel_colors is None
+
+        omero = compute_omero_from_ngff_image(image)
+
+        # Should use Glasbey colors
+        assert omero.channels[0].color == GLASBEY_COLORS[0]
+        assert omero.channels[1].color == GLASBEY_COLORS[1]
+        assert omero.channels[2].color == GLASBEY_COLORS[2]
+
+    def test_channel_colors_propagated_through_multiscales(self):
+        """Test that channel_colors on NgffImage are used via compute_omero_from_multiscales."""
+        data = np.ones((3, 8, 8), dtype=np.float32)
+        image = to_ngff_image(data, dims=["c", "y", "x"])
+        image.channel_colors = ["FF0000", "00FF00", "0000FF"]
+        multiscales = to_multiscales(image, scale_factors=[2], chunks=4)
+
+        # channel_colors should be propagated to all levels by to_multiscales
+        # and then used by compute_omero_from_multiscales
+        omero = compute_omero_from_multiscales(multiscales)
+
+        # Colors should come from channel_colors on the selected level
+        # (for a small 8x8 image, the highest-res level is used)
+        assert omero.channels[0].color == "FF0000"
+        assert omero.channels[1].color == "00FF00"
+        assert omero.channels[2].color == "0000FF"
+
+
+class TestSelectImageForOmeroStats:
+    """Tests for _select_image_for_omero_stats function."""
+
+    def test_small_image_uses_highest_resolution(self):
+        """Test that small images use the highest-resolution level for statistics."""
+        # 8x8 image is well below the 1M pixel threshold
+        data = np.arange(64).reshape((8, 8)).astype(np.float32)
+        image = to_ngff_image(data, dims=["y", "x"])
+        multiscales = to_multiscales(image, scale_factors=[2], chunks=4)
+
+        omero = compute_omero_from_multiscales(multiscales)
+
+        # Should use the 8x8 (full resolution) image
+        assert omero.channels[0].window.min == 0.0
+        assert omero.channels[0].window.max == 63.0
+
+    def test_large_image_uses_lower_resolution(self):
+        """Test that large images (>1M pixels) use a lower-resolution level.
+
+        The approximate da.percentile algorithm is much more accurate when
+        computed on a small representative image rather than a huge image with
+        mostly-uniform background chunks (as in whole-slide brightfield images).
+
+        Without the fix (using the high-res level), the 2nd percentile (window.start)
+        equals background_val (250) because every 64x64 chunk is pure background —
+        the tissue region [:100,:100] is too small to influence the merge.
+
+        With the fix (using the low-res level ~260x260), there are only ~16 chunks and
+        the tissue region is present in at least one of them, so the merged 2nd
+        percentile is significantly below background_val.  This validates that
+        level selection changes the quantile computation.
+        """
+        import dask.array as da
+
+        # Create a 1040x1040 image (> 1M pixels threshold) with many
+        # uniform-value (background) chunks and a few tissue-valued pixels,
+        # mimicking a brightfield whole-slide image.
+        background_val = np.float32(250)
+        tissue_val = np.float32(50)
+
+        # Fill with background value
+        raw = np.full((1040, 1040), background_val, dtype=np.float32)
+        # Place a small tissue region in one corner (0.9% of pixels; < 2% so the
+        # true 2nd percentile is background_val, but the approximate result at
+        # the high-res level is also background_val whereas the low-res level
+        # gives a meaningfully lower estimate).
+        raw[:100, :100] = tissue_val
+
+        dask_data = da.from_array(raw, chunks=(16, 16))
+        image = to_ngff_image(dask_data, dims=["y", "x"])
+        multiscales = to_multiscales(image, scale_factors=[4], chunks=64)
+
+        omero = compute_omero_from_multiscales(multiscales)
+
+        # window.start (2nd quantile) should be significantly below background_val.
+        # Without the fix (high-res level, 263 pure-background 64x64 chunks):
+        #   da.percentile returns 250 (completely dominated by background chunks).
+        # With the fix (low-res ~260x260, 16 chunks, tissue present in ≥1):
+        #   the merged result is meaningfully below background_val.
+        # This threshold (background_val - 50 = 200) distinguishes the two behaviours.
+        assert omero.channels[0].window.start < background_val - 50
+        # The 98th percentile is always approximately background_val.
+        assert omero.channels[0].window.end == pytest.approx(background_val, abs=1.0)
+
+    def test_single_level_always_uses_that_level(self):
+        """Test that single-level multiscales always use that level."""
+        data = np.arange(100).reshape((10, 10)).astype(np.float32)
+        image = to_ngff_image(data, dims=["y", "x"])
+        # Single level (no downsampling)
+        multiscales = to_multiscales(image, scale_factors=[], chunks=4)
+
+        omero = compute_omero_from_multiscales(multiscales)
+
+        assert omero.channels[0].window.min == 0.0
+        assert omero.channels[0].window.max == 99.0
