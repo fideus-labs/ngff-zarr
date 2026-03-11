@@ -5,7 +5,10 @@ from dataclasses import asdict
 import dask.array
 
 from .ngff_image import NgffImage
-from .rfc4 import itk_lps_to_anatomical_orientation
+from .rfc4 import (
+    itk_direction_to_anatomical_orientation,
+    itk_lps_to_anatomical_orientation,
+)
 
 
 def itk_image_to_ngff_image(
@@ -71,11 +74,41 @@ def itk_image_to_ngff_image(
     # Add anatomical orientation if requested
     axes_orientations = None
     if add_anatomical_orientation:
+        import numpy as np
+
+        direction = image_dict.get("direction")
+        n_spatial = len(spatial_dims)
+
+        # Check whether the direction matrix is available and non-identity
+        has_direction = direction is not None and len(direction) > 0
+        has_non_identity = False
+        if has_direction:
+            dir_array = np.asarray(direction).reshape(n_spatial, n_spatial)
+            has_non_identity = not np.array_equal(dir_array, np.eye(n_spatial))
+
         axes_orientations = {}
-        for dim in spatial_dims:
-            orientation = itk_lps_to_anatomical_orientation(dim)
-            if orientation is not None:
-                axes_orientations[dim] = orientation
+        if has_non_identity:
+            # Use the direction cosine matrix to determine each axis'
+            # anatomical orientation. The direction matrix is stored
+            # row-major: direction[row * n_spatial + col].
+            #
+            # spatial_dims is in array order (e.g. ["z", "y", "x"]) and
+            # maps to reversed ITK axis indices:
+            #   spatial_dims[0] = "z" -> ITK axis 2 -> direction column 2
+            #   spatial_dims[1] = "y" -> ITK axis 1 -> direction column 1
+            #   spatial_dims[2] = "x" -> ITK axis 0 -> direction column 0
+            for i, dim in enumerate(spatial_dims):
+                itk_axis_index = n_spatial - 1 - i
+                col = [
+                    float(dir_array[row, itk_axis_index]) for row in range(n_spatial)
+                ]
+                axes_orientations[dim] = itk_direction_to_anatomical_orientation(col)
+        else:
+            # Identity direction or no direction: fall back to LPS labels
+            for dim in spatial_dims:
+                orientation = itk_lps_to_anatomical_orientation(dim)
+                if orientation is not None:
+                    axes_orientations[dim] = orientation
 
     return NgffImage(
         data, dims, scale, translation, axes_orientations=axes_orientations

@@ -15,6 +15,7 @@ import type {
 import * as zarr from "zarrita";
 import { defaultCodecs } from "../utils/codecs.ts";
 import { NgffImage } from "../types/ngff_image.ts";
+import { anatomicalOrientationToItkDirection } from "../types/rfc4.ts";
 import { zarrGet, zarrSet } from "../utils/worker_pool.ts";
 
 export interface NgffImageToItkImageOptions {
@@ -291,10 +292,44 @@ export async function ngffImageToItkImage(
   const selection = new Array(data.shape.length).fill(null);
   const dataChunk = await zarrGet(data, selection);
 
-  // Create direction matrix (identity for now)
+  // Build direction matrix from anatomical orientations when available.
+  // sortedItkDims is in ITK physical-space order [x, y, z (, t)].
+  // Column j of the direction matrix corresponds to sortedItkDims[j].
   const direction = new Float64Array(dimension * dimension);
   for (let i = 0; i < dimension; i++) {
-    direction[i * dimension + i] = 1.0;
+    direction[i * dimension + i] = 1.0; // Start with identity
+  }
+
+  const orientations = workingImage.axesOrientations;
+  if (orientations) {
+    // Only spatial dims (not "t") contribute to the direction matrix.
+    const spatialItkDims = sortedItkDims.filter((d) => d !== "t");
+    const nSpatial = spatialItkDims.length;
+    const columns: number[][] = [];
+    let useOrientations = true;
+
+    for (const dim of spatialItkDims) {
+      const ori = orientations[dim];
+      if (ori === undefined) {
+        useOrientations = false;
+        break;
+      }
+      const col = anatomicalOrientationToItkDirection(ori.value);
+      if (col === undefined) {
+        // Non-LPS orientation: fall back to identity
+        useOrientations = false;
+        break;
+      }
+      columns.push(col);
+    }
+
+    if (useOrientations && columns.length > 0) {
+      for (let colIdx = 0; colIdx < nSpatial; colIdx++) {
+        for (let row = 0; row < nSpatial; row++) {
+          direction[row * dimension + colIdx] = columns[colIdx][row];
+        }
+      }
+    }
   }
 
   // Create ITK-Wasm Image

@@ -6,6 +6,7 @@ from dask.array.core import Array as DaskArray
 
 from .methods._support import _channel_dim_last
 from .ngff_image import NgffImage
+from .rfc4 import anatomical_orientation_to_itk_direction
 
 
 def _dtype_to_component_type(dtype):
@@ -135,12 +136,40 @@ def ngff_image_to_itk_image(
 
     data = np.asarray(ngff_image.data)
 
+    # Build direction matrix from anatomical orientations when available.
+    # itk_dims is in ITK physical-space order [x, y, z (, t)].
+    # Column j of the direction matrix corresponds to itk_dims[j].
+    direction = np.eye(dimension)
+    orientations = ngff_image.axes_orientations
+    if orientations:
+        # Only spatial dims (not "t") contribute to the direction matrix.
+        spatial_itk_dims = [d for d in itk_dims if d != "t"]
+        columns: list[list[float]] = []
+        use_orientations = True
+        for dim in spatial_itk_dims:
+            ori = orientations.get(dim)
+            if ori is None:
+                use_orientations = False
+                break
+            col = anatomical_orientation_to_itk_direction(ori.value)
+            if col is None:
+                # Non-LPS orientation: fall back to identity
+                use_orientations = False
+                break
+            columns.append(col)
+
+        if use_orientations and columns:
+            n_spatial = len(spatial_itk_dims)
+            for col_idx in range(n_spatial):
+                for row in range(n_spatial):
+                    direction[row, col_idx] = columns[col_idx][row]
+
     image_dict = {
         "imageType": imageType,
         "name": ngff_image.name,
         "origin": origin,
         "spacing": spacing,
-        "direction": np.eye(dimension),
+        "direction": direction,
         "size": size,
         "metadata": {},
         "data": data,
