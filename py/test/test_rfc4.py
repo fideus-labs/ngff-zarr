@@ -119,31 +119,35 @@ def test_anatomical_orientation_values_enum():
 class TestItkDirectionToAnatomicalOrientation:
     """Unit tests for itk_direction_to_anatomical_orientation."""
 
-    # Primary axis directions (3D)
+    # Primary axis directions — parametrized to reduce repetition
 
-    def test_positive_x(self):
-        o = itk_direction_to_anatomical_orientation([1, 0, 0])
-        assert o.value == AnatomicalOrientationValues.right_to_left
+    @pytest.mark.parametrize(
+        "direction, expected_value",
+        [
+            ([1, 0, 0], AnatomicalOrientationValues.right_to_left),
+            ([-1, 0, 0], AnatomicalOrientationValues.left_to_right),
+            ([0, 1, 0], AnatomicalOrientationValues.anterior_to_posterior),
+            ([0, -1, 0], AnatomicalOrientationValues.posterior_to_anterior),
+            ([0, 0, 1], AnatomicalOrientationValues.inferior_to_superior),
+            ([0, 0, -1], AnatomicalOrientationValues.superior_to_inferior),
+        ],
+    )
+    def test_primary_axes_3d(self, direction, expected_value):
+        o = itk_direction_to_anatomical_orientation(direction)
+        assert o.value == expected_value
 
-    def test_negative_x(self):
-        o = itk_direction_to_anatomical_orientation([-1, 0, 0])
-        assert o.value == AnatomicalOrientationValues.left_to_right
-
-    def test_positive_y(self):
-        o = itk_direction_to_anatomical_orientation([0, 1, 0])
-        assert o.value == AnatomicalOrientationValues.anterior_to_posterior
-
-    def test_negative_y(self):
-        o = itk_direction_to_anatomical_orientation([0, -1, 0])
-        assert o.value == AnatomicalOrientationValues.posterior_to_anterior
-
-    def test_positive_z(self):
-        o = itk_direction_to_anatomical_orientation([0, 0, 1])
-        assert o.value == AnatomicalOrientationValues.inferior_to_superior
-
-    def test_negative_z(self):
-        o = itk_direction_to_anatomical_orientation([0, 0, -1])
-        assert o.value == AnatomicalOrientationValues.superior_to_inferior
+    @pytest.mark.parametrize(
+        "direction, expected_value",
+        [
+            ([1, 0], AnatomicalOrientationValues.right_to_left),
+            ([-1, 0], AnatomicalOrientationValues.left_to_right),
+            ([0, 1], AnatomicalOrientationValues.anterior_to_posterior),
+            ([0, -1], AnatomicalOrientationValues.posterior_to_anterior),
+        ],
+    )
+    def test_primary_axes_2d(self, direction, expected_value):
+        o = itk_direction_to_anatomical_orientation(direction)
+        assert o.value == expected_value
 
     # Oblique with dominant component
 
@@ -171,23 +175,7 @@ class TestItkDirectionToAnatomicalOrientation:
         o = itk_direction_to_anatomical_orientation([0.1, 0.2, -0.95])
         assert o.value == AnatomicalOrientationValues.superior_to_inferior
 
-    # 2D cases
-
-    def test_2d_positive_x(self):
-        o = itk_direction_to_anatomical_orientation([1, 0])
-        assert o.value == AnatomicalOrientationValues.right_to_left
-
-    def test_2d_negative_x(self):
-        o = itk_direction_to_anatomical_orientation([-1, 0])
-        assert o.value == AnatomicalOrientationValues.left_to_right
-
-    def test_2d_positive_y(self):
-        o = itk_direction_to_anatomical_orientation([0, 1])
-        assert o.value == AnatomicalOrientationValues.anterior_to_posterior
-
-    def test_2d_negative_y(self):
-        o = itk_direction_to_anatomical_orientation([0, -1])
-        assert o.value == AnatomicalOrientationValues.posterior_to_anterior
+    # 2D oblique
 
     def test_2d_oblique_dominant_x(self):
         o = itk_direction_to_anatomical_orientation([0.8, 0.4])
@@ -210,6 +198,14 @@ class TestItkDirectionToAnatomicalOrientation:
     def test_near_zero_tiny_x(self):
         o = itk_direction_to_anatomical_orientation([0.001, 0, 0])
         assert o.value == AnatomicalOrientationValues.right_to_left
+
+    def test_all_zero_raises(self):
+        with pytest.raises(ValueError, match="effectively zero"):
+            itk_direction_to_anatomical_orientation([0.0, 0.0, 0.0])
+
+    def test_near_zero_below_epsilon_raises(self):
+        with pytest.raises(ValueError, match="effectively zero"):
+            itk_direction_to_anatomical_orientation([1e-10, 1e-10, 1e-10])
 
     def test_too_few_elements_raises(self):
         with pytest.raises(ValueError, match="at least 2 elements"):
