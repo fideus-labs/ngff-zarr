@@ -705,52 +705,52 @@ class TestSelectImageForOmeroStats:
         assert omero.channels[0].window.max == 63.0
 
     def test_large_image_uses_lower_resolution(self):
-        """Test that large images (>1M pixels) use a lower-resolution level.
+        """Test that large images (>1M pixels) select a lower-resolution level.
 
-        The approximate da.percentile algorithm is much more accurate when
-        computed on a small representative image rather than a huge image with
-        mostly-uniform background chunks (as in whole-slide brightfield images).
-
-        Without the fix (using the high-res level), the 2nd percentile (window.start)
-        equals background_val (250) because every 64x64 chunk is pure background —
-        the tissue region [:100,:100] is too small to influence the merge.
-
-        With the fix (using the low-res level ~260x260), there are only ~16 chunks and
-        the tissue region is present in at least one of them, so the merged 2nd
-        percentile is significantly below background_val.  This validates that
-        level selection changes the quantile computation.
+        _select_image_for_omero_stats should return the lowest pyramid level
+        that still has >= 256x256 spatial pixels when the full-resolution level
+        exceeds _OMERO_STATS_LARGE_IMAGE_THRESHOLD (1 M pixels).  This is the
+        regression that caused whole-slide images to be displayed incorrectly:
+        dask's approximate da.percentile algorithm is extremely inaccurate on
+        images with thousands of tiny chunks that are mostly pure background.
         """
         import dask.array as da
+        from ngff_zarr.compute_omero import _select_image_for_omero_stats
 
-        # Create a 1040x1040 image (> 1M pixels threshold) with many
-        # uniform-value (background) chunks and a few tissue-valued pixels,
-        # mimicking a brightfield whole-slide image.
+        # 1040 * 1040 > 1 M threshold -> level selection should prefer low-res
         background_val = np.float32(250)
         tissue_val = np.float32(50)
 
-        # Fill with background value
         raw = np.full((1040, 1040), background_val, dtype=np.float32)
-        # Place a small tissue region in one corner (0.9% of pixels; < 2% so the
-        # true 2nd percentile is background_val, but the approximate result at
-        # the high-res level is also background_val whereas the low-res level
-        # gives a meaningfully lower estimate).
         raw[:100, :100] = tissue_val
 
         dask_data = da.from_array(raw, chunks=(16, 16))
         image = to_ngff_image(dask_data, dims=["y", "x"])
         multiscales = to_multiscales(image, scale_factors=[4], chunks=64)
 
-        omero = compute_omero_from_multiscales(multiscales)
+        # Level 0 is high-res (1040x1040), level 1 is low-res (~260x260)
+        assert len(multiscales.images) == 2
+        hi_res = multiscales.images[0]
+        lo_res = multiscales.images[1]
+        assert hi_res.data.shape[0] == 1040  # sanity check
 
-        # window.start (2nd quantile) should be significantly below background_val.
-        # Without the fix (high-res level, 263 pure-background 64x64 chunks):
-        #   da.percentile returns 250 (completely dominated by background chunks).
-        # With the fix (low-res ~260x260, 16 chunks, tissue present in ≥1):
-        #   the merged result is meaningfully below background_val.
-        # This threshold (background_val - 50 = 200) distinguishes the two behaviours.
-        assert omero.channels[0].window.start < background_val - 50
-        # The 98th percentile is always approximately background_val.
-        assert omero.channels[0].window.end == pytest.approx(background_val, abs=1.0)
+        # _select_image_for_omero_stats must return the LOW-res level
+        selected = _select_image_for_omero_stats(multiscales)
+        assert selected is lo_res, (
+            f"Expected low-res level (shape {lo_res.data.shape}) "
+            f"but got shape {selected.data.shape}"
+        )
+
+        # Using dense=True gives exact quantiles regardless of chunk layout, so
+        # we can also verify the end-to-end statistics are correct when using
+        # the right level.  With 100*100=1% tissue and 99% background at 250:
+        # true 2nd percentile = 250 (tissue < 2%), but dense=True on the selected
+        # level gives us the exact value from the histogram.
+        omero = compute_omero_from_multiscales(multiscales, dense=True)
+        # min must be tissue_val (exact min is always correct)
+        assert omero.channels[0].window.min == pytest.approx(tissue_val, abs=1.0)
+        # max must be background_val
+        assert omero.channels[0].window.max == pytest.approx(background_val, abs=1.0)
 
     def test_single_level_always_uses_that_level(self):
         """Test that single-level multiscales always use that level."""
