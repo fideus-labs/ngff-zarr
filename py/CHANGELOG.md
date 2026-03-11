@@ -1,3 +1,14 @@
+## py-v0.32.0 (2026-03-11)
+
+### ✨ Features
+
+- **py,ts**: add bidirectional anatomical orientation ↔ ITK direction matrix conversion ([e427ca4](https://github.com/fideus-labs/ngff-zarr/commit/e427ca4e5e131a97b9b566a5fd79ac6020110dd9))
+
+### 🐛 Bug Fixes
+
+- **py**: make level-selection test deterministic and CI-safe ([71e916d](https://github.com/fideus-labs/ngff-zarr/commit/71e916da84a6bbbc98ad0a8e51b118dc3d73a3ad))
+- **py**: fix wrong OZX display for brightfield RGB images ([6f4f66c](https://github.com/fideus-labs/ngff-zarr/commit/6f4f66c34c67630a4db583d370513defa301b24e))
+
 ## py-v0.31.1 (2026-03-10)
 
 ### ♻️ Refactoring
