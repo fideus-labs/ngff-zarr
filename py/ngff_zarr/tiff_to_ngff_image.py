@@ -1050,10 +1050,11 @@ def tiff_file_to_ngff_images(
             # The 'S' axis in TIFF means interleaved RGB/RGBA colour components.
             # For such images, the three/four channels are always R, G, B[, A]
             # and should be displayed with the canonical RGB colours rather than
-            # an arbitrary Glasbey palette.
+            # an arbitrary Glasbey palette or incorrect OME-XML channel colors.
+            # Always override OME-XML channel colors for S-axis images.
             tiff_axes_str = tiff_series.axes if tiff_series.axes else ""
             has_sample_axis = "s" in tiff_axes_str.lower()
-            if has_sample_axis and ome_channel_colors is None:
+            if has_sample_axis:
                 s_pos = tiff_axes_str.lower().index("s")
                 n_samples = tiff_series.shape[s_pos]
                 if n_samples == 3:
