@@ -446,15 +446,24 @@ def main():
     args = parser.parse_args()
 
     # Check that input and output are not the same
+    # Resolve paths to absolute paths for consistent handling across platforms
     if args.output:
         output_path = Path(args.output).resolve()
         input_paths = [Path(inp).resolve() for inp in args.input]
         if any(output_path == inp for inp in input_paths):
             parser.error("Input and output file/directory must not be the same.")
 
+        # Use resolved paths for all subsequent operations
+        args.output = str(output_path)
+        args.input = [str(p) for p in input_paths]
+
         # Set default OME-Zarr version to 0.5 for .ozx output files
         if args.output.endswith(".ozx") and args.ome_zarr_version == "0.4":
             args.ome_zarr_version = "0.5"
+    else:
+        # Resolve input paths even when no output is specified
+        input_paths = [Path(inp).resolve() for inp in args.input]
+        args.input = [str(p) for p in input_paths]
 
     if args.memory_target:
         config.memory_target = dask.utils.parse_bytes(args.memory_target)
