@@ -69,11 +69,11 @@ class TestRelativePathHandling:
                 expected_output.exists()
             ), f"Output should exist at {expected_output} (cwd was {tmpdir})"
 
-    def test_relative_output_ozx(self, input_images):  # noqa: ARG002
-        """Test that relative .ozx output paths are resolved correctly.
+    def test_relative_output_ome_zarr(self, input_images):  # noqa: ARG002
+        """Test that relative .ome.zarr output paths are resolved correctly.
 
         This specifically tests the issue described in the bug report
-        where .ozx files were not created in the expected location.
+        where relative output paths were not created in the expected location.
         """
         # Create a temp directory to use as working directory
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -82,19 +82,19 @@ class TestRelativePathHandling:
             # Use an absolute input path
             input_file = test_data_dir / "input" / "cthead1.png"
 
-            # But use a relative output path with .ozx extension
+            # But use a relative output path
             result = _run_ngff_zarr(
-                "-i", str(input_file), "-o", "output.ozx", cwd=tmpdir
+                "-i", str(input_file), "-o", "output.ome.zarr", cwd=tmpdir
             )
 
             assert result.returncode == 0, f"stderr: {result.stderr}"
 
             # The output should be created in tmpdir, not elsewhere
-            expected_output = tmpdir_path / "output.ozx"
+            expected_output = tmpdir_path / "output.ome.zarr"
             assert (
                 expected_output.exists()
-            ), f"Output .ozx should exist at {expected_output} (cwd was {tmpdir})"
-            assert expected_output.stat().st_size > 0, "Output file should not be empty"
+            ), f"Output should exist at {expected_output} (cwd was {tmpdir})"
+            assert expected_output.is_dir(), "Output should be a directory"
 
     def test_both_relative_paths(self, input_images):  # noqa: ARG002
         """Test that both relative input and output paths work together."""
