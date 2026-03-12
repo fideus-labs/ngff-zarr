@@ -1,3 +1,9 @@
+## py-v0.32.1 (2026-03-12)
+
+### 🐛 Bug Fixes
+
+- **py**: always use RGB colors for S-axis images, override OME-XML ([b34c700](https://github.com/fideus-labs/ngff-zarr/commit/b34c700606e3b08809aed3f89244109b72840ffb))
+
 ## py-v0.32.0 (2026-03-11)
 
 ### ✨ Features
