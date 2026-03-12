@@ -24,7 +24,6 @@ pytestmark = pytest.mark.skipif(
     zarr_version < version.parse("3.0.0b2"),
     reason="zarr version >= 3.0.0b2 required for OME-Zarr version >= 0.5",
 )
-
 # ---------------------------------------------------------------------------
 # Unit tests for the helper
 # ---------------------------------------------------------------------------

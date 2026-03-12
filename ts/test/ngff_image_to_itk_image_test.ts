@@ -10,6 +10,17 @@ import {
 } from "itk-wasm";
 import { ngffImageToItkImage } from "../src/io/ngff_image_to_itk_image.ts";
 import { itkImageToNgffImage } from "../src/io/itk_image_to_ngff_image.ts";
+import {
+  AnatomicalOrientationValues,
+  createAnatomicalOrientation,
+  LPS,
+  RAS,
+} from "../src/types/rfc4.ts";
+import { NgffImage } from "../src/types/ngff_image.ts";
+import * as zarr from "zarrita";
+import { defaultCodecs } from "../src/utils/codecs.ts";
+import { zarrSet } from "../src/utils/worker_pool.ts";
+import { _zarrita_internal_get_strides as getStrides } from "zarrita";
 
 // Basic test to verify function is exportable
 Deno.test("ngffImageToItkImage function exports", async () => {
@@ -374,5 +385,225 @@ Deno.test("ngffImageToItkImage metadata preservation", async () => {
   const expectedDirection = new Float64Array([1, 0, 0, 1]);
   for (let i = 0; i < expectedDirection.length; i++) {
     assertEquals(reconvertedItkImage.direction[i], expectedDirection[i]);
+  }
+});
+
+// --- Tests for direction matrix from anatomical orientation ---
+
+/**
+ * Helper to create a simple 3D NgffImage backed by a zarr array.
+ */
+async function createTestNgffImage(
+  shape: number[],
+  dims: string[],
+  axesOrientations?: Record<
+    string,
+    { readonly type: "anatomical"; readonly value: AnatomicalOrientationValues }
+  >,
+): Promise<NgffImage> {
+  const store = new Map<string, Uint8Array>();
+  const root = zarr.root(store);
+  const chunkShape = shape.map((s) => Math.min(s, 256));
+
+  const zarrArray = await zarr.create(root.resolve("test"), {
+    shape,
+    chunk_shape: chunkShape,
+    data_type: "uint8",
+    fill_value: 0,
+    codecs: defaultCodecs("uint8"),
+  });
+
+  const totalSize = shape.reduce((a, b) => a * b, 1);
+  const data = new Uint8Array(totalSize);
+  const selection = new Array(shape.length).fill(null);
+  const chunk = {
+    data,
+    shape,
+    stride: getStrides(shape, "C"),
+  };
+  await zarrSet(zarrArray, selection, chunk);
+
+  const scale: Record<string, number> = {};
+  const translation: Record<string, number> = {};
+  for (const d of dims) {
+    scale[d] = 1.0;
+    translation[d] = 0.0;
+  }
+
+  return new NgffImage({
+    data: zarrArray,
+    dims,
+    scale,
+    translation,
+    name: "test",
+    axesUnits: undefined,
+    axesOrientations,
+    computedCallbacks: undefined,
+  });
+}
+
+Deno.test("direction matrix - without orientation → identity", async () => {
+  const ngff = await createTestNgffImage([4, 8, 8], ["z", "y", "x"]);
+  const itk = await ngffImageToItkImage(ngff);
+
+  const expected = new Float64Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+  for (let i = 0; i < expected.length; i++) {
+    assertEquals(itk.direction[i], expected[i]);
+  }
+});
+
+Deno.test("direction matrix - LPS orientation → identity", async () => {
+  const ngff = await createTestNgffImage(
+    [4, 8, 8],
+    ["z", "y", "x"],
+    LPS,
+  );
+  const itk = await ngffImageToItkImage(ngff);
+
+  const expected = new Float64Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+  for (let i = 0; i < expected.length; i++) {
+    assertEquals(itk.direction[i], expected[i]);
+  }
+});
+
+Deno.test("direction matrix - RAS orientation → flipped X/Y", async () => {
+  const ngff = await createTestNgffImage(
+    [4, 8, 8],
+    ["z", "y", "x"],
+    RAS,
+  );
+  const itk = await ngffImageToItkImage(ngff);
+
+  // RAS: X=-1, Y=-1, Z=+1
+  const expected = new Float64Array([-1, 0, 0, 0, -1, 0, 0, 0, 1]);
+  for (let i = 0; i < expected.length; i++) {
+    assertEquals(itk.direction[i], expected[i]);
+  }
+});
+
+Deno.test("direction matrix - permuted orientations", async () => {
+  const axesOrientations = {
+    x: createAnatomicalOrientation(
+      AnatomicalOrientationValues.AnteriorToPosterior,
+    ),
+    y: createAnatomicalOrientation(
+      AnatomicalOrientationValues.InferiorToSuperior,
+    ),
+    z: createAnatomicalOrientation(
+      AnatomicalOrientationValues.RightToLeft,
+    ),
+  };
+
+  const ngff = await createTestNgffImage(
+    [4, 8, 8],
+    ["z", "y", "x"],
+    axesOrientations,
+  );
+  const itk = await ngffImageToItkImage(ngff);
+
+  // itk_dims sorted = [x, y, z]
+  // col 0 (x) -> A/P -> [0, 1, 0]
+  // col 1 (y) -> I/S -> [0, 0, 1]
+  // col 2 (z) -> R/L -> [1, 0, 0]
+  const expected = new Float64Array([0, 0, 1, 1, 0, 0, 0, 1, 0]);
+  for (let i = 0; i < expected.length; i++) {
+    assertEquals(itk.direction[i], expected[i]);
+  }
+});
+
+Deno.test("direction matrix - non-LPS fallback → identity", async () => {
+  const axesOrientations = {
+    x: createAnatomicalOrientation(
+      AnatomicalOrientationValues.RightToLeft,
+    ),
+    y: createAnatomicalOrientation(
+      AnatomicalOrientationValues.DorsalToVentral,
+    ),
+    z: createAnatomicalOrientation(
+      AnatomicalOrientationValues.InferiorToSuperior,
+    ),
+  };
+
+  const ngff = await createTestNgffImage(
+    [4, 8, 8],
+    ["z", "y", "x"],
+    axesOrientations,
+  );
+  const itk = await ngffImageToItkImage(ngff);
+
+  const expected = new Float64Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+  for (let i = 0; i < expected.length; i++) {
+    assertEquals(itk.direction[i], expected[i]);
+  }
+});
+
+Deno.test("direction matrix - 2D RAS orientation", async () => {
+  const axesOrientations = {
+    x: RAS.x,
+    y: RAS.y,
+  };
+
+  const ngff = await createTestNgffImage(
+    [8, 8],
+    ["y", "x"],
+    axesOrientations,
+  );
+  const itk = await ngffImageToItkImage(ngff);
+
+  const expected = new Float64Array([-1, 0, 0, -1]);
+  for (let i = 0; i < expected.length; i++) {
+    assertEquals(itk.direction[i], expected[i]);
+  }
+});
+
+Deno.test("direction round-trip - identity preserved", async () => {
+  const originalDirection = new Float64Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+  const originalImage: ITKImage = {
+    imageType: {
+      dimension: 3,
+      componentType: "uint8" as typeof IntTypes.UInt8,
+      pixelType: "Scalar" as typeof PixelTypes.Scalar,
+      components: 1,
+    },
+    name: "test",
+    origin: [0, 0, 0],
+    spacing: [1, 1, 1],
+    direction: originalDirection,
+    size: [4, 8, 8],
+    metadata: new Map(),
+    data: new Uint8Array(4 * 8 * 8),
+  };
+
+  const ngff = await itkImageToNgffImage(originalImage);
+  const itkBack = await ngffImageToItkImage(ngff);
+
+  for (let i = 0; i < originalDirection.length; i++) {
+    assertEquals(itkBack.direction[i], originalDirection[i]);
+  }
+});
+
+Deno.test("direction round-trip - flipped Y preserved", async () => {
+  const originalDirection = new Float64Array([1, 0, 0, 0, -1, 0, 0, 0, 1]);
+  const originalImage: ITKImage = {
+    imageType: {
+      dimension: 3,
+      componentType: "uint8" as typeof IntTypes.UInt8,
+      pixelType: "Scalar" as typeof PixelTypes.Scalar,
+      components: 1,
+    },
+    name: "test",
+    origin: [0, 0, 0],
+    spacing: [1, 1, 1],
+    direction: originalDirection,
+    size: [4, 8, 8],
+    metadata: new Map(),
+    data: new Uint8Array(4 * 8 * 8),
+  };
+
+  const ngff = await itkImageToNgffImage(originalImage);
+  const itkBack = await ngffImageToItkImage(ngff);
+
+  for (let i = 0; i < originalDirection.length; i++) {
+    assertEquals(itkBack.direction[i], originalDirection[i]);
   }
 });
