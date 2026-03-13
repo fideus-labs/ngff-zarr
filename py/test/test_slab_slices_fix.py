@@ -1,107 +1,114 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-"""Test for PR #447 fix: correctly calculate regions in to_ngff_zarr using slab_slices."""
+"""Regression tests for PR #447 fix: _compute_write_regions uses slab_slices for Z boundaries."""
 
 import tempfile
 
 import numpy as np
 import pytest
-from ngff_zarr import config, from_ngff_zarr, to_multiscales, to_ngff_image, to_ngff_zarr
+from ngff_zarr import (
+    config,
+    from_ngff_zarr,
+    to_multiscales,
+    to_ngff_image,
+    to_ngff_zarr,
+)
 
 
 def test_slab_slices_regional_writing():
-    """Test that regional writing uses slab_slices instead of z_chunks for Z dimension.
+    """Validate that _compute_write_regions uses slab_slices (not z_chunks) for Z boundaries.
 
-    This test validates the fix in PR #447 where _compute_write_regions was using
-    z_chunks instead of slab_slices to calculate write region boundaries.
+    PR #447 fixed a bug where the region boundary for each Z-slab was computed
+    using z_chunks instead of slab_slices.  When slab_slices > z_chunks the bug
+    causes the wrong Z range to be written for every slab past the first,
+    resulting in missing or corrupted data.
 
-    The bug would cause incomplete writing of Z planes when slab_slices > z_chunks,
-    resulting in only the first z_chunks planes being written for each slab instead
-    of the full slab_slices planes.
+    The test forces the slab (slice_planes=False) code path by choosing a
+    memory_target that satisfies:
 
-    To trigger the bug, we need:
-    1. A 3D array with Z dimension
-    2. memory_target set low enough that slab_slices > z_chunks
-    3. Multiple Z planes to write
+        memory_usage(image, {"z"}) * z_chunk <= memory_target
+                                               < memory_usage(image)
+
+    which requires z_chunk**2 < z_shape.
+
+    With shape=(32, 64, 64), chunks=2, uint32:
+      - memory_usage_z  = 2 * 64 * 64 * 4**3 = 524 288 bytes
+      - memory_usage    = 32 * 64 * 64 * 4**3 = 8 388 608 bytes
+      - memory_target   = 8 000 000
+      - slab_slices     = ceil(8_000_000 / 524_288) = 16  (>= z_chunk=2)
+      - slice_planes    = False                            (PR #447 code path)
+      - num_slabs       = ceil(32 / 16) = 2
     """
     pytest.importorskip("tensorstore")
 
-    # Save original memory target
     default_mem_target = config.memory_target
 
     try:
-        # Create a 3D array with dimensions that will trigger regional writing
-        # Shape: (z=64, y=128, x=128) with z_chunks=32
-        # We'll set memory_target so that slab_slices becomes 64 (2 * z_chunks)
-        shape = (64, 128, 128)
-        z_chunks = 32
-        data = np.arange(np.prod(shape), dtype=np.uint16).reshape(shape)
+        shape = (32, 64, 64)
+        z_chunk = 2
 
-        # Create NgffImage
+        # uint32 ensures all 32*64*64 = 131 072 index values are distinct
+        data = np.arange(np.prod(shape), dtype=np.uint32).reshape(shape)
+
         image = to_ngff_image(
             data=data,
             dims=("z", "y", "x"),
             scale={"z": 1.0, "y": 1.0, "x": 1.0},
         )
 
-        # Calculate memory_target to force slab_slices = 64 (2 * z_chunks)
-        # Each Z plane is 128 * 128 * 2 bytes = 32768 bytes
-        # For slab_slices = 64, we need memory_target >= 64 * 32768 = 2097152 bytes
-        # Set it just above that threshold to get slab_slices = 64
-        config.memory_target = int(2.5e6)  # 2.5 MB
+        # scale_factors=[] keeps only the base scale to focus the test on
+        # _compute_write_regions without running any downsampling.
+        # cache=False avoids disk serialization during multiscale creation.
+        multiscales = to_multiscales(
+            image, chunks=z_chunk, scale_factors=[], cache=False
+        )
 
-        # Create multiscales with specific chunks
-        multiscales = to_multiscales(image, chunks=z_chunks)
+        # memory_usage(image, {"z"}) for this array = 524 288 bytes.
+        # Setting memory_target = 8 000 000 gives slab_slices = 16,
+        # which is greater than z_chunk=2, so slice_planes=False and
+        # two slabs are produced: z[0:16] and z[16:32].
+        config.memory_target = 8_000_000
 
-        # Write to zarr using tensorstore (which uses regional writing)
         with tempfile.TemporaryDirectory() as tmpdir:
             to_ngff_zarr(tmpdir, multiscales, use_tensorstore=True)
 
-            # Read back and verify all data was written correctly
             read_multiscales = from_ngff_zarr(tmpdir)
             read_data = np.asarray(read_multiscales.images[0].data)
 
-            # Verify shape is correct
-            assert (
-                read_data.shape == shape
-            ), f"Shape mismatch: expected {shape}, got {read_data.shape}"
-
-            # Verify all Z planes were written (not just first z_chunks planes)
-            # If the bug existed, only planes 0-31 would be written for first slab
-            # and planes 32-63 would be all zeros or missing
-            np.testing.assert_array_equal(
-                read_data, data, err_msg="Data mismatch: not all Z planes were written"
+            assert read_data.shape == shape, (
+                f"Shape mismatch: expected {shape}, got {read_data.shape}"
             )
 
-            # Specifically check the boundary between slabs (around z=32)
-            # This is where the bug would manifest
-            assert np.array_equal(
-                read_data[31], data[31]
-            ), "Z plane 31 (end of first slab) was not written correctly"
-            assert np.array_equal(
-                read_data[32], data[32]
-            ), "Z plane 32 (start of second slab) was not written correctly"
+            # With the pre-fix bug (z_chunk=2 used instead of slab_slices=16)
+            # slab 0 would write z[0:2] and slab 1 z[2:4], leaving z[4:32] as
+            # zeros.  The fix produces z[0:16] and z[16:32].
+            np.testing.assert_array_equal(read_data, data)
 
     finally:
-        # Restore original memory target
         config.memory_target = default_mem_target
 
 
 def test_slab_slices_with_non_divisible_shape():
-    """Test slab_slices fix with Z dimension not evenly divisible by z_chunks.
+    """Verify partial final slab is written correctly when Z is not a multiple of slab_slices.
 
-    This tests an edge case where the Z dimension doesn't divide evenly by z_chunks,
-    ensuring the last slab is handled correctly.
+    With shape=(20, 64, 64), chunks=2, uint32:
+      - memory_usage_z  = 524 288 bytes  (same z_chunk / y / x as above)
+      - memory_usage    = 20 * 64 * 64 * 4**3 = 5 242 880 bytes
+      - memory_target   = 4 000 000
+      - slab_slices     = ceil(4_000_000 / 524_288) = 8  (>= z_chunk=2)
+      - slice_planes    = False                           (PR #447 code path)
+      - num_slabs       = ceil(20 / 8) = 3
+      - slabs           = z[0:8], z[8:16], z[16:20]  (last is partial)
     """
     pytest.importorskip("tensorstore")
 
     default_mem_target = config.memory_target
 
     try:
-        # Create array where Z dimension (50) is not evenly divisible by z_chunks (32)
-        shape = (50, 128, 128)
-        z_chunks = 32
-        data = np.arange(np.prod(shape), dtype=np.uint16).reshape(shape)
+        shape = (20, 64, 64)
+        z_chunk = 2
+
+        data = np.arange(np.prod(shape), dtype=np.uint32).reshape(shape)
 
         image = to_ngff_image(
             data=data,
@@ -109,10 +116,11 @@ def test_slab_slices_with_non_divisible_shape():
             scale={"z": 1.0, "y": 1.0, "x": 1.0},
         )
 
-        # Set memory target to force regional writing
-        config.memory_target = int(2.5e6)
+        multiscales = to_multiscales(
+            image, chunks=z_chunk, scale_factors=[], cache=False
+        )
 
-        multiscales = to_multiscales(image, chunks=z_chunks)
+        config.memory_target = 4_000_000
 
         with tempfile.TemporaryDirectory() as tmpdir:
             to_ngff_zarr(tmpdir, multiscales, use_tensorstore=True)
@@ -120,13 +128,12 @@ def test_slab_slices_with_non_divisible_shape():
             read_multiscales = from_ngff_zarr(tmpdir)
             read_data = np.asarray(read_multiscales.images[0].data)
 
-            # Verify all data including the last partial slab
-            assert read_data.shape == shape
-            np.testing.assert_array_equal(read_data, data)
+            assert read_data.shape == shape, (
+                f"Shape mismatch: expected {shape}, got {read_data.shape}"
+            )
 
-            # Check the last few Z planes specifically
-            assert np.array_equal(read_data[48], data[48])
-            assert np.array_equal(read_data[49], data[49])
+            # Full round-trip check, including the partial final slab z[16:20].
+            np.testing.assert_array_equal(read_data, data)
 
     finally:
         config.memory_target = default_mem_target
