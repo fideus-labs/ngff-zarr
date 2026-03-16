@@ -1,3 +1,9 @@
+## py-v0.32.2 (2026-03-16)
+
+### 🐛 Bug Fixes
+
+- **py**: correctly calculate regions in to_ngff_zarr ([76772df](https://github.com/fideus-labs/ngff-zarr/commit/76772df11b7cfc860b38bc3c9ab5b872453e4481))
+
 ## py-v0.32.1 (2026-03-12)
 
 ### 🐛 Bug Fixes

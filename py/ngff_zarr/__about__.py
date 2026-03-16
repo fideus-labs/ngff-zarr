@@ -2,4 +2,4 @@
 # SPDX-FileCopyrightText: 2022-present Matt McCormick <matt@fideus.io>
 #
 # SPDX-License-Identifier: MIT
-__version__ = "0.32.1"
+__version__ = "0.32.2"
