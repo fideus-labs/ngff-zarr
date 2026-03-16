@@ -25,7 +25,7 @@ jobs:
       - name: Install pip if missing
         shell: bash
         run: |
-          curl https://bootstrap.pypa.io/get-pip.py -o "$RUNNER_TEMP/get-pip.py"
+          curl --retry-all-errors --retry 3 --tlsv1.2 https://bootstrap.pypa.io/get-pip.py -o "$RUNNER_TEMP/get-pip.py"
           python -m ensurepip --upgrade || python "$RUNNER_TEMP/get-pip.py"
 
       - name: Install dependencies
