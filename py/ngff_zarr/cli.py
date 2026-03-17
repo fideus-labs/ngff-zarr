@@ -445,25 +445,41 @@ def main():
 
     args = parser.parse_args()
 
-    # Check that input and output are not the same
-    # Resolve paths to absolute paths for consistent handling across platforms
+    _REMOTE_SCHEMES = ("s3://", "gs://", "az://", "azure://", "http://", "https://")
+
+    def _is_remote(path_str: str) -> bool:
+        lower = path_str.lower()
+        return any(lower.startswith(scheme) for scheme in _REMOTE_SCHEMES)
+
+    def _maybe_resolve(path_str: str) -> str:
+        if _is_remote(path_str):
+            return path_str
+        return str(Path(path_str).resolve())
+
+    # Check that input and output are not the same.
+    # Resolve local paths to absolute paths for consistent handling across platforms.
+    # Remote URLs (s3://, gs://, http://, etc.) are left unchanged.
     if args.output:
-        output_path = Path(args.output).resolve()
-        input_paths = [Path(inp).resolve() for inp in args.input]
-        if any(output_path == inp for inp in input_paths):
-            parser.error("Input and output file/directory must not be the same.")
+        output_resolved = _maybe_resolve(args.output)
+        input_resolved = [_maybe_resolve(inp) for inp in args.input]
+        if not _is_remote(output_resolved):
+            output_path = Path(output_resolved)
+            if any(
+                not _is_remote(inp) and output_path == Path(inp)
+                for inp in input_resolved
+            ):
+                parser.error("Input and output file/directory must not be the same.")
 
         # Use resolved paths for all subsequent operations
-        args.output = str(output_path)
-        args.input = [str(p) for p in input_paths]
+        args.output = output_resolved
+        args.input = input_resolved
 
         # Set default OME-Zarr version to 0.5 for .ozx output files
         if args.output.endswith(".ozx") and args.ome_zarr_version == "0.4":
             args.ome_zarr_version = "0.5"
     else:
         # Resolve input paths even when no output is specified
-        input_paths = [Path(inp).resolve() for inp in args.input]
-        args.input = [str(p) for p in input_paths]
+        args.input = [_maybe_resolve(inp) for inp in args.input]
 
     if args.memory_target:
         config.memory_target = dask.utils.parse_bytes(args.memory_target)
