@@ -1,5 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+import sys
+
 import pytest
 from ngff_zarr import Methods, to_multiscales, to_ngff_zarr
 from ngff_zarr._zarr_kwargs import zarr_kwargs
@@ -20,7 +22,8 @@ def test_bin_shrink_isotropic_scale_factors(input_images, tmp_path):
     from kvikio.nvcomp_codec import NvCompBatchCodec
 
     compressor = NvCompBatchCodec("lz4")
-    to_ngff_zarr(store, multiscales, compressor=compressor)
+    v = "0.4" if sys.version_info < (3, 11) else "0.5"
+    to_ngff_zarr(store, multiscales, version=v, compressor=compressor)
 
 
 def test_gaussian_isotropic_scale_factors(input_images, tmp_path):
@@ -35,4 +38,5 @@ def test_gaussian_isotropic_scale_factors(input_images, tmp_path):
     from kvikio.nvcomp_codec import NvCompBatchCodec
 
     compressor = NvCompBatchCodec("zstd")
-    to_ngff_zarr(store, multiscales, compressor=compressor)
+    v = "0.4" if sys.version_info < (3, 11) else "0.5"
+    to_ngff_zarr(store, multiscales, version=v, compressor=compressor)

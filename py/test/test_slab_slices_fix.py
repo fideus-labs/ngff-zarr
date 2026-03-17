@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 """Regression tests for PR #447 fix: _compute_write_regions uses slab_slices for Z boundaries."""
 
+import sys
 import tempfile
 
 import numpy as np
@@ -70,7 +71,8 @@ def test_slab_slices_regional_writing():
         config.memory_target = 8_000_000
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            to_ngff_zarr(tmpdir, multiscales, use_tensorstore=True)
+            v = "0.4" if sys.version_info < (3, 11) else "0.5"
+            to_ngff_zarr(tmpdir, multiscales, version=v, use_tensorstore=True)
 
             read_multiscales = from_ngff_zarr(tmpdir)
             read_data = np.asarray(read_multiscales.images[0].data)
@@ -123,7 +125,8 @@ def test_slab_slices_with_non_divisible_shape():
         config.memory_target = 4_000_000
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            to_ngff_zarr(tmpdir, multiscales, use_tensorstore=True)
+            v = "0.4" if sys.version_info < (3, 11) else "0.5"
+            to_ngff_zarr(tmpdir, multiscales, version=v, use_tensorstore=True)
 
             read_multiscales = from_ngff_zarr(tmpdir)
             read_data = np.asarray(read_multiscales.images[0].data)

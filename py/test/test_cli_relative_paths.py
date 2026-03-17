@@ -46,7 +46,12 @@ class TestRelativePathHandling:
 
             # Run with relative input path from tmpdir
             result = _run_ngff_zarr(
-                "-i", "test_input.png", "-o", str(output_path), cwd=tmpdir
+                "-i",
+                "test_input.png",
+                "-o",
+                str(output_path),
+                *(["--ome-zarr-version", "0.4"] if sys.version_info < (3, 11) else []),
+                cwd=tmpdir,
             )
 
             assert result.returncode == 0, f"stderr: {result.stderr}"
@@ -67,7 +72,12 @@ class TestRelativePathHandling:
 
             # But use a relative output path
             result = _run_ngff_zarr(
-                "-i", str(input_file), "-o", "output.zarr", cwd=tmpdir
+                "-i",
+                str(input_file),
+                "-o",
+                "output.zarr",
+                *(["--ome-zarr-version", "0.4"] if sys.version_info < (3, 11) else []),
+                cwd=tmpdir,
             )
 
             assert result.returncode == 0, f"stderr: {result.stderr}"
@@ -93,7 +103,12 @@ class TestRelativePathHandling:
 
             # But use a relative output path
             result = _run_ngff_zarr(
-                "-i", str(input_file), "-o", "output.ome.zarr", cwd=tmpdir
+                "-i",
+                str(input_file),
+                "-o",
+                "output.ome.zarr",
+                *(["--ome-zarr-version", "0.4"] if sys.version_info < (3, 11) else []),
+                cwd=tmpdir,
             )
 
             assert result.returncode == 0, f"stderr: {result.stderr}"
@@ -118,7 +133,12 @@ class TestRelativePathHandling:
 
             # Use both relative paths
             result = _run_ngff_zarr(
-                "-i", "test_input.png", "-o", "output.zarr", cwd=tmpdir
+                "-i",
+                "test_input.png",
+                "-o",
+                "output.zarr",
+                *(["--ome-zarr-version", "0.4"] if sys.version_info < (3, 11) else []),
+                cwd=tmpdir,
             )
 
             assert result.returncode == 0, f"stderr: {result.stderr}"
