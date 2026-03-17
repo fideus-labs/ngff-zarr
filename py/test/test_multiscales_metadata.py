@@ -10,6 +10,8 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+import pytest
+import zarr
 from ngff_zarr import (
     Methods,
     from_ngff_zarr,
@@ -17,6 +19,9 @@ from ngff_zarr import (
     to_ngff_image,
     to_ngff_zarr,
 )
+from packaging import version
+
+zarr_version = version.parse(zarr.__version__)
 
 
 def test_multiscales_metadata_field():
@@ -41,8 +46,14 @@ def test_multiscales_metadata_field():
     assert "itkwasm_downsample" in multiscales.metadata.metadata.method
 
 
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="zarr version >= 3.0.0b2 required for OME-Zarr version >= 0.5",
+)
 def test_multiscales_metadata_serialization():
     """Test that the metadata field is correctly serialized to zarr."""
+    import zarr
+
     data = np.random.randint(0, 255, (32, 32), dtype=np.uint8)
     image = to_ngff_image(data, dims=["y", "x"])
 
@@ -55,12 +66,14 @@ def test_multiscales_metadata_serialization():
         )
         to_ngff_zarr(zarr_path, multiscales)
 
-        # Read raw metadata from zarr
-        metadata_path = zarr_path / ".zattrs"
-        with open(metadata_path) as f:
-            raw_metadata = json.load(f)
-
-        multiscales_metadata = raw_metadata["multiscales"][0]
+        # Read raw metadata from zarr using the zarr API (works for both v0.4 and v0.5)
+        root = zarr.open_group(str(zarr_path), mode="r")
+        raw_metadata = dict(root.attrs)
+        # v0.5 stores multiscales under "ome", v0.4 stores at root
+        if "ome" in raw_metadata:
+            multiscales_metadata = raw_metadata["ome"]["multiscales"][0]
+        else:
+            multiscales_metadata = raw_metadata["multiscales"][0]
 
         # Check that metadata field exists and has correct structure
         assert "metadata" in multiscales_metadata
@@ -76,6 +89,10 @@ def test_multiscales_metadata_serialization():
         assert isinstance(metadata_field["version"], str)
 
 
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="zarr version >= 3.0.0b2 required for OME-Zarr version >= 0.5",
+)
 def test_multiscales_metadata_round_trip():
     """Test round-trip: save to zarr and load back."""
     data = np.random.randint(0, 255, (32, 32), dtype=np.uint8)
@@ -168,13 +185,13 @@ def test_legacy_zarr_without_metadata():
     with tempfile.TemporaryDirectory() as tmp_dir:
         zarr_path = Path(tmp_dir) / "test.ome.zarr"
 
-        # Create and save normally first
+        # Create and save with v0.4 format to simulate a legacy file
         multiscales = to_multiscales(
             image, scale_factors=[2], method=Methods.ITKWASM_GAUSSIAN
         )
-        to_ngff_zarr(zarr_path, multiscales)
+        to_ngff_zarr(zarr_path, multiscales, version="0.4")
 
-        # Manually remove metadata field to simulate legacy file
+        # Manually remove metadata field to simulate legacy file (v0.4 uses .zattrs)
         metadata_path = zarr_path / ".zattrs"
         with open(metadata_path) as f:
             raw_metadata = json.load(f)

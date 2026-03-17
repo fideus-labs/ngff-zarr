@@ -143,6 +143,17 @@ async function readZarrAttrs(
   return root.attrs as unknown as Record<string, unknown>;
 }
 
+// Helper to get multiscales array from attrs (handles v0.5 ome namespace and v0.4 root)
+function getMultiscalesArray(
+  attrs: Record<string, unknown>,
+): unknown[] {
+  if ("ome" in attrs) {
+    const ome = attrs.ome as Record<string, unknown>;
+    return ome.multiscales as unknown[];
+  }
+  return attrs.multiscales as unknown[];
+}
+
 Deno.test("toNgffZarr writes orientation when enabledRfcs includes 4", async () => {
   const orientations: Record<string, AnatomicalOrientation> = {
     x: createAnatomicalOrientation(AnatomicalOrientationValues.LeftToRight),
@@ -162,7 +173,7 @@ Deno.test("toNgffZarr writes orientation when enabledRfcs includes 4", async () 
 
   // Read back and check metadata
   const attrs = await readZarrAttrs(outputStore);
-  const multiscalesArray = attrs.multiscales as unknown[];
+  const multiscalesArray = getMultiscalesArray(attrs);
   const multiscalesMetadata = multiscalesArray[0] as Record<string, unknown>;
   const axesMetadata = multiscalesMetadata.axes as Array<
     Record<string, unknown>
@@ -231,7 +242,7 @@ Deno.test("toNgffZarr omits orientation when enabledRfcs is undefined", async ()
 
   // Read back and check metadata
   const attrs = await readZarrAttrs(outputStore);
-  const multiscalesArray = attrs.multiscales as unknown[];
+  const multiscalesArray = getMultiscalesArray(attrs);
   const multiscalesMetadata = multiscalesArray[0] as Record<string, unknown>;
   const axesMetadata = multiscalesMetadata.axes as Array<
     Record<string, unknown>
@@ -266,7 +277,7 @@ Deno.test("toNgffZarr omits orientation when enabledRfcs is empty", async () => 
 
   // Read back and check metadata
   const attrs = await readZarrAttrs(outputStore);
-  const multiscalesArray = attrs.multiscales as unknown[];
+  const multiscalesArray = getMultiscalesArray(attrs);
   const multiscalesMetadata = multiscalesArray[0] as Record<string, unknown>;
   const axesMetadata = multiscalesMetadata.axes as Array<
     Record<string, unknown>
@@ -301,7 +312,7 @@ Deno.test("toNgffZarr writes orientation when enabledRfcs=[1,2,4,5]", async () =
 
   // Read back and check metadata
   const attrs = await readZarrAttrs(outputStore);
-  const multiscalesArray = attrs.multiscales as unknown[];
+  const multiscalesArray = getMultiscalesArray(attrs);
   const multiscalesMetadata = multiscalesArray[0] as Record<string, unknown>;
   const axesMetadata = multiscalesMetadata.axes as Array<
     Record<string, unknown>

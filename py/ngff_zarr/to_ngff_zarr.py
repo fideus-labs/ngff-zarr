@@ -1138,7 +1138,7 @@ def _prepare_next_scale(
 def to_ngff_zarr(
     store: StoreLike,
     multiscales: Multiscales,
-    version: str = "0.4",
+    version: str = "0.5",
     overwrite: bool = True,
     use_tensorstore: bool = False,
     chunk_store: StoreLike | None = None,

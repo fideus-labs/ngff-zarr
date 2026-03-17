@@ -13,7 +13,7 @@ class ConversionOptions(BaseModel):
     # Output options
     output_path: str = Field(..., description="Output path for OME-Zarr store")
     ome_zarr_version: Literal["0.4", "0.5"] = Field(
-        "0.4", description="OME-Zarr version"
+        "0.5", description="OME-Zarr version"
     )
 
     # Metadata options
