@@ -110,6 +110,14 @@ def from_ngff_zarr(
         )
     root = zarr.open_group(store, mode="r", **format_kwargs)
 
+    # When auto-detecting version (no explicit version provided) on zarr-python 3,
+    # zarr may prefer a spurious zarr.json (format 3) over .zgroup (format 2),
+    # resulting in empty root attributes. Fall back to zarr_format=2 in that case.
+    if not version and zarr_version_major >= 3:
+        root_attrs_check = root.attrs.asdict()
+        if not root_attrs_check:
+            root = zarr.open_group(store, mode="r", zarr_format=2)
+
     # Check root-level attributes first to see if this is an HCS plate
     root_attrs_initial = root.attrs.asdict()
     is_hcs_plate_root = _is_hcs_plate(root_attrs_initial)
