@@ -222,7 +222,8 @@ def test_write_hcs_well_image_memory_store():
             )
 
             # Verify the data was written to the correct location
-            root = zarr.group(memory_store)
+            # write_hcs_well_image defaults to version="0.4" (zarr format 2)
+            root = zarr.open_group(memory_store, mode="r", zarr_format=2)
             assert "A" in root, "Row group 'A' not found"
             assert "1" in root["A"], "Column group '1' not found in row 'A'"
             assert "0" in root["A/1"], "Field group '0' not found in well 'A/1'"
