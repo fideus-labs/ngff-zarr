@@ -30,9 +30,8 @@ def test_dimension_separator_0_4():
         to_ngff_zarr(tmpdir, ms, version=version)
 
         # Verify dimension_separator via the zarr API (works across zarr versions)
-        arr = zarr.open_array(
-            store=tmpdir, path="scale0/test_img", mode="r", zarr_format=2
-        )
+        root = zarr.open_group(store=tmpdir, mode="r", zarr_format=2)
+        arr = root["scale0/test_img"]
         if hasattr(arr.metadata, "dimension_separator"):
             # zarr-python 2.x
             assert arr.metadata.dimension_separator == "/"
