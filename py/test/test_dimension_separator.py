@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+import os
 import tempfile
 
 import numpy as np
@@ -29,15 +30,9 @@ def test_dimension_separator_0_4():
     with tempfile.TemporaryDirectory() as tmpdir:
         to_ngff_zarr(tmpdir, ms, version=version)
 
-        # Verify dimension_separator via the zarr API (works across zarr versions)
-        root = zarr.open_group(
-            store=tmpdir, mode="r", zarr_format=2, use_consolidated=False
-        )
-        arr = root["scale0/test_img"]
-        if hasattr(arr.metadata, "dimension_separator"):
-            # zarr-python 2.x
-            assert arr.metadata.dimension_separator == "/"
-        else:
-            # zarr-python 3.x: chunk_key_encoding with separator
-            encoding = arr.metadata.chunk_key_encoding
-            assert encoding.separator == "/"
+        # Open the array directly by path — on zarr-python 3 the arrays are
+        # written as zarr v3 format even for OME-Zarr 0.4 stores.
+        arr_path = os.path.join(tmpdir, "scale0", "test_img")
+        arr = zarr.open_array(store=arr_path, mode="r")
+        encoding = arr.metadata.chunk_key_encoding
+        assert encoding.separator == "/"
