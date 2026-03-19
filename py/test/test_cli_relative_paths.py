@@ -18,6 +18,8 @@ from ._data import test_data_dir
 zarr_version = packaging.version.parse(zarr.__version__)
 zarr_version_major = zarr_version.major
 
+ome_zarr_versions = ["0.4"] + (["0.5"] if zarr_version_major >= 3 else [])
+
 
 def _run_ngff_zarr(*args, cwd=None):
     """Run ngff-zarr CLI as a subprocess and return the result."""
@@ -31,7 +33,8 @@ def _run_ngff_zarr(*args, cwd=None):
 
 
 class TestRelativePathHandling:
-    def test_relative_input_path(self, input_images):  # noqa: ARG002
+    @pytest.mark.parametrize("ome_zarr_version", ome_zarr_versions)
+    def test_relative_input_path(self, input_images, ome_zarr_version):  # noqa: ARG002
         """Test that relative input paths are resolved correctly."""
         # Create a temp directory to use as working directory
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -50,14 +53,16 @@ class TestRelativePathHandling:
                 "test_input.png",
                 "-o",
                 str(output_path),
-                *(["--ome-zarr-version", "0.4"] if sys.version_info < (3, 11) else []),
+                "--ome-zarr-version",
+                ome_zarr_version,
                 cwd=tmpdir,
             )
 
             assert result.returncode == 0, f"stderr: {result.stderr}"
             assert output_path.exists(), "Output should exist at expected location"
 
-    def test_relative_output_path(self, input_images):  # noqa: ARG002
+    @pytest.mark.parametrize("ome_zarr_version", ome_zarr_versions)
+    def test_relative_output_path(self, input_images, ome_zarr_version):  # noqa: ARG002
         """Test that relative output paths are resolved correctly.
 
         This reproduces the issue where using a relative output path
@@ -76,7 +81,8 @@ class TestRelativePathHandling:
                 str(input_file),
                 "-o",
                 "output.zarr",
-                *(["--ome-zarr-version", "0.4"] if sys.version_info < (3, 11) else []),
+                "--ome-zarr-version",
+                ome_zarr_version,
                 cwd=tmpdir,
             )
 
@@ -88,7 +94,8 @@ class TestRelativePathHandling:
                 f"Output should exist at {expected_output} (cwd was {tmpdir})"
             )
 
-    def test_relative_output_ome_zarr(self, input_images):  # noqa: ARG002
+    @pytest.mark.parametrize("ome_zarr_version", ome_zarr_versions)
+    def test_relative_output_ome_zarr(self, input_images, ome_zarr_version):  # noqa: ARG002
         """Test that relative .ome.zarr output paths are resolved correctly.
 
         This specifically tests the issue described in the bug report
@@ -107,7 +114,8 @@ class TestRelativePathHandling:
                 str(input_file),
                 "-o",
                 "output.ome.zarr",
-                *(["--ome-zarr-version", "0.4"] if sys.version_info < (3, 11) else []),
+                "--ome-zarr-version",
+                ome_zarr_version,
                 cwd=tmpdir,
             )
 
@@ -120,7 +128,8 @@ class TestRelativePathHandling:
             )
             assert expected_output.is_dir(), "Output should be a directory"
 
-    def test_both_relative_paths(self, input_images):  # noqa: ARG002
+    @pytest.mark.parametrize("ome_zarr_version", ome_zarr_versions)
+    def test_both_relative_paths(self, input_images, ome_zarr_version):  # noqa: ARG002
         """Test that both relative input and output paths work together."""
         # Create a temp directory to use as working directory
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -137,7 +146,8 @@ class TestRelativePathHandling:
                 "test_input.png",
                 "-o",
                 "output.zarr",
-                *(["--ome-zarr-version", "0.4"] if sys.version_info < (3, 11) else []),
+                "--ome-zarr-version",
+                ome_zarr_version,
                 cwd=tmpdir,
             )
 
