@@ -1,3 +1,23 @@
+## py-v0.33.0 (2026-03-20)
+
+### ✨ Features
+
+- update default OME-Zarr version from 0.4 to 0.5 ([4e60c07](https://github.com/fideus-labs/ngff-zarr/commit/4e60c077b3adcf6f4ef827a1cc112ca8e340f22c))
+
+### 🐛 Bug Fixes
+
+- **py**: handle both v2 and v3 array metadata in dimension separator test ([575a814](https://github.com/fideus-labs/ngff-zarr/commit/575a8141792cf1daa14e18809036f960125a7d46))
+- **py**: open dimension separator test array directly by path ([4345a0a](https://github.com/fideus-labs/ngff-zarr/commit/4345a0a055af6f0ffe9a1e150bc25519ab3384b0))
+- **py**: add use_consolidated=False to open_group in dimension separator test ([e1a6405](https://github.com/fideus-labs/ngff-zarr/commit/e1a64052670c7e71c50c72eda061a79a454796d2))
+- **py**: use open_group instead of open_array in dimension separator test ([617bc33](https://github.com/fideus-labs/ngff-zarr/commit/617bc334d8e9a8f1bb88841a50f149098613a405))
+- **py**: fall back to zarr format 2 when auto-detecting version yields empty attrs ([2a66039](https://github.com/fideus-labs/ngff-zarr/commit/2a660391dc8ffdb9cb206b9e28aaa1eb2a31b293))
+- resolve merge conflicts with main branch ([af2a8eb](https://github.com/fideus-labs/ngff-zarr/commit/af2a8eb4c5e4aa995d7afd79e92a574549db3dfc))
+- **py**: add zarr v3 skip marker to test_bin_shrink_map_blocks_fast_path.py ([22a70f2](https://github.com/fideus-labs/ngff-zarr/commit/22a70f2c8a7f6c7b58afaf7f43272d810e725a0c))
+- **py**: fix CI failures - update test metadata access for v0.5 and add zarr v3 skip markers ([61d21e5](https://github.com/fideus-labs/ngff-zarr/commit/61d21e569beb21b040206df3c212ee3f59d0537b))
+- **py**: fix test_legacy_zarr_without_type to preserve list cardinality and reliably persist mutations ([a2c1dd0](https://github.com/fideus-labs/ngff-zarr/commit/a2c1dd082f427bfcd72cd02725e1fcecda7620b0))
+- **py**: improve cli support for additional protocols ([07cc062](https://github.com/fideus-labs/ngff-zarr/commit/07cc062a6d4ceb60a45373fb333a6a2eb2da4733))
+- **py**: resolve relative paths to absolute in CLI for Windows compatibility ([101eb2a](https://github.com/fideus-labs/ngff-zarr/commit/101eb2a0d2d733d7ebe35b1cd15d9beb53aacc9e))
+
 ## py-v0.32.2 (2026-03-16)
 
 ### 🐛 Bug Fixes
