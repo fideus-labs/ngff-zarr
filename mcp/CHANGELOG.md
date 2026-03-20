@@ -1,3 +1,14 @@
+## mcp-v0.7.0 (2026-03-20)
+
+### ✨ Features
+
+- update default OME-Zarr version from 0.4 to 0.5 ([4e60c07](https://github.com/fideus-labs/ngff-zarr/commit/4e60c077b3adcf6f4ef827a1cc112ca8e340f22c))
+- **py,ts**: add bidirectional anatomical orientation ↔ ITK direction matrix conversion ([e427ca4](https://github.com/fideus-labs/ngff-zarr/commit/e427ca4e5e131a97b9b566a5fd79ac6020110dd9))
+
+### 🐛 Bug Fixes
+
+- resolve merge conflicts with main branch ([af2a8eb](https://github.com/fideus-labs/ngff-zarr/commit/af2a8eb4c5e4aa995d7afd79e92a574549db3dfc))
+
 ## mcp-v0.6.0 (2026-03-04)
 
 ### ♻️ Refactoring
