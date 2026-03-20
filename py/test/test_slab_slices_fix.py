@@ -5,7 +5,9 @@
 import tempfile
 
 import numpy as np
+import packaging.version
 import pytest
+import zarr
 from ngff_zarr import (
     config,
     from_ngff_zarr,
@@ -14,8 +16,13 @@ from ngff_zarr import (
     to_ngff_zarr,
 )
 
+zarr_version_major = packaging.version.parse(zarr.__version__).major
 
-def test_slab_slices_regional_writing():
+ome_zarr_versions = ["0.4"] + (["0.5"] if zarr_version_major >= 3 else [])
+
+
+@pytest.mark.parametrize("ome_zarr_version", ome_zarr_versions)
+def test_slab_slices_regional_writing(ome_zarr_version):
     """Validate that _compute_write_regions uses slab_slices (not z_chunks) for Z boundaries.
 
     PR #447 fixed a bug where the region boundary for each Z-slab was computed
@@ -70,7 +77,9 @@ def test_slab_slices_regional_writing():
         config.memory_target = 8_000_000
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            to_ngff_zarr(tmpdir, multiscales, use_tensorstore=True)
+            to_ngff_zarr(
+                tmpdir, multiscales, version=ome_zarr_version, use_tensorstore=True
+            )
 
             read_multiscales = from_ngff_zarr(tmpdir)
             read_data = np.asarray(read_multiscales.images[0].data)
@@ -88,7 +97,8 @@ def test_slab_slices_regional_writing():
         config.memory_target = default_mem_target
 
 
-def test_slab_slices_with_non_divisible_shape():
+@pytest.mark.parametrize("ome_zarr_version", ome_zarr_versions)
+def test_slab_slices_with_non_divisible_shape(ome_zarr_version):
     """Verify partial final slab is written correctly when Z is not a multiple of slab_slices.
 
     With shape=(20, 64, 64), chunks=2, uint32:
@@ -123,7 +133,9 @@ def test_slab_slices_with_non_divisible_shape():
         config.memory_target = 4_000_000
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            to_ngff_zarr(tmpdir, multiscales, use_tensorstore=True)
+            to_ngff_zarr(
+                tmpdir, multiscales, version=ome_zarr_version, use_tensorstore=True
+            )
 
             read_multiscales = from_ngff_zarr(tmpdir)
             read_data = np.asarray(read_multiscales.images[0].data)
