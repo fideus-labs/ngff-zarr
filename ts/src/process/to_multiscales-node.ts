@@ -7,7 +7,7 @@
  */
 
 import { NgffImage } from "../types/ngff_image.ts";
-import { Multiscales } from "../types/multiscales.ts";
+import { NgffMultiscales } from "../types/multiscales.ts";
 import { downsampleItkWasm } from "../methods/itkwasm-node.ts";
 import {
   toMultiscalesCore,
@@ -23,11 +23,11 @@ export type { ToMultiscalesOptions } from "./to_multiscales-shared.ts";
  *
  * @param image - Input NgffImage
  * @param options - Configuration options
- * @returns Multiscales object
+ * @returns NgffMultiscales object
  */
 export async function toMultiscales(
   image: NgffImage,
   options: ToMultiscalesOptions = {},
-): Promise<Multiscales> {
+): Promise<NgffMultiscales> {
   return await toMultiscalesCore(image, options, downsampleItkWasm);
 }

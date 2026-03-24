@@ -279,12 +279,12 @@ const image = createNgffImage(
 );
 ```
 
-#### `Multiscales`
+#### `NgffMultiscales`
 
 Container for multiple resolution levels:
 
 ```typescript
-interface Multiscales {
+interface NgffMultiscales {
   images: NgffImage[];          // Array of scale levels
   metadata: Metadata;           // OME-Zarr metadata
   scaleFactors?: (number | Record<string, number>)[]; // Scale factors
@@ -334,7 +334,7 @@ async function fromNgffZarr(
     validate?: boolean;
     version?: "0.4" | "0.5";
   }
-): Promise<Multiscales>
+): Promise<NgffMultiscales>
 ```
 
 **Parameters:**
@@ -342,7 +342,7 @@ async function fromNgffZarr(
 - `options.validate`: Enable metadata validation (default: false)
 - `options.version`: Expected OME-Zarr version
 
-**Returns:** `Multiscales` object with all scale levels
+**Returns:** `NgffMultiscales` object with all scale levels
 
 **Example:**
 ```typescript
@@ -361,12 +361,12 @@ const remoteMs = await fromNgffZarr("https://example.com/data.ome.zarr");
 
 #### `toNgffZarr()`
 
-Write a Multiscales object to OME-Zarr:
+Write an NgffMultiscales object to OME-Zarr:
 
 ```typescript
 async function toNgffZarr(
   store: string,
-  multiscales: Multiscales,
+  multiscales: NgffMultiscales,
   options?: {
     version?: "0.4" | "0.5";
     chunksPerShard?: number | number[] | Record<string, number>;
@@ -376,7 +376,7 @@ async function toNgffZarr(
 
 **Parameters:**
 - `store`: Output path for OME-Zarr
-- `multiscales`: Multiscales object to write
+- `multiscales`: NgffMultiscales object to write
 - `options.version`: OME-Zarr version (default: "0.4")
 - `options.chunksPerShard`: Sharding configuration (v0.5 only)
 
@@ -407,7 +407,7 @@ async function toMultiscales(
     method?: Methods;
     chunks?: number | number[] | Record<string, number>;
   }
-): Promise<Multiscales>
+): Promise<NgffMultiscales>
 ```
 
 **Parameters:**
@@ -416,7 +416,7 @@ async function toMultiscales(
 - `options.method`: Downsampling method (default: ITKWASM_GAUSSIAN)
 - `options.chunks`: Chunk sizes for output
 
-**Returns:** Multiscales with generated pyramid levels
+**Returns:** NgffMultiscales with generated pyramid levels
 
 **Example:**
 ```typescript
@@ -492,7 +492,7 @@ function createMetadata(
 
 #### `createMultiscales()`
 
-Create a Multiscales container:
+Create an NgffMultiscales container:
 
 ```typescript
 function createMultiscales(
@@ -500,7 +500,7 @@ function createMultiscales(
   metadata: Metadata,
   scaleFactors?: (number | Record<string, number>)[],
   method?: Methods
-): Multiscales
+): NgffMultiscales
 ```
 
 ### Validation
@@ -667,15 +667,15 @@ Leverage TypeScript's type system:
 ```typescript
 import type {
   NgffImage,
-  Multiscales,
+  NgffMultiscales,
   Metadata,
   Axis,
 } from "@fideus-labs/ngff-zarr";
 import { fromNgffZarr, validateMetadata } from "@fideus-labs/ngff-zarr";
 
 // Type-safe function
-async function processImage(path: string): Promise<Multiscales> {
-  const multiscales: Multiscales = await fromNgffZarr(path);
+async function processImage(path: string): Promise<NgffMultiscales> {
+  const multiscales: NgffMultiscales = await fromNgffZarr(path);
 
   // TypeScript knows the structure
   const axes: Axis[] = multiscales.metadata.axes;
@@ -783,7 +783,7 @@ The TypeScript API closely mirrors the Python interface:
 | `to_multiscales()` | `toMultiscales()` |
 | `to_ngff_image()` | `createNgffImage()` |
 | `NgffImage` dataclass | `NgffImage` interface |
-| `Multiscales` dataclass | `Multiscales` interface |
+| `NgffMultiscales` dataclass | `NgffMultiscales` interface |
 | `dask.array.Array` | `DaskArray` (metadata) |
 | JSON Schema validation | JSON Schema validation |
 

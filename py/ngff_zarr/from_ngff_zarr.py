@@ -7,8 +7,8 @@ import zarr
 import zarr.storage
 
 from ._zarr_types import StoreLike
+from .multiscales import NgffMultiscales
 from .rfc9_zip import is_ozx_path, read_ozx_version
-from .to_multiscales import Multiscales
 
 zarr_version = packaging.version.parse(zarr.__version__)
 zarr_version_major = zarr_version.major
@@ -22,9 +22,9 @@ def from_ngff_zarr(
     validate: bool = False,
     version: str | None = None,
     storage_options: dict | None = None,
-) -> Multiscales:
+) -> NgffMultiscales:
     """
-    Read an OME-Zarr NGFF Multiscales data structure from a Zarr store.
+    Read an OME-Zarr NGFF NgffMultiscales data structure from a Zarr store.
 
     store : StoreLike
         Store or path to directory in file system. Can be a string URL
@@ -257,4 +257,4 @@ def from_ngff_zarr(
     metadata_obj.type = method_type
     metadata_obj.metadata = method_metadata
 
-    return Multiscales(images, metadata_obj, method=method)
+    return NgffMultiscales(images, metadata_obj, method=method)

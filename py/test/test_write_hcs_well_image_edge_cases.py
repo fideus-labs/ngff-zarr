@@ -230,7 +230,9 @@ def test_write_hcs_well_image_memory_store():
 
             # Check that the multiscales metadata exists
             field_group = root["A/1/0"]
-            assert "multiscales" in field_group.attrs, "Multiscales metadata not found"
+            assert "multiscales" in field_group.attrs, (
+                "NgffMultiscales metadata not found"
+            )
 
             # Just check that the field group exists (data was written successfully)
             assert field_group is not None, "Field group should exist after writing"

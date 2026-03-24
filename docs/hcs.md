@@ -382,7 +382,7 @@ ome_zarr_version = "0.4"  # or "0.5"
 # Write first field to well A/1 (v0.4 format)
 nz.write_hcs_well_image(
     store="my_screen.ome.zarr",
-    multiscales=field_image,  # Your Multiscales image data
+    multiscales=field_image,  # Your NgffMultiscales image data
     plate_metadata=plate_metadata_v04,
     row_name="A",
     column_name="1",
@@ -425,7 +425,7 @@ ome_zarr_version = "0.5"
 # Write first field to well A/1 (v0.5 format)
 nz.write_hcs_well_image(
     store="my_screen_v05.ome.zarr",
-    multiscales=field_image,  # Your Multiscales image data
+    multiscales=field_image,  # Your NgffMultiscales image data
     plate_metadata=plate_metadata_v05,
     row_name="A",
     column_name="1",

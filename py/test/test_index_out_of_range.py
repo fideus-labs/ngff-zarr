@@ -100,7 +100,7 @@ def test_write_hcs_well_image_index_out_of_range():
 
             # Check that the multiscales structure exists
             assert (well_path / ".zattrs").exists(), (
-                f"Multiscales metadata not found for {row_name}/{column_name}"
+                f"NgffMultiscales metadata not found for {row_name}/{column_name}"
             )
 
             # Check that the first scale level exists

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 import dask.array as da
-from ngff_zarr import Methods, Multiscales, NgffImage, to_multiscales
+from ngff_zarr import Methods, NgffImage, NgffMultiscales, to_multiscales
 
 
 def test_check_pyramid():
@@ -20,7 +20,7 @@ def test_check_pyramid():
             translation={"y": 0, "x": 0},
         )
         scale_factors = [2, 4, 8, 16, 32]
-        multiscales: Multiscales = to_multiscales(
+        multiscales: NgffMultiscales = to_multiscales(
             image,
             scale_factors=scale_factors,
             method=method,

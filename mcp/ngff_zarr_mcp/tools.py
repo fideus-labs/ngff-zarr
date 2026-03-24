@@ -159,7 +159,7 @@ async def convert_to_ome_zarr(
                 # Setup caching for large datasets
                 cache = False  # Let the system handle caching automatically
 
-                # Always use to_multiscales to create proper Multiscales object
+                # Always use to_multiscales to create proper NgffMultiscales object
                 # If scale_factors is None, create single-scale multiscales
                 if scale_factors is None:
                     scale_factors = []
