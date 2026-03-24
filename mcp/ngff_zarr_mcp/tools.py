@@ -10,7 +10,7 @@ from ngff_zarr import (  # type: ignore[import-untyped]
     Methods,
     cli_input_to_ngff_image,
     detect_cli_io_backend,
-    from_ngff_zarr,
+    from_ome_zarr,
     to_multiscales,
     to_ome_zarr,
 )
@@ -79,7 +79,7 @@ async def convert_to_ome_zarr(
                 # Check if it's a zarr store URL by trying to load it
                 try:
                     # Try to read as zarr store first
-                    multiscales = from_ngff_zarr(input_path)
+                    multiscales = from_ome_zarr(input_path)
 
                     # If successful, we have a zarr store input
                     # We'll work with the multiscales directly and apply transformations
@@ -269,7 +269,7 @@ async def read_ngff_zarr(
     """
     try:
         # Read the multiscales
-        multiscales = from_ngff_zarr(store_path, validate=validate)
+        multiscales = from_ome_zarr(store_path, validate=validate)
 
         # Analyze the store
         store_info = analyze_zarr_store(store_path)
@@ -342,8 +342,8 @@ async def validate_ome_zarr(store_path: str) -> ValidationResult:
 
         # Try to load as NGFF
         try:
-            # Use store_path directly - from_ngff_zarr can handle strings
-            multiscales = from_ngff_zarr(store_path)
+            # Use store_path directly - from_ome_zarr can handle strings
+            multiscales = from_ome_zarr(store_path)
 
             # Basic validation checks
             if len(multiscales.images) == 0:
@@ -407,7 +407,7 @@ async def optimize_zarr_store(options: OptimizationOptions) -> ConversionResult:
             )
 
         # Load multiscales
-        multiscales = from_ngff_zarr(str(input_path))
+        multiscales = from_ome_zarr(str(input_path))
 
         # Setup output store
         output_path = Path(options.output_path)

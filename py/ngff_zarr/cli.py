@@ -43,7 +43,7 @@ from .detect_cli_io_backend import (
     conversion_backends_values,
     detect_cli_io_backend,
 )
-from .from_ngff_zarr import from_ngff_zarr
+from .from_ngff_zarr import from_ome_zarr
 from .methods import Methods, methods_values
 from .ngff_image_to_itk_image import ngff_image_to_itk_image
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
@@ -780,8 +780,8 @@ def main():
             sys.exit(1)
 
         if input_backend is ConversionBackend.NGFF_ZARR:
-            # Pass the path directly to from_ngff_zarr to let it handle .ozx files
-            multiscales = from_ngff_zarr(args.input[0])
+            # Pass the path directly to from_ome_zarr to let it handle .ozx files
+            multiscales = from_ome_zarr(args.input[0])
             _multiscales_to_ngff_zarr(
                 live,
                 args,

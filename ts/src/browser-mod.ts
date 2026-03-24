@@ -14,6 +14,8 @@ export {
   type ChunkCache,
   fromNgffZarr,
   type FromNgffZarrOptions,
+  fromOmeZarr,
+  type FromOmeZarrOptions,
   type MemoryStore,
 } from "./io/from_ngff_zarr-browser.ts";
 // ITK-Wasm conversion utilities

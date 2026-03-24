@@ -27,7 +27,7 @@ export interface ToOmeZarrOptions {
   codecs?: ZarrCodec[];
 }
 
-/** Backwards-compatible alias for {@link ToOmeZarrOptions}. */
+/** @deprecated Use {@link ToOmeZarrOptions} instead. */
 export type ToNgffZarrOptions = ToOmeZarrOptions;
 
 /**
@@ -49,7 +49,7 @@ export interface ToOmeZarrOzxOptions {
     | undefined;
 }
 
-/** Backwards-compatible alias for {@link ToOmeZarrOzxOptions}. */
+/** @deprecated Use {@link ToOmeZarrOzxOptions} instead. */
 export type ToNgffZarrOzxOptions = ToOmeZarrOzxOptions;
 
 /**
@@ -154,7 +154,7 @@ export async function toOmeZarr(
   }
 }
 
-/** Backwards-compatible alias for {@link toOmeZarr}. */
+/** @deprecated Use {@link toOmeZarr} instead. */
 export const toNgffZarr = toOmeZarr;
 
 function _convertDtypeToZarrType(dtype: string): zarr.DataType {
@@ -542,5 +542,5 @@ export async function toOmeZarrOzx(
   return zipData;
 }
 
-/** Backwards-compatible alias for {@link toOmeZarrOzx}. */
+/** @deprecated Use {@link toOmeZarrOzx} instead. */
 export const toNgffZarrOzx = toOmeZarrOzx;

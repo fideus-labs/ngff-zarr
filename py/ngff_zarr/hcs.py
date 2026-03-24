@@ -24,7 +24,7 @@ from typing import Optional
 import zarr
 from packaging import version as pkg_version
 
-from .from_ngff_zarr import from_ngff_zarr
+from .from_ngff_zarr import from_ome_zarr
 from .multiscales import NgffMultiscales
 from .rfc9_zip import is_ozx_path, write_store_to_zip
 from .to_ngff_zarr import to_ome_zarr
@@ -294,18 +294,18 @@ class HCSWell:
                 from zarr.storage import StorePath
 
                 store_path = StorePath(self.store, path=image_path)
-                self._images[image_path] = from_ngff_zarr(store_path)
+                self._images[image_path] = from_ome_zarr(store_path)
             elif isinstance(self.store, (str, Path)):
                 # If store is a path string, append the image path
                 full_image_path = Path(self.store) / self.path / image_meta.path
-                self._images[image_path] = from_ngff_zarr(str(full_image_path))
+                self._images[image_path] = from_ome_zarr(str(full_image_path))
             else:
                 # For other store types, try StorePath approach
                 try:
                     from zarr.storage import StorePath
 
                     store_path = StorePath(self.store, path=image_path)
-                    self._images[image_path] = from_ngff_zarr(store_path)
+                    self._images[image_path] = from_ome_zarr(store_path)
                 except (ImportError, Exception):
                     # Fallback: try to convert to path
                     if hasattr(self.store, "path"):
@@ -313,7 +313,7 @@ class HCSWell:
                     else:
                         base_path = str(self.store)
                     full_image_path = Path(base_path) / self.path / image_meta.path
-                    self._images[image_path] = from_ngff_zarr(str(full_image_path))
+                    self._images[image_path] = from_ome_zarr(str(full_image_path))
 
         return self._images[image_path]
 
