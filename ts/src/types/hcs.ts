@@ -133,7 +133,7 @@ export class HCSWell {
       return cached;
     }
 
-    // Load the image using the OME-Zarr reader (fromOmeZarr) from the NGFF Zarr module
+    // Load the image using fromOmeZarr
     const { fromOmeZarr } = await import("../io/from_ngff_zarr.ts");
 
     let fullImagePath: string;
