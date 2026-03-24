@@ -380,7 +380,6 @@ def get_available_methods() -> list[str]:
 
 def get_available_compression_codecs() -> list[str]:
     """Get available compression codecs.
-    codecs = ["gzip", "lz4", "zstd"]
 
     Delegates to :func:`ngff_zarr.codecs.get_available_codecs`.
     """
