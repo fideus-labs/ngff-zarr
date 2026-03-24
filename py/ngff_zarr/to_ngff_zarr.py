@@ -80,11 +80,11 @@ def _numcodecs_to_zarr_v3_codec(compressor):
                 clevel=getattr(compressor, "clevel", 5),
                 shuffle=shuffle,
             )
-        elif codec_id == "gzip":
+        if codec_id == "gzip":
             from zarr.codecs.gzip import GzipCodec
 
             return GzipCodec(level=getattr(compressor, "level", 6))
-        elif codec_id == "zstd":
+        if codec_id == "zstd":
             from zarr.codecs.zstd import ZstdCodec
 
             return ZstdCodec(level=getattr(compressor, "level", 3))

@@ -2,9 +2,8 @@
 # SPDX-License-Identifier: MIT
 """Unit tests for ngff_zarr.codecs module."""
 
-import pytest
 import numcodecs
-
+import pytest
 from ngff_zarr.codecs import codec_from_name, get_available_codecs
 
 

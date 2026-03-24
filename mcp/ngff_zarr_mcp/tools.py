@@ -196,7 +196,9 @@ async def convert_to_ome_zarr(
             # Convert to OME-Zarr
             kwargs = {}
             if options.compression_codec:
-                from ngff_zarr.codecs import codec_from_name  # type: ignore[import-untyped]
+                from ngff_zarr.codecs import (
+                    codec_from_name,  # type: ignore[import-untyped]
+                )
 
                 kwargs["compressor"] = codec_from_name(
                     options.compression_codec, options.compression_level

@@ -13,10 +13,10 @@ can be called directly by library consumers.
 
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any
 
 
-def get_available_codecs() -> List[str]:
+def get_available_codecs() -> list[str]:
     """Return the list of supported compression codec names.
 
     Always includes ``"none"``, ``"gzip"``, ``"lz4"``, and ``"zstd"``.
@@ -24,7 +24,7 @@ def get_available_codecs() -> List[str]:
     ``"blosc"``, ``"blosc:blosclz"``, ``"blosc:lz4"``, ``"blosc:lz4hc"``,
     ``"blosc:snappy"``, ``"blosc:zlib"``, ``"blosc:zstd"``.
     """
-    codecs: List[str] = ["none", "gzip", "lz4", "zstd"]
+    codecs: list[str] = ["none", "gzip", "lz4", "zstd"]
 
     try:
         import numcodecs  # noqa: F401
@@ -38,7 +38,7 @@ def get_available_codecs() -> List[str]:
     return codecs
 
 
-def codec_from_name(name: str, level: Optional[int] = None) -> Any:
+def codec_from_name(name: str, level: int | None = None) -> Any:
     """Convert a codec name string to a *numcodecs* compressor object.
 
     Parameters
