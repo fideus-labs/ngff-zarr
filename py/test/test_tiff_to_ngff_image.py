@@ -565,3 +565,192 @@ def test_tiff_file_to_ngff_images_without_channel_names():
     name, img = images[0]
     # Should have None for channel names
     assert img.channel_names is None
+
+
+def test_tiff_sample_axis_sets_rgb_channel_colors(tmp_path):
+    """Test that TIFF images with S (sample) axis get RGB channel_colors set."""
+    try:
+        import tifffile
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    tiff_path = tmp_path / "rgb_yxs.tiff"
+
+    # Create a 2D RGB image with YXS axes
+    data = np.random.randint(0, 256, (100, 100, 3), dtype=np.uint8)
+
+    with tifffile.TiffWriter(tiff_path) as tif:
+        tif.write(data, photometric="rgb")
+
+    images = tiff_file_to_ngff_images(tiff_path)
+    assert len(images) == 1
+
+    _, img = images[0]
+    # S axis should be mapped to c with RGB channel_colors assigned
+    assert img.dims == ("y", "x", "c")
+    assert img.channel_colors is not None
+    assert img.channel_colors == ["FF0000", "00FF00", "0000FF"]
+
+
+def test_tiff_sample_axis_rgba_sets_four_channel_colors(tmp_path):
+    """Test that a 4-sample (RGBA) TIFF gets 4 RGB+alpha channel_colors."""
+    try:
+        import tifffile
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    tiff_path = tmp_path / "rgba_yxs.tiff"
+
+    # Create a 2D RGBA image with YXS axes (4 samples)
+    data = np.random.randint(0, 256, (100, 100, 4), dtype=np.uint8)
+
+    with tifffile.TiffWriter(tiff_path) as tif:
+        tif.write(data, photometric="rgb", extrasamples=["unassalpha"])
+
+    images = tiff_file_to_ngff_images(tiff_path)
+    assert len(images) == 1
+
+    _, img = images[0]
+    assert img.channel_colors is not None
+    assert img.channel_colors == ["FF0000", "00FF00", "0000FF", "FFFFFF"]
+
+
+def test_ome_tiff_channel_colors_from_xml(tmp_path):
+    """Test that channel colors are extracted from OME-XML Color attributes."""
+    try:
+        import tifffile
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    tiff_path = tmp_path / "colored.ome.tiff"
+
+    # Create OME-TIFF with channel color metadata
+    # OME color integers (RGBA format as signed int32):
+    #   Red   (FF FF 00 00): int32 = -65536       -> hex "FF0000"
+    #   Green (FF 00 FF 00): int32 = -16711936     -> hex "00FF00"
+    #   Blue  (FF 00 00 FF): int32 = -16776961     -> hex "0000FF"
+    ome_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">
+  <Image ID="Image:0" Name="test">
+    <Pixels ID="Pixels:0" Type="uint8" SizeX="100" SizeY="100" SizeC="3"
+            SizeZ="1" SizeT="1" DimensionOrder="XYZCT"
+            PhysicalSizeX="0.5" PhysicalSizeXUnit="um"
+            PhysicalSizeY="0.5" PhysicalSizeYUnit="um">
+      <Channel ID="Channel:0:0" Name="Red" Color="-65536"/>
+      <Channel ID="Channel:0:1" Name="Green" Color="-16711936"/>
+      <Channel ID="Channel:0:2" Name="Blue" Color="-16776961"/>
+      <TiffData/>
+    </Pixels>
+  </Image>
+</OME>"""
+
+    data = np.random.randint(0, 256, (3, 100, 100), dtype=np.uint8)
+
+    with tifffile.TiffWriter(tiff_path, ome=False) as tif:
+        tif.write(
+            data,
+            photometric="minisblack",
+            description=ome_xml,
+            metadata=None,
+        )
+
+    images = tiff_file_to_ngff_images(tiff_path)
+    assert len(images) == 1
+
+    _, img = images[0]
+    assert img.channel_colors is not None
+    assert img.channel_colors[0] == "FF0000"
+    assert img.channel_colors[1] == "00FF00"
+    assert img.channel_colors[2] == "0000FF"
+
+
+def test_non_rgb_multichannel_tiff_no_channel_colors(tmp_path):
+    """Test that multi-channel TIFFs without S axis have no channel_colors."""
+    try:
+        import tifffile
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    tiff_path = tmp_path / "multichannel.tiff"
+
+    # 3-channel fluorescence image with C axis (not S)
+    data = np.random.randint(0, 65535, (3, 100, 100), dtype=np.uint16)
+
+    with tifffile.TiffWriter(tiff_path) as tif:
+        tif.write(data, photometric="minisblack", metadata={"axes": "CYX"})
+
+    images = tiff_file_to_ngff_images(tiff_path)
+    assert len(images) == 1
+
+    _, img = images[0]
+    # No S axis and no OME-XML colors -> channel_colors should be None
+    assert img.channel_colors is None
+
+
+def test_ome_tiff_rgb_s_axis_overrides_xml_colors(tmp_path):
+    """Test that RGB images with S axis use canonical RGB colors, overriding OME-XML colors.
+
+    This is a regression test for the issue where j2k OME-TIFF files with RGB data
+    (S axis) but incorrect channel colors in OME-XML metadata would display with
+    wrong colors. The S axis indicates RGB/RGBA data which must always use the
+    canonical RGB color mapping, regardless of what OME-XML says.
+    """
+    try:
+        import tifffile
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    tiff_path = tmp_path / "rgb_with_wrong_ome_colors.ome.tiff"
+
+    # Create OME-TIFF with S axis (RGB data) but wrong channel colors in OME-XML.
+    # This simulates what can happen with j2k-compressed OME-TIFF files where
+    # the OME-XML might have been auto-generated with incorrect color assignments.
+    # OME color integers (RGBA format as signed int32):
+    #   Cyan    (FF 00 FF FF): int32 = -16711681
+    #   Magenta (FF FF 00 FF): int32 = -65281
+    #   Yellow  (FF FF FF 00): int32 = -256
+    ome_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">
+  <Image ID="Image:0" Name="test_rgb">
+    <Pixels ID="Pixels:0" Type="uint8" SizeX="100" SizeY="100" SizeC="3"
+            SizeZ="1" SizeT="1" DimensionOrder="XYZCT">
+      <Channel ID="Channel:0:0" Name="Sample 1" Color="-16711681"/>
+      <Channel ID="Channel:0:1" Name="Sample 2" Color="-65281"/>
+      <Channel ID="Channel:0:2" Name="Sample 3" Color="-256"/>
+      <TiffData/>
+    </Pixels>
+  </Image>
+</OME>"""
+
+    # Create RGB data with S axis (YXS ordering - standard RGB interleaved)
+    data = np.random.randint(0, 256, (100, 100, 3), dtype=np.uint8)
+
+    with tifffile.TiffWriter(tiff_path, ome=False) as tif:
+        tif.write(
+            data,
+            photometric="rgb",  # RGB photometric interpretation
+            description=ome_xml,
+            metadata={"axes": "YXS"},  # S axis indicates RGB samples
+        )
+
+    images = tiff_file_to_ngff_images(tiff_path)
+    assert len(images) == 1
+
+    _, img = images[0]
+
+    # The S axis should force RGB colors, overriding the wrong OME-XML colors
+    assert img.channel_colors is not None, "RGB images should have channel_colors"
+    assert img.channel_colors == ["FF0000", "00FF00", "0000FF"], (
+        f"RGB images with S axis must use canonical RGB colors, "
+        f"got {img.channel_colors}"
+    )

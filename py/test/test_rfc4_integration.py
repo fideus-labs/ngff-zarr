@@ -2,12 +2,22 @@
 # SPDX-License-Identifier: MIT
 """Integration test for RFC 4 anatomical orientation."""
 
-import numpy as np
 import tempfile
 from pathlib import Path
 
+import numpy as np
+import pytest
+import zarr
 from ngff_zarr import NgffImage, to_multiscales, to_ngff_zarr
 from ngff_zarr.rfc4 import AnatomicalOrientation, AnatomicalOrientationValues
+from packaging import version
+
+zarr_version = version.parse(zarr.__version__)
+
+pytestmark = pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="zarr version >= 3.0.0b2 required for OME-Zarr version >= 0.5",
+)
 
 
 def test_rfc4_integration_with_enabled_rfcs():
@@ -51,7 +61,12 @@ def test_rfc4_integration_with_enabled_rfcs():
         zarr_group = zarr.open(str(store_path), mode="r")
 
         # Check that multiscales metadata contains orientation
-        multiscales_metadata = zarr_group.attrs["multiscales"][0]
+        # v0.5 stores metadata under "ome", v0.4 at root
+        raw_attrs = dict(zarr_group.attrs)
+        if "ome" in raw_attrs:
+            multiscales_metadata = raw_attrs["ome"]["multiscales"][0]
+        else:
+            multiscales_metadata = raw_attrs["multiscales"][0]
         axes_metadata = multiscales_metadata["axes"]
 
         # Find spatial axes and check for orientation
@@ -76,9 +91,6 @@ def test_rfc4_integration_with_enabled_rfcs():
                 assert "orientation" in axis
                 assert axis["orientation"]["type"] == "anatomical"
                 assert axis["orientation"]["value"] == "superior-to-inferior"
-
-
-def test_rfc4_integration_without_enabled_rfcs():
     """Test RFC 4 anatomical orientation when not enabled."""
     # Create a simple 3D image
     data = np.random.rand(10, 20, 30).astype(np.float32)
@@ -123,14 +135,19 @@ def test_rfc4_integration_without_enabled_rfcs():
         zarr_group = zarr.open(str(store_path), mode="r")
 
         # Check that multiscales metadata does NOT contain orientation
-        multiscales_metadata = zarr_group.attrs["multiscales"][0]
+        # v0.5 stores metadata under "ome", v0.4 at root
+        raw_attrs = dict(zarr_group.attrs)
+        if "ome" in raw_attrs:
+            multiscales_metadata = raw_attrs["ome"]["multiscales"][0]
+        else:
+            multiscales_metadata = raw_attrs["multiscales"][0]
         axes_metadata = multiscales_metadata["axes"]
 
         # Check that no spatial axes have orientation
         for axis in axes_metadata:
-            assert (
-                "orientation" not in axis
-            ), f"Axis {axis['name']} should not have orientation when RFC 4 is disabled"
+            assert "orientation" not in axis, (
+                f"Axis {axis['name']} should not have orientation when RFC 4 is disabled"
+            )
 
 
 def test_rfc4_integration_with_other_rfcs():
@@ -178,7 +195,12 @@ def test_rfc4_integration_with_other_rfcs():
         zarr_group = zarr.open(str(store_path), mode="r")
 
         # Check that multiscales metadata contains orientation
-        multiscales_metadata = zarr_group.attrs["multiscales"][0]
+        # v0.5 stores metadata under "ome", v0.4 at root
+        raw_attrs = dict(zarr_group.attrs)
+        if "ome" in raw_attrs:
+            multiscales_metadata = raw_attrs["ome"]["multiscales"][0]
+        else:
+            multiscales_metadata = raw_attrs["multiscales"][0]
         axes_metadata = multiscales_metadata["axes"]
 
         # Find spatial axes and check for orientation

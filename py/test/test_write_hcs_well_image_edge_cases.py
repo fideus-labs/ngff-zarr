@@ -2,12 +2,12 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 """Test for edge cases in write_hcs_well_image function."""
 
-import pytest
 import tempfile
 from pathlib import Path
-import numpy as np
 
 import ngff_zarr as nz
+import numpy as np
+import pytest
 from ngff_zarr.hcs import HCSPlate, to_hcs_zarr, write_hcs_well_image
 from ngff_zarr.v04.zarr_metadata import Plate, PlateColumn, PlateRow, PlateWell
 
@@ -84,12 +84,12 @@ def test_write_hcs_well_image_edge_cases():
 
             # Verify the data was written correctly
             well_path = output_path / row_name / column_name / "0"
-            assert (
-                well_path.exists()
-            ), f"Well {row_name}/{column_name}/0 was not created"
-            assert (
-                well_path / ".zattrs"
-            ).exists(), f"Well {row_name}/{column_name}/0 metadata missing"
+            assert well_path.exists(), (
+                f"Well {row_name}/{column_name}/0 was not created"
+            )
+            assert (well_path / ".zattrs").exists(), (
+                f"Well {row_name}/{column_name}/0 metadata missing"
+            )
 
 
 def test_write_hcs_well_image_invalid_indices():
@@ -222,7 +222,8 @@ def test_write_hcs_well_image_memory_store():
             )
 
             # Verify the data was written to the correct location
-            root = zarr.group(memory_store)
+            # write_hcs_well_image defaults to version="0.4" (zarr format 2)
+            root = zarr.open_group(memory_store, mode="r", zarr_format=2)
             assert "A" in root, "Row group 'A' not found"
             assert "1" in root["A"], "Column group '1' not found in row 'A'"
             assert "0" in root["A/1"], "Field group '0' not found in well 'A/1'"

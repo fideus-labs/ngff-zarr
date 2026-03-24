@@ -18,7 +18,7 @@ import warnings
 import xml.etree.ElementTree as ET
 from functools import reduce
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING
 
 import dask.array as da
 import zarr
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 # Based on tifffile axis conventions:
 #   X: width, Y: height, Z: depth, S: sample (RGB), C: channel, T: time
 #   I: sequence, Q: other/unknown, R: reduction/tiles, etc.
-TIFF_AXIS_TO_NGFF: Dict[str, Optional[str]] = {
+TIFF_AXIS_TO_NGFF: dict[str, str | None] = {
     "x": "x",
     "y": "y",
     "z": "z",
@@ -61,7 +61,7 @@ SPATIAL_DIMS = {"x", "y", "z"}
 
 # Mapping from OME unit symbols/names to NGFF-compatible unit names
 # Based on OME-XML specification and UDUNITS-2
-OME_UNIT_TO_NGFF: Dict[str, str] = {
+OME_UNIT_TO_NGFF: dict[str, str] = {
     # Micrometers (most common in microscopy)
     "µm": "micrometer",
     "um": "micrometer",
@@ -89,7 +89,7 @@ OME_UNIT_TO_NGFF: Dict[str, str] = {
 }
 
 
-def _normalize_unit(ome_unit: Optional[str]) -> Optional[str]:
+def _normalize_unit(ome_unit: str | None) -> str | None:
     """
     Convert an OME unit string to an NGFF-compatible unit name.
 
@@ -118,8 +118,8 @@ def _normalize_unit(ome_unit: Optional[str]) -> Optional[str]:
 
 def _map_tiff_axes_to_ngff(
     tiff_axes: str,
-    tiff_shape: Tuple[int, ...],
-) -> Tuple[Tuple[str, ...], Tuple[int, ...], List[int], List[int]]:
+    tiff_shape: tuple[int, ...],
+) -> tuple[tuple[str, ...], tuple[int, ...], list[int], list[int]]:
     """
     Map TIFF axes to NGFF-compatible dimensions, flattening channel-like dims.
 
@@ -149,11 +149,11 @@ def _map_tiff_axes_to_ngff(
     axes_lower = tiff_axes.lower()
 
     # Track channel-like dimensions for potential flattening
-    channel_indices: List[int] = []
-    channel_sizes: List[int] = []
-    other_dims: List[Tuple[int, str, int]] = []  # (orig_idx, ngff_dim, size)
-    dropped_axes: List[str] = []
-    dropped_indices: List[int] = []
+    channel_indices: list[int] = []
+    channel_sizes: list[int] = []
+    other_dims: list[tuple[int, str, int]] = []  # (orig_idx, ngff_dim, size)
+    dropped_axes: list[str] = []
+    dropped_indices: list[int] = []
 
     for i, (axis, size) in enumerate(zip(axes_lower, tiff_shape)):
         ngff_dim = TIFF_AXIS_TO_NGFF.get(axis)
@@ -171,9 +171,7 @@ def _map_tiff_axes_to_ngff(
     if dropped_axes:
         supported = ", ".join(
             sorted(
-                k.upper()
-                for k in TIFF_AXIS_TO_NGFF.keys()
-                if TIFF_AXIS_TO_NGFF[k] is not None
+                k.upper() for k in TIFF_AXIS_TO_NGFF if TIFF_AXIS_TO_NGFF[k] is not None
             )
         )
         warnings.warn(
@@ -184,8 +182,8 @@ def _map_tiff_axes_to_ngff(
         )
 
     # Build output dimensions and shape
-    ngff_dims_list: List[str] = []
-    ngff_shape_list: List[int] = []
+    ngff_dims_list: list[str] = []
+    ngff_shape_list: list[int] = []
 
     # Sort other_dims by original index to maintain order
     other_dims.sort(key=lambda x: x[0])
@@ -230,11 +228,11 @@ def _map_tiff_axes_to_ngff(
 def _reshape_tiff_for_channels(
     data: da.Array,
     tiff_axes: str,
-    tiff_shape: Tuple[int, ...],
-    ngff_dims: Tuple[str, ...],
-    ngff_shape: Tuple[int, ...],
-    channel_indices: List[int],
-    dropped_indices: List[int],
+    tiff_shape: tuple[int, ...],
+    ngff_dims: tuple[str, ...],
+    ngff_shape: tuple[int, ...],
+    channel_indices: list[int],
+    dropped_indices: list[int],
 ) -> da.Array:
     """
     Reshape TIFF data array to match NGFF dimensions.
@@ -272,7 +270,7 @@ def _reshape_tiff_for_channels(
 
     # Step 1: Handle dropped axes by selecting first slice
     if dropped_indices:
-        slices: List[Union[int, slice]] = [slice(None)] * len(tiff_shape)
+        slices: list[int | slice] = [slice(None)] * len(tiff_shape)
         for idx in sorted(dropped_indices, reverse=True):
             slices[idx] = 0  # Take first slice of dropped dimension
         data = data[tuple(slices)]
@@ -324,7 +322,7 @@ def _reshape_tiff_for_channels(
 def _extract_ome_pixel_metadata(
     tif: "tifffile.TiffFile",
     series_index: int = 0,
-) -> Tuple[Optional[Dict[str, float]], Optional[Dict[str, str]]]:
+) -> tuple[dict[str, float] | None, dict[str, str] | None]:
     """
     Extract scale and units from OME-XML metadata for a specific series.
 
@@ -389,8 +387,8 @@ def _extract_ome_pixel_metadata(
     if pixels is None:
         return None, None
 
-    scale: Dict[str, float] = {}
-    units: Dict[str, str] = {}
+    scale: dict[str, float] = {}
+    units: dict[str, str] = {}
 
     # Extract physical sizes for each dimension
     dim_mapping = {
@@ -432,7 +430,7 @@ def _extract_ome_pixel_metadata(
 def _extract_ome_channel_names(
     tif: "tifffile.TiffFile",
     series_index: int = 0,
-) -> Optional[List[str]]:
+) -> list[str] | None:
     """
     Extract channel names from OME-XML metadata for a specific series.
 
@@ -507,6 +505,133 @@ def _extract_ome_channel_names(
     return None
 
 
+def _ome_color_int_to_hex(color_int: int) -> str:
+    """Convert an OME-XML Channel Color integer to a 6-digit hex string.
+
+    OME-XML stores channel colors as a signed 32-bit integer in ARGB format
+    (big-endian: A is the most-significant byte, B is the least-significant).
+    The alpha byte is ignored; only the R, G, B bytes are used.
+
+    Parameters
+    ----------
+    color_int : int
+        Signed 32-bit integer from the OME-XML Color attribute.
+
+    Returns
+    -------
+    str
+        6-digit uppercase hexadecimal string (e.g. "FF0000" for red).
+    """
+    # Interpret as unsigned 32-bit (handles negative values from signed int32).
+    # OME ARGB layout: bits 31-24=A, bits 23-16=R, bits 15-8=G, bits 7-0=B
+    color_uint32 = color_int & 0xFFFFFFFF
+    r = (color_uint32 >> 16) & 0xFF
+    g = (color_uint32 >> 8) & 0xFF
+    b = color_uint32 & 0xFF
+    return f"{r:02X}{g:02X}{b:02X}"
+
+
+def _extract_ome_channel_colors(
+    tif: "tifffile.TiffFile",
+    series_index: int = 0,
+) -> list[str] | None:
+    """
+    Extract channel colors from OME-XML metadata for a specific series.
+
+    Channel colors are stored as signed 32-bit integers in ARGB format
+    (A is the most-significant byte).
+
+    Parameters
+    ----------
+    tif : tifffile.TiffFile
+        An open TiffFile instance.
+    series_index : int, optional
+        Index of the series to extract metadata for. Default is 0.
+
+    Returns
+    -------
+    Optional[List[str]]
+        List of 6-digit hex color strings (without #), or None if OME
+        metadata is not available, cannot be parsed, or no Color attributes
+        are present in the Channel elements.
+
+    Examples
+    --------
+    >>> with tifffile.TiffFile("sample.ome.tiff") as tif:
+    ...     colors = _extract_ome_channel_colors(tif, series_index=0)
+    ...     if colors:
+    ...         print(colors)  # ['FF0000', '00FF00', '0000FF']
+    """
+    if not tif.is_ome or not tif.ome_metadata:
+        return None
+
+    try:
+        root = ET.fromstring(tif.ome_metadata)
+    except ET.ParseError:
+        return None
+
+    # OME namespace - try common versions
+    namespaces = [
+        {"ome": "http://www.openmicroscopy.org/Schemas/OME/2016-06"},
+        {"ome": "http://www.openmicroscopy.org/Schemas/OME/2015-01"},
+        {"ome": "http://www.openmicroscopy.org/Schemas/OME/2013-06"},
+    ]
+
+    pixels = None
+    for ns in namespaces:
+        images = root.findall(".//ome:Image", ns)
+        if series_index < len(images):
+            image = images[series_index]
+            pixels = image.find("ome:Pixels", ns)
+            if pixels is not None:
+                channels = pixels.findall("ome:Channel", ns)
+                if channels:
+                    colors = _channels_to_hex_colors(channels)
+                    if colors is not None:
+                        return colors
+
+    # Fallback: try without namespace
+    if pixels is None:
+        count = 0
+        for elem in root.iter():
+            if "Pixels" in elem.tag:
+                if count == series_index:
+                    pixels = elem
+                    break
+                count += 1
+
+    if pixels is not None:
+        channels = [ch for ch in pixels if "Channel" in ch.tag]
+        if channels:
+            return _channels_to_hex_colors(channels)
+
+    return None
+
+
+def _channels_to_hex_colors(channels: list) -> list[str] | None:
+    """Convert a list of OME Channel elements to hex color strings.
+
+    Returns None if no Channel element has a Color attribute (so callers can
+    fall back to other color selection logic).
+    """
+    result: list[str] = []
+    found_any = False
+    for ch in channels:
+        color_val = ch.get("Color")
+        if color_val is not None:
+            # Color attribute is present whether or not it can be parsed.
+            # Mark found_any so the list is returned even when some entries
+            # fall back to white due to a parse error.
+            found_any = True
+            try:
+                result.append(_ome_color_int_to_hex(int(color_val)))
+            except (ValueError, TypeError):
+                result.append("FFFFFF")  # fallback to white
+        else:
+            result.append("FFFFFF")  # placeholder; ignored if found_any is False
+    return result if found_any else None
+
+
 def _sanitize_series_name(name: str) -> str:
     """
     Sanitize a series name to prevent path traversal attacks.
@@ -542,9 +667,10 @@ def _build_multiscales_from_pyramid(
     tif: "tifffile.TiffFile",
     series_idx: int,
     tiff_series: "tifffile.TiffPageSeries",
-    ome_scale: Optional[Dict[str, float]],
-    ome_units: Optional[Dict[str, str]],
-    ome_channel_names: Optional[List[str]],
+    ome_scale: dict[str, float] | None,
+    ome_units: dict[str, str] | None,
+    ome_channel_names: list[str] | None,
+    ome_channel_colors: list[str] | None = None,
 ) -> "Multiscales":
     """Build a Multiscales object from a pyramidal TIFF's existing pyramid levels.
 
@@ -565,6 +691,10 @@ def _build_multiscales_from_pyramid(
         Unit strings from OME metadata (e.g., {'x': 'micrometer'}).
     ome_channel_names : list or None
         Channel names from OME metadata (e.g., ['DAPI', 'GFP', 'RFP']).
+    ome_channel_colors : list or None
+        Channel colors as 6-digit hex strings (e.g., ['FF0000', '00FF00', '0000FF']).
+        When provided, these colors will be stored on every NgffImage in the
+        returned Multiscales so that OMERO computation can use them.
 
     Returns
     -------
@@ -587,7 +717,7 @@ def _build_multiscales_from_pyramid(
     tiff_axes = tiff_series.axes if tiff_series.axes else None
 
     # Get ordered dataset paths from multiscales metadata
-    paths: List[str] = []
+    paths: list[str] = []
     if isinstance(root, zarr.Group) and "multiscales" in root.attrs:
         multiscales_meta = root.attrs["multiscales"]
         if multiscales_meta:
@@ -609,10 +739,10 @@ def _build_multiscales_from_pyramid(
     level0_data = root[paths[0]]
 
     # Map TIFF axes for level 0
-    dims: Optional[Tuple[str, ...]] = None
-    ngff_shape: Optional[Tuple[int, ...]] = None
-    channel_indices: List[int] = []
-    dropped_indices: List[int] = []
+    dims: tuple[str, ...] | None = None
+    ngff_shape: tuple[int, ...] | None = None
+    channel_indices: list[int] = []
+    dropped_indices: list[int] = []
 
     if tiff_axes:
         dims, ngff_shape, channel_indices, dropped_indices = _map_tiff_axes_to_ngff(
@@ -647,6 +777,8 @@ def _build_multiscales_from_pyramid(
         axes_units=axes_units,
         channel_names=ome_channel_names,
     )
+    # Attach channel colors to the base image so OMERO computation can use them
+    ngff_image_0.channel_colors = ome_channel_colors
 
     # Reshape if needed (channel flattening, dropped axes)
     if (
@@ -672,6 +804,7 @@ def _build_multiscales_from_pyramid(
             name=ngff_image_0.name,
             axes_units=ngff_image_0.axes_units,
             channel_names=ngff_image_0.channel_names,
+            channel_colors=ome_channel_colors,
         )
 
     level0_shape = ngff_image_0.data.shape
@@ -682,8 +815,8 @@ def _build_multiscales_from_pyramid(
     images = [ngff_image_0]
     for path in paths[1:]:
         arr = root[path]
-        level_scale: Dict[str, float] = {}
-        level_translation: Dict[str, float] = {}
+        level_scale: dict[str, float] = {}
+        level_translation: dict[str, float] = {}
 
         for dim in ngff_image_0.dims:
             dim_idx = list(ngff_image_0.dims).index(dim)
@@ -739,6 +872,7 @@ def _build_multiscales_from_pyramid(
             name=ngff_image_0.name,
             axes_units=ngff_image_0.axes_units,
             channel_names=ngff_image_0.channel_names,
+            channel_colors=ome_channel_colors,
         )
         images.append(level_image)
 
@@ -781,10 +915,10 @@ def _build_multiscales_from_pyramid(
 
 
 def tiff_file_to_ngff_images(
-    tiff_path: Union[str, Path],
-    series: Optional[Union[int, str, List[Union[int, str]]]] = None,
+    tiff_path: str | Path,
+    series: int | str | list[int | str] | None = None,
     reuse_existing_pyramids: bool = False,
-) -> "List[Tuple[str, Union[NgffImage, Multiscales]]]":
+) -> "list[tuple[str, NgffImage | Multiscales]]":
     """
     Convert a TIFF file to a list of (name, NgffImage) or (name, Multiscales) pairs.
 
@@ -910,6 +1044,23 @@ def tiff_file_to_ngff_images(
             # Extract OME metadata for this series
             ome_scale, ome_units = _extract_ome_pixel_metadata(tif, series_index=idx)
             ome_channel_names = _extract_ome_channel_names(tif, series_index=idx)
+            ome_channel_colors = _extract_ome_channel_colors(tif, series_index=idx)
+
+            # Detect RGB images from the TIFF 'S' (sample) axis.
+            # The 'S' axis in TIFF means interleaved RGB/RGBA colour components.
+            # For such images, the three/four channels are always R, G, B[, A]
+            # and should be displayed with the canonical RGB colours rather than
+            # an arbitrary Glasbey palette or incorrect OME-XML channel colors.
+            # Always override OME-XML channel colors for S-axis images.
+            tiff_axes_str = tiff_series.axes if tiff_series.axes else ""
+            has_sample_axis = "s" in tiff_axes_str.lower()
+            if has_sample_axis:
+                s_pos = tiff_axes_str.lower().index("s")
+                n_samples = tiff_series.shape[s_pos]
+                if n_samples == 3:
+                    ome_channel_colors = ["FF0000", "00FF00", "0000FF"]
+                elif n_samples == 4:
+                    ome_channel_colors = ["FF0000", "00FF00", "0000FF", "FFFFFF"]
 
             # Generate series name early (used for both paths)
             raw_name = tiff_series.name if tiff_series.name else f"series_{idx}"
@@ -919,7 +1070,13 @@ def tiff_file_to_ngff_images(
             n_levels = len(tiff_series.levels) if hasattr(tiff_series, "levels") else 1
             if reuse_existing_pyramids and n_levels > 1:
                 multiscales = _build_multiscales_from_pyramid(
-                    tif, idx, tiff_series, ome_scale, ome_units, ome_channel_names
+                    tif,
+                    idx,
+                    tiff_series,
+                    ome_scale,
+                    ome_units,
+                    ome_channel_names,
+                    ome_channel_colors,
                 )
                 results.append((series_name, multiscales))
                 continue
@@ -932,10 +1089,10 @@ def tiff_file_to_ngff_images(
             # Get dims from the series axes with proper mapping
             # TIFF axes like 'S' (sample/RGB) need to be mapped to NGFF 'c' (channel)
             tiff_axes = tiff_series.axes if tiff_series.axes else None
-            dims: Optional[Tuple[str, ...]] = None
-            ngff_shape: Optional[Tuple[int, ...]] = None
-            channel_indices: List[int] = []
-            dropped_indices: List[int] = []
+            dims: tuple[str, ...] | None = None
+            ngff_shape: tuple[int, ...] | None = None
+            channel_indices: list[int] = []
+            dropped_indices: list[int] = []
 
             if tiff_axes:
                 # Map TIFF axes to NGFF dims (handles S->c, drops unsupported axes)
@@ -971,6 +1128,8 @@ def tiff_file_to_ngff_images(
                 axes_units=axes_units,
                 channel_names=ome_channel_names,
             )
+            # Attach channel colors
+            ngff_image.channel_colors = ome_channel_colors
 
             # Reshape data if needed (for channel flattening, dropped axes, etc.)
             if (
@@ -996,6 +1155,7 @@ def tiff_file_to_ngff_images(
                     name=ngff_image.name,
                     axes_units=ngff_image.axes_units,
                     channel_names=ngff_image.channel_names,
+                    channel_colors=ome_channel_colors,
                 )
 
             results.append((series_name, ngff_image))

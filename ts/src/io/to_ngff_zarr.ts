@@ -17,7 +17,7 @@ import {
 export interface ToNgffZarrOptions {
   overwrite?: boolean;
   /**
-   * OME-Zarr version to write. Defaults to "0.4" for regular Zarr files.
+   * OME-Zarr version to write. Defaults to "0.5" for regular Zarr files.
    * For .ozx files (RFC-9), this must be version 0.5. If omitted for .ozx files,
    * it defaults to 0.5. If explicitly set to any other value for .ozx files,
    * an error will be thrown.
@@ -71,11 +71,11 @@ export interface ToNgffZarrOzxOptions {
  * // Writing to .ozx file - version 0.5 is used automatically
  * await toNgffZarr("output.ozx", multiscales);
  *
- * // Writing to regular zarr with version 0.4 (default)
+ * // Writing to regular zarr with version 0.5 (default)
  * await toNgffZarr("output.zarr", multiscales);
  *
- * // Writing to regular zarr with version 0.5
- * await toNgffZarr("output.zarr", multiscales, { version: "0.5" });
+ * // Writing to regular zarr with version 0.4
+ * await toNgffZarr("output.zarr", multiscales, { version: "0.4" });
  * ```
  */
 export async function toNgffZarr(
@@ -84,7 +84,7 @@ export async function toNgffZarr(
   options: ToNgffZarrOptions = {},
 ): Promise<void> {
   const _overwrite = options.overwrite ?? true;
-  const _version = options.version ?? "0.4";
+  const _version = options.version ?? "0.5";
   const enabledRfcs = options.enabledRfcs;
 
   // Handle .ozx paths (RFC-9)

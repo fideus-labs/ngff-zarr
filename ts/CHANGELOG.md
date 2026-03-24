@@ -1,3 +1,54 @@
+## ts-v0.17.0 (2026-03-20)
+
+### ✨ Features
+
+- update default OME-Zarr version from 0.4 to 0.5 ([4e60c07](https://github.com/fideus-labs/ngff-zarr/commit/4e60c077b3adcf6f4ef827a1cc112ca8e340f22c))
+
+### 🐛 Bug Fixes
+
+- resolve merge conflicts with main branch ([af2a8eb](https://github.com/fideus-labs/ngff-zarr/commit/af2a8eb4c5e4aa995d7afd79e92a574549db3dfc))
+- **ts**: fix TypeScript test failures - handle v0.5 ome namespace in metadata access ([44b5cfb](https://github.com/fideus-labs/ngff-zarr/commit/44b5cfb74cbf1fb8eec7d3490844b5ee0bfcbfc1))
+
+## ts-v0.16.0 (2026-03-11)
+
+### ✨ Features
+
+- **py,ts**: add bidirectional anatomical orientation ↔ ITK direction matrix conversion ([e427ca4](https://github.com/fideus-labs/ngff-zarr/commit/e427ca4e5e131a97b9b566a5fd79ac6020110dd9))
+
+## ts-v0.15.1 (2026-03-10)
+
+### ♻️ Refactoring
+
+- **ts**: named WellImage export ([5a647e6](https://github.com/fideus-labs/ngff-zarr/commit/5a647e670e021e31bf5c3d4f4ee4cf6621a074c3))
+
+### 🐛 Bug Fixes
+
+- **ts**: use number | undefined in WellImage interface for exactOptionalPropertyTypes ([5feb06a](https://github.com/fideus-labs/ngff-zarr/commit/5feb06afcf051e487e7c4c8e209ef075b808f594))
+- **ts**: resolve duplicate WellImage identifier and use ZodType annotation ([7d6d8ba](https://github.com/fideus-labs/ngff-zarr/commit/7d6d8ba2533941ef60ed6c59ebece19656cb9301))
+- **ts**: add explicit type annotation to WellImageSchema for JSR public API ([c177cd3](https://github.com/fideus-labs/ngff-zarr/commit/c177cd31490cbd099eeabf7cd10ef979a33918d8))
+
+## ts-v0.15.0 (2026-03-04)
+
+### ✨ Features
+
+- **py,ts**: relax well image path constraints per ome/ngff-spec#71 ([32b7723](https://github.com/fideus-labs/ngff-zarr/commit/32b7723a79698272dea694348f24505ff8efa6d9))
+
+### 🐛 Bug Fixes
+
+- **ci**: avoid duplicate pixi binary install in release workflow ([07dbd36](https://github.com/fideus-labs/ngff-zarr/commit/07dbd3642a3dc44fb06f48523fcf0221d1d00607))
+
+## ts-v0.14.0 (2026-02-24)
+
+### ✨ Features
+
+- **ts**: add configurable worker pool size via config.workerPoolSize ([3b308dd](https://github.com/fideus-labs/ngff-zarr/commit/3b308dd11af49d610c801d5074ed4a04f40aa8a0))
+
+## ts-v0.13.0 (2026-02-20)
+
+### ⚡ Performance
+
+- **ts**: cap worker pool to 16 ([66834bb](https://github.com/fideus-labs/ngff-zarr/commit/66834bb90d0418db60dcb0304ad4540107f701e4))
+
 ## ts-v0.12.3 (2026-02-18)
 
 ### 🐛 Bug Fixes

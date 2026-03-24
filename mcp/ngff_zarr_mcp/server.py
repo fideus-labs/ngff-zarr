@@ -2,28 +2,28 @@
 # SPDX-License-Identifier: MIT
 """MCP server for ngff-zarr image conversion."""
 
-from typing import List, Optional, Dict, Literal, Union
+from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
 
 from .models import (
     ConversionOptions,
     ConversionResult,
-    StoreInfo,
     OptimizationOptions,
+    StoreInfo,
     ValidationResult,
 )
 from .tools import (
     convert_to_ome_zarr,
-    read_ngff_zarr,
     inspect_ome_zarr,
-    validate_ome_zarr,
     optimize_zarr_store,
+    read_ngff_zarr,
+    validate_ome_zarr,
 )
 from .utils import (
-    get_supported_formats,
-    get_available_methods,
     get_available_compression_codecs,
+    get_available_methods,
+    get_supported_formats,
 )
 
 # Create the MCP server
@@ -32,28 +32,28 @@ mcp = FastMCP("ngff-zarr")
 
 @mcp.tool()
 async def convert_images_to_ome_zarr(
-    input_paths: List[str],
+    input_paths: list[str],
     output_path: str,
-    ome_zarr_version: str = "0.4",
-    dims: Optional[List[str]] = None,
-    scale: Optional[Dict[str, float]] = None,
-    translation: Optional[Dict[str, float]] = None,
-    units: Optional[Dict[str, str]] = None,
-    name: Optional[str] = None,
-    chunks: Optional[List[int]] = None,
-    chunks_per_shard: Optional[List[int]] = None,
+    ome_zarr_version: str = "0.5",
+    dims: list[str] | None = None,
+    scale: dict[str, float] | None = None,
+    translation: dict[str, float] | None = None,
+    units: dict[str, str] | None = None,
+    name: str | None = None,
+    chunks: list[int] | None = None,
+    chunks_per_shard: list[int] | None = None,
     method: str = "itkwasm_gaussian",
-    scale_factors: Optional[List[int]] = None,
-    compression_codec: Optional[str] = None,
-    compression_level: Optional[int] = None,
+    scale_factors: list[int] | None = None,
+    compression_codec: str | None = None,
+    compression_level: int | None = None,
     use_tensorstore: bool = False,
     use_local_cluster: bool = False,
-    cache_dir: Optional[str] = None,
+    cache_dir: str | None = None,
     # New RFC 4 and storage options
-    anatomical_orientation: Optional[str] = None,
+    anatomical_orientation: str | None = None,
     enable_rfc4: bool = False,
-    enabled_rfcs: Optional[List[int]] = None,
-    storage_options: Optional[Dict[str, str]] = None,
+    enabled_rfcs: list[int] | None = None,
+    storage_options: dict[str, str] | None = None,
 ) -> ConversionResult:
     """
     Convert images to OME-Zarr format.
@@ -140,7 +140,7 @@ async def get_ome_zarr_info(store_path: str) -> StoreInfo:
 @mcp.tool()
 async def read_ome_zarr_store(
     store_path: str,
-    storage_options: Optional[Dict[str, Union[str, int, bool]]] = None,
+    storage_options: dict[str, str | int | bool] | None = None,
     validate: bool = False,
 ) -> ConversionResult:
     """
@@ -175,10 +175,10 @@ async def validate_ome_zarr_store(store_path: str) -> ValidationResult:
 async def optimize_ome_zarr_store(
     input_path: str,
     output_path: str,
-    compression_codec: Optional[str] = None,
-    compression_level: Optional[int] = None,
-    chunks: Optional[List[int]] = None,
-    chunks_per_shard: Optional[List[int]] = None,
+    compression_codec: str | None = None,
+    compression_level: int | None = None,
+    chunks: list[int] | None = None,
+    chunks_per_shard: list[int] | None = None,
 ) -> ConversionResult:
     """
     Optimize an existing OME-Zarr store with new compression/chunking.

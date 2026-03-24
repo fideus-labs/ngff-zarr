@@ -1,14 +1,21 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+import packaging.version
 import pytest
+import zarr
 from ngff_zarr import Methods, to_multiscales, to_ngff_zarr
 from ngff_zarr._zarr_kwargs import zarr_kwargs
 
 pytest.importorskip("kvikio")
 pytest.importorskip("itkwasm_downsample_cucim")
 
+zarr_version_major = packaging.version.parse(zarr.__version__).major
 
-def test_bin_shrink_isotropic_scale_factors(input_images, tmp_path):
+ome_zarr_versions = ["0.4"] + (["0.5"] if zarr_version_major >= 3 else [])
+
+
+@pytest.mark.parametrize("ome_zarr_version", ome_zarr_versions)
+def test_bin_shrink_isotropic_scale_factors(input_images, tmp_path, ome_zarr_version):
     dataset_name = "cthead1"
     image = input_images[dataset_name]
     baseline_name = "2_4/ITKWASM_BIN_SHRINK.zarr"
@@ -20,10 +27,11 @@ def test_bin_shrink_isotropic_scale_factors(input_images, tmp_path):
     from kvikio.nvcomp_codec import NvCompBatchCodec
 
     compressor = NvCompBatchCodec("lz4")
-    to_ngff_zarr(store, multiscales, compressor=compressor)
+    to_ngff_zarr(store, multiscales, version=ome_zarr_version, compressor=compressor)
 
 
-def test_gaussian_isotropic_scale_factors(input_images, tmp_path):
+@pytest.mark.parametrize("ome_zarr_version", ome_zarr_versions)
+def test_gaussian_isotropic_scale_factors(input_images, tmp_path, ome_zarr_version):
     dataset_name = "cthead1"
     image = input_images[dataset_name]
     baseline_name = "2_4/ITKWASM_GAUSSIAN.zarr"
@@ -35,4 +43,4 @@ def test_gaussian_isotropic_scale_factors(input_images, tmp_path):
     from kvikio.nvcomp_codec import NvCompBatchCodec
 
     compressor = NvCompBatchCodec("zstd")
-    to_ngff_zarr(store, multiscales, compressor=compressor)
+    to_ngff_zarr(store, multiscales, version=ome_zarr_version, compressor=compressor)

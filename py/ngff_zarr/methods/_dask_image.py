@@ -116,7 +116,7 @@ def _downsample_dask_image(
     ]
     previous_image = ngff_image
     dims = ngff_image.dims
-    previous_absolute_dim_factors = {d: 1 for d in dims}
+    previous_absolute_dim_factors = dict.fromkeys(dims, 1)
     for scale_factor in scale_factors:
         dim_factors = _dim_scale_factors(
             dims, scale_factor, previous_absolute_dim_factors
@@ -360,7 +360,7 @@ def _downsample_dask_image(
                     region_output_shape[x_index] -= 1
 
                 def downscale_region(
-                    region,  # noqa: ARG001
+                    region,
                     offset,
                     blurred_array=blurred_array,
                     transform=transform,

@@ -4,14 +4,13 @@ import functools
 import logging
 import re
 from dataclasses import dataclass, fields
-from typing import TYPE_CHECKING, List, Optional, Set, Union
+from typing import TYPE_CHECKING, Literal, Union
 
-from typing_extensions import Literal
+from .._supported_versions import NgffVersion
+from .._zarr_types import StoreLike
 
 # Import RFC 4 support
 from ..rfc4 import AnatomicalOrientation
-from .._supported_versions import NgffVersion
-from .._zarr_types import StoreLike
 
 if TYPE_CHECKING:
     from ..ngff_image import NgffImage
@@ -148,7 +147,7 @@ def is_unit_supported(unit: str) -> bool:
 
 
 @functools.lru_cache(maxsize=1)
-def _get_axis_fields() -> Set[str]:
+def _get_axis_fields() -> set[str]:
     """Get the set of valid field names for the Axis dataclass.
 
     Cached to avoid repeated introspection.
@@ -189,8 +188,8 @@ def _filter_axis_dict(axis_dict: dict) -> dict:
 class Axis:
     name: SupportedDims
     type: AxesType
-    unit: Optional[Units] = None
-    orientation: Optional[AnatomicalOrientation] = None
+    unit: Units | None = None
+    orientation: AnatomicalOrientation | None = None
 
 
 @dataclass
@@ -200,13 +199,13 @@ class Identity:
 
 @dataclass
 class Scale:
-    scale: List[float]
+    scale: list[float]
     type: str = "scale"
 
 
 @dataclass
 class Translation:
-    translation: List[float]
+    translation: list[float]
     type: str = "translation"
 
 
@@ -216,7 +215,7 @@ Transform = Union[Scale, Translation]
 @dataclass
 class Dataset:
     path: str
-    coordinateTransformations: List[Transform]
+    coordinateTransformations: list[Transform]
 
 
 @dataclass
@@ -231,7 +230,7 @@ class OmeroWindow:
 class OmeroChannel:
     color: str
     window: OmeroWindow
-    label: Optional[str] = None
+    label: str | None = None
 
     def validate_color(self):
         if not re.fullmatch(r"[0-9A-Fa-f]{6}", self.color):
@@ -240,7 +239,7 @@ class OmeroChannel:
 
 @dataclass
 class Omero:
-    channels: List[OmeroChannel]
+    channels: list[OmeroChannel]
 
 
 @dataclass
@@ -253,11 +252,11 @@ class MethodMetadata:
 @dataclass
 class PlateAcquisition:
     id: int
-    name: Optional[str] = None
-    maximumfieldcount: Optional[int] = None
-    description: Optional[str] = None
-    starttime: Optional[int] = None
-    endtime: Optional[int] = None
+    name: str | None = None
+    maximumfieldcount: int | None = None
+    description: str | None = None
+    starttime: int | None = None
+    endtime: int | None = None
 
 
 @dataclass
@@ -279,49 +278,48 @@ class PlateWell:
 
 @dataclass
 class Plate:
-    columns: List[PlateColumn]
-    rows: List[PlateRow]
-    wells: List[PlateWell]
+    columns: list[PlateColumn]
+    rows: list[PlateRow]
+    wells: list[PlateWell]
     version: str = "0.4"
-    acquisitions: Optional[List[PlateAcquisition]] = None
-    field_count: Optional[int] = None
-    name: Optional[str] = None
+    acquisitions: list[PlateAcquisition] | None = None
+    field_count: int | None = None
+    name: str | None = None
 
 
 @dataclass
 class WellImage:
     path: str
-    acquisition: Optional[int] = None
+    acquisition: int | None = None
 
 
 @dataclass
 class Well:
-    images: List[WellImage]
+    images: list[WellImage]
     version: str = "0.4"
 
 
 @dataclass
 class Metadata:
-    axes: List[Axis]
-    datasets: List[Dataset]
-    coordinateTransformations: Optional[List[Transform]]
-    omero: Optional[Omero] = None
+    axes: list[Axis]
+    datasets: list[Dataset]
+    coordinateTransformations: list[Transform] | None
+    omero: Omero | None = None
     name: str = "image"
     version: str = "0.4"
-    type: Optional[str] = None
-    metadata: Optional[MethodMetadata] = None
+    type: str | None = None
+    metadata: MethodMetadata | None = None
 
-    def to_version(self, version: Union[str, NgffVersion]) -> "Metadata":
+    def to_version(self, version: str | NgffVersion) -> "Metadata":
         if isinstance(version, str):
             # raise error for invalid version string
             version = NgffVersion(version)
 
         if version == NgffVersion.V04:
             return self
-        elif version == NgffVersion.V05:
+        if version == NgffVersion.V05:
             return self._to_v05()
-        else:
-            raise ValueError(f"Unsupported version conversion: 0.4 -> {version}")
+        raise ValueError(f"Unsupported version conversion: 0.4 -> {version}")
 
     @classmethod
     def from_version(cls, metadata: "Metadata") -> "Metadata":
@@ -329,8 +327,7 @@ class Metadata:
 
         if isinstance(metadata, Metadata_v05):
             return cls._from_v05(metadata)
-        else:
-            raise ValueError(f"Unsupported metadata type: {type(metadata)}")
+        raise ValueError(f"Unsupported metadata type: {type(metadata)}")
 
     def _to_v05(self) -> "Metadata":
         from ..v05.zarr_metadata import Metadata as Metadata_v05
@@ -365,17 +362,33 @@ class Metadata:
         root_attrs: dict,
         store: StoreLike,
         validate: bool = False,
+        subpath: str | None = None,
     ) -> tuple["Metadata", list["NgffImage"]]:
-        """Create Metadata instance from ome-zarr metadata dictionary."""
+        """Create Metadata instance from ome-zarr metadata dictionary.
+
+        Parameters
+        ----------
+        root_attrs : dict
+            The root attributes dictionary
+        store : StoreLike
+            The zarr store
+        validate : bool
+            Whether to validate the metadata
+        subpath : str, optional
+            Sub-path within the store for HCS well/image access (e.g., 'A/1/0')
+        """
+        import posixpath
         import sys
+
         import dask.array
-        from ..validate import validate as validate_ngff
+
+        from ..ngff_image import NgffImage
         from ..parse_metadata import _parse_omero
         from ..rfc4_validation import (
-            validate_rfc4_orientation,
             has_rfc4_orientation_metadata,
+            validate_rfc4_orientation,
         )
-        from ..ngff_image import NgffImage
+        from ..validate import validate as validate_ngff
 
         # Validate structure before any processing to avoid cryptic KeyError
         if "multiscales" not in root_attrs or not root_attrs["multiscales"]:
@@ -402,7 +415,7 @@ class Metadata:
                 if axes_dicts and has_rfc4_orientation_metadata(axes_dicts):
                     validate_rfc4_orientation(axes_dicts)
 
-        omero = _parse_omero(root_attrs.get("omero", None))
+        omero = _parse_omero(root_attrs.get("omero"))
         root_attrs = root_attrs["multiscales"][0]
 
         # This handles backwards compatibility for version<=0.3
@@ -415,7 +428,7 @@ class Metadata:
                 Axis(name="y", type="space"),
                 Axis(name="x", type="space"),
             ]
-            units = {d: None for d in dims}
+            units = dict.fromkeys(dims)
         else:
             axes_list = root_attrs["axes"]
             if not axes_list:
@@ -444,7 +457,7 @@ class Metadata:
                 }
                 axes = [Axis(name=axis, type=type_dict[axis]) for axis in axes_list]
 
-            units = {d: None for d in dims}
+            units = dict.fromkeys(dims)
             for axis in axes_list:
                 # Only process unit information for dict-style axes that have both
                 # a name and a unit (v0.4+). For v0.3 string axes, this loop is a no-op.
@@ -457,15 +470,21 @@ class Metadata:
         images = []
         datasets = []
         for dataset in root_attrs["datasets"]:
-            data = dask.array.from_zarr(store, component=dataset["path"])
+            # If we have a subpath, prepend it to the dataset path using posixpath.join
+            # to guarantee a single '/' separator (handles leading/trailing slashes safely)
+            dataset_path = dataset["path"]
+            if subpath:
+                dataset_path = posixpath.join(subpath, dataset_path)
+
+            data = dask.array.from_zarr(store, component=dataset_path)
             # Convert endianness to native if needed
             if (sys.byteorder == "little" and data.dtype.byteorder == ">") or (
                 sys.byteorder == "big" and data.dtype.byteorder == "<"
             ):
                 data = data.astype(data.dtype.newbyteorder())
 
-            scale = {d: 1.0 for d in dims}
-            translation = {d: 0.0 for d in dims}
+            scale = dict.fromkeys(dims, 1.0)
+            translation = dict.fromkeys(dims, 0.0)
             coordinateTransformations = []
             if "coordinateTransformations" in dataset:
                 for transformation in dataset["coordinateTransformations"]:

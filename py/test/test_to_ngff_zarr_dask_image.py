@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from ngff_zarr import Methods, to_multiscales, to_ngff_image, config
 import dask.array as da
+from ngff_zarr import Methods, config, to_multiscales, to_ngff_image
 
 from ._data import verify_against_baseline
 
@@ -70,15 +70,15 @@ def test_non_spatial_dims_with_auto_scale_factors():
 
         # Verify shapes: channel dim should not change, spatial dims should decrease
         c_dim, y_dim, x_dim = scale_image.data.shape
-        assert (
-            c_dim == original_shape[0]
-        ), f"Channel dimension should not change at scale {i}"
-        assert (
-            y_dim <= original_shape[1]
-        ), f"Y dimension should decrease or stay same at scale {i}"
-        assert (
-            x_dim <= original_shape[2]
-        ), f"X dimension should decrease or stay same at scale {i}"
+        assert c_dim == original_shape[0], (
+            f"Channel dimension should not change at scale {i}"
+        )
+        assert y_dim <= original_shape[1], (
+            f"Y dimension should decrease or stay same at scale {i}"
+        )
+        assert x_dim <= original_shape[2], (
+            f"X dimension should decrease or stay same at scale {i}"
+        )
 
 
 def test_non_spatial_dims_with_caching():
@@ -118,9 +118,9 @@ def test_non_spatial_dims_with_caching():
             assert scale_image.scale["c"] == 1.0
             # Verify shape
             actual_shape = scale_image.data.shape
-            assert (
-                actual_shape == expected_shape
-            ), f"Scale {i}: expected {expected_shape}, got {actual_shape}"
+            assert actual_shape == expected_shape, (
+                f"Scale {i}: expected {expected_shape}, got {actual_shape}"
+            )
     finally:
         # Restore original memory target
         config.memory_target = original_memory_target

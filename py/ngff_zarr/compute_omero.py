@@ -3,7 +3,8 @@
 """Compute OMERO metadata from NgffImage data."""
 
 import re
-from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple, Union
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import dask.array as da
 
@@ -17,7 +18,7 @@ from .v04.zarr_metadata import Omero, OmeroChannel, OmeroWindow
 # Extended from HoloViews default colors using the Glasbey algorithm
 # for maximum distinguishability across 256 categorical colors.
 # See: https://colorcet.holoviz.org/user_guide/Categorical.html
-GLASBEY_COLORS: List[str] = [
+GLASBEY_COLORS: list[str] = [
     "30A2DA",
     "FC4F30",
     "E5AE38",
@@ -276,8 +277,19 @@ GLASBEY_COLORS: List[str] = [
     "A98A36",
 ]
 
+# Minimum number of spatial pixels (x*y) above which the full-resolution
+# pyramid level is considered "large" and a lower-resolution level is used
+# for OMERO statistics computation.  Dask's approximate percentile algorithm
+# gives very inaccurate results for large images where most chunks contain
+# only background pixels (common in whole-slide brightfield images).
+_OMERO_STATS_LARGE_IMAGE_THRESHOLD = 1024 * 1024  # 1 M pixels
 
-def _validate_quantiles(quantiles: Tuple[float, float]) -> None:
+# Minimum number of spatial pixels a pyramid level must have to be considered
+# representative enough for OMERO statistics.
+_OMERO_STATS_MIN_PIXELS = 256 * 256  # 65,536 pixels
+
+
+def _validate_quantiles(quantiles: tuple[float, float]) -> None:
     """Validate that quantiles are in valid range and properly ordered.
 
     Args:
@@ -318,7 +330,7 @@ def _validate_color(color: str) -> None:
         )
 
 
-def get_default_colors(n_channels: int) -> List[str]:
+def get_default_colors(n_channels: int) -> list[str]:
     """Get default colors for channels.
 
     For a single channel, returns white (FFFFFF).
@@ -338,9 +350,9 @@ def get_default_colors(n_channels: int) -> List[str]:
 
 def _compute_channel_statistics(
     data: da.Array,
-    quantiles: Tuple[float, float],
+    quantiles: tuple[float, float],
     dense: bool = False,
-) -> Tuple[float, float, float, float]:
+) -> tuple[float, float, float, float]:
     """Compute min, max, and quantiles for a single channel.
 
     Uses dask.array operations to efficiently compute statistics without
@@ -394,18 +406,17 @@ def _compute_channel_statistics(
         return _compute_quantiles_dense(
             flat_data, quantiles, float(min_val), float(max_val), data.dtype
         )
-    else:
-        return _compute_quantiles_approximate(
-            flat_data, quantiles, float(min_val), float(max_val)
-        )
+    return _compute_quantiles_approximate(
+        flat_data, quantiles, float(min_val), float(max_val)
+    )
 
 
 def _compute_quantiles_approximate(
     flat_data: da.Array,
-    quantiles: Tuple[float, float],
+    quantiles: tuple[float, float],
     min_val: float,
     max_val: float,
-) -> Tuple[float, float, float, float]:
+) -> tuple[float, float, float, float]:
     """Compute quantiles using Dask's approximate percentile algorithm.
 
     This is fast and memory-efficient but may produce less accurate results
@@ -441,11 +452,11 @@ def _compute_quantiles_approximate(
 
 def _compute_quantiles_dense(
     flat_data: da.Array,
-    quantiles: Tuple[float, float],
+    quantiles: tuple[float, float],
     min_val: float,
     max_val: float,
     dtype: "np.dtype",
-) -> Tuple[float, float, float, float]:
+) -> tuple[float, float, float, float]:
     """Compute quantiles using histogram-based dense sampling.
 
     Builds a fine-grained histogram over the full data using ``da.histogram``,
@@ -505,9 +516,9 @@ def _compute_quantiles_dense(
 
 def compute_omero_from_ngff_image(
     ngff_image: NgffImage,
-    quantiles: Tuple[float, float] = (0.02, 0.98),
-    colors: Optional[Sequence[str]] = None,
-    labels: Optional[Sequence[str]] = None,
+    quantiles: tuple[float, float] = (0.02, 0.98),
+    colors: Sequence[str] | None = None,
+    labels: Sequence[str] | None = None,
     dense: bool = False,
 ) -> Omero:
     """Compute OMERO metadata from an NgffImage.
@@ -597,6 +608,17 @@ def compute_omero_from_ngff_image(
         for color in colors[:n_channels]:
             _validate_color(color)
         channel_colors = list(colors[:n_channels])
+    elif ngff_image.channel_colors is not None:
+        # Use per-channel colors carried on the image (e.g. from OME-XML or
+        # from a TIFF source where the sample axis indicates RGB).
+        if len(ngff_image.channel_colors) < n_channels:
+            raise ValueError(
+                f"Not enough channel_colors on NgffImage. "
+                f"Got {len(ngff_image.channel_colors)}, need {n_channels}."
+            )
+        for color in ngff_image.channel_colors[:n_channels]:
+            _validate_color(color)
+        channel_colors = list(ngff_image.channel_colors[:n_channels])
     else:
         channel_colors = get_default_colors(n_channels)
 
@@ -620,13 +642,13 @@ def compute_omero_from_ngff_image(
         channel_labels = [""] * n_channels
 
     # Compute statistics for each channel
-    channels: List[OmeroChannel] = []
+    channels: list[OmeroChannel] = []
 
     for ch_idx in range(n_channels):
         if has_channel_dim:
             # Extract this channel's data
             # Build a slice tuple to select this channel
-            slices: List[Union[int, slice]] = [slice(None)] * len(data.shape)
+            slices: list[int | slice] = [slice(None)] * len(data.shape)
             slices[c_index] = ch_idx
             channel_data = data[tuple(slices)]
         else:
@@ -656,17 +678,78 @@ def compute_omero_from_ngff_image(
     return Omero(channels=channels)
 
 
+def _select_image_for_omero_stats(multiscales: "Multiscales") -> "NgffImage":  # noqa: F821
+    """Select the best image level for OMERO statistics computation.
+
+    For large multi-level images (e.g. whole-slide images), using the full
+    resolution level with Dask's approximate percentile algorithm gives very
+    inaccurate results because most chunks contain only uniform background
+    pixels.  The per-chunk percentile of a background chunk is near the
+    maximum value, causing the merged 2% quantile to be vastly overestimated.
+
+    The lowest-resolution level contains the same pixel value distribution
+    (just spatially downsampled), but has far fewer chunks, so the
+    approximate percentile is much more accurate.  As a heuristic, any level
+    with more than 1 M spatial pixels in the x/y plane is considered "large"
+    and we step down through the pyramid until we find a level that is small
+    enough.
+
+    Args:
+        multiscales: The Multiscales object whose images to search.
+
+    Returns:
+        The selected NgffImage level.
+    """
+    if len(multiscales.images) <= 1:
+        return multiscales.images[0]
+
+    # Walk from lowest to highest resolution and return the smallest level
+    # that still has at least 256x256 spatial pixels (to remain representative).
+    candidate = multiscales.images[0]  # fallback: highest resolution
+    for image in reversed(multiscales.images):
+        spatial_dims = [d for d in image.dims if d in {"x", "y"}]
+        n_pixels = 1
+        for dim in spatial_dims:
+            idx = list(image.dims).index(dim)
+            n_pixels *= image.data.shape[idx]
+        if n_pixels >= _OMERO_STATS_MIN_PIXELS:
+            candidate = image
+            break
+
+    # If the best candidate still has more than the threshold, return it anyway
+    # (it is the best we have).  If the highest resolution is already below the
+    # threshold, just use it directly.
+    spatial_dims_0 = [d for d in multiscales.images[0].dims if d in {"x", "y"}]
+    n_pixels_0 = 1
+    for dim in spatial_dims_0:
+        idx = list(multiscales.images[0].dims).index(dim)
+        n_pixels_0 *= multiscales.images[0].data.shape[idx]
+
+    if n_pixels_0 <= _OMERO_STATS_LARGE_IMAGE_THRESHOLD:
+        # Small image - highest resolution is fine
+        return multiscales.images[0]
+
+    return candidate
+
+
 def compute_omero_from_multiscales(
     multiscales: "Multiscales",  # noqa: F821
-    quantiles: Tuple[float, float] = (0.02, 0.98),
-    colors: Optional[Sequence[str]] = None,
-    labels: Optional[Sequence[str]] = None,
+    quantiles: tuple[float, float] = (0.02, 0.98),
+    colors: Sequence[str] | None = None,
+    labels: Sequence[str] | None = None,
     dense: bool = False,
 ) -> Omero:
     """Compute OMERO metadata from a Multiscales object.
 
     This is a convenience function that computes OMERO metadata from the
-    highest resolution image in a multiscales pyramid.
+    multiscales pyramid.
+
+    For small images the highest-resolution level is used (most accurate).
+    For large images (e.g. whole-slide images with > 1 M spatial pixels) the
+    lowest-resolution level with at least 256x256 spatial pixels is used
+    instead.  Dask's approximate percentile algorithm is much more accurate
+    on a small, representative image than on a very large one where most
+    chunks contain only background pixels.
 
     Uses memory-efficient computation that processes data in chunks. This
     makes it safe to use with very large datasets without risk of memory
@@ -692,8 +775,7 @@ def compute_omero_from_multiscales(
     if not multiscales.images:
         raise ValueError("Multiscales has no images")
 
-    # Always use the highest resolution (first) image for accurate statistics
-    image = multiscales.images[0]
+    image = _select_image_for_omero_stats(multiscales)
 
     return compute_omero_from_ngff_image(
         image,

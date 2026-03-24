@@ -4,13 +4,13 @@
 
 import pytest
 import zarr
-from zarr.storage import MemoryStore
+from jsonschema import ValidationError
 from ngff_zarr import from_ngff_zarr
 from ngff_zarr.rfc4_validation import (
-    validate_rfc4_orientation,
     has_rfc4_orientation_metadata,
+    validate_rfc4_orientation,
 )
-from jsonschema import ValidationError
+from zarr.storage import MemoryStore
 
 
 def test_has_rfc4_orientation_metadata():

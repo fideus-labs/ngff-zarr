@@ -4,20 +4,22 @@
 
 import tempfile
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Any
 from urllib.parse import urlparse
-import httpx
-import aiofiles
 
+import aiofiles
+import httpx
 import zarr
 from ngff_zarr import (  # type: ignore[import-untyped]
-    from_ngff_zarr,
     config,
+    from_ngff_zarr,
 )
 
 # Import unit validation function
 try:
-    from ngff_zarr.v04.zarr_metadata import is_unit_supported  # type: ignore[import-untyped]
+    from ngff_zarr.v04.zarr_metadata import (
+        is_unit_supported,  # type: ignore[import-untyped]
+    )
 except ImportError:
     # Fallback if not available
     def is_unit_supported(unit):
@@ -369,15 +371,16 @@ def get_supported_formats() -> SupportedFormats:
     )
 
 
-def get_available_methods() -> List[str]:
+def get_available_methods() -> list[str]:
     """Get available downsampling methods."""
     from ngff_zarr.methods import methods_values  # type: ignore[import-untyped]
 
     return methods_values
 
 
-def get_available_compression_codecs() -> List[str]:
-    """Get available compression codecs.
+def get_available_compression_codecs() -> list[str]:
+    """Get available compression codecs."""
+    codecs = ["gzip", "lz4", "zstd"]
 
     Delegates to :func:`ngff_zarr.codecs.get_available_codecs`.
     """
@@ -388,8 +391,8 @@ def get_available_compression_codecs() -> List[str]:
 
 def setup_dask_config(
     use_local_cluster: bool = False,
-    cache_dir: Optional[str] = None,
-) -> Optional[Any]:
+    cache_dir: str | None = None,
+) -> Any | None:
     """Setup Dask configuration and return client if using LocalCluster."""
 
     if cache_dir:
@@ -404,8 +407,8 @@ def setup_dask_config(
     client = None
     if use_local_cluster:
         try:
-            from dask.distributed import Client, LocalCluster
             import psutil
+            from dask.distributed import Client, LocalCluster
 
             n_workers = 4
 
@@ -428,7 +431,7 @@ def setup_dask_config(
     return client
 
 
-def validate_conversion_options(options: Dict[str, Any]) -> List[str]:
+def validate_conversion_options(options: dict[str, Any]) -> list[str]:
     """Validate conversion options and return list of errors."""
     errors = []
 
@@ -464,8 +467,8 @@ def validate_conversion_options(options: Dict[str, Any]) -> List[str]:
 
 
 async def prepare_input_files(
-    input_paths: List[str], temp_dir: Optional[str] = None
-) -> List[str]:
+    input_paths: list[str], temp_dir: str | None = None
+) -> list[str]:
     """Prepare input files, downloading remote files if necessary."""
     if temp_dir is None:
         temp_dir = tempfile.mkdtemp()

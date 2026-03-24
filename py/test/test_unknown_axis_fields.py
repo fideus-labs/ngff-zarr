@@ -10,9 +10,8 @@ import numpy as np
 import packaging.version
 import pytest
 import zarr
-from zarr.storage import MemoryStore
-
 from ngff_zarr import from_ngff_zarr, to_multiscales, to_ngff_image, to_ngff_zarr
+from zarr.storage import MemoryStore
 
 zarr_version = packaging.version.parse(zarr.__version__)
 

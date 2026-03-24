@@ -6,6 +6,7 @@
 // The browser versions support MemoryStore (Map) and HTTP/HTTPS URLs (read-only),
 // but not local file paths (which require Node.js/Deno filesystem APIs).
 
+export { config, setWorkerPoolSize } from "./config.ts";
 // Browser-compatible I/O modules
 // Note: Uses browser-specific versions that don't import @zarrita/storage
 // (which contains Node.js-specific modules like node:fs, node:buffer, node:path)

@@ -6,7 +6,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-
 from ._data import test_data_dir
 
 

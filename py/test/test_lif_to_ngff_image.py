@@ -6,7 +6,6 @@ from unittest.mock import MagicMock, Mock, patch
 
 import numpy as np
 import pytest
-
 from ngff_zarr.lif_to_ngff_image import (
     _extract_scale_translation,
     _map_lif_dims_to_ngff,

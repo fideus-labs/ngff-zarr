@@ -1,6 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from typing import Tuple
 
 import numpy as np
 from dask.array import concatenate, expand_dims, map_blocks, map_overlap, take
@@ -8,16 +7,17 @@ from dask.array import concatenate, expand_dims, map_blocks, map_overlap, take
 from ..ngff_image import NgffImage
 from ._support import (
     _align_chunks,
+    _can_use_map_blocks_fast_path,
     _compute_sigma,
     _dim_scale_factors,
-    _update_previous_dim_factors,
     _get_block,
-    _spatial_dims,
-    _next_scale_metadata,
     _next_block_shape,
+    _next_scale_metadata,
+    _spatial_dims,
+    _update_previous_dim_factors,
 )
 
-_image_dims: Tuple[str, str, str, str] = ("x", "y", "z", "t")
+_image_dims: tuple[str, str, str, str] = ("x", "y", "z", "t")
 
 
 def _compute_itk_gaussian_kernel_radius(input_size, sigma_values) -> list:
@@ -136,7 +136,7 @@ def _downsample_itk_bin_shrink(
     ]
     previous_image = ngff_image
     dims = ngff_image.dims
-    previous_dim_factors = {d: 1 for d in dims}
+    previous_dim_factors = dict.fromkeys(dims, 1)
     spatial_dims = [dim for dim in dims if dim in _spatial_dims]
     spatial_dims = _image_dims[: len(spatial_dims)]
     for scale_factor in scale_factors:
@@ -144,6 +144,64 @@ def _downsample_itk_bin_shrink(
         previous_dim_factors = _update_previous_dim_factors(
             scale_factor, spatial_dims, previous_dim_factors
         )
+
+        # --- map_blocks fast path for bin-shrink ---
+        # When all chunk sizes (including the last, possibly smaller chunk)
+        # divide evenly by the shrink factor we can skip _align_chunks and
+        # issue a single map_blocks call with directly computed output
+        # chunks.  This produces a much smaller dask task graph.
+        #
+        # Unlike itkwasm, itk.bin_shrink_image_filter receives the raw
+        # numpy block and calls itk.image_view_from_array which only
+        # supports up to 4D.  So we must skip the fast path whenever
+        # there are leading non-spatial dimensions (t, c, etc.) that
+        # would push the block beyond what ITK can handle.
+        _fp_non_spatial = [d for d in dims if d not in _spatial_dims]
+        if not _fp_non_spatial and _can_use_map_blocks_fast_path(
+            previous_image, dim_factors
+        ):
+            translation, scale = _next_scale_metadata(
+                previous_image, dim_factors, spatial_dims
+            )
+
+            shrink_factors = [dim_factors[sd] for sd in spatial_dims]
+            dtype = previous_image.data.dtype
+
+            # Build output chunks: input_chunk // factor for spatial dims,
+            # unchanged for non-spatial dims.
+            fast_output_chunks = []
+            for dim in dims:
+                dim_idx = dims.index(dim)
+                in_chunks = previous_image.data.chunks[dim_idx]
+                if dim in _spatial_dims and dim in dim_factors:
+                    factor = dim_factors[dim]
+                    fast_output_chunks.append(tuple(c // factor for c in in_chunks))
+                else:
+                    fast_output_chunks.append(in_chunks)
+            fast_output_chunks = tuple(fast_output_chunks)
+
+            downscaled_array = map_blocks(
+                itk.bin_shrink_image_filter,
+                previous_image.data,
+                shrink_factors=shrink_factors,
+                dtype=dtype,
+                chunks=fast_output_chunks,
+            )
+
+            # Rechunk to the requested output chunks
+            out_chunks_list = []
+            for dim in dims:
+                if dim in out_chunks:
+                    out_chunks_list.append(out_chunks[dim])
+                else:
+                    out_chunks_list.append(1)
+            downscaled_array = downscaled_array.rechunk(tuple(out_chunks_list))
+
+            previous_image = NgffImage(downscaled_array, dims, scale, translation)
+            multiscales.append(previous_image)
+            continue
+
+        # --- Standard path (align chunks + per-block computation) ---
         previous_image = _align_chunks(previous_image, default_chunks, dim_factors)
 
         translation, scale = _next_scale_metadata(
@@ -230,7 +288,7 @@ def _downsample_itk_gaussian(
     ]
     previous_image = ngff_image
     dims = ngff_image.dims
-    previous_dim_factors = {d: 1 for d in dims}
+    previous_dim_factors = dict.fromkeys(dims, 1)
     spatial_dims = [dim for dim in dims if dim in _spatial_dims]
     spatial_dims = _image_dims[: len(spatial_dims)]
     for scale_factor in scale_factors:

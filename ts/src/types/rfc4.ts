@@ -222,6 +222,46 @@ export function itkDirectionToAnatomicalOrientation(
 }
 
 /**
+ * Convert an anatomical orientation to an ITK direction cosine vector.
+ *
+ * This is the reverse of {@link itkDirectionToAnatomicalOrientation}.
+ * Given an anatomical orientation value, it returns the unit direction
+ * column vector in ITK LPS physical space.
+ *
+ * Only the six LPS-compatible orientations are supported.  For any other
+ * orientation (e.g. dorsal, palmar, rostral, etc.) the function returns
+ * `undefined`, signalling that the caller should fall back to an identity
+ * direction matrix.
+ *
+ * @param orientation - The anatomical orientation value.
+ * @returns A 3-element unit direction column vector `[lps_x, lps_y, lps_z]`,
+ *   or `undefined` if the orientation is not one of the six LPS-compatible
+ *   values.
+ */
+export function anatomicalOrientationToItkDirection(
+  orientation: AnatomicalOrientationValues,
+): number[] | undefined {
+  for (
+    let axisIndex = 0;
+    axisIndex < LPS_ORIENTATION_PAIRS.length;
+    axisIndex++
+  ) {
+    const [pos, neg] = LPS_ORIENTATION_PAIRS[axisIndex];
+    if (orientation === pos) {
+      const col = [0, 0, 0];
+      col[axisIndex] = 1;
+      return col;
+    }
+    if (orientation === neg) {
+      const col = [0, 0, 0];
+      col[axisIndex] = -1;
+      return col;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Check if RFC 4 is enabled in the list of enabled RFCs.
  */
 export function isRfc4Enabled(enabledRfcs?: number[]): boolean {

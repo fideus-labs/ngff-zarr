@@ -1,6 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from typing import List
 import copy
 
 import numpy as np
@@ -221,7 +220,7 @@ def _align_chunks(previous_image, default_chunks, dim_factors):
     return previous_image
 
 
-def _compute_sigma(shrink_factors: List[int]) -> List[float]:
+def _compute_sigma(shrink_factors: list[int]) -> list[float]:
     """Compute Gaussian kernel sigma values in pixel units for downsampling.
     sigma = sqrt((k^2 - 1^2)/(2*sqrt(2*ln(2)))^2)
     Ref https://discourse.itk.org/t/resampling-to-isotropic-signal-processing-theory/1403/16
@@ -293,3 +292,23 @@ def _next_block_shape(
             shape.append(block_input.shape[i])
 
     return tuple(shape)
+
+
+def _can_use_map_blocks_fast_path(image: NgffImage, dim_factors: dict) -> bool:
+    """Check if chunk sizes allow a direct map_blocks fast path for bin-shrink.
+
+    The fast path can be used when every chunk (including the last, potentially
+    smaller chunk) along each spatial dimension is evenly divisible by the
+    corresponding shrink factor.  When this holds, bin-shrink can operate on
+    each chunk independently without any prior rechunking.
+    """
+    for dim, factor in dim_factors.items():
+        if dim not in _spatial_dims:
+            continue
+        if factor <= 1:
+            continue
+        dim_index = image.dims.index(dim)
+        chunks_along_dim = image.data.chunks[dim_index]
+        if any(c % factor != 0 for c in chunks_along_dim):
+            return False
+    return True

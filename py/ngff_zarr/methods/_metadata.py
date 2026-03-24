@@ -4,11 +4,12 @@
 Utility functions for extracting method metadata information.
 """
 
-from typing import Optional, Dict, Any
+from typing import Any
+
 from ..v04.zarr_metadata import MethodMetadata
 
 
-def get_method_metadata(method: Any) -> Optional[MethodMetadata]:
+def get_method_metadata(method: Any) -> MethodMetadata | None:
     """
     Get metadata information for a given downsampling method.
 
@@ -47,7 +48,7 @@ def get_method_metadata(method: Any) -> Optional[MethodMetadata]:
 
 
 # Method information mapping using method names as strings
-_METHOD_INFO: Dict[str, Dict[str, str]] = {
+_METHOD_INFO: dict[str, dict[str, str]] = {
     "ITKWASM_GAUSSIAN": {
         "description": "Smoothed with a discrete gaussian filter to generate a scale space, ideal for intensity images. ITK-Wasm implementation is extremely portable and SIMD accelerated.",
         "package": "itkwasm-downsample",

@@ -4,10 +4,18 @@
 
 import tempfile
 
+import ngff_zarr as nz
 import numpy as np
 import pytest
+import zarr
+from packaging import version
 
-import ngff_zarr as nz
+zarr_version = version.parse(zarr.__version__)
+
+pytestmark = pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="zarr version >= 3.0.0b2 required for OME-Zarr version >= 0.5",
+)
 
 
 def test_non_power_of_2_scale_factors():
@@ -239,9 +247,9 @@ def test_scale_strategy_power_of_2_same_result():
         for i in range(len(pad_result.images)):
             pad_shape = pad_result.images[i].data.shape
             exact_shape = exact_result.images[i].data.shape
-            assert (
-                pad_shape == exact_shape
-            ), f"Level {i}: pad={pad_shape} != exact={exact_shape}"
+            assert pad_shape == exact_shape, (
+                f"Level {i}: pad={pad_shape} != exact={exact_shape}"
+            )
 
         # Verify the exact expected shapes
         expected = [(128, 128), (64, 64), (32, 32), (16, 16)]

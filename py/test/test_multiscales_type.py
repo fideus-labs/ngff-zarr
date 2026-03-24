@@ -1,14 +1,23 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 import numpy as np
-from zarr.storage import MemoryStore
-
+import pytest
+import zarr
 from ngff_zarr import (
     Methods,
+    from_ngff_zarr,
     to_multiscales,
     to_ngff_image,
     to_ngff_zarr,
-    from_ngff_zarr,
+)
+from packaging import version
+from zarr.storage import MemoryStore
+
+zarr_version = version.parse(zarr.__version__)
+
+pytestmark = pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="zarr version >= 3.0.0b2 required for OME-Zarr version >= 0.5",
 )
 
 
@@ -66,7 +75,11 @@ def test_multiscales_type_in_metadata():
     import zarr
 
     root = zarr.open_group(store, mode="r")
-    metadata = root.attrs["multiscales"][0]
+    # For v0.5, metadata is under "ome"; for v0.4, at root
+    if "ome" in root.attrs:
+        metadata = root.attrs["ome"]["multiscales"][0]
+    else:
+        metadata = root.attrs["multiscales"][0]
 
     assert "type" in metadata
     assert metadata["type"] == "itkwasm_gaussian"
@@ -108,10 +121,21 @@ def test_legacy_zarr_without_type():
     import zarr
 
     root = zarr.open_group(store, mode="a")
-    metadata = root.attrs["multiscales"][0]
-    if "type" in metadata:
-        del metadata["type"]
-    root.attrs["multiscales"] = [metadata]
+    # For v0.5, metadata is under "ome"; for v0.4, at root
+    if "ome" in root.attrs:
+        ome_attrs = dict(root.attrs["ome"])
+        multiscales_list = list(ome_attrs["multiscales"])
+        first_entry = dict(multiscales_list[0])
+        first_entry.pop("type", None)
+        multiscales_list[0] = first_entry
+        ome_attrs["multiscales"] = multiscales_list
+        root.attrs["ome"] = ome_attrs
+    else:
+        multiscales_list = list(root.attrs["multiscales"])
+        first_entry = dict(multiscales_list[0])
+        first_entry.pop("type", None)
+        multiscales_list[0] = first_entry
+        root.attrs["multiscales"] = multiscales_list
 
     # Read back from zarr
     loaded_multiscales = from_ngff_zarr(store)

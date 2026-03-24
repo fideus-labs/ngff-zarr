@@ -1,8 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+import pytest
+import zarr
 from dask_image import imread
 from ngff_zarr import config, to_multiscales, to_ngff_image, to_ngff_zarr
+from packaging import version
 from zarr.storage import MemoryStore
+
+zarr_version = version.parse(zarr.__version__)
+
+pytestmark = pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="zarr version >= 3.0.0b2 required for OME-Zarr version >= 0.5",
+)
 
 
 def test_large_image_serialization(input_images):

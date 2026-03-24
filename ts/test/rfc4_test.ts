@@ -8,6 +8,7 @@
 import { assertEquals } from "@std/assert";
 import {
   addAnatomicalOrientationToAxis,
+  anatomicalOrientationToItkDirection,
   AnatomicalOrientationValues,
   createAnatomicalOrientation,
   isRfc4Enabled,
@@ -160,4 +161,81 @@ Deno.test("RAS coordinate system - correct orientations", () => {
 
   assertEquals(RAS.z.type, "anatomical");
   assertEquals(RAS.z.value, AnatomicalOrientationValues.InferiorToSuperior);
+});
+
+// --- Tests for anatomicalOrientationToItkDirection ---
+
+Deno.test("anatomicalOrientationToItkDirection - RightToLeft → [1,0,0]", () => {
+  assertEquals(
+    anatomicalOrientationToItkDirection(
+      AnatomicalOrientationValues.RightToLeft,
+    ),
+    [1, 0, 0],
+  );
+});
+
+Deno.test("anatomicalOrientationToItkDirection - LeftToRight → [-1,0,0]", () => {
+  assertEquals(
+    anatomicalOrientationToItkDirection(
+      AnatomicalOrientationValues.LeftToRight,
+    ),
+    [-1, 0, 0],
+  );
+});
+
+Deno.test("anatomicalOrientationToItkDirection - A→P → [0,1,0]", () => {
+  assertEquals(
+    anatomicalOrientationToItkDirection(
+      AnatomicalOrientationValues.AnteriorToPosterior,
+    ),
+    [0, 1, 0],
+  );
+});
+
+Deno.test("anatomicalOrientationToItkDirection - P→A → [0,-1,0]", () => {
+  assertEquals(
+    anatomicalOrientationToItkDirection(
+      AnatomicalOrientationValues.PosteriorToAnterior,
+    ),
+    [0, -1, 0],
+  );
+});
+
+Deno.test("anatomicalOrientationToItkDirection - I→S → [0,0,1]", () => {
+  assertEquals(
+    anatomicalOrientationToItkDirection(
+      AnatomicalOrientationValues.InferiorToSuperior,
+    ),
+    [0, 0, 1],
+  );
+});
+
+Deno.test("anatomicalOrientationToItkDirection - S→I → [0,0,-1]", () => {
+  assertEquals(
+    anatomicalOrientationToItkDirection(
+      AnatomicalOrientationValues.SuperiorToInferior,
+    ),
+    [0, 0, -1],
+  );
+});
+
+Deno.test("anatomicalOrientationToItkDirection - non-LPS returns undefined", () => {
+  assertEquals(
+    anatomicalOrientationToItkDirection(
+      AnatomicalOrientationValues.DorsalToVentral,
+    ),
+    undefined,
+  );
+  assertEquals(
+    anatomicalOrientationToItkDirection(
+      AnatomicalOrientationValues.RostralToCaudal,
+    ),
+    undefined,
+  );
+  assertEquals(
+    anatomicalOrientationToItkDirection(
+      AnatomicalOrientationValues.ProximalToDistal,
+    ),
+    undefined,
+  );
 });

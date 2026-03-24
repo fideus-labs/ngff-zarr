@@ -3,10 +3,11 @@
 import atexit
 import shutil
 import signal
+import threading
 import time
-from collections.abc import MutableMapping
+from collections.abc import Mapping, MutableMapping, Sequence
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any
 
 import dask
 import numpy as np
@@ -18,13 +19,12 @@ try:
     from zarr.core import Array as ZarrArray
 except ImportError:
     from zarr.core.array import Array as ZarrArray
-from ._zarr_kwargs import zarr_kwargs
-from ._zarr_open_array import open_array
 import zarr.storage
 
+from ._zarr_kwargs import zarr_kwargs
+from ._zarr_open_array import open_array
 from .config import config
 from .memory_usage import memory_usage
-from .task_count import task_count
 from .methods import Methods
 from .methods._dask_image import _downsample_dask_image
 from .methods._itk import (
@@ -39,14 +39,15 @@ from .methods._support import _spatial_dims
 from .multiscales import Multiscales
 from .ngff_image import NgffImage
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
+from .task_count import task_count
 from .to_ngff_image import to_ngff_image
 from .v04.zarr_metadata import Axis, Dataset, Metadata, Scale, Translation
 
 
 def _ngff_image_scale_factors(ngff_image, min_length, out_chunks):
-    assert tuple(ngff_image.dims) == tuple(
-        out_chunks.keys()
-    ), f"{ngff_image.dims} != {out_chunks.keys()}"
+    assert tuple(ngff_image.dims) == tuple(out_chunks.keys()), (
+        f"{ngff_image.dims} != {out_chunks.keys()}"
+    )
     sizes = {
         d: s
         for d, s in zip(ngff_image.dims, ngff_image.data.shape)
@@ -122,7 +123,7 @@ def _find_optimal_chunk_size(first_chunk, dim_size, min_divisor=16):
 
 
 def _large_image_serialization(
-    image: NgffImage, progress: Optional[Union[NgffProgress, NgffProgressCallback]]
+    image: NgffImage, progress: NgffProgress | NgffProgressCallback | None
 ):
     optimized_chunks = 512 if "z" in image.dims else 1024
     base_path = f"{image.name}-cache-{time.time()}"
@@ -130,7 +131,7 @@ def _large_image_serialization(
     cache_store = config.cache_store
     base_path_removed = False
 
-    def remove_from_cache_store(sig_id, frame):  # noqa: ARG001
+    def remove_from_cache_store(sig_id, frame):
         nonlocal base_path_removed
         if not base_path_removed:
             if hasattr(zarr.storage, "DirectoryStore") and isinstance(
@@ -150,8 +151,9 @@ def _large_image_serialization(
             base_path_removed = True
 
     atexit.register(remove_from_cache_store, None, None)
-    signal.signal(signal.SIGTERM, remove_from_cache_store)
-    signal.signal(signal.SIGINT, remove_from_cache_store)
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGTERM, remove_from_cache_store)
+        signal.signal(signal.SIGINT, remove_from_cache_store)
     image.computed_callbacks.append(lambda: remove_from_cache_store(None, None))
 
     data = image.data
@@ -482,19 +484,16 @@ def _cache_1d_segments(data, dims, rechunks, cache_store, base_path, progress):
 
 
 def to_multiscales(
-    data: Union[NgffImage, ArrayLike, MutableMapping, str, ZarrArray],
-    scale_factors: Union[int, Sequence[Union[Dict[str, int], int]]] = 128,
-    method: Optional[Methods] = None,
-    chunks: Optional[
-        Union[
-            int,
-            Tuple[int, ...],
-            Tuple[Tuple[int, ...], ...],
-            Mapping[Any, Union[None, int, Tuple[int, ...]]],
-        ]
-    ] = None,
-    progress: Optional[Union[NgffProgress, NgffProgressCallback]] = None,
-    cache: Optional[bool] = None,
+    data: NgffImage | ArrayLike | MutableMapping | str | ZarrArray,
+    scale_factors: int | Sequence[dict[str, int] | int] = 128,
+    method: Methods | None = None,
+    chunks: int
+    | tuple[int, ...]
+    | tuple[tuple[int, ...], ...]
+    | Mapping[Any, None | int | tuple[int, ...]]
+    | None = None,
+    progress: NgffProgress | NgffProgressCallback | None = None,
+    cache: bool | None = None,
 ) -> Multiscales:
     """
     Generate multiple resolution scales for the OME-NGFF standard data model.
@@ -581,13 +580,13 @@ def to_multiscales(
             else:
                 out_chunks[dim] = default_chunk_size
     elif isinstance(out_chunks, int):
-        out_chunks = {d: chunks for d in ngff_image.dims}
+        out_chunks = dict.fromkeys(ngff_image.dims, chunks)
     elif isinstance(out_chunks, tuple):
         out_chunks = {d: chunks[i] for i, d in enumerate(ngff_image.dims)}
 
     # Build default_chunks dict for downsampling methods (uses the base default,
     # not the input-aligned values, since methods use this for alignment logic)
-    default_chunks = {d: default_chunk_size for d in ngff_image.dims}
+    default_chunks = dict.fromkeys(ngff_image.dims, default_chunk_size)
     if "t" in ngff_image.dims:
         default_chunks["t"] = 1
 
@@ -647,6 +646,20 @@ def to_multiscales(
         images = _downsample_dask_image(
             ngff_image, default_chunks, out_chunks, scale_factors, label="mode"
         )
+
+    # Propagate channel_names and channel_colors from the input image to
+    # all generated pyramid levels so that OMERO computation (which may
+    # use a lower-resolution level) can access them.
+    # Copy the lists to avoid shared-mutation aliasing between levels.
+    src_channel_names = ngff_image.channel_names
+    src_channel_colors = ngff_image.channel_colors
+    if src_channel_names is not None or src_channel_colors is not None:
+        for img in images:
+            if img is not ngff_image:  # skip the base level (already has them)
+                if img.channel_names is None and src_channel_names is not None:
+                    img.channel_names = list(src_channel_names)
+                if img.channel_colors is None and src_channel_colors is not None:
+                    img.channel_colors = list(src_channel_colors)
 
     axes = []
     for dim in ngff_image.dims:

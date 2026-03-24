@@ -89,7 +89,11 @@ Deno.test("multiscales metadata is correctly serialized to zarr", async () => {
   const rootGroup = await zarr.open(root, { kind: "group" });
   const attrs = rootGroup.attrs as Record<string, unknown>;
 
-  const multiscalesArray = attrs.multiscales as unknown[];
+  // v0.5 stores multiscales under "ome", v0.4 at root
+  const omeAttrs = "ome" in attrs
+    ? (attrs.ome as Record<string, unknown>)
+    : attrs;
+  const multiscalesArray = omeAttrs.multiscales as unknown[];
   assertEquals(
     Array.isArray(multiscalesArray),
     true,
