@@ -607,6 +607,16 @@ def _write_array_direct(
 
     zarr_fmt = format_kwargs.get("zarr_format")
 
+    # Intercept compressor/compressors from kwargs so they don't leak into
+    # zarr.create_array() or dask.array.to_zarr() as unexpected keyword args.
+    _sentinel = object()
+    user_compressor = kwargs.pop("compressor", _sentinel)
+    has_compressor = user_compressor is not _sentinel
+    if not has_compressor:
+        user_compressor = None
+    user_compressors = kwargs.pop("compressors", None)
+    user_filters = kwargs.pop("filters", None)
+
     # Handle sharding kwargs for direct writing
     cleaned_sharding_kwargs = {}
 
@@ -635,11 +645,34 @@ def _write_array_direct(
     else:
         cleaned_sharding_kwargs = sharding_kwargs
 
+    # Translate user-supplied compression settings into format-appropriate kwargs.
+    # zarr v2 uses ``compressor`` (singular); zarr v3's ``zarr.create_array``
+    # accepts ``compressors`` (plural, a list or ``None``).
+    compression_kwargs = {}
+    if zarr_fmt == 2:
+        if has_compressor:
+            # compressor=None means "no compression" for zarr v2
+            compression_kwargs["compressor"] = user_compressor
+        if user_filters is not None:
+            compression_kwargs["filters"] = user_filters
+    elif zarr_fmt == 3:
+        if user_compressors is not None:
+            compression_kwargs["compressors"] = user_compressors
+        elif has_compressor:
+            if user_compressor is None:
+                # Explicit "no compression"
+                compression_kwargs["compressors"] = None
+            else:
+                v3_codec = _numcodecs_to_zarr_v3_codec(user_compressor)
+                if v3_codec is not None:
+                    compression_kwargs["compressors"] = v3_codec
+
     to_zarr_kwargs = {
         **cleaned_sharding_kwargs,
         **zarr_kwargs,
         **format_kwargs,
         **dimension_names_kwargs,
+        **compression_kwargs,
         **kwargs,
     }
 

@@ -167,7 +167,14 @@ class TestCodecCLI:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = os.path.join(tmpdir, "out.ome.zarr")
             result = _run_ngff_zarr(
-                "-i", input_path, "-o", output_path, "--codec", "gzip"
+                "-i",
+                input_path,
+                "-o",
+                output_path,
+                "--codec",
+                "gzip",
+                "--ome-zarr-version",
+                "0.4",
             )
             assert result.returncode == 0, f"stderr: {result.stderr}"
 
@@ -186,7 +193,14 @@ class TestCodecCLI:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = os.path.join(tmpdir, "out.ome.zarr")
             result = _run_ngff_zarr(
-                "-i", input_path, "-o", output_path, "--codec", "blosc:zstd"
+                "-i",
+                input_path,
+                "-o",
+                output_path,
+                "--codec",
+                "blosc:zstd",
+                "--ome-zarr-version",
+                "0.4",
             )
             assert result.returncode == 0, f"stderr: {result.stderr}"
 
@@ -213,6 +227,8 @@ class TestCodecCLI:
                 "gzip",
                 "--compression-level",
                 "3",
+                "--ome-zarr-version",
+                "0.4",
             )
             assert result.returncode == 0, f"stderr: {result.stderr}"
 
@@ -230,7 +246,14 @@ class TestCodecCLI:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = os.path.join(tmpdir, "out.ome.zarr")
             result = _run_ngff_zarr(
-                "-i", input_path, "-o", output_path, "--codec", "none"
+                "-i",
+                input_path,
+                "-o",
+                output_path,
+                "--codec",
+                "none",
+                "--ome-zarr-version",
+                "0.4",
             )
             assert result.returncode == 0, f"stderr: {result.stderr}"
 
@@ -238,6 +261,67 @@ class TestCodecCLI:
             with open(zarray_path) as f:
                 zarray = json.load(f)
             assert zarray["compressor"] is None
+
+    def test_codec_gzip_v3(self, input_images):  # noqa: ARG002
+        """Test that --codec gzip works with OME-Zarr 0.5 (zarr v3)."""
+        import json
+
+        input_path = str(test_data_dir / "input" / "cthead1.png")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = os.path.join(tmpdir, "out.ome.zarr")
+            result = _run_ngff_zarr(
+                "-i",
+                input_path,
+                "-o",
+                output_path,
+                "--codec",
+                "gzip",
+                "--ome-zarr-version",
+                "0.5",
+            )
+            assert result.returncode == 0, f"stderr: {result.stderr}"
+
+            zarr_json_path = os.path.join(output_path, "scale0", "image", "zarr.json")
+            assert Path(zarr_json_path).exists(), (
+                f"Missing zarr.json at {zarr_json_path}"
+            )
+            with open(zarr_json_path) as f:
+                zarr_meta = json.load(f)
+            codecs = zarr_meta.get("codecs", [])
+            codec_names = [c.get("name") for c in codecs]
+            assert "gzip" in codec_names
+
+    def test_codec_none_v3(self, input_images):  # noqa: ARG002
+        """Test that --codec none works with OME-Zarr 0.5 (zarr v3)."""
+        import json
+
+        input_path = str(test_data_dir / "input" / "cthead1.png")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = os.path.join(tmpdir, "out.ome.zarr")
+            result = _run_ngff_zarr(
+                "-i",
+                input_path,
+                "-o",
+                output_path,
+                "--codec",
+                "none",
+                "--ome-zarr-version",
+                "0.5",
+            )
+            assert result.returncode == 0, f"stderr: {result.stderr}"
+
+            zarr_json_path = os.path.join(output_path, "scale0", "image", "zarr.json")
+            assert Path(zarr_json_path).exists(), (
+                f"Missing zarr.json at {zarr_json_path}"
+            )
+            with open(zarr_json_path) as f:
+                zarr_meta = json.load(f)
+            codecs = zarr_meta.get("codecs", [])
+            codec_names = [c.get("name") for c in codecs]
+            # With --codec none, there should be no compression codec
+            assert "gzip" not in codec_names
+            assert "zstd" not in codec_names
+            assert "blosc" not in codec_names
 
     def test_invalid_codec(self, input_images):  # noqa: ARG002
         """Test that an invalid --codec name produces an error."""
