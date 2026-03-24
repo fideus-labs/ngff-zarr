@@ -8,7 +8,7 @@ from dask.array.image import imread as daimread
 from rich import print
 
 from .detect_cli_io_backend import ConversionBackend
-from .from_ngff_zarr import from_ngff_zarr
+from .from_ngff_zarr import from_ome_zarr
 from .itk_image_to_ngff_image import itk_image_to_ngff_image
 from .ngff_image import NgffImage
 from .nibabel_image_to_ngff_image import nibabel_image_to_ngff_image
@@ -19,7 +19,7 @@ def cli_input_to_ngff_image(
     backend: ConversionBackend, input, output_scale: int = 0
 ) -> NgffImage:
     if backend is ConversionBackend.NGFF_ZARR:
-        multiscales = from_ngff_zarr(input[0])
+        multiscales = from_ome_zarr(input[0])
         return multiscales.images[output_scale]
     if backend is ConversionBackend.ZARR_ARRAY:
         arr = zarr.open_array(input[0], mode="r")

@@ -13,7 +13,7 @@ from .compute_omero import (
 )
 from .config import config
 from .detect_cli_io_backend import ConversionBackend, detect_cli_io_backend
-from .from_ngff_zarr import from_ngff_zarr
+from .from_ngff_zarr import from_ngff_zarr, from_ome_zarr
 from .hcs import (
     HCSPlate,
     HCSPlateWriter,
@@ -113,6 +113,7 @@ __all__ = [
     "to_ome_zarr",
     "to_ngff_zarr",
     "ScaleStrategy",
+    "from_ome_zarr",
     "from_ngff_zarr",
     "detect_cli_io_backend",
     "ConversionBackend",

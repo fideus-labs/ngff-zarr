@@ -33,3 +33,14 @@ class Multiscales:
         from .to_ngff_zarr import to_ome_zarr
 
         to_ome_zarr(store, self, **kwargs)
+
+    @classmethod
+    def from_ome_zarr(cls, store, **kwargs):
+        """Read an OME-Zarr store into a Multiscales object.
+
+        Convenience classmethod that delegates to :func:`ngff_zarr.from_ome_zarr`.
+        See that function for full parameter documentation.
+        """
+        from .from_ngff_zarr import from_ome_zarr
+
+        return from_ome_zarr(store, **kwargs)
