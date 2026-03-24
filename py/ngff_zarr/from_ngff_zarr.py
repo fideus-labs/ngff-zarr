@@ -24,7 +24,7 @@ def from_ngff_zarr(
     storage_options: dict | None = None,
 ) -> NgffMultiscales:
     """
-    Read an OME-Zarr NGFF NgffMultiscales data structure from a Zarr store.
+    Read an OME-Zarr NGFF multiscales data structure (NgffMultiscales) from a Zarr store.
 
     store : StoreLike
         Store or path to directory in file system. Can be a string URL
