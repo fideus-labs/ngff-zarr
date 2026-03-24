@@ -13,7 +13,7 @@ import {
   writeMultiscalesToMemoryStore,
 } from "./to_ngff_zarr_ozx_common.ts";
 
-export interface ToNgffZarrOptions {
+export interface ToOmeZarrOptions {
   overwrite?: boolean;
   /**
    * OME-Zarr version to write. Defaults to "0.5" for regular Zarr files.
@@ -27,11 +27,14 @@ export interface ToNgffZarrOptions {
   enabledRfcs?: number[];
 }
 
+/** Backwards-compatible alias for {@link ToOmeZarrOptions}. */
+export type ToNgffZarrOptions = ToOmeZarrOptions;
+
 /**
  * Options for writing to .ozx (RFC-9) format.
  * Note: chunksPerShard is NOT supported for .ozx files and will throw an error.
  */
-export interface ToNgffZarrOzxOptions {
+export interface ToOmeZarrOzxOptions {
   /** List of RFC numbers to enable (e.g., [4] for RFC 4 anatomical orientation) */
   enabledRfcs?: number[] | undefined;
   /**
@@ -45,6 +48,9 @@ export interface ToNgffZarrOzxOptions {
     | ((completedChunks: number, totalChunks: number) => void)
     | undefined;
 }
+
+/** Backwards-compatible alias for {@link ToOmeZarrOzxOptions}. */
+export type ToNgffZarrOzxOptions = ToOmeZarrOzxOptions;
 
 /**
  * Write multiscales data to an OME-Zarr store.
@@ -62,19 +68,19 @@ export interface ToNgffZarrOzxOptions {
  * @example
  * ```typescript
  * // Writing to .ozx file - version 0.5 is used automatically
- * await toNgffZarr("output.ozx", multiscales);
+ * await toOmeZarr("output.ozx", multiscales);
  *
  * // Writing to regular zarr with version 0.5 (default)
- * await toNgffZarr("output.zarr", multiscales);
+ * await toOmeZarr("output.zarr", multiscales);
  *
  * // Writing to regular zarr with version 0.4
- * await toNgffZarr("output.zarr", multiscales, { version: "0.4" });
+ * await toOmeZarr("output.zarr", multiscales, { version: "0.4" });
  * ```
  */
-export async function toNgffZarr(
+export async function toOmeZarr(
   store: string | MemoryStore | zarr.FetchStore,
   multiscales: Multiscales,
-  options: ToNgffZarrOptions = {},
+  options: ToOmeZarrOptions = {},
 ): Promise<void> {
   const _overwrite = options.overwrite ?? true;
   const _version = options.version ?? "0.5";
@@ -101,8 +107,8 @@ export async function toNgffZarr(
       );
     }
 
-    // Delegate to toNgffZarrOzx (which always uses version 0.5)
-    await toNgffZarrOzx(store, multiscales, { enabledRfcs });
+    // Delegate to toOmeZarrOzx (which always uses version 0.5)
+    await toOmeZarrOzx(store, multiscales, { enabledRfcs });
     return;
   }
 
@@ -212,6 +218,9 @@ export async function toNgffZarr(
     );
   }
 }
+
+/** Backwards-compatible alias for {@link toOmeZarr}. */
+export const toNgffZarr = toOmeZarr;
 
 function _convertDtypeToZarrType(dtype: string): zarr.DataType {
   // Map common numpy/LazyArray dtypes to zarrita data types
@@ -573,25 +582,25 @@ function calculateChunkStride(chunkShape: number[]): number[] {
  * @param path - Output .ozx file path
  * @param multiscales - Multiscales data to write
  * @param options - Options for writing
- * @throws Error if called in a browser environment (use toNgffZarrOzxData instead)
+ * @throws Error if called in a browser environment (use toOmeZarrOzxData instead)
  *
  * @see https://ngff.openmicroscopy.org/rfc/9/index.html
  */
-export async function toNgffZarrOzx(
+export async function toOmeZarrOzx(
   path: string,
   multiscales: Multiscales,
-  options: ToNgffZarrOzxOptions = {},
+  options: ToOmeZarrOzxOptions = {},
 ): Promise<void> {
   // Check for browser environment
   if (typeof window !== "undefined") {
     throw new Error(
-      "toNgffZarrOzx cannot write files in browser environments. " +
-        "Use toNgffZarrOzxData to get the ZIP data as Uint8Array.",
+      "toOmeZarrOzx cannot write files in browser environments. " +
+        "Use toOmeZarrOzxData to get the ZIP data as Uint8Array.",
     );
   }
 
   // Get the ZIP data
-  const zipData = await toNgffZarrOzxData(multiscales, options);
+  const zipData = await toOmeZarrOzxData(multiscales, options);
 
   // Write to file using fs module (works in both Node.js and Deno)
   try {
@@ -608,6 +617,9 @@ export async function toNgffZarrOzx(
   }
 }
 
+/** Backwards-compatible alias for {@link toOmeZarrOzx}. */
+export const toNgffZarrOzx = toOmeZarrOzx;
+
 /**
  * Create OME-Zarr .ozx ZIP data (RFC-9).
  *
@@ -621,17 +633,17 @@ export async function toNgffZarrOzx(
  *
  * @see https://ngff.openmicroscopy.org/rfc/9/index.html
  */
-export async function toNgffZarrOzxData(
+export async function toOmeZarrOzxData(
   multiscales: Multiscales,
-  options: ToNgffZarrOzxOptions = {},
+  options: ToOmeZarrOzxOptions = {},
 ): Promise<Uint8Array> {
   const enabledRfcs = options.enabledRfcs;
 
   // Create a memory store to hold the zarr data
   const memoryStore: MemoryStore = new Map<string, Uint8Array>();
 
-  // Write to the memory store using existing toNgffZarr logic
-  // but we need to inline the core logic since toNgffZarr would
+  // Write to the memory store using existing toOmeZarr logic
+  // but we need to inline the core logic since toOmeZarr would
   // try to detect .ozx again
   await _writeToMemoryStore(
     memoryStore,
@@ -646,9 +658,12 @@ export async function toNgffZarrOzxData(
   return zipData;
 }
 
+/** Backwards-compatible alias for {@link toOmeZarrOzxData}. */
+export const toNgffZarrOzxData = toOmeZarrOzxData;
+
 /**
  * Internal function to write multiscales to a memory store.
- * Used by toNgffZarrOzxData to avoid recursion with toNgffZarr.
+ * Used by toOmeZarrOzxData to avoid recursion with toOmeZarr.
  */
 async function _writeToMemoryStore(
   store: MemoryStore,

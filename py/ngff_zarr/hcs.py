@@ -27,7 +27,7 @@ from packaging import version as pkg_version
 from .from_ngff_zarr import from_ngff_zarr
 from .multiscales import Multiscales
 from .rfc9_zip import is_ozx_path, write_store_to_zip
-from .to_ngff_zarr import to_ngff_zarr
+from .to_ngff_zarr import to_ome_zarr
 from .v04.zarr_metadata import (
     Plate,
     PlateAcquisition,
@@ -557,7 +557,7 @@ def to_hcs_zarr(plate: HCSPlate, store) -> None:
 
     # Note: This is a basic implementation that sets up the plate structure.
     # In a full implementation, you would also write the well groups and
-    # their associated image data using the existing to_ngff_zarr functions.
+    # their associated image data using the existing to_ome_zarr functions.
     # This requires integration with the Multiscales data structure.
 
     logging.info(f"HCS plate structure created at {store}")
@@ -734,7 +734,7 @@ class HCSPlateWriter:
         well_metadata : Well, optional
             Well-level metadata. If None, will be created automatically.
         **kwargs
-            Additional arguments passed to to_ngff_zarr.
+            Additional arguments passed to to_ome_zarr.
         """
         # Determine which store to write to
         working_store = self._temp_store if self.is_ozx else self.final_store
@@ -794,7 +794,7 @@ def write_hcs_well_image(
     version : str, optional
         OME-Zarr specification version (default: "0.4").
     **kwargs
-        Additional arguments passed to to_ngff_zarr.
+        Additional arguments passed to to_ome_zarr.
 
     Examples
     --------
@@ -956,7 +956,7 @@ def write_hcs_well_image(
         field_store_path.mkdir(parents=True, exist_ok=True)
 
         # Write multiscales data directly to the field path
-        to_ngff_zarr(
+        to_ome_zarr(
             store=str(field_store_path),
             multiscales=multiscales,
             version=version,
@@ -972,7 +972,7 @@ def write_hcs_well_image(
                 from zarr.storage import StorePath
 
                 store_path = StorePath(store) / field_path
-                to_ngff_zarr(
+                to_ome_zarr(
                     store=store_path,
                     multiscales=multiscales,
                     version=version,

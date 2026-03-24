@@ -48,7 +48,7 @@ from .methods import Methods, methods_values
 from .ngff_image_to_itk_image import ngff_image_to_itk_image
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
 from .to_multiscales import to_multiscales
-from .to_ngff_zarr import to_ngff_zarr
+from .to_ngff_zarr import to_ome_zarr
 from .v04.zarr_metadata import Omero, OmeroChannel, OmeroWindow, is_unit_supported
 
 
@@ -189,7 +189,7 @@ def _multiscales_to_ngff_zarr(
             output_store = output_store.root
         else:
             output_store = output_store.path
-    to_ngff_zarr(
+    to_ome_zarr(
         output_store,
         multiscales,
         chunks_per_shard=chunks_per_shard,

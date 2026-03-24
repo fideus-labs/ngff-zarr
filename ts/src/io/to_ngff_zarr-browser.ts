@@ -14,17 +14,20 @@ import { writeMultiscalesToMemoryStore } from "./to_ngff_zarr_ozx_common.ts";
 
 export { isOzxPath } from "./rfc9_zip.ts";
 
-export interface ToNgffZarrOptions {
+export interface ToOmeZarrOptions {
   overwrite?: boolean;
   version?: "0.4" | "0.5";
   chunksPerShard?: number | number[] | Record<string, number>;
 }
 
+/** Backwards-compatible alias for {@link ToOmeZarrOptions}. */
+export type ToNgffZarrOptions = ToOmeZarrOptions;
+
 /**
  * Options for writing to .ozx (RFC-9) format.
  * Note: chunksPerShard is NOT supported for .ozx files and will throw an error.
  */
-export interface ToNgffZarrOzxOptions {
+export interface ToOmeZarrOzxOptions {
   /** List of RFC numbers to enable (e.g., [4] for RFC 4 anatomical orientation) */
   enabledRfcs?: number[] | undefined;
   /**
@@ -39,15 +42,18 @@ export interface ToNgffZarrOzxOptions {
     | undefined;
 }
 
+/** Backwards-compatible alias for {@link ToOmeZarrOzxOptions}. */
+export type ToNgffZarrOzxOptions = ToOmeZarrOzxOptions;
+
 /**
- * Browser-compatible version of toNgffZarr.
+ * Browser-compatible version of toOmeZarr.
  * Only supports MemoryStore (Map) for writing.
  * Does NOT support local file paths or HTTP URLs (use the full version in Node.js/Deno).
  */
-export async function toNgffZarr(
+export async function toOmeZarr(
   store: string | MemoryStore | zarr.FetchStore,
   multiscales: Multiscales,
-  options: ToNgffZarrOptions = {},
+  options: ToOmeZarrOptions = {},
 ): Promise<void> {
   const _overwrite = options.overwrite ?? true;
   const _version = options.version ?? "0.4";
@@ -138,6 +144,9 @@ export async function toNgffZarr(
     );
   }
 }
+
+/** Backwards-compatible alias for {@link toOmeZarr}. */
+export const toNgffZarr = toOmeZarr;
 
 function _convertDtypeToZarrType(dtype: string): zarr.DataType {
   // Map common numpy/LazyArray dtypes to zarrita data types
@@ -499,9 +508,9 @@ function calculateChunkStride(chunkShape: number[]): number[] {
  *
  * @see https://ngff.openmicroscopy.org/rfc/9/index.html
  */
-export async function toNgffZarrOzx(
+export async function toOmeZarrOzx(
   multiscales: Multiscales,
-  _options: ToNgffZarrOzxOptions = {},
+  _options: ToOmeZarrOzxOptions = {},
 ): Promise<Uint8Array> {
   const enabledRfcs = _options.enabledRfcs;
 
@@ -522,3 +531,6 @@ export async function toNgffZarrOzx(
 
   return zipData;
 }
+
+/** Backwards-compatible alias for {@link toOmeZarrOzx}. */
+export const toNgffZarrOzx = toOmeZarrOzx;

@@ -62,7 +62,7 @@ from .tiff_to_ngff_image import (
 )
 from .to_multiscales import to_multiscales
 from .to_ngff_image import to_ngff_image
-from .to_ngff_zarr import ScaleStrategy, to_ngff_zarr
+from .to_ngff_zarr import ScaleStrategy, to_ngff_zarr, to_ome_zarr
 from .v04.zarr_metadata import (
     AxesType,
     Axis,
@@ -110,6 +110,7 @@ __all__ = [
     "task_count",
     "to_multiscales",
     "Methods",
+    "to_ome_zarr",
     "to_ngff_zarr",
     "ScaleStrategy",
     "from_ngff_zarr",
