@@ -24,6 +24,16 @@ class NgffMultiscales:
         | None
     ) = None
 
+    def to_ome_zarr(self, store, **kwargs) -> None:
+        """Write this multiscale image to an OME-Zarr store.
+
+        Convenience method that delegates to :func:`ngff_zarr.to_ome_zarr`.
+        See that function for full parameter documentation.
+        """
+        from .to_ngff_zarr import to_ome_zarr
+
+        to_ome_zarr(store, self, **kwargs)
+
 
 # Backwards-compatible alias
 Multiscales = NgffMultiscales

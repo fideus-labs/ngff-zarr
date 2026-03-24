@@ -12,7 +12,7 @@ from ngff_zarr import (  # type: ignore[import-untyped]
     detect_cli_io_backend,
     from_ngff_zarr,
     to_multiscales,
-    to_ngff_zarr,
+    to_ome_zarr,
 )
 
 # Import validation function if available
@@ -215,7 +215,7 @@ async def convert_to_ome_zarr(
             #     # Remove duplicates
             #     enabled_rfcs = list(set(enabled_rfcs))
 
-            to_ngff_zarr(
+            to_ome_zarr(
                 output_store,
                 multiscales_obj,
                 version=options.ome_zarr_version,
@@ -442,7 +442,7 @@ async def optimize_zarr_store(options: OptimizationOptions) -> ConversionResult:
             optimized_images.append(optimized_image)
 
         # Create new multiscales object with optimized images
-        # For now, use the original multiscales and rely on to_ngff_zarr to handle optimization
+        # For now, use the original multiscales and rely on to_ome_zarr to handle optimization
         # This preserves metadata and compatibility
         optimized_multiscales = multiscales  # type: ignore[assignment]
 
@@ -455,7 +455,7 @@ async def optimize_zarr_store(options: OptimizationOptions) -> ConversionResult:
                 chunks_per_shard = tuple(chunks_per_shard)
 
         # Save optimized store
-        to_ngff_zarr(
+        to_ome_zarr(
             output_store,
             optimized_multiscales,
             chunks_per_shard=chunks_per_shard,

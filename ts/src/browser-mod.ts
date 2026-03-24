@@ -41,6 +41,10 @@ export {
   type ToNgffZarrOptions,
   toNgffZarrOzx,
   type ToNgffZarrOzxOptions,
+  toOmeZarr,
+  type ToOmeZarrOptions,
+  toOmeZarrOzx,
+  type ToOmeZarrOzxOptions,
 } from "./io/to_ngff_zarr-browser.ts";
 // Browser-compatible processing modules
 export * from "./process/to_multiscales-browser.ts";
