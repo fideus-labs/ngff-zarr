@@ -6,7 +6,13 @@ import sys
 import tempfile
 from pathlib import Path
 
+import packaging.version
+import pytest
+import zarr
+
 from ._data import test_data_dir
+
+zarr_version = packaging.version.parse(zarr.__version__)
 
 
 def _run_ngff_zarr(*args):
@@ -262,6 +268,10 @@ class TestCodecCLI:
                 zarray = json.load(f)
             assert zarray["compressor"] is None
 
+    @pytest.mark.skipif(
+        zarr_version < packaging.version.parse("3.0.0b2"),
+        reason="zarr version >= 3.0.0b2 required for OME-Zarr version >= 0.5",
+    )
     def test_codec_gzip_v3(self, input_images):  # noqa: ARG002
         """Test that --codec gzip works with OME-Zarr 0.5 (zarr v3)."""
         import json
@@ -291,6 +301,10 @@ class TestCodecCLI:
             codec_names = [c.get("name") for c in codecs]
             assert "gzip" in codec_names
 
+    @pytest.mark.skipif(
+        zarr_version < packaging.version.parse("3.0.0b2"),
+        reason="zarr version >= 3.0.0b2 required for OME-Zarr version >= 0.5",
+    )
     def test_codec_none_v3(self, input_images):  # noqa: ARG002
         """Test that --codec none works with OME-Zarr 0.5 (zarr v3)."""
         import json
