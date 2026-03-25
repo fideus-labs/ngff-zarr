@@ -665,7 +665,7 @@ def _write_array_direct(
             else:
                 v3_codec = _numcodecs_to_zarr_v3_codec(user_compressor)
                 if v3_codec is not None:
-                    compression_kwargs["compressors"] = v3_codec
+                    compression_kwargs["compressors"] = [v3_codec]
 
     to_zarr_kwargs = {
         **cleaned_sharding_kwargs,
@@ -835,8 +835,20 @@ def _handle_large_array_writing(
         user_compressors = kwargs.get("compressors")
         user_compressor = kwargs.get("compressor")
         if user_compressors is not None:
-            # User provided a zarr v3 codec object directly
-            inner_codecs = [BytesCodec(), user_compressors]
+            from collections.abc import Iterable as IterableABC
+
+            from zarr.abc.codec import Codec
+
+            if isinstance(user_compressors, (Codec, dict)):
+                compressor_list = [user_compressors]
+            elif isinstance(user_compressors, IterableABC):
+                compressor_list = list(user_compressors)
+            else:
+                compressor_list = [user_compressors]
+            if any(isinstance(c, BytesCodec) for c in compressor_list):
+                inner_codecs = list(compressor_list)
+            else:
+                inner_codecs = [BytesCodec()] + compressor_list
         elif user_compressor is not None:
             v3_codec = _numcodecs_to_zarr_v3_codec(user_compressor)
             inner_codecs = (
