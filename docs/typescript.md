@@ -377,7 +377,7 @@ async function toNgffZarr(
 **Parameters:**
 - `store`: Output path for OME-Zarr
 - `multiscales`: NgffMultiscales object to write
-- `options.version`: OME-Zarr version (default: "0.4")
+- `options.version`: OME-Zarr version (default: "0.5")
 - `options.chunksPerShard`: Sharding configuration (v0.5 only)
 
 **Example:**
