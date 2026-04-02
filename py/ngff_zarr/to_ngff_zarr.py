@@ -646,26 +646,35 @@ def _write_array_direct(
         cleaned_sharding_kwargs = sharding_kwargs
 
     # Translate user-supplied compression settings into format-appropriate kwargs.
-    # zarr v2 uses ``compressor`` (singular); zarr v3's ``zarr.create_array``
-    # accepts ``compressors`` (plural, a list or ``None``).
+    # zarr v3's ``zarr.create_array`` (called by ``dask.array.to_zarr``) only
+    # accepts ``compressors`` (plural) — even for zarr format 2.  zarr v2's
+    # ``open_array`` / ``open`` uses ``compressor`` (singular).
     compression_kwargs = {}
-    if zarr_fmt == 2:
-        if has_compressor:
-            # compressor=None means "no compression" for zarr v2
-            compression_kwargs["compressor"] = user_compressor
-        if user_filters is not None:
-            compression_kwargs["filters"] = user_filters
-    elif zarr_fmt == 3:
+    if IS_ZARR_V3_PLUS:
+        # zarr v3's create_array() uses 'compressors' (plural) for all formats.
+        # dask.array.to_zarr() forwards kwargs to zarr.create_array(), so we
+        # must always use the plural form when zarr v3 is installed.
         if user_compressors is not None:
             compression_kwargs["compressors"] = user_compressors
         elif has_compressor:
             if user_compressor is None:
-                # Explicit "no compression"
                 compression_kwargs["compressors"] = None
-            else:
+            elif zarr_fmt == 3:
+                # zarr format 3 needs zarr v3 codec objects
                 v3_codec = _numcodecs_to_zarr_v3_codec(user_compressor)
                 if v3_codec is not None:
                     compression_kwargs["compressors"] = [v3_codec]
+            else:
+                # zarr format 2: pass numcodecs objects directly
+                compression_kwargs["compressors"] = [user_compressor]
+        if user_filters is not None:
+            compression_kwargs["filters"] = user_filters
+    else:
+        # zarr v2 library uses 'compressor' (singular)
+        if has_compressor:
+            compression_kwargs["compressor"] = user_compressor
+        if user_filters is not None:
+            compression_kwargs["filters"] = user_filters
 
     to_zarr_kwargs = {
         **cleaned_sharding_kwargs,
