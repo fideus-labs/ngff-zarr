@@ -86,7 +86,7 @@ def codec_from_name(name: str, level: int | None = None) -> Any:
 
     if name == "blosc" or name.startswith("blosc:"):
         parts = name.split(":", 1)
-        cname = parts[1] if len(parts) == 2 else "lz4"
+        cname = parts[1] if len(parts) == 2 and parts[1] else "lz4"
         return numcodecs.Blosc(cname=cname, clevel=level if level is not None else 5)
 
     available = get_available_codecs()

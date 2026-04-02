@@ -664,6 +664,10 @@ def _write_array_direct(
                 v3_codec = _numcodecs_to_zarr_v3_codec(user_compressor)
                 if v3_codec is not None:
                     compression_kwargs["compressors"] = [v3_codec]
+                else:
+                    # Fallback: pass numcodecs object directly; zarr v3 can
+                    # wrap it via its numcodecs compatibility layer.
+                    compression_kwargs["compressors"] = [user_compressor]
             else:
                 # zarr format 2: pass numcodecs objects directly
                 compression_kwargs["compressors"] = [user_compressor]
@@ -929,18 +933,38 @@ def _handle_large_array_writing(
     # compression settings that were not captured by the sharding setup above.
     if not codecs_kwargs:
         user_compressor = kwargs.get("compressor")
+        user_compressors = kwargs.get("compressors")
         zarr_fmt = format_kwargs["zarr_format"]
-        if zarr_fmt == 2 and user_compressor is not None:
+        if zarr_fmt == 3:
+            from zarr.codecs.bytes import BytesCodec
+
+            if user_compressors is not None:
+                from collections.abc import Iterable as IterableABC
+
+                from zarr.abc.codec import Codec
+
+                if isinstance(user_compressors, (Codec, dict)):
+                    comp_list = [user_compressors]
+                elif isinstance(user_compressors, IterableABC):
+                    comp_list = list(user_compressors)
+                else:
+                    comp_list = [user_compressors]
+                if not any(isinstance(c, BytesCodec) for c in comp_list):
+                    comp_list = [BytesCodec()] + comp_list
+                codecs_kwargs["codecs"] = comp_list
+            elif user_compressor is not None:
+                v3_codec = _numcodecs_to_zarr_v3_codec(user_compressor)
+                if v3_codec is not None:
+                    codecs_kwargs["codecs"] = [BytesCodec(), v3_codec]
+                else:
+                    codecs_kwargs["codecs"] = [BytesCodec(), user_compressor]
+        elif zarr_fmt == 2 and user_compressor is not None:
+            # open_array() (unlike dask's create_array) accepts 'compressor'
+            # singular for format 2 even in zarr v3.
             zarr_kwargs["compressor"] = user_compressor
             user_filters = kwargs.get("filters")
             if user_filters is not None:
                 zarr_kwargs["filters"] = user_filters
-        elif zarr_fmt == 3 and user_compressor is not None:
-            from zarr.codecs.bytes import BytesCodec
-
-            v3_codec = _numcodecs_to_zarr_v3_codec(user_compressor)
-            if v3_codec is not None:
-                codecs_kwargs["codecs"] = [BytesCodec(), v3_codec]
 
     zarr_array = open_array(
         shape=arr.shape,
