@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
-import type { Multiscales } from "./multiscales.ts";
+import type { NgffMultiscales } from "./multiscales.ts";
 import type {
   PlateAcquisition,
   PlateColumn,
@@ -90,7 +90,7 @@ export class HCSWell {
   public readonly path: string;
   public readonly plateMetadata: PlateWell;
   public readonly metadata: WellMetadata;
-  private readonly _images: LRUCache<string, Multiscales>;
+  private readonly _images: LRUCache<string, NgffMultiscales>;
 
   constructor(options: HCSWellOptions) {
     this.store = options.store;
@@ -102,7 +102,7 @@ export class HCSWell {
     };
 
     const imageCacheSize = options.imageCacheSize ?? 100;
-    this._images = new LRUCache<string, Multiscales>({
+    this._images = new LRUCache<string, NgffMultiscales>({
       maxSize: imageCacheSize,
     });
   }
@@ -119,7 +119,7 @@ export class HCSWell {
     return [...this.metadata.images];
   }
 
-  async getImage(fieldIndex: number = 0): Promise<Multiscales | null> {
+  async getImage(fieldIndex: number = 0): Promise<NgffMultiscales | null> {
     if (fieldIndex < 0 || fieldIndex >= this.metadata.images.length) {
       return null;
     }
@@ -159,7 +159,7 @@ export class HCSWell {
   getImageByAcquisition(
     acquisitionId: number,
     fieldIndex: number = 0,
-  ): Promise<Multiscales | null> {
+  ): Promise<NgffMultiscales | null> {
     // Find images for the specified acquisition
     const acquisitionImages = this.metadata.images.filter(
       (img) => img.acquisition === acquisitionId,

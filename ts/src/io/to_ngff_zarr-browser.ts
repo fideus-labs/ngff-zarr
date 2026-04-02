@@ -4,13 +4,13 @@
 // (which contains Node.js-specific modules like node:fs, node:buffer, node:path)
 import * as zarr from "zarrita";
 
-import type { Multiscales } from "../types/multiscales.ts";
+import type { NgffMultiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import { defaultCodecs } from "../utils/codecs.ts";
 import { createWriteQueue, zarrGet, zarrSet } from "../utils/worker_pool.ts";
 import type { MemoryStore } from "./from_ngff_zarr-browser.ts";
 import { memoryStoreToZip } from "./rfc9_zip.ts";
-import { writeMultiscalesToMemoryStore } from "./to_ngff_zarr_ozx_common.ts";
+import { writeNgffMultiscalesToMemoryStore } from "./to_ngff_zarr_ozx_common.ts";
 
 export { isOzxPath } from "./rfc9_zip.ts";
 
@@ -46,7 +46,7 @@ export interface ToNgffZarrOzxOptions {
  */
 export async function toNgffZarr(
   store: string | MemoryStore | zarr.FetchStore,
-  multiscales: Multiscales,
+  multiscales: NgffMultiscales,
   options: ToNgffZarrOptions = {},
 ): Promise<void> {
   const _overwrite = options.overwrite ?? true;
@@ -493,14 +493,14 @@ function calculateChunkStride(chunkShape: number[]): number[] {
  * Note: Sharding is NOT supported because zarrita does not currently
  * support writing shards. If you need sharding, use the Python implementation.
  *
- * @param multiscales - Multiscales data to write
+ * @param multiscales - NgffMultiscales data to write
  * @param options - Options for writing
  * @returns ZIP file data as Uint8Array
  *
  * @see https://ngff.openmicroscopy.org/rfc/9/index.html
  */
 export async function toNgffZarrOzx(
-  multiscales: Multiscales,
+  multiscales: NgffMultiscales,
   _options: ToNgffZarrOzxOptions = {},
 ): Promise<Uint8Array> {
   const enabledRfcs = _options.enabledRfcs;
@@ -509,7 +509,7 @@ export async function toNgffZarrOzx(
   const memoryStore: MemoryStore = new Map<string, Uint8Array>();
 
   // Use the shared write function
-  await writeMultiscalesToMemoryStore(
+  await writeNgffMultiscalesToMemoryStore(
     memoryStore,
     multiscales,
     enabledRfcs,

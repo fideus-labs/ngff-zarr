@@ -87,6 +87,7 @@ export {
   createMetadata,
   createMultiscales,
   createNgffImage,
+  createNgffMultiscales,
 } from "./utils/factory.ts";
 export { getMethodMetadata } from "./utils/method_metadata.ts";
 export {

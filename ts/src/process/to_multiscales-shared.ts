@@ -8,7 +8,7 @@
  */
 
 import { Methods } from "../types/methods.ts";
-import type { Multiscales } from "../types/multiscales.ts";
+import type { NgffMultiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { ZarrCodec } from "../utils/codecs.ts";
 // deno-lint-ignore no-unused-vars
@@ -17,7 +17,7 @@ import {
   createAxis,
   createDataset,
   createMetadata,
-  createMultiscales,
+  createNgffMultiscales,
 } from "../utils/factory.ts";
 import { getMethodMetadata } from "../utils/method_metadata.ts";
 
@@ -59,13 +59,13 @@ export type DownsampleFunction = (
  * @param image - Input NgffImage
  * @param options - Configuration options
  * @param downsampleItkWasm - The platform-specific downsampling function
- * @returns Multiscales object
+ * @returns NgffMultiscales object
  */
 export async function toMultiscalesCore(
   image: NgffImage,
   options: ToMultiscalesOptions,
   downsampleItkWasm: DownsampleFunction,
-): Promise<Multiscales> {
+): Promise<NgffMultiscales> {
   const {
     scaleFactors = [2, 4],
     method = Methods.ITKWASM_GAUSSIAN,
@@ -138,5 +138,5 @@ export async function toMultiscalesCore(
     metadata.metadata = methodMetadata;
   }
 
-  return createMultiscales(images, metadata, scaleFactors, method);
+  return createNgffMultiscales(images, metadata, scaleFactors, method);
 }

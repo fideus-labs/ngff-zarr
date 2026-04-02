@@ -10,7 +10,7 @@ export type ChunkSpec =
   | number[][]
   | Record<string, number | number[] | undefined>;
 
-export interface MultiscalesOptions {
+export interface NgffMultiscalesOptions {
   images: NgffImage[];
   metadata: Metadata;
   scaleFactors: (Record<string, number> | number)[] | undefined;
@@ -18,14 +18,14 @@ export interface MultiscalesOptions {
   chunks: ChunkSpec | undefined;
 }
 
-export class Multiscales {
+export class NgffMultiscales {
   public readonly images: NgffImage[];
   public readonly metadata: Metadata;
   public readonly scaleFactors: (Record<string, number> | number)[] | undefined;
   public readonly method: Methods | undefined;
   public readonly chunks: ChunkSpec | undefined;
 
-  constructor(options: MultiscalesOptions) {
+  constructor(options: NgffMultiscalesOptions) {
     this.images = [...options.images];
     this.metadata = { ...options.metadata };
     this.scaleFactors = options.scaleFactors
@@ -47,7 +47,7 @@ export class Multiscales {
       .map((line) => `        ${line}`)
       .join("\n");
 
-    return `Multiscales(
+    return `NgffMultiscales(
     images=[
 ${imagesStr}
     ],
@@ -60,3 +60,8 @@ ${imagesStr}
 )`;
   }
 }
+
+// Backwards-compatible aliases
+export type MultiscalesOptions = NgffMultiscalesOptions;
+export type Multiscales = NgffMultiscales;
+export const Multiscales = NgffMultiscales;

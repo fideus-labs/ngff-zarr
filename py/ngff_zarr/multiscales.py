@@ -11,7 +11,7 @@ from .v05.zarr_metadata import Metadata as Metadata_v05
 
 
 @dataclass
-class Multiscales:
+class NgffMultiscales:
     images: list[NgffImage]
     metadata: Metadata_v04 | Metadata_v05
     scale_factors: Sequence[dict[str, int] | int] | None = None
@@ -23,3 +23,7 @@ class Multiscales:
         | Mapping[Any, None | int | tuple[int, ...]]
         | None
     ) = None
+
+
+# Backwards-compatible alias
+Multiscales = NgffMultiscales

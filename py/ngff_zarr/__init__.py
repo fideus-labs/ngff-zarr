@@ -31,7 +31,7 @@ from .lif_to_ngff_image import (
 )
 from .memory_usage import memory_usage
 from .methods import Methods
-from .multiscales import Multiscales
+from .multiscales import Multiscales, NgffMultiscales
 from .ngff_image import NgffImage
 from .ngff_image_to_itk_image import ngff_image_to_itk_image
 from .nibabel_image_to_ngff_image import (
@@ -100,6 +100,7 @@ __all__ = [
     "compute_omero_from_multiscales",
     "GLASBEY_COLORS",
     "NgffImage",
+    "NgffMultiscales",
     "Multiscales",
     "to_ngff_image",
     "itk_image_to_ngff_image",

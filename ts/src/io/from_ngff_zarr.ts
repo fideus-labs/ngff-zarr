@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 import * as zarr from "zarrita";
 
-import { Multiscales } from "../types/multiscales.ts";
+import { NgffMultiscales } from "../types/multiscales.ts";
 import { NgffVersion } from "../types/supported_versions.ts";
 import {
   fromZarrAttrsV04,
@@ -38,7 +38,7 @@ export async function fromNgffZarr(
   // Also accepts FileSystemStore, ZipFileStore, or any zarrita Readable store
   store: string | MemoryStore | zarr.FetchStore | zarr.Readable,
   options: FromNgffZarrOptions = {},
-): Promise<Multiscales> {
+): Promise<NgffMultiscales> {
   const validate = options.validate ?? false;
   const requestedVersion = options.version;
 
@@ -157,7 +157,7 @@ export async function fromNgffZarr(
       metadata.metadata = methodMetadata;
     }
 
-    return new Multiscales({
+    return new NgffMultiscales({
       images,
       metadata,
       scaleFactors: undefined,

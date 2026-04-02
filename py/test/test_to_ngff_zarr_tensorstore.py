@@ -130,7 +130,7 @@ def test_tensorstore_already_exists_failure():
             axes_units={"z": "micrometer", "y": "micrometer", "x": "micrometer"},
         )
 
-        # 2. Create Multiscales (Using a method known to work)
+        # 2. Create NgffMultiscales (Using a method known to work)
         logger.info("  Creating multiscales...")
         start_time_multiscale = time.time()
         multiscales = to_multiscales(
@@ -141,7 +141,7 @@ def test_tensorstore_already_exists_failure():
         )
         end_time_multiscale = time.time()
         logger.info(
-            f"  Multiscales created in {end_time_multiscale - start_time_multiscale:.2f} seconds."
+            f"  NgffMultiscales created in {end_time_multiscale - start_time_multiscale:.2f} seconds."
         )
 
         # 3. Write Zarr (This was failing)

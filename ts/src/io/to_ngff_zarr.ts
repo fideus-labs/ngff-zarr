@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 import * as zarr from "zarrita";
 
-import type { Multiscales } from "../types/multiscales.ts";
+import type { NgffMultiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import { defaultCodecs } from "../utils/codecs.ts";
 import { createWriteQueue, zarrGet, zarrSet } from "../utils/worker_pool.ts";
@@ -10,7 +10,7 @@ import type { MemoryStore } from "./from_ngff_zarr.ts";
 import { isOzxPath, memoryStoreToZip } from "./rfc9_zip.ts";
 import {
   processAxesForRfcs,
-  writeMultiscalesToMemoryStore,
+  writeNgffMultiscalesToMemoryStore,
 } from "./to_ngff_zarr_ozx_common.ts";
 
 export interface ToNgffZarrOptions {
@@ -56,7 +56,7 @@ export interface ToNgffZarrOzxOptions {
  * - An error is thrown if you explicitly specify a version other than "0.5"
  *
  * @param store - File path, MemoryStore, or FetchStore to write to
- * @param multiscales - Multiscales data to write
+ * @param multiscales - NgffMultiscales data to write
  * @param options - Writing options
  *
  * @example
@@ -73,7 +73,7 @@ export interface ToNgffZarrOzxOptions {
  */
 export async function toNgffZarr(
   store: string | MemoryStore | zarr.FetchStore,
-  multiscales: Multiscales,
+  multiscales: NgffMultiscales,
   options: ToNgffZarrOptions = {},
 ): Promise<void> {
   const _overwrite = options.overwrite ?? true;
@@ -571,7 +571,7 @@ function calculateChunkStride(chunkShape: number[]): number[] {
  * support writing shards. If you need sharding, use the Python implementation.
  *
  * @param path - Output .ozx file path
- * @param multiscales - Multiscales data to write
+ * @param multiscales - NgffMultiscales data to write
  * @param options - Options for writing
  * @throws Error if called in a browser environment (use toNgffZarrOzxData instead)
  *
@@ -579,7 +579,7 @@ function calculateChunkStride(chunkShape: number[]): number[] {
  */
 export async function toNgffZarrOzx(
   path: string,
-  multiscales: Multiscales,
+  multiscales: NgffMultiscales,
   options: ToNgffZarrOzxOptions = {},
 ): Promise<void> {
   // Check for browser environment
@@ -615,14 +615,14 @@ export async function toNgffZarrOzx(
  * the ZIP data as a Uint8Array. Useful for browser environments or
  * when you need the raw ZIP data.
  *
- * @param multiscales - Multiscales data to write
+ * @param multiscales - NgffMultiscales data to write
  * @param options - Options for writing
  * @returns ZIP file data as Uint8Array
  *
  * @see https://ngff.openmicroscopy.org/rfc/9/index.html
  */
 export async function toNgffZarrOzxData(
-  multiscales: Multiscales,
+  multiscales: NgffMultiscales,
   options: ToNgffZarrOzxOptions = {},
 ): Promise<Uint8Array> {
   const enabledRfcs = options.enabledRfcs;
@@ -652,11 +652,11 @@ export async function toNgffZarrOzxData(
  */
 async function _writeToMemoryStore(
   store: MemoryStore,
-  multiscales: Multiscales,
+  multiscales: NgffMultiscales,
   enabledRfcs?: number[],
   onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
 ): Promise<void> {
-  await writeMultiscalesToMemoryStore(
+  await writeNgffMultiscalesToMemoryStore(
     store,
     multiscales,
     enabledRfcs,
