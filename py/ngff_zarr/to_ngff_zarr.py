@@ -585,6 +585,23 @@ def _prepare_zarr_kwargs(to_zarr_kwargs: dict):
             to_zarr_kwargs["dimension_separator"] = "/"
             to_zarr_kwargs.pop("chunk_key_encoding", None)
 
+    # Old dask (< 2025.12) passes kwargs to zarr.create() which only accepts
+    # 'compressor' (singular).  Newer dask uses zarr.create_array() which
+    # accepts 'compressors' (plural).  We normalise here so the rest of the
+    # code can always build kwargs with the plural form for zarr v3.
+    if IS_ZARR_V3_PLUS and not DASK_SUPPORTS_SHARDING:
+        _sentinel = object()
+        compressors_val = to_zarr_kwargs.pop("compressors", _sentinel)
+        if compressors_val is not _sentinel:
+            if compressors_val is None:
+                to_zarr_kwargs["compressor"] = None
+            elif isinstance(compressors_val, (list, tuple)):
+                to_zarr_kwargs["compressor"] = (
+                    compressors_val[0] if compressors_val else None
+                )
+            else:
+                to_zarr_kwargs["compressor"] = compressors_val
+
     # New dask doesn't accept zarr_format in zarr_array_kwargs
     if DASK_SUPPORTS_SHARDING:
         to_zarr_kwargs.pop("zarr_format", None)
@@ -646,14 +663,11 @@ def _write_array_direct(
         cleaned_sharding_kwargs = sharding_kwargs
 
     # Translate user-supplied compression settings into format-appropriate kwargs.
-    # zarr v3's ``zarr.create_array`` (called by ``dask.array.to_zarr``) only
-    # accepts ``compressors`` (plural) — even for zarr format 2.  zarr v2's
-    # ``open_array`` / ``open`` uses ``compressor`` (singular).
+    # zarr v3's ``zarr.create_array`` uses ``compressors`` (plural).  When the
+    # dask path is taken, ``_prepare_zarr_kwargs`` converts back to singular
+    # for older dask versions that call ``zarr.create()`` instead.
     compression_kwargs = {}
     if IS_ZARR_V3_PLUS:
-        # zarr v3's create_array() uses 'compressors' (plural) for all formats.
-        # dask.array.to_zarr() forwards kwargs to zarr.create_array(), so we
-        # must always use the plural form when zarr v3 is installed.
         if user_compressors is not None:
             compression_kwargs["compressors"] = user_compressors
         elif has_compressor:
