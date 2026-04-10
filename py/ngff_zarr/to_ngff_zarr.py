@@ -40,6 +40,18 @@ zarr_version = Version(zarr.__version__)
 IS_ZARR_V3_PLUS = zarr_version.major >= 3
 DASK_SUPPORTS_SHARDING = Version(dask_version) >= Version("2025.12.0")
 
+# Detect whether dask.array.to_zarr uses Group.create_array() (which rejects
+# ``zarr_format`` but inherits it from the group) or top-level
+# ``zarr.create_array()`` (which needs ``zarr_format`` to avoid defaulting to
+# format 3).  Changed in dask ~2026.3.0.
+_DASK_USES_GROUP_CREATE = False
+if DASK_SUPPORTS_SHARDING:
+    import inspect as _inspect
+    import re as _re
+
+    _src = _inspect.getsource(dask.array.core.to_zarr)
+    _DASK_USES_GROUP_CREATE = bool(_re.search(r"root\s*=\s*zarr\.open_group", _src))
+
 ScaleStrategy = Literal["pad", "exact"]
 
 
@@ -586,9 +598,8 @@ def _prepare_zarr_kwargs(to_zarr_kwargs: dict):
             to_zarr_kwargs.pop("chunk_key_encoding", None)
 
     # Old dask (< 2025.12) passes kwargs to zarr.create() which only accepts
-    # 'compressor' (singular).  Newer dask uses zarr.create_array() which
-    # accepts 'compressors' (plural).  We normalise here so the rest of the
-    # code can always build kwargs with the plural form for zarr v3.
+    # 'compressor' (singular).  Newer dask uses Group.create_array() which
+    # accepts 'compressors' (plural).
     if IS_ZARR_V3_PLUS and not DASK_SUPPORTS_SHARDING:
         _sentinel = object()
         compressors_val = to_zarr_kwargs.pop("compressors", _sentinel)
@@ -601,9 +612,11 @@ def _prepare_zarr_kwargs(to_zarr_kwargs: dict):
                 )
             else:
                 to_zarr_kwargs["compressor"] = compressors_val
-
-    # New dask doesn't accept zarr_format in zarr_array_kwargs
-    if DASK_SUPPORTS_SHARDING:
+    # Dask versions that use Group.create_array() (< ~2026.3) reject
+    # zarr_format (it's inherited from the group).  Newer dask uses
+    # zarr.create_array() directly and NEEDS zarr_format to avoid
+    # defaulting to format 3.
+    if DASK_SUPPORTS_SHARDING and _DASK_USES_GROUP_CREATE:
         to_zarr_kwargs.pop("zarr_format", None)
 
 
@@ -663,9 +676,9 @@ def _write_array_direct(
         cleaned_sharding_kwargs = sharding_kwargs
 
     # Translate user-supplied compression settings into format-appropriate kwargs.
-    # zarr v3's ``zarr.create_array`` uses ``compressors`` (plural).  When the
-    # dask path is taken, ``_prepare_zarr_kwargs`` converts back to singular
-    # for older dask versions that call ``zarr.create()`` instead.
+    # zarr v3's ``zarr.create_array`` uses ``compressors`` (plural).  When
+    # older dask is used (< 2025.12, calls ``zarr.create()``),
+    # ``_prepare_zarr_kwargs`` converts back to singular ``compressor``.
     compression_kwargs = {}
     if IS_ZARR_V3_PLUS:
         if user_compressors is not None:
@@ -676,14 +689,13 @@ def _write_array_direct(
             elif zarr_fmt == 3:
                 # zarr format 3 needs zarr v3 codec objects
                 v3_codec = _numcodecs_to_zarr_v3_codec(user_compressor)
-                if v3_codec is not None:
-                    compression_kwargs["compressors"] = [v3_codec]
-                else:
-                    # Fallback: pass numcodecs object directly; zarr v3 can
-                    # wrap it via its numcodecs compatibility layer.
-                    compression_kwargs["compressors"] = [user_compressor]
+                compression_kwargs["compressors"] = (
+                    [v3_codec] if v3_codec is not None else [user_compressor]
+                )
             else:
-                # zarr format 2: pass numcodecs objects directly
+                # zarr format 2: numcodecs objects are accepted by
+                # Group.create_array() (used by new dask) when the group
+                # is format 2.
                 compression_kwargs["compressors"] = [user_compressor]
         if user_filters is not None:
             compression_kwargs["filters"] = user_filters
