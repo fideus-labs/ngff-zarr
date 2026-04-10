@@ -40,6 +40,18 @@ zarr_version = Version(zarr.__version__)
 IS_ZARR_V3_PLUS = zarr_version.major >= 3
 DASK_SUPPORTS_SHARDING = Version(dask_version) >= Version("2025.12.0")
 
+# Detect whether dask.array.to_zarr uses Group.create_array() (which rejects
+# ``zarr_format`` but inherits it from the group) or top-level
+# ``zarr.create_array()`` (which needs ``zarr_format`` to avoid defaulting to
+# format 3).  Changed in dask ~2026.3.0.
+_DASK_USES_GROUP_CREATE = False
+if DASK_SUPPORTS_SHARDING:
+    import inspect as _inspect
+    import re as _re
+
+    _src = _inspect.getsource(dask.array.core.to_zarr)
+    _DASK_USES_GROUP_CREATE = bool(_re.search(r"root\s*=\s*zarr\.open_group", _src))
+
 ScaleStrategy = Literal["pad", "exact"]
 
 
@@ -534,8 +546,26 @@ def _prepare_zarr_kwargs(to_zarr_kwargs: dict):
             to_zarr_kwargs["dimension_separator"] = "/"
             to_zarr_kwargs.pop("chunk_key_encoding", None)
 
-    # New dask doesn't accept zarr_format in zarr_array_kwargs
-    if DASK_SUPPORTS_SHARDING:
+    # Old dask (< 2025.12) passes kwargs to zarr.create() which only accepts
+    # 'compressor' (singular).  Newer dask uses Group.create_array() which
+    # accepts 'compressors' (plural).
+    if IS_ZARR_V3_PLUS and not DASK_SUPPORTS_SHARDING:
+        _sentinel = object()
+        compressors_val = to_zarr_kwargs.pop("compressors", _sentinel)
+        if compressors_val is not _sentinel:
+            if compressors_val is None:
+                to_zarr_kwargs["compressor"] = None
+            elif isinstance(compressors_val, (list, tuple)):
+                to_zarr_kwargs["compressor"] = (
+                    compressors_val[0] if compressors_val else None
+                )
+            else:
+                to_zarr_kwargs["compressor"] = compressors_val
+    # Dask versions that use Group.create_array() (< ~2026.3) reject
+    # zarr_format (it's inherited from the group).  Newer dask uses
+    # zarr.create_array() directly and NEEDS zarr_format to avoid
+    # defaulting to format 3.
+    if DASK_SUPPORTS_SHARDING and _DASK_USES_GROUP_CREATE:
         to_zarr_kwargs.pop("zarr_format", None)
 
 
