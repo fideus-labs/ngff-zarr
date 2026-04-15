@@ -1,3 +1,167 @@
+## ts-v0.18.0 (2026-04-15)
+
+### ♻️ Refactoring
+
+- rename `Multiscales` to `NgffMultiscales` across py, ts, mcp ([1d0c572](https://github.com/fideus-labs/ngff-zarr/commit/1d0c5724fdd7ba86679f57b3343332a44d1aff5d))
+
+### ✨ Features
+
+- **py,ts**: rename from_ngff_zarr/fromNgffZarr to from_ome_zarr/fromOmeZarr ([84a20b2](https://github.com/fideus-labs/ngff-zarr/commit/84a20b28bce135e4009197b7671fa9ad21e772a0))
+- **py,ts**: rename to_ngff_zarr/toNgffZarr to to_ome_zarr/toOmeZarr ([9431546](https://github.com/fideus-labs/ngff-zarr/commit/94315466d03b7c3e73a3e42fc7e236c428f1d95c))
+- update default OME-Zarr version from 0.4 to 0.5 ([4e60c07](https://github.com/fideus-labs/ngff-zarr/commit/4e60c077b3adcf6f4ef827a1cc112ca8e340f22c))
+- **py,ts**: add bidirectional anatomical orientation ↔ ITK direction matrix conversion ([e427ca4](https://github.com/fideus-labs/ngff-zarr/commit/e427ca4e5e131a97b9b566a5fd79ac6020110dd9))
+
+### 🐛 Bug Fixes
+
+- resolve merge conflicts with main branch ([af2a8eb](https://github.com/fideus-labs/ngff-zarr/commit/af2a8eb4c5e4aa995d7afd79e92a574549db3dfc))
+- **ts**: fix TypeScript test failures - handle v0.5 ome namespace in metadata access ([44b5cfb](https://github.com/fideus-labs/ngff-zarr/commit/44b5cfb74cbf1fb8eec7d3490844b5ee0bfcbfc1))
+
+## ts-v0.15.1 (2026-03-10)
+
+### ♻️ Refactoring
+
+- **ts**: named WellImage export ([5a647e6](https://github.com/fideus-labs/ngff-zarr/commit/5a647e670e021e31bf5c3d4f4ee4cf6621a074c3))
+
+### 🐛 Bug Fixes
+
+- **ts**: use number | undefined in WellImage interface for exactOptionalPropertyTypes ([5feb06a](https://github.com/fideus-labs/ngff-zarr/commit/5feb06afcf051e487e7c4c8e209ef075b808f594))
+- **ts**: resolve duplicate WellImage identifier and use ZodType annotation ([7d6d8ba](https://github.com/fideus-labs/ngff-zarr/commit/7d6d8ba2533941ef60ed6c59ebece19656cb9301))
+- **ts**: add explicit type annotation to WellImageSchema for JSR public API ([c177cd3](https://github.com/fideus-labs/ngff-zarr/commit/c177cd31490cbd099eeabf7cd10ef979a33918d8))
+
+## ts-v0.15.0 (2026-03-04)
+
+### ✨ Features
+
+- **py,ts**: relax well image path constraints per ome/ngff-spec#71 ([32b7723](https://github.com/fideus-labs/ngff-zarr/commit/32b7723a79698272dea694348f24505ff8efa6d9))
+
+### 🐛 Bug Fixes
+
+- **ci**: avoid duplicate pixi binary install in release workflow ([07dbd36](https://github.com/fideus-labs/ngff-zarr/commit/07dbd3642a3dc44fb06f48523fcf0221d1d00607))
+
+## ts-v0.14.0 (2026-02-24)
+
+### ✨ Features
+
+- **ts**: add configurable worker pool size via config.workerPoolSize ([3b308dd](https://github.com/fideus-labs/ngff-zarr/commit/3b308dd11af49d610c801d5074ed4a04f40aa8a0))
+
+## ts-v0.13.0 (2026-02-20)
+
+### ⚡ Performance
+
+- **ts**: cap worker pool to 16 ([66834bb](https://github.com/fideus-labs/ngff-zarr/commit/66834bb90d0418db60dcb0304ad4540107f701e4))
+
+## ts-v0.12.3 (2026-02-18)
+
+### 🐛 Bug Fixes
+
+- **ts**: address character replacement for inline worker ([1824b25](https://github.com/fideus-labs/ngff-zarr/commit/1824b25e50663d452ffda46e1ef5ad4ea648ffb1))
+
+## ts-v0.12.2 (2026-02-18)
+
+### 🐛 Bug Fixes
+
+- **ts**: always build bundle for npm package ([38de129](https://github.com/fideus-labs/ngff-zarr/commit/38de129da66dee80b26c37f2b5dd819547fb1b32))
+
+## ts-v0.12.1 (2026-02-18)
+
+### 🐛 Bug Fixes
+
+- **ts**: handle padded edge chunks and fix biased reservoir merge ([492a3a2](https://github.com/fideus-labs/ngff-zarr/commit/492a3a29dceb78bd1572ccf3e8993a8c8d4d4632))
+- **ts**: add explicit return type to defaultCodecs public function ([d488baa](https://github.com/fideus-labs/ngff-zarr/commit/d488baae644c5b5f0c17e9bf95e23fd6f7f170a3))
+
+## ts-v0.12.0 (2026-02-17)
+
+### ✨ Features
+
+- **ts**: add 2D support and comprehensive tests for direction matrix handling ([83ff58f](https://github.com/fideus-labs/ngff-zarr/commit/83ff58f4d503e080197793d7c164a8fbace2565d))
+- **ts**: derive anatomical orientation from ITK direction matrix ([d3e55d1](https://github.com/fideus-labs/ngff-zarr/commit/d3e55d1d69463d26522e849c7d12525064d906f3))
+- **ts**: add codecs option to toMultiscales for skipping blosc compression ([5bebee3](https://github.com/fideus-labs/ngff-zarr/commit/5bebee309c2d5ebc2768e65aac33936b978b910a))
+
+### 🐛 Bug Fixes
+
+- **ci**: correct new contributor detection and filter bots ([836992d](https://github.com/fideus-labs/ngff-zarr/commit/836992dd0094aaf0c8036200e7de606a628094da))
+
+## ts-v0.11.0 (2026-02-15)
+
+### ♻️ Refactoring
+
+- **ts**: extract chunk fallback logic and rename parameter for clarity ([605b1bb](https://github.com/fideus-labs/ngff-zarr/commit/605b1bbfc6151a6f4da8568437dbb148ab3178b6))
+
+### ✨ Features
+
+- **ts**: add onProgress callback to computeOmeroFromNgffImage and toNgffZarrOzx ([4d49305](https://github.com/fideus-labs/ngff-zarr/commit/4d49305b68124c7f7f472ba3195b65ac7edd8c82))
+- **ts**: export ngffImageToItkImage from browser entry point ([423c796](https://github.com/fideus-labs/ngff-zarr/commit/423c796e7350b252223b9b4d7ee4190c8b4f8999))
+
+## ts-v0.10.0 (2026-02-15)
+
+### ✨ Features
+
+- **ts**: add support for general zarrita stores to fromNgffZarr ([fafaeb4](https://github.com/fideus-labs/ngff-zarr/commit/fafaeb44078c6dc515b73cfd49dcd3661caa7a86))
+- **ts**: add support general zarrita stores to  fromNgffZarr ([29f5bd0](https://github.com/fideus-labs/ngff-zarr/commit/29f5bd00f48c8746a41af6e0f80692e1a7017251))
+
+### 🐛 Bug Fixes
+
+- **ts**: reorder store type checks to avoid inconsistent behavior ([4bef960](https://github.com/fideus-labs/ngff-zarr/commit/4bef960e05bd547c7f61bc1d38b5701bdc669155))
+
+## ts-v0.9.0 (2026-02-14)
+
+### ♻️ Refactoring
+
+- **ts**: apply PR review feedback for type safety and performance ([46da7a2](https://github.com/fideus-labs/ngff-zarr/commit/46da7a2bb49f7815ffb30261ed8fec1457aefdd1))
+
+### ✨ Features
+
+- **ts**: replace Comlink OMERO computation with unified worker-pool implementation ([e11eb63](https://github.com/fideus-labs/ngff-zarr/commit/e11eb6348de386636f5bf4d6d0fd24904cdbdc4b))
+
+### 🐛 Bug Fixes
+
+- **ts**: resolve CI formatting and type-checking failures ([a94d022](https://github.com/fideus-labs/ngff-zarr/commit/a94d022c33a4868eb22fb93652cb466cc70a9f64))
+- **ci**: guard printf against names starting with dash ([7ef5d40](https://github.com/fideus-labs/ngff-zarr/commit/7ef5d406a6c6c8495e7b0652cedb8ec2656d82dc))
+
+## ts-v0.8.0 (2026-02-12)
+
+### ✨ Features
+
+- **ts**: always use highest resolution for OMERO statistics ([c3ae65f](https://github.com/fideus-labs/ngff-zarr/commit/c3ae65fbfb0214e6a861df2523f26b9066cca400))
+
+### 🐛 Bug Fixes
+
+- **ts**: handle 2D multi-component images in itkImageToNgffImage ([962a017](https://github.com/fideus-labs/ngff-zarr/commit/962a01780874cc2162ac706f26b377408722f331))
+
+## ts-v0.7.5 (2026-02-11)
+
+### 🐛 Bug Fixes
+
+- **ts**: do not always set method undefined with fromNgffZarr ([20bd29a](https://github.com/fideus-labs/ngff-zarr/commit/20bd29ab44a0cbf51c86f95b134d183d353380e6))
+
+## ts-v0.7.4 (2026-02-10)
+
+### ⚡ Performance
+
+- **ts**: add cache option to fromNgffZarr with fizarrita 1.2.0 ([cd84d9e](https://github.com/fideus-labs/ngff-zarr/commit/cd84d9edc4057b3d6fc0c802924da1ab58452de8))
+
+### 🐛 Bug Fixes
+
+- **ts**: use spec-compliant blosc codec shuffle string and typesize ([938cfb6](https://github.com/fideus-labs/ngff-zarr/commit/938cfb6fff73c5af6ae11cf47e8bd4961c0672a4))
+
+## ts-v0.7.3 (2026-02-09)
+
+### 🐛 Bug Fixes
+
+- **ts**: fizarrita bump for more reliable shape estimation ([283c925](https://github.com/fideus-labs/ngff-zarr/commit/283c925caf6350655e7b4a40647bb55b4ab4e21d))
+
+## ts-v0.7.2 (2026-02-08)
+
+### 🐛 Bug Fixes
+
+- **ts**: bump fizarrita for better chunk shape detection ([261da2f](https://github.com/fideus-labs/ngff-zarr/commit/261da2fbd2dd0c101db9604c69a8e08ed66db4c6))
+
+## ts-v0.7.1 (2026-02-08)
+
+### 🐛 Bug Fixes
+
+- **ts**: bump fizarrita for edge chunk handling ([ad84810](https://github.com/fideus-labs/ngff-zarr/commit/ad8481021552b26b8e06d755e574aa15ca54a774))
+
 ## ts-v0.17.0 (2026-03-20)
 
 ### ✨ Features
