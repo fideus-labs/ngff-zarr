@@ -1320,7 +1320,7 @@ def _prepare_next_scale(
     return multiscales.images[index + 1]
 
 
-def to_ngff_zarr(
+def to_ome_zarr(
     store: StoreLike,
     multiscales: NgffMultiscales,
     version: str = "0.5",
@@ -1458,6 +1458,10 @@ def to_ngff_zarr(
         scale_strategy=scale_strategy,
         **kwargs,
     )
+
+
+#: Backwards-compatible alias for :func:`to_ome_zarr`.
+to_ngff_zarr = to_ome_zarr
 
 
 def _to_ngff_zarr_impl(

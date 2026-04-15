@@ -17,7 +17,7 @@ zarr_version_major = zarr_version.major
 REMOTE_URL_SCHEMES = ("s3://", "gs://", "azure://", "http://", "https://")
 
 
-def from_ngff_zarr(
+def from_ome_zarr(
     store: StoreLike,
     validate: bool = False,
     version: str | None = None,
@@ -151,7 +151,7 @@ def from_ngff_zarr(
                 f"with {len(plate.metadata.wells)} wells. "
                 f"To convert a specific well/image, provide the full path including well and field:\n"
                 f"  Examples: {examples_str}\n"
-                f"For programmatic access to the full plate, use from_hcs_zarr() instead of from_ngff_zarr()."
+                f"For programmatic access to the full plate, use from_hcs_zarr() instead of from_ome_zarr()."
             )
         except ValueError:
             # Re-raise ValueError (from our error message above)
@@ -162,7 +162,7 @@ def from_ngff_zarr(
                 "The input appears to be an HCS (High Content Screening) plate structure, "
                 "which contains multiple wells and images. To convert a specific well/image, "
                 "provide the full path including well and field (e.g., 'plate.zarr/A/1/0' for well A1, field 0). "
-                "For programmatic access to the full plate, use from_hcs_zarr() instead of from_ngff_zarr()."
+                "For programmatic access to the full plate, use from_hcs_zarr() instead of from_ome_zarr()."
             ) from None
 
     # Check if this is a bioformats2raw container layout
@@ -258,3 +258,7 @@ def from_ngff_zarr(
     metadata_obj.metadata = method_metadata
 
     return NgffMultiscales(images, metadata_obj, method=method)
+
+
+#: Backwards-compatible alias for :func:`from_ome_zarr`.
+from_ngff_zarr = from_ome_zarr

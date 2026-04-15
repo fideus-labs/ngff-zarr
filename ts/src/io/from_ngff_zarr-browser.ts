@@ -13,7 +13,7 @@ import { extractMethodMetadata } from "../utils/parse_metadata.ts";
 
 export type { ChunkCache } from "../utils/worker_pool.ts";
 
-export interface FromNgffZarrOptions {
+export interface FromOmeZarrOptions {
   /** Enable schema validation of OME-Zarr metadata. */
   validate?: boolean;
   /** Expected OME-Zarr version. */
@@ -29,17 +29,20 @@ export interface FromNgffZarrOptions {
   cache?: import("../utils/worker_pool.ts").ChunkCache;
 }
 
+/** @deprecated Use {@link FromOmeZarrOptions} instead. */
+export type FromNgffZarrOptions = FromOmeZarrOptions;
+
 export type MemoryStore = Map<string, Uint8Array>;
 
 /**
- * Browser-compatible version of fromNgffZarr.
+ * Browser-compatible version of fromOmeZarr.
  * Supports HTTP/HTTPS URLs, MemoryStore (Map), FetchStore, and any
  * zarrita-compatible Readable store (e.g. TiffStore from @fideus-labs/fiff).
  * Does NOT support local file paths (use the full version in Node.js/Deno).
  */
-export async function fromNgffZarr(
+export async function fromOmeZarr(
   store: string | MemoryStore | zarr.FetchStore | zarr.Readable,
-  options: FromNgffZarrOptions = {},
+  options: FromOmeZarrOptions = {},
 ): Promise<NgffMultiscales> {
   const validate = options.validate ?? false;
   const version = options.version;
@@ -268,3 +271,6 @@ export async function fromNgffZarr(
     );
   }
 }
+
+/** @deprecated Use {@link fromOmeZarr} instead. */
+export const fromNgffZarr = fromOmeZarr;

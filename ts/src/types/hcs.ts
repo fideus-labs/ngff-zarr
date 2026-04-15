@@ -133,8 +133,8 @@ export class HCSWell {
       return cached;
     }
 
-    // Load the image using fromNgffZarr
-    const { fromNgffZarr } = await import("../io/from_ngff_zarr.ts");
+    // Load the image using fromOmeZarr
+    const { fromOmeZarr } = await import("../io/from_ngff_zarr.ts");
 
     let fullImagePath: string;
     if (typeof this.store === "string") {
@@ -147,7 +147,7 @@ export class HCSWell {
     }
 
     try {
-      const multiscales = await fromNgffZarr(fullImagePath);
+      const multiscales = await fromOmeZarr(fullImagePath);
       this._images.set(imagePath, multiscales);
       return multiscales;
     } catch (error) {

@@ -206,7 +206,7 @@ def test_to_hcs_zarr_legacy_zarr_version(
 
 @patch("ngff_zarr.hcs.zarr.open_group")
 @patch("ngff_zarr.hcs.pkg_version.parse")
-@patch("ngff_zarr.hcs.to_ngff_zarr")
+@patch("ngff_zarr.hcs.to_ome_zarr")
 @patch("pathlib.Path.mkdir")
 def test_write_hcs_well_image_zarr_format_v04(
     mock_mkdir,
@@ -249,7 +249,7 @@ def test_write_hcs_well_image_zarr_format_v04(
 
 @patch("ngff_zarr.hcs.zarr.open_group")
 @patch("ngff_zarr.hcs.pkg_version.parse")
-@patch("ngff_zarr.hcs.to_ngff_zarr")
+@patch("ngff_zarr.hcs.to_ome_zarr")
 @patch("pathlib.Path.mkdir")
 def test_write_hcs_well_image_zarr_format_v05(
     mock_mkdir,

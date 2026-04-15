@@ -43,12 +43,12 @@ from .detect_cli_io_backend import (
     conversion_backends_values,
     detect_cli_io_backend,
 )
-from .from_ngff_zarr import from_ngff_zarr
+from .from_ngff_zarr import from_ome_zarr
 from .methods import Methods, methods_values
 from .ngff_image_to_itk_image import ngff_image_to_itk_image
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
 from .to_multiscales import to_multiscales
-from .to_ngff_zarr import to_ngff_zarr
+from .to_ngff_zarr import to_ome_zarr
 from .v04.zarr_metadata import Omero, OmeroChannel, OmeroWindow, is_unit_supported
 
 
@@ -201,7 +201,7 @@ def _multiscales_to_ngff_zarr(
 
         codec_kwargs["compressor"] = codec_from_name(args.codec, args.compression_level)
 
-    to_ngff_zarr(
+    to_ome_zarr(
         output_store,
         multiscales,
         chunks_per_shard=chunks_per_shard,
@@ -780,8 +780,8 @@ def main():
             sys.exit(1)
 
         if input_backend is ConversionBackend.NGFF_ZARR:
-            # Pass the path directly to from_ngff_zarr to let it handle .ozx files
-            multiscales = from_ngff_zarr(args.input[0])
+            # Pass the path directly to from_ome_zarr to let it handle .ozx files
+            multiscales = from_ome_zarr(args.input[0])
             _multiscales_to_ngff_zarr(
                 live,
                 args,
