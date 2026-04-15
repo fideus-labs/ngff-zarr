@@ -12,7 +12,7 @@ export const ChunkSpecSchema: z.ZodTypeAny = z.union([
   z.record(z.string(), z.union([z.number(), z.array(z.number())]).optional()),
 ]);
 
-export const MultiscalesOptionsSchema: z.ZodTypeAny = z.object({
+export const NgffMultiscalesOptionsSchema: z.ZodTypeAny = z.object({
   images: z.array(NgffImageOptionsSchema),
   metadata: MetadataSchema,
   scaleFactors: z
@@ -21,3 +21,6 @@ export const MultiscalesOptionsSchema: z.ZodTypeAny = z.object({
   method: MethodsSchema.optional(),
   chunks: ChunkSpecSchema.optional(),
 });
+
+// Backwards-compatible alias
+export const MultiscalesOptionsSchema = NgffMultiscalesOptionsSchema;

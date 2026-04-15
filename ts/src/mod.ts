@@ -52,6 +52,7 @@ export {
   createMetadata,
   createMultiscales,
   createNgffImage,
+  createNgffMultiscales,
 } from "./utils/factory.ts";
 export { fromZarrAttrsV04, fromZarrAttrsV05 } from "./utils/from_zarr_attrs.ts";
 export { getMethodMetadata } from "./utils/method_metadata.ts";

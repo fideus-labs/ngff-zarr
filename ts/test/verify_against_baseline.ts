@@ -3,7 +3,7 @@
 import { FileSystemStore } from "@zarrita/storage";
 import * as zarr from "zarrita";
 import { toNgffZarr } from "../src/io/to_ngff_zarr.ts";
-import type { Multiscales } from "../src/types/multiscales.ts";
+import type { NgffMultiscales } from "../src/types/multiscales.ts";
 import { assert } from "@std/assert";
 import { fromFileUrl } from "@std/path";
 import diff from "microdiff";
@@ -244,7 +244,7 @@ function arraysEqual(a?: Uint8Array, b?: Uint8Array): boolean {
 export async function verifyAgainstBaseline(
   datasetName: string,
   baselineName: string,
-  multiscales: Multiscales,
+  multiscales: NgffMultiscales,
   version: "0.4" | "0.5" = "0.4",
 ): Promise<void> {
   const testDataDir = getTestDataDir();
@@ -257,17 +257,17 @@ export async function verifyAgainstBaseline(
   await toNgffZarr(testStore, multiscales, { version });
 
   const equal = await storeEquals(baselineStore, testStore);
-  assert(equal, `Multiscales does not match baseline at ${baselinePath}`);
+  assert(equal, `NgffMultiscales does not match baseline at ${baselinePath}`);
 }
 
 /**
  * Store new multiscales for creating test baselines
  * Helper method for writing output results to disk for later upload as test baseline
  */
-export async function storeNewMultiscales(
+export async function storeNewNgffMultiscales(
   datasetName: string,
   baselineName: string,
-  multiscales: Multiscales,
+  multiscales: NgffMultiscales,
   version: "0.4" | "0.5" = "0.4",
 ): Promise<void> {
   const testDataDir = getTestDataDir();

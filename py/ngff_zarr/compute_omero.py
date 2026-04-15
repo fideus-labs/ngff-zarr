@@ -678,7 +678,7 @@ def compute_omero_from_ngff_image(
     return Omero(channels=channels)
 
 
-def _select_image_for_omero_stats(multiscales: "Multiscales") -> "NgffImage":  # noqa: F821
+def _select_image_for_omero_stats(multiscales: "NgffMultiscales") -> "NgffImage":  # noqa: F821
     """Select the best image level for OMERO statistics computation.
 
     For large multi-level images (e.g. whole-slide images), using the full
@@ -695,7 +695,7 @@ def _select_image_for_omero_stats(multiscales: "Multiscales") -> "NgffImage":  #
     enough.
 
     Args:
-        multiscales: The Multiscales object whose images to search.
+        multiscales: The NgffMultiscales object whose images to search.
 
     Returns:
         The selected NgffImage level.
@@ -733,13 +733,13 @@ def _select_image_for_omero_stats(multiscales: "Multiscales") -> "NgffImage":  #
 
 
 def compute_omero_from_multiscales(
-    multiscales: "Multiscales",  # noqa: F821
+    multiscales: "NgffMultiscales",  # noqa: F821
     quantiles: tuple[float, float] = (0.02, 0.98),
     colors: Sequence[str] | None = None,
     labels: Sequence[str] | None = None,
     dense: bool = False,
 ) -> Omero:
-    """Compute OMERO metadata from a Multiscales object.
+    """Compute OMERO metadata from a NgffMultiscales object.
 
     This is a convenience function that computes OMERO metadata from the
     multiscales pyramid.
@@ -756,7 +756,7 @@ def compute_omero_from_multiscales(
     exhaustion.
 
     Args:
-        multiscales: The Multiscales object to compute metadata for
+        multiscales: The NgffMultiscales object to compute metadata for
         quantiles: Tuple of (low, high) quantile values for the display window.
         colors: Optional list of hex color strings for each channel.
         labels: Optional list of label strings for each channel.
@@ -767,13 +767,13 @@ def compute_omero_from_multiscales(
     Returns:
         Omero metadata with computed window parameters for each channel.
     """
-    from .multiscales import Multiscales
+    from .multiscales import NgffMultiscales
 
-    if not isinstance(multiscales, Multiscales):
-        raise TypeError(f"Expected Multiscales, got {type(multiscales)}")
+    if not isinstance(multiscales, NgffMultiscales):
+        raise TypeError(f"Expected NgffMultiscales, got {type(multiscales)}")
 
     if not multiscales.images:
-        raise ValueError("Multiscales has no images")
+        raise ValueError("NgffMultiscales has no images")
 
     image = _select_image_for_omero_stats(multiscales)
 

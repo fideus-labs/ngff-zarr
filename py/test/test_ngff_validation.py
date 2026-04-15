@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import zarr
 from ngff_zarr import (
-    Multiscales,
+    NgffMultiscales,
     from_ngff_zarr,
     to_multiscales,
     to_ngff_zarr,
@@ -18,7 +18,7 @@ zarr_version = version.parse(zarr.__version__)
 zarr_version_major = zarr_version.major
 
 
-def check_valid_ngff(multiscale: Multiscales):
+def check_valid_ngff(multiscale: NgffMultiscales):
     store = zarr.storage.MemoryStore()
     version = "0.4"
     to_ngff_zarr(store, multiscale, version=version)

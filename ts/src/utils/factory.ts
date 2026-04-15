@@ -3,7 +3,7 @@
 import * as zarr from "zarrita";
 import { defaultCodecs } from "../utils/codecs.ts";
 import { NgffImage } from "../types/ngff_image.ts";
-import { Multiscales } from "../types/multiscales.ts";
+import { NgffMultiscales } from "../types/multiscales.ts";
 import type {
   Axis,
   AxisOrientation,
@@ -120,13 +120,13 @@ export function createMetadata(
   };
 }
 
-export function createMultiscales(
+export function createNgffMultiscales(
   images: NgffImage[],
   metadata: Metadata,
   scaleFactors?: (Record<string, number> | number)[],
   method?: Methods,
-): Multiscales {
-  return new Multiscales({
+): NgffMultiscales {
+  return new NgffMultiscales({
     images: [...images],
     metadata,
     scaleFactors: scaleFactors || undefined,
@@ -134,3 +134,6 @@ export function createMultiscales(
     chunks: undefined,
   });
 }
+
+// Backwards-compatible alias
+export const createMultiscales = createNgffMultiscales;

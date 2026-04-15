@@ -65,11 +65,11 @@ def test_pyramidal_rgb_tiff_channel_consistency():
     assert len(results) == 1, "Should have one series"
     name, result = results[0]
 
-    # Should be a Multiscales object (pyramid was reused)
-    from ngff_zarr.multiscales import Multiscales
+    # Should be a NgffMultiscales object (pyramid was reused)
+    from ngff_zarr.multiscales import NgffMultiscales
 
-    assert isinstance(result, Multiscales), (
-        "Should return Multiscales for pyramidal TIFF"
+    assert isinstance(result, NgffMultiscales), (
+        "Should return NgffMultiscales for pyramidal TIFF"
     )
 
     # Check that we have 3 pyramid levels
@@ -139,9 +139,9 @@ def test_pyramidal_grayscale_tiff():
     assert len(results) == 1
     name, result = results[0]
 
-    from ngff_zarr.multiscales import Multiscales
+    from ngff_zarr.multiscales import NgffMultiscales
 
-    assert isinstance(result, Multiscales)
+    assert isinstance(result, NgffMultiscales)
     assert len(result.images) == 2
 
     # Check dimensions and shapes

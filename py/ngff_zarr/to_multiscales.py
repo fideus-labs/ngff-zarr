@@ -36,7 +36,7 @@ from .methods._itkwasm import (
 )
 from .methods._metadata import get_method_metadata
 from .methods._support import _spatial_dims
-from .multiscales import Multiscales
+from .multiscales import NgffMultiscales
 from .ngff_image import NgffImage
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
 from .task_count import task_count
@@ -494,7 +494,7 @@ def to_multiscales(
     | None = None,
     progress: NgffProgress | NgffProgressCallback | None = None,
     cache: bool | None = None,
-) -> Multiscales:
+) -> NgffMultiscales:
     """
     Generate multiple resolution scales for the OME-NGFF standard data model.
 
@@ -521,7 +521,7 @@ def to_multiscales(
     :type  progress: NgffProgress, NgffProgressCallback
 
     :return: NgffImage for each resolution and NGFF multiscales metadata
-    :rtype : Multiscales
+    :rtype : NgffMultiscales
     """
     ngff_image = data if isinstance(data, NgffImage) else to_ngff_image(data)
 
@@ -718,4 +718,4 @@ def to_multiscales(
         metadata=method_metadata,
     )
 
-    return Multiscales(images, metadata, scale_factors, method, out_chunks)
+    return NgffMultiscales(images, metadata, scale_factors, method, out_chunks)

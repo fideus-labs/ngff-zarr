@@ -3,7 +3,7 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import * as zarr from "zarrita";
 import { NgffImage } from "../src/types/ngff_image.ts";
-import { Multiscales } from "../src/types/multiscales.ts";
+import { NgffMultiscales } from "../src/types/multiscales.ts";
 import { Methods } from "../src/types/methods.ts";
 import { validateColor } from "../src/types/zarr_metadata.ts";
 
@@ -78,7 +78,7 @@ Deno.test("NgffImage with axes units", async () => {
   });
 });
 
-Deno.test("Multiscales creation", async () => {
+Deno.test("NgffMultiscales creation", async () => {
   const store = new Map<string, Uint8Array>();
   const root = zarr.root(store);
 
@@ -118,7 +118,7 @@ Deno.test("Multiscales creation", async () => {
     version: "0.4",
   };
 
-  const multiscales = new Multiscales({
+  const multiscales = new NgffMultiscales({
     images: [ngffImage],
     metadata,
     scaleFactors: [2, 4],

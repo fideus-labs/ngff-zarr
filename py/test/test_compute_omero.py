@@ -305,7 +305,7 @@ class TestComputeOmeroFromMultiscales:
 
     def test_empty_multiscales_raises_error(self):
         """Test that empty multiscales raises an error."""
-        from ngff_zarr import Multiscales
+        from ngff_zarr import NgffMultiscales
         from ngff_zarr.v04.zarr_metadata import Axis, Dataset, Metadata, Scale
 
         # Create empty multiscales
@@ -314,7 +314,7 @@ class TestComputeOmeroFromMultiscales:
             datasets=[Dataset(path="0", coordinateTransformations=[Scale([1.0, 1.0])])],
             coordinateTransformations=None,
         )
-        multiscales = Multiscales(images=[], metadata=metadata)
+        multiscales = NgffMultiscales(images=[], metadata=metadata)
 
         with pytest.raises(ValueError, match="no images"):
             compute_omero_from_multiscales(multiscales)

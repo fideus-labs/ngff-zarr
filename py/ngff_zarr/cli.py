@@ -260,7 +260,7 @@ def _ngff_image_to_multiscales(
     data = ngff_image.data
     _apply_cli_metadata_overrides(ngff_image, args, live)
 
-    # Generate Multiscales
+    # Generate NgffMultiscales
     cache = data.nbytes > config.memory_target
     if not args.output:
         cache = False
@@ -772,7 +772,7 @@ def main():
                 if importlib.util.find_spec("tifffile") is None:
                     raise ImportError("tifffile not found")
 
-                from .multiscales import Multiscales as MultiscalesType
+                from .multiscales import NgffMultiscales as MultiscalesType
                 from .tiff_to_ngff_image import tiff_file_to_ngff_images
 
                 # Get series to convert based on --series argument

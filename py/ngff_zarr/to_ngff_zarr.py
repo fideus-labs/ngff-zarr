@@ -28,7 +28,7 @@ from ._zarr_types import StoreLike
 from .config import config
 from .memory_usage import memory_usage
 from .methods._support import _dim_scale_factors
-from .multiscales import Multiscales
+from .multiscales import NgffMultiscales
 from .rfc4 import is_rfc4_enabled
 from .rfc9_zip import is_ozx_path, write_store_to_zip
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
@@ -347,7 +347,7 @@ def _validate_ngff_parameters(
 
 
 def _prepare_metadata(
-    multiscales: Multiscales, version: str, enabled_rfcs: list[int] | None = None
+    multiscales: NgffMultiscales, version: str, enabled_rfcs: list[int] | None = None
 ) -> tuple[Metadata_v04 | Metadata_v05, tuple[str, ...], dict]:
     """Prepare and convert metadata to the proper version format."""
     metadata = multiscales.metadata
@@ -1029,7 +1029,7 @@ def _prepare_next_scale(
     image,
     index: int,
     nscales: int,
-    multiscales: Multiscales,
+    multiscales: NgffMultiscales,
     store: StoreLike,
     path: str,
     progress: NgffProgress | NgffProgressCallback | None,
@@ -1137,7 +1137,7 @@ def _prepare_next_scale(
 
 def to_ngff_zarr(
     store: StoreLike,
-    multiscales: Multiscales,
+    multiscales: NgffMultiscales,
     version: str = "0.5",
     overwrite: bool = True,
     use_tensorstore: bool = False,
@@ -1155,8 +1155,8 @@ def to_ngff_zarr(
     compliant zipped OME-Zarr file.
     :type  store: StoreLike
 
-    :param multiscales: Multiscales OME-NGFF image pixel data and metadata. Can be generated with ngff_zarr.to_multiscales.
-    :type  multiscales: Multiscales
+    :param multiscales: NgffMultiscales OME-NGFF image pixel data and metadata. Can be generated with ngff_zarr.to_multiscales.
+    :type  multiscales: NgffMultiscales
 
     :param version: OME-Zarr specification version. For .ozx files, version 0.5 is required.
     :type  version: str, optional
@@ -1277,7 +1277,7 @@ def to_ngff_zarr(
 
 def _to_ngff_zarr_impl(
     store: StoreLike,
-    multiscales: Multiscales,
+    multiscales: NgffMultiscales,
     version: str = "0.4",
     overwrite: bool = True,
     use_tensorstore: bool = False,

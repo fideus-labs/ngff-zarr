@@ -137,9 +137,9 @@ ngff-zarr/
 The central workflow follows this pattern across all implementations:
 
 1. **Input → NgffImage** - Convert various formats to `NgffImage`
-2. **NgffImage → Multiscales** - Generate resolution levels via `to_multiscales()`
-3. **Multiscales → OME-Zarr** - Write to zarr stores via `to_ngff_zarr()`
-4. **OME-Zarr → Multiscales** - Read back via `from_ngff_zarr()`
+2. **NgffImage → NgffMultiscales** - Generate resolution levels via `to_multiscales()`
+3. **NgffMultiscales → OME-Zarr** - Write to zarr stores via `to_ngff_zarr()`
+4. **OME-Zarr → NgffMultiscales** - Read back via `from_ngff_zarr()`
 
 ## 🛠️ Development Commands
 

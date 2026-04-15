@@ -20,16 +20,16 @@ The central workflow follows this pattern across all implementations:
 
 1. **Input → NgffImage**: Convert various formats to `NgffImage` (single scale +
    metadata)
-2. **NgffImage → Multiscales**: Generate multiple resolution levels via
+2. **NgffImage → NgffMultiscales**: Generate multiple resolution levels via
    `to_multiscales()`
-3. **Multiscales → OME-Zarr**: Write to zarr stores via `to_ngff_zarr()`
-4. **OME-Zarr → Multiscales**: Read back via `from_ngff_zarr()`
+3. **NgffMultiscales → OME-Zarr**: Write to zarr stores via `to_ngff_zarr()`
+4. **OME-Zarr → NgffMultiscales**: Read back via `from_ngff_zarr()`
 
 ### Key Data Classes
 
 - **`NgffImage`**: Single-scale image with dims, scale, translation, and
   dask/lazy array data
-- **`Multiscales`**: Container for multiple `NgffImage` scales + OME-Zarr
+- **`NgffMultiscales`**: Container for multiple `NgffImage` scales + OME-Zarr
   metadata
 - **`Metadata`**: OME-Zarr spec metadata (axes, datasets, coordinate
   transformations)

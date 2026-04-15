@@ -5,7 +5,7 @@
 import * as zarr from "zarrita";
 
 import { MetadataSchema } from "../schemas/zarr_metadata.ts";
-import { Multiscales } from "../types/multiscales.ts";
+import { NgffMultiscales } from "../types/multiscales.ts";
 import { NgffImage } from "../types/ngff_image.ts";
 import type { Units } from "../types/units.ts";
 import type { Metadata, Omero } from "../types/zarr_metadata.ts";
@@ -40,7 +40,7 @@ export type MemoryStore = Map<string, Uint8Array>;
 export async function fromNgffZarr(
   store: string | MemoryStore | zarr.FetchStore | zarr.Readable,
   options: FromNgffZarrOptions = {},
-): Promise<Multiscales> {
+): Promise<NgffMultiscales> {
   const validate = options.validate ?? false;
   const version = options.version;
 
@@ -253,7 +253,7 @@ export async function fromNgffZarr(
       metadata.metadata = methodMetadata;
     }
 
-    return new Multiscales({
+    return new NgffMultiscales({
       images,
       metadata,
       scaleFactors: undefined,
