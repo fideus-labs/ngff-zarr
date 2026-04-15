@@ -10,7 +10,7 @@ import dask.array as da
 import numpy as np
 import pytest
 import zarr
-from ngff_zarr import NgffImage, to_multiscales
+from ngff_zarr import NgffImage, to_multiscales, to_ngff_zarr
 from ngff_zarr.hcs import HCSPlate, to_hcs_zarr, write_hcs_well_image
 from ngff_zarr.v04.zarr_metadata import (
     Plate,
@@ -355,6 +355,56 @@ def test_write_hcs_well_image_integration(basic_plate_metadata, sample_multiscal
         assert "well" in well_attrs
         assert len(well_attrs["well"]["images"]) == 1
         assert well_attrs["well"]["images"][0]["path"] == "0"
+
+
+def test_to_ngff_zarr_uses_zarr_format_2_for_version_04():
+    """Test that to_ngff_zarr with version=0.4 creates zarr v2 format output.
+
+    Regression test for https://github.com/fideus-labs/ngff-zarr/issues/478
+    When calling to_ngff_zarr with version="0.4", the output should be zarr v2 format
+    (with .zgroup and .zattrs files) not zarr v3 format (with zarr.json files).
+    """
+    from ngff_zarr import to_ngff_image
+
+    data = np.random.randint(0, 256, size=(1, 1, 16, 256, 256), dtype=np.uint8)
+    image = to_ngff_image(
+        data,
+        dims=["t", "c", "z", "y", "x"],
+        scale={"t": 1.0, "c": 1.0, "z": 1.0, "y": 1.0, "x": 1.0},
+        translation={"t": 0.0, "c": 0.0, "z": 0.0, "y": 0.0, "x": 0.0},
+    )
+    multiscales = to_multiscales(
+        image,
+        scale_factors=[2, 4],
+        chunks={"t": 1, "c": 1, "z": 16, "y": 64, "x": 64},
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "test04.zarr"
+
+        to_ngff_zarr(str(output_path), multiscales, version="0.4")
+
+        # Zarr format 2 should have .zgroup and .zattrs files
+        assert (output_path / ".zgroup").exists(), (
+            "Expected .zgroup file for zarr format 2 with version 0.4"
+        )
+        assert (output_path / ".zattrs").exists(), (
+            "Expected .zattrs file for zarr format 2 with version 0.4"
+        )
+
+        # Should NOT have zarr.json (zarr v3 format indicator)
+        assert not (output_path / "zarr.json").exists(), (
+            "Should not have zarr.json for zarr format 2 with version 0.4"
+        )
+
+        # Verify metadata structure
+        root = zarr.open_group(str(output_path), mode="r")
+        attrs = root.attrs.asdict()
+
+        # For NGFF 0.4, metadata should be in "multiscales" not "ome"
+        assert "multiscales" in attrs
+        assert "@type" in attrs["multiscales"][0]
+        assert attrs["multiscales"][0]["@type"] == "ngff:Image"
 
 
 if __name__ == "__main__":

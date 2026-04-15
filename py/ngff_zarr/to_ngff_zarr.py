@@ -535,6 +535,8 @@ def _prepare_zarr_kwargs(to_zarr_kwargs: dict):
             to_zarr_kwargs.pop("chunk_key_encoding", None)
 
     # New dask doesn't accept zarr_format in zarr_array_kwargs
+    # For zarr v2 (version 0.4), we use chunk_key_encoding to indicate v2 format
+    # instead of zarr_format. This is set above in the IS_ZARR_V3_PLUS and is_zarr_f2 block.
     if DASK_SUPPORTS_SHARDING:
         to_zarr_kwargs.pop("zarr_format", None)
 
