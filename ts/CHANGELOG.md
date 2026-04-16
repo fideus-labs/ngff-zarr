@@ -97,7 +97,7 @@
 ### ✨ Features
 
 - **ts**: add support for general zarrita stores to fromNgffZarr ([fafaeb4](https://github.com/fideus-labs/ngff-zarr/commit/fafaeb44078c6dc515b73cfd49dcd3661caa7a86))
-- **ts**: add support general zarrita stores to  fromNgffZarr ([29f5bd0](https://github.com/fideus-labs/ngff-zarr/commit/29f5bd00f48c8746a41af6e0f80692e1a7017251))
+- **ts**: add support general zarrita stores to fromNgffZarr ([29f5bd0](https://github.com/fideus-labs/ngff-zarr/commit/29f5bd00f48c8746a41af6e0f80692e1a7017251))
 
 ### 🐛 Bug Fixes
 
