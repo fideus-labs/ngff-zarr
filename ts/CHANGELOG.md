@@ -1,3 +1,9 @@
+## ts-v0.18.1 (2026-04-16)
+
+### 🐛 Bug Fixes
+
+- add pypi-prerelease-mode: if-necessary-or-explicit to ts/pixi.lock ([a84b8a8](https://github.com/fideus-labs/ngff-zarr/commit/a84b8a871ba157ed83524f6cd2f0d0d1101b1299))
+
 ## ts-v0.18.0 (2026-04-15)
 
 ### ♻️ Refactoring
