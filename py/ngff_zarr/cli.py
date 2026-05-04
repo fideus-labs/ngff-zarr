@@ -43,12 +43,12 @@ from .detect_cli_io_backend import (
     conversion_backends_values,
     detect_cli_io_backend,
 )
-from .from_ngff_zarr import from_ngff_zarr
+from .from_ngff_zarr import from_ome_zarr
 from .methods import Methods, methods_values
 from .ngff_image_to_itk_image import ngff_image_to_itk_image
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
 from .to_multiscales import to_multiscales
-from .to_ngff_zarr import to_ngff_zarr
+from .to_ngff_zarr import to_ome_zarr
 from .v04.zarr_metadata import Omero, OmeroChannel, OmeroWindow, is_unit_supported
 
 
@@ -189,7 +189,19 @@ def _multiscales_to_ngff_zarr(
             output_store = output_store.root
         else:
             output_store = output_store.path
-    to_ngff_zarr(
+
+    codec_kwargs = {}
+    if args.compression_level is not None and args.codec is None:
+        live.console.print(
+            "[red]Error: --compression-level requires --codec to be specified."
+        )
+        sys.exit(1)
+    if args.codec is not None:
+        from .codecs import codec_from_name
+
+        codec_kwargs["compressor"] = codec_from_name(args.codec, args.compression_level)
+
+    to_ome_zarr(
         output_store,
         multiscales,
         chunks_per_shard=chunks_per_shard,
@@ -197,6 +209,7 @@ def _multiscales_to_ngff_zarr(
         use_tensorstore=args.use_tensorstore,
         version=args.ome_zarr_version,
         enabled_rfcs=args.enable_rfc,
+        **codec_kwargs,
     )
 
 
@@ -260,7 +273,7 @@ def _ngff_image_to_multiscales(
     data = ngff_image.data
     _apply_cli_metadata_overrides(ngff_image, args, live)
 
-    # Generate Multiscales
+    # Generate NgffMultiscales
     cache = data.nbytes > config.memory_target
     if not args.output:
         cache = False
@@ -335,7 +348,7 @@ def main():
     metadata_group.add_argument(
         "--ome-zarr-version",
         help="OME-Zarr version",
-        default="0.4",
+        default="0.5",
         choices=["0.4", "0.5"],
     )
     metadata_group.add_argument(
@@ -442,19 +455,56 @@ def main():
         action="store_true",
         help="Use the TensorStore library for I/O",
     )
+    processing_group.add_argument(
+        "--codec",
+        help="Compression codec: blosc:zstd, blosc:lz4, gzip, zstd, lz4, none. "
+        "Default: zarr's built-in default.",
+        default=None,
+    )
+    processing_group.add_argument(
+        "--compression-level",
+        type=int,
+        help="Compression level (codec-dependent, e.g. 1-9 for gzip, 1-22 for zstd)",
+        default=None,
+    )
 
     args = parser.parse_args()
 
-    # Check that input and output are not the same
+    _REMOTE_SCHEMES = ("s3://", "gs://", "az://", "azure://", "http://", "https://")
+
+    def _is_remote(path_str: str) -> bool:
+        lower = path_str.lower()
+        return any(lower.startswith(scheme) for scheme in _REMOTE_SCHEMES)
+
+    def _maybe_resolve(path_str: str) -> str:
+        if _is_remote(path_str):
+            return path_str
+        return str(Path(path_str).resolve())
+
+    # Check that input and output are not the same.
+    # Resolve local paths to absolute paths for consistent handling across platforms.
+    # Remote URLs (s3://, gs://, http://, etc.) are left unchanged.
     if args.output:
-        output_path = Path(args.output).resolve()
-        input_paths = [Path(inp).resolve() for inp in args.input]
-        if any(output_path == inp for inp in input_paths):
-            parser.error("Input and output file/directory must not be the same.")
+        output_resolved = _maybe_resolve(args.output)
+        input_resolved = [_maybe_resolve(inp) for inp in args.input]
+        if not _is_remote(output_resolved):
+            output_path = Path(output_resolved)
+            if any(
+                not _is_remote(inp) and output_path == Path(inp)
+                for inp in input_resolved
+            ):
+                parser.error("Input and output file/directory must not be the same.")
+
+        # Use resolved paths for all subsequent operations
+        args.output = output_resolved
+        args.input = input_resolved
 
         # Set default OME-Zarr version to 0.5 for .ozx output files
         if args.output.endswith(".ozx") and args.ome_zarr_version == "0.4":
             args.ome_zarr_version = "0.5"
+    else:
+        # Resolve input paths even when no output is specified
+        args.input = [_maybe_resolve(inp) for inp in args.input]
 
     if args.memory_target:
         config.memory_target = dask.utils.parse_bytes(args.memory_target)
@@ -730,8 +780,8 @@ def main():
             sys.exit(1)
 
         if input_backend is ConversionBackend.NGFF_ZARR:
-            # Pass the path directly to from_ngff_zarr to let it handle .ozx files
-            multiscales = from_ngff_zarr(args.input[0])
+            # Pass the path directly to from_ome_zarr to let it handle .ozx files
+            multiscales = from_ome_zarr(args.input[0])
             _multiscales_to_ngff_zarr(
                 live,
                 args,
@@ -747,7 +797,7 @@ def main():
                 if importlib.util.find_spec("tifffile") is None:
                     raise ImportError("tifffile not found")
 
-                from .multiscales import Multiscales as MultiscalesType
+                from .multiscales import NgffMultiscales as MultiscalesType
                 from .tiff_to_ngff_image import tiff_file_to_ngff_images
 
                 # Get series to convert based on --series argument

@@ -7,7 +7,7 @@
 
 import * as zarr from "zarrita";
 
-import type { Multiscales } from "../types/multiscales.ts";
+import type { NgffMultiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import { isRfc4Enabled } from "../types/rfc4.ts";
 import type { Axis } from "../types/zarr_metadata.ts";
@@ -48,17 +48,17 @@ export function processAxesForRfcs(
 }
 
 /**
- * Validate that the Multiscales metadata version is compatible with RFC-9.
+ * Validate that the NgffMultiscales metadata version is compatible with RFC-9.
  * RFC-9 always uses version 0.5.
  *
- * @param multiscales - Multiscales object to validate
+ * @param multiscales - NgffMultiscales object to validate
  * @throws Error if metadata.version is defined and not "0.5"
  */
-export function validateRfc9Version(multiscales: Multiscales): void {
+export function validateRfc9Version(multiscales: NgffMultiscales): void {
   const providedVersion = multiscales.metadata.version;
   if (providedVersion !== undefined && providedVersion !== "0.5") {
     throw new Error(
-      `Inconsistent NGFF version in Multiscales metadata: expected "0.5" for RFC-9 OZX export, but got "${providedVersion}".`,
+      `Inconsistent NGFF version in NgffMultiscales metadata: expected "0.5" for RFC-9 OZX export, but got "${providedVersion}".`,
     );
   }
 }
@@ -72,7 +72,7 @@ export function validateRfc9Version(multiscales: Multiscales): void {
  * @returns Prepared metadata object
  */
 export function prepareRfc9Metadata(
-  multiscales: Multiscales,
+  multiscales: NgffMultiscales,
   enabledRfcs?: number[],
 ): Record<string, unknown> {
   const _version = "0.5";
@@ -122,7 +122,7 @@ function getChunksFromImage(image: NgffImage): number[] {
  */
 export function createRfc9RootAttributes(
   multiscalesMetadata: Record<string, unknown>,
-  multiscales: Multiscales,
+  multiscales: NgffMultiscales,
 ): Record<string, unknown> {
   const _version = "0.5";
 
@@ -146,15 +146,15 @@ export function createRfc9RootAttributes(
  * This is the shared implementation used by both Node and browser versions.
  *
  * @param store - Memory store to write to
- * @param multiscales - Multiscales data to write
+ * @param multiscales - NgffMultiscales data to write
  * @param enabledRfcs - Optional list of RFC numbers to enable
  * @param writeImage - Function to write individual images
  * @param onProgress - Optional progress callback for cumulative chunk
  *   progress across all scale levels
  */
-export async function writeMultiscalesToMemoryStore(
+export async function writeNgffMultiscalesToMemoryStore(
   store: MemoryStore,
-  multiscales: Multiscales,
+  multiscales: NgffMultiscales,
   enabledRfcs: number[] | undefined,
   writeImage: (
     group: zarr.Group<MemoryStore>,

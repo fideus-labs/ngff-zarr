@@ -11,10 +11,19 @@ produces a much smaller dask task graph.
 
 import dask.array as da
 import numpy as np
+import pytest
+import zarr
 from ngff_zarr import Methods, to_multiscales, to_ngff_image, to_ngff_zarr
 from ngff_zarr.methods._support import _can_use_map_blocks_fast_path
+from packaging import version
 from zarr.storage import MemoryStore
 
+zarr_version = version.parse(zarr.__version__)
+
+pytestmark = pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="zarr version >= 3.0.0b2 required for OME-Zarr version >= 0.5",
+)
 # ---------------------------------------------------------------------------
 # Unit tests for the helper
 # ---------------------------------------------------------------------------

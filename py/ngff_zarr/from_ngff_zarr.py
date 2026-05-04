@@ -7,8 +7,8 @@ import zarr
 import zarr.storage
 
 from ._zarr_types import StoreLike
+from .multiscales import NgffMultiscales
 from .rfc9_zip import is_ozx_path, read_ozx_version
-from .to_multiscales import Multiscales
 
 zarr_version = packaging.version.parse(zarr.__version__)
 zarr_version_major = zarr_version.major
@@ -17,14 +17,14 @@ zarr_version_major = zarr_version.major
 REMOTE_URL_SCHEMES = ("s3://", "gs://", "azure://", "http://", "https://")
 
 
-def from_ngff_zarr(
+def from_ome_zarr(
     store: StoreLike,
     validate: bool = False,
     version: str | None = None,
     storage_options: dict | None = None,
-) -> Multiscales:
+) -> NgffMultiscales:
     """
-    Read an OME-Zarr NGFF Multiscales data structure from a Zarr store.
+    Read an OME-Zarr NGFF multiscales data structure (NgffMultiscales) from a Zarr store.
 
     store : StoreLike
         Store or path to directory in file system. Can be a string URL
@@ -110,6 +110,14 @@ def from_ngff_zarr(
         )
     root = zarr.open_group(store, mode="r", **format_kwargs)
 
+    # When auto-detecting version (no explicit version provided) on zarr-python 3,
+    # zarr may prefer a spurious zarr.json (format 3) over .zgroup (format 2),
+    # resulting in empty root attributes. Fall back to zarr_format=2 in that case.
+    if not version and zarr_version_major >= 3:
+        root_attrs_check = root.attrs.asdict()
+        if not root_attrs_check:
+            root = zarr.open_group(store, mode="r", zarr_format=2)
+
     # Check root-level attributes first to see if this is an HCS plate
     root_attrs_initial = root.attrs.asdict()
     is_hcs_plate_root = _is_hcs_plate(root_attrs_initial)
@@ -143,7 +151,7 @@ def from_ngff_zarr(
                 f"with {len(plate.metadata.wells)} wells. "
                 f"To convert a specific well/image, provide the full path including well and field:\n"
                 f"  Examples: {examples_str}\n"
-                f"For programmatic access to the full plate, use from_hcs_zarr() instead of from_ngff_zarr()."
+                f"For programmatic access to the full plate, use from_hcs_zarr() instead of from_ome_zarr()."
             )
         except ValueError:
             # Re-raise ValueError (from our error message above)
@@ -154,7 +162,7 @@ def from_ngff_zarr(
                 "The input appears to be an HCS (High Content Screening) plate structure, "
                 "which contains multiple wells and images. To convert a specific well/image, "
                 "provide the full path including well and field (e.g., 'plate.zarr/A/1/0' for well A1, field 0). "
-                "For programmatic access to the full plate, use from_hcs_zarr() instead of from_ngff_zarr()."
+                "For programmatic access to the full plate, use from_hcs_zarr() instead of from_ome_zarr()."
             ) from None
 
     # Check if this is a bioformats2raw container layout
@@ -266,4 +274,8 @@ def from_ngff_zarr(
     metadata_obj.type = method_type
     metadata_obj.metadata = method_metadata
 
-    return Multiscales(images, metadata_obj, method=method)
+    return NgffMultiscales(images, metadata_obj, method=method)
+
+
+#: Backwards-compatible alias for :func:`from_ome_zarr`.
+from_ngff_zarr = from_ome_zarr

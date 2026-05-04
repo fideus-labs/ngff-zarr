@@ -14,6 +14,8 @@ export {
   type ChunkCache,
   fromNgffZarr,
   type FromNgffZarrOptions,
+  fromOmeZarr,
+  type FromOmeZarrOptions,
   type MemoryStore,
 } from "./io/from_ngff_zarr-browser.ts";
 // ITK-Wasm conversion utilities
@@ -41,6 +43,10 @@ export {
   type ToNgffZarrOptions,
   toNgffZarrOzx,
   type ToNgffZarrOzxOptions,
+  toOmeZarr,
+  type ToOmeZarrOptions,
+  toOmeZarrOzx,
+  type ToOmeZarrOzxOptions,
 } from "./io/to_ngff_zarr-browser.ts";
 // Browser-compatible processing modules
 export * from "./process/to_multiscales-browser.ts";
@@ -55,8 +61,13 @@ export * from "./types/multiscales.ts";
 export * from "./types/ngff_image.ts";
 export * from "./types/units.ts";
 export * from "./types/zarr_metadata.ts";
-export type { ZarrCodec } from "./utils/codecs.ts";
-export { bytesOnlyCodecs, defaultCodecs } from "./utils/codecs.ts";
+export type { CodecName, ZarrCodec } from "./utils/codecs.ts";
+export {
+  AVAILABLE_CODECS,
+  bytesOnlyCodecs,
+  codecFromName,
+  defaultCodecs,
+} from "./utils/codecs.ts";
 export type {
   ComputeOmeroFromMultiscalesOptions,
   ComputeOmeroOptions,
@@ -87,6 +98,7 @@ export {
   createMetadata,
   createMultiscales,
   createNgffImage,
+  createNgffMultiscales,
 } from "./utils/factory.ts";
 export { getMethodMetadata } from "./utils/method_metadata.ts";
 export {

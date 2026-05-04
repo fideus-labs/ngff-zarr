@@ -6,6 +6,7 @@
 from .__about__ import __version__
 from ._supported_versions import SUPPORTED_VERSIONS
 from .cli_input_to_ngff_image import cli_input_to_ngff_image
+from .codecs import codec_from_name, get_available_codecs
 from .compute_omero import (
     GLASBEY_COLORS,
     compute_omero_from_multiscales,
@@ -13,7 +14,7 @@ from .compute_omero import (
 )
 from .config import config
 from .detect_cli_io_backend import ConversionBackend, detect_cli_io_backend
-from .from_ngff_zarr import from_ngff_zarr
+from .from_ngff_zarr import from_ngff_zarr, from_ome_zarr
 from .hcs import (
     HCSPlate,
     HCSPlateWriter,
@@ -31,7 +32,7 @@ from .lif_to_ngff_image import (
 )
 from .memory_usage import memory_usage
 from .methods import Methods
-from .multiscales import Multiscales
+from .multiscales import Multiscales, NgffMultiscales
 from .ngff_image import NgffImage
 from .ngff_image_to_itk_image import ngff_image_to_itk_image
 from .nibabel_image_to_ngff_image import (
@@ -62,7 +63,7 @@ from .tiff_to_ngff_image import (
 )
 from .to_multiscales import to_multiscales
 from .to_ngff_image import to_ngff_image
-from .to_ngff_zarr import ScaleStrategy, to_ngff_zarr
+from .to_ngff_zarr import ScaleStrategy, to_ngff_zarr, to_ome_zarr
 from .v04.zarr_metadata import (
     AxesType,
     Axis,
@@ -100,6 +101,7 @@ __all__ = [
     "compute_omero_from_multiscales",
     "GLASBEY_COLORS",
     "NgffImage",
+    "NgffMultiscales",
     "Multiscales",
     "to_ngff_image",
     "itk_image_to_ngff_image",
@@ -110,13 +112,18 @@ __all__ = [
     "task_count",
     "to_multiscales",
     "Methods",
+    "to_ome_zarr",
     "to_ngff_zarr",
     "ScaleStrategy",
+    "from_ome_zarr",
     "from_ngff_zarr",
     "detect_cli_io_backend",
     "ConversionBackend",
     "cli_input_to_ngff_image",
     "validate",
+    # Codec utilities
+    "codec_from_name",
+    "get_available_codecs",
     "Metadata",
     "MethodMetadata",
     "AxesType",

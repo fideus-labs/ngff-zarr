@@ -1,3 +1,83 @@
+## py-v0.34.0 (2026-04-15)
+
+### ♻️ Refactoring
+
+- rename `Multiscales` to `NgffMultiscales` across py, ts, mcp ([1d0c572](https://github.com/fideus-labs/ngff-zarr/commit/1d0c5724fdd7ba86679f57b3343332a44d1aff5d))
+
+### ✨ Features
+
+- **py,ts**: rename from_ngff_zarr/fromNgffZarr to from_ome_zarr/fromOmeZarr ([84a20b2](https://github.com/fideus-labs/ngff-zarr/commit/84a20b28bce135e4009197b7671fa9ad21e772a0))
+- **py,ts**: rename to_ngff_zarr/toNgffZarr to to_ome_zarr/toOmeZarr ([9431546](https://github.com/fideus-labs/ngff-zarr/commit/94315466d03b7c3e73a3e42fc7e236c428f1d95c))
+- **py**: add --codec CLI option and shared codec utilities across all packages ([b1c60ee](https://github.com/fideus-labs/ngff-zarr/commit/b1c60ee51482bce4cf5db4ac76f64c91d7195373))
+- update default OME-Zarr version from 0.4 to 0.5 ([4e60c07](https://github.com/fideus-labs/ngff-zarr/commit/4e60c077b3adcf6f4ef827a1cc112ca8e340f22c))
+- **py,ts**: add bidirectional anatomical orientation ↔ ITK direction matrix conversion ([e427ca4](https://github.com/fideus-labs/ngff-zarr/commit/e427ca4e5e131a97b9b566a5fd79ac6020110dd9))
+
+### 🐛 Bug Fixes
+
+- **py**: handle both v2 and v3 array metadata in dimension separator test ([575a814](https://github.com/fideus-labs/ngff-zarr/commit/575a8141792cf1daa14e18809036f960125a7d46))
+- **py**: open dimension separator test array directly by path ([4345a0a](https://github.com/fideus-labs/ngff-zarr/commit/4345a0a055af6f0ffe9a1e150bc25519ab3384b0))
+- **py**: add use_consolidated=False to open_group in dimension separator test ([e1a6405](https://github.com/fideus-labs/ngff-zarr/commit/e1a64052670c7e71c50c72eda061a79a454796d2))
+- **py**: use open_group instead of open_array in dimension separator test ([617bc33](https://github.com/fideus-labs/ngff-zarr/commit/617bc334d8e9a8f1bb88841a50f149098613a405))
+- **py**: fall back to zarr format 2 when auto-detecting version yields empty attrs ([2a66039](https://github.com/fideus-labs/ngff-zarr/commit/2a660391dc8ffdb9cb206b9e28aaa1eb2a31b293))
+- resolve merge conflicts with main branch ([af2a8eb](https://github.com/fideus-labs/ngff-zarr/commit/af2a8eb4c5e4aa995d7afd79e92a574549db3dfc))
+- **py**: add zarr v3 skip marker to test_bin_shrink_map_blocks_fast_path.py ([22a70f2](https://github.com/fideus-labs/ngff-zarr/commit/22a70f2c8a7f6c7b58afaf7f43272d810e725a0c))
+- **py**: fix CI failures - update test metadata access for v0.5 and add zarr v3 skip markers ([61d21e5](https://github.com/fideus-labs/ngff-zarr/commit/61d21e569beb21b040206df3c212ee3f59d0537b))
+- **py**: fix test_legacy_zarr_without_type to preserve list cardinality and reliably persist mutations ([a2c1dd0](https://github.com/fideus-labs/ngff-zarr/commit/a2c1dd082f427bfcd72cd02725e1fcecda7620b0))
+- **py**: improve cli support for additional protocols ([07cc062](https://github.com/fideus-labs/ngff-zarr/commit/07cc062a6d4ceb60a45373fb333a6a2eb2da4733))
+- **py**: resolve relative paths to absolute in CLI for Windows compatibility ([101eb2a](https://github.com/fideus-labs/ngff-zarr/commit/101eb2a0d2d733d7ebe35b1cd15d9beb53aacc9e))
+- **py**: correctly calculate regions in to_ngff_zarr ([76772df](https://github.com/fideus-labs/ngff-zarr/commit/76772df11b7cfc860b38bc3c9ab5b872453e4481))
+- **py**: always use RGB colors for S-axis images, override OME-XML ([b34c700](https://github.com/fideus-labs/ngff-zarr/commit/b34c700606e3b08809aed3f89244109b72840ffb))
+- **py**: make level-selection test deterministic and CI-safe ([71e916d](https://github.com/fideus-labs/ngff-zarr/commit/71e916da84a6bbbc98ad0a8e51b118dc3d73a3ad))
+- **py**: fix wrong OZX display for brightfield RGB images ([6f4f66c](https://github.com/fideus-labs/ngff-zarr/commit/6f4f66c34c67630a4db583d370513defa301b24e))
+
+## py-v0.31.1 (2026-03-10)
+
+### ♻️ Refactoring
+
+- **py**: deterministic ozx content order ([597cd4f](https://github.com/fideus-labs/ngff-zarr/commit/597cd4f7be54dbb47bd8b53418f7fec5029ee2e5))
+
+### ⚡ Performance
+
+- **py**: add map_blocks fast path for bin-shrink downsampling ([54dd014](https://github.com/fideus-labs/ngff-zarr/commit/54dd014dbb96bbd71e58ec9c27369b18f30f4aef))
+- **py**: avoid loading full file into memory for ozx ([04e72af](https://github.com/fideus-labs/ngff-zarr/commit/04e72af0d83cdf1c4174a312b67c874fe3195f68))
+- **py**: stream ozx zip creation to avoid loading entire dataset into memory ([bef151e](https://github.com/fideus-labs/ngff-zarr/commit/bef151e7968c4c290c7b58594feca141491b0be4))
+
+### 🐛 Bug Fixes
+
+- **py**: fix _itkwasm_chunk_bin_shrink_nd dimensionality math and transposed_dims initialization ([5a711b8](https://github.com/fideus-labs/ngff-zarr/commit/5a711b85037388b701971ff83c958968c1e3ec17))
+
+## py-v0.33.0 (2026-03-20)
+
+### ✨ Features
+
+- update default OME-Zarr version from 0.4 to 0.5 ([4e60c07](https://github.com/fideus-labs/ngff-zarr/commit/4e60c077b3adcf6f4ef827a1cc112ca8e340f22c))
+
+### 🐛 Bug Fixes
+
+- **py**: handle both v2 and v3 array metadata in dimension separator test ([575a814](https://github.com/fideus-labs/ngff-zarr/commit/575a8141792cf1daa14e18809036f960125a7d46))
+- **py**: open dimension separator test array directly by path ([4345a0a](https://github.com/fideus-labs/ngff-zarr/commit/4345a0a055af6f0ffe9a1e150bc25519ab3384b0))
+- **py**: add use_consolidated=False to open_group in dimension separator test ([e1a6405](https://github.com/fideus-labs/ngff-zarr/commit/e1a64052670c7e71c50c72eda061a79a454796d2))
+- **py**: use open_group instead of open_array in dimension separator test ([617bc33](https://github.com/fideus-labs/ngff-zarr/commit/617bc334d8e9a8f1bb88841a50f149098613a405))
+- **py**: fall back to zarr format 2 when auto-detecting version yields empty attrs ([2a66039](https://github.com/fideus-labs/ngff-zarr/commit/2a660391dc8ffdb9cb206b9e28aaa1eb2a31b293))
+- resolve merge conflicts with main branch ([af2a8eb](https://github.com/fideus-labs/ngff-zarr/commit/af2a8eb4c5e4aa995d7afd79e92a574549db3dfc))
+- **py**: add zarr v3 skip marker to test_bin_shrink_map_blocks_fast_path.py ([22a70f2](https://github.com/fideus-labs/ngff-zarr/commit/22a70f2c8a7f6c7b58afaf7f43272d810e725a0c))
+- **py**: fix CI failures - update test metadata access for v0.5 and add zarr v3 skip markers ([61d21e5](https://github.com/fideus-labs/ngff-zarr/commit/61d21e569beb21b040206df3c212ee3f59d0537b))
+- **py**: fix test_legacy_zarr_without_type to preserve list cardinality and reliably persist mutations ([a2c1dd0](https://github.com/fideus-labs/ngff-zarr/commit/a2c1dd082f427bfcd72cd02725e1fcecda7620b0))
+- **py**: improve cli support for additional protocols ([07cc062](https://github.com/fideus-labs/ngff-zarr/commit/07cc062a6d4ceb60a45373fb333a6a2eb2da4733))
+- **py**: resolve relative paths to absolute in CLI for Windows compatibility ([101eb2a](https://github.com/fideus-labs/ngff-zarr/commit/101eb2a0d2d733d7ebe35b1cd15d9beb53aacc9e))
+
+## py-v0.32.2 (2026-03-16)
+
+### 🐛 Bug Fixes
+
+- **py**: correctly calculate regions in to_ngff_zarr ([76772df](https://github.com/fideus-labs/ngff-zarr/commit/76772df11b7cfc860b38bc3c9ab5b872453e4481))
+
+## py-v0.32.1 (2026-03-12)
+
+### 🐛 Bug Fixes
+
+- **py**: always use RGB colors for S-axis images, override OME-XML ([b34c700](https://github.com/fideus-labs/ngff-zarr/commit/b34c700606e3b08809aed3f89244109b72840ffb))
+
 ## py-v0.32.0 (2026-03-11)
 
 ### ✨ Features

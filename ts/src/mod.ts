@@ -33,8 +33,13 @@ export * from "./types/rfc4.ts";
 export * from "./types/supported_versions.ts";
 export * from "./types/units.ts";
 export * from "./types/zarr_metadata.ts";
-export type { ZarrCodec } from "./utils/codecs.ts";
-export { bytesOnlyCodecs, defaultCodecs } from "./utils/codecs.ts";
+export type { CodecName, ZarrCodec } from "./utils/codecs.ts";
+export {
+  AVAILABLE_CODECS,
+  bytesOnlyCodecs,
+  codecFromName,
+  defaultCodecs,
+} from "./utils/codecs.ts";
 export type {
   ComputeOmeroFromMultiscalesOptions,
   ComputeOmeroOptions,
@@ -52,6 +57,7 @@ export {
   createMetadata,
   createMultiscales,
   createNgffImage,
+  createNgffMultiscales,
 } from "./utils/factory.ts";
 export { fromZarrAttrsV04, fromZarrAttrsV05 } from "./utils/from_zarr_attrs.ts";
 export { getMethodMetadata } from "./utils/method_metadata.ts";

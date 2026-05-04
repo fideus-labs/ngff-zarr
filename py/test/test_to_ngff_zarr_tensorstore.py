@@ -25,6 +25,10 @@ from ._data import verify_against_baseline
 zarr_version = version.parse(zarr.__version__)
 
 
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="zarr version >= 3.0.0b2 required for OME-Zarr version >= 0.5",
+)
 def test_gaussian_isotropic_scale_factors(input_images):
     pytest.importorskip("tensorstore")
 
@@ -63,6 +67,10 @@ def test_gaussian_isotropic_scale_factors(input_images):
         verify_against_baseline(dataset_name, baseline_name, multiscales)
 
 
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="zarr version >= 3.0.0b2 required for OME-Zarr version >= 0.5",
+)
 def test_large_image_serialization(input_images):
     pytest.importorskip("tensorstore")
 
@@ -84,6 +92,10 @@ def test_large_image_serialization(input_images):
         config.memory_target = default_mem_target
 
 
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="zarr version >= 3.0.0b2 required for OME-Zarr version >= 0.5",
+)
 def test_tensorstore_already_exists_failure():
     """
     Demonstrates the ALREADY_EXISTS failure with use_tensorstore=True during Zarr writing.
@@ -118,7 +130,7 @@ def test_tensorstore_already_exists_failure():
             axes_units={"z": "micrometer", "y": "micrometer", "x": "micrometer"},
         )
 
-        # 2. Create Multiscales (Using a method known to work)
+        # 2. Create NgffMultiscales (Using a method known to work)
         logger.info("  Creating multiscales...")
         start_time_multiscale = time.time()
         multiscales = to_multiscales(
@@ -129,7 +141,7 @@ def test_tensorstore_already_exists_failure():
         )
         end_time_multiscale = time.time()
         logger.info(
-            f"  Multiscales created in {end_time_multiscale - start_time_multiscale:.2f} seconds."
+            f"  NgffMultiscales created in {end_time_multiscale - start_time_multiscale:.2f} seconds."
         )
 
         # 3. Write Zarr (This was failing)

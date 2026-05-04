@@ -94,9 +94,7 @@
         section.className = "test-section";
 
         const resultDiv = document.createElement("div");
-        resultDiv.className = `test-result ${
-          success ? "success" : "error"
-        }`;
+        resultDiv.className = `test-result ${success ? "success" : "error"}`;
 
         const icon = document.createElement("span");
         icon.className = `status-icon ${success ? "success" : "error"}`;
@@ -169,8 +167,7 @@
               "Local file path was NOT rejected - this is unexpected!",
             );
           } catch (error) {
-            const rejectedCorrectly =
-              error.message.includes("browser") ||
+            const rejectedCorrectly = error.message.includes("browser") ||
               error.message.includes("Local file") ||
               error.message.includes("HTTP");
             addTestResult(
@@ -249,8 +246,7 @@
                 "Local file path was NOT rejected - this is unexpected!",
               );
             } catch (error) {
-              const rejectedCorrectly =
-                error.message.includes("browser") ||
+              const rejectedCorrectly = error.message.includes("browser") ||
                 error.message.includes("Local file") ||
                 error.message.includes("MemoryStore");
               addTestResult(
@@ -284,8 +280,7 @@
                 "HTTP URL was NOT rejected - this is unexpected!",
               );
             } catch (error) {
-              const rejectedCorrectly =
-                error.message.includes("read-only") ||
+              const rejectedCorrectly = error.message.includes("read-only") ||
                 error.message.includes("HTTP") ||
                 error.message.includes("MemoryStore");
               addTestResult(

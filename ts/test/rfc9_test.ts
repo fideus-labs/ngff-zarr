@@ -620,7 +620,7 @@ Deno.test("toNgffZarr - throws error on chunksPerShard for .ozx", async () => {
 });
 
 Deno.test("toNgffZarrOzx - rejects conflicting metadata version", async () => {
-  // Test that toNgffZarrOzx throws an error when the Multiscales object
+  // Test that toNgffZarrOzx throws an error when the NgffMultiscales object
   // has a metadata.version that doesn't match the required 0.5
   const store = new Map<string, Uint8Array>();
   const root = zarr.root(store);
@@ -655,7 +655,7 @@ Deno.test("toNgffZarrOzx - rejects conflicting metadata version", async () => {
       await toNgffZarrOzx(ozxPath, multiscales);
     },
     Error,
-    "Inconsistent NGFF version in Multiscales metadata",
+    "Inconsistent NGFF version in NgffMultiscales metadata",
   );
 });
 

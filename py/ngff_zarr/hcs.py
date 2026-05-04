@@ -24,10 +24,10 @@ from typing import Optional
 import zarr
 from packaging import version as pkg_version
 
-from .from_ngff_zarr import from_ngff_zarr
-from .multiscales import Multiscales
+from .from_ngff_zarr import from_ome_zarr
+from .multiscales import NgffMultiscales
 from .rfc9_zip import is_ozx_path, write_store_to_zip
-from .to_ngff_zarr import to_ngff_zarr
+from .to_ngff_zarr import to_ome_zarr
 from .v04.zarr_metadata import (
     Plate,
     PlateAcquisition,
@@ -276,7 +276,7 @@ class HCSWell:
     def images(self) -> list[WellImage]:
         return self.metadata.images
 
-    def get_image(self, field_index: int = 0) -> Multiscales | None:
+    def get_image(self, field_index: int = 0) -> NgffMultiscales | None:
         """Get a field of view (image) by index."""
         if field_index < 0 or field_index >= len(self.metadata.images):
             return None
@@ -294,18 +294,18 @@ class HCSWell:
                 from zarr.storage import StorePath
 
                 store_path = StorePath(self.store, path=image_path)
-                self._images[image_path] = from_ngff_zarr(store_path)
+                self._images[image_path] = from_ome_zarr(store_path)
             elif isinstance(self.store, (str, Path)):
                 # If store is a path string, append the image path
                 full_image_path = Path(self.store) / self.path / image_meta.path
-                self._images[image_path] = from_ngff_zarr(str(full_image_path))
+                self._images[image_path] = from_ome_zarr(str(full_image_path))
             else:
                 # For other store types, try StorePath approach
                 try:
                     from zarr.storage import StorePath
 
                     store_path = StorePath(self.store, path=image_path)
-                    self._images[image_path] = from_ngff_zarr(store_path)
+                    self._images[image_path] = from_ome_zarr(store_path)
                 except (ImportError, Exception):
                     # Fallback: try to convert to path
                     if hasattr(self.store, "path"):
@@ -313,13 +313,13 @@ class HCSWell:
                     else:
                         base_path = str(self.store)
                     full_image_path = Path(base_path) / self.path / image_meta.path
-                    self._images[image_path] = from_ngff_zarr(str(full_image_path))
+                    self._images[image_path] = from_ome_zarr(str(full_image_path))
 
         return self._images[image_path]
 
     def get_image_by_acquisition(
         self, acquisition_id: int, field_index: int = 0
-    ) -> Multiscales | None:
+    ) -> NgffMultiscales | None:
         """Get a field of view by acquisition ID and field index."""
         # Find images for the specified acquisition
         acquisition_images = [
@@ -557,8 +557,8 @@ def to_hcs_zarr(plate: HCSPlate, store) -> None:
 
     # Note: This is a basic implementation that sets up the plate structure.
     # In a full implementation, you would also write the well groups and
-    # their associated image data using the existing to_ngff_zarr functions.
-    # This requires integration with the Multiscales data structure.
+    # their associated image data using the existing to_ome_zarr functions.
+    # This requires integration with the NgffMultiscales data structure.
 
     logging.info(f"HCS plate structure created at {store}")
     logging.info(f"Plate: {plate.metadata.name}")
@@ -708,7 +708,7 @@ class HCSPlateWriter:
 
     def write_well_image(
         self,
-        multiscales: Multiscales,
+        multiscales: NgffMultiscales,
         row_name: str,
         column_name: str,
         field_index: int = 0,
@@ -721,8 +721,8 @@ class HCSPlateWriter:
 
         Parameters
         ----------
-        multiscales : Multiscales
-            Multiscales OME-NGFF image pixel data and metadata for the field of view.
+        multiscales : NgffMultiscales
+            NgffMultiscales OME-NGFF image pixel data and metadata for the field of view.
         row_name : str
             Name of the row (e.g., "A", "B", "C").
         column_name : str
@@ -734,7 +734,7 @@ class HCSPlateWriter:
         well_metadata : Well, optional
             Well-level metadata. If None, will be created automatically.
         **kwargs
-            Additional arguments passed to to_ngff_zarr.
+            Additional arguments passed to to_ome_zarr.
         """
         # Determine which store to write to
         working_store = self._temp_store if self.is_ozx else self.final_store
@@ -756,7 +756,7 @@ class HCSPlateWriter:
 
 def write_hcs_well_image(
     store,
-    multiscales: Multiscales,
+    multiscales: NgffMultiscales,
     plate_metadata: Plate,
     row_name: str,
     column_name: str,
@@ -777,8 +777,8 @@ def write_hcs_well_image(
     ----------
     store : StoreLike
         Store or path to directory in file system where the HCS plate will be written.
-    multiscales : Multiscales
-        Multiscales OME-NGFF image pixel data and metadata for the field of view.
+    multiscales : NgffMultiscales
+        NgffMultiscales OME-NGFF image pixel data and metadata for the field of view.
     plate_metadata : Plate
         Plate-level metadata containing rows, columns, wells, and other plate information.
     row_name : str
@@ -794,7 +794,7 @@ def write_hcs_well_image(
     version : str, optional
         OME-Zarr specification version (default: "0.4").
     **kwargs
-        Additional arguments passed to to_ngff_zarr.
+        Additional arguments passed to to_ome_zarr.
 
     Examples
     --------
@@ -825,7 +825,7 @@ def write_hcs_well_image(
     >>> # Then write individual field images as they are acquired
     >>> nz.write_hcs_well_image(
     ...     store="my_plate.ome.zarr",
-    ...     multiscales=field_image,  # Your Multiscales image
+    ...     multiscales=field_image,  # Your NgffMultiscales image
     ...     plate_metadata=plate_metadata,
     ...     row_name="A",
     ...     column_name="1",
@@ -956,7 +956,7 @@ def write_hcs_well_image(
         field_store_path.mkdir(parents=True, exist_ok=True)
 
         # Write multiscales data directly to the field path
-        to_ngff_zarr(
+        to_ome_zarr(
             store=str(field_store_path),
             multiscales=multiscales,
             version=version,
@@ -972,7 +972,7 @@ def write_hcs_well_image(
                 from zarr.storage import StorePath
 
                 store_path = StorePath(store) / field_path
-                to_ngff_zarr(
+                to_ome_zarr(
                     store=store_path,
                     multiscales=multiscales,
                     version=version,

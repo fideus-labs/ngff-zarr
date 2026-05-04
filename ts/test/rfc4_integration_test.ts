@@ -9,7 +9,7 @@ import { assertEquals } from "@std/assert";
 import * as zarr from "zarrita";
 import { toNgffZarr } from "../src/io/to_ngff_zarr.ts";
 import { fromNgffZarr, type MemoryStore } from "../src/io/from_ngff_zarr.ts";
-import { Multiscales } from "../src/types/multiscales.ts";
+import { NgffMultiscales } from "../src/types/multiscales.ts";
 import { NgffImage } from "../src/types/ngff_image.ts";
 import {
   AnatomicalOrientationValues,
@@ -64,12 +64,12 @@ function calculateStride(shape: number[]): number[] {
   return stride;
 }
 
-// Helper function to create a Multiscales with orientation
+// Helper function to create a NgffMultiscales with orientation
 async function createMultiscalesWithOrientation(
   orientations: Record<string, AnatomicalOrientation>,
   dims: string[] = ["z", "y", "x"],
   shape: number[] = [10, 20, 30],
-): Promise<{ multiscales: Multiscales; store: MemoryStore }> {
+): Promise<{ multiscales: NgffMultiscales; store: MemoryStore }> {
   const store: MemoryStore = new Map();
 
   // Create test array
@@ -123,8 +123,8 @@ async function createMultiscalesWithOrientation(
   // Create metadata
   const metadata = createMetadata(axes, [dataset], "test");
 
-  // Create Multiscales
-  const multiscales = new Multiscales({
+  // Create NgffMultiscales
+  const multiscales = new NgffMultiscales({
     images: [ngffImage],
     metadata,
     scaleFactors: undefined,
@@ -141,6 +141,17 @@ async function readZarrAttrs(
 ): Promise<Record<string, unknown>> {
   const root = await zarr.open(store as zarr.Readable, { kind: "group" });
   return root.attrs as unknown as Record<string, unknown>;
+}
+
+// Helper to get multiscales array from attrs (handles v0.5 ome namespace and v0.4 root)
+function getNgffMultiscalesArray(
+  attrs: Record<string, unknown>,
+): unknown[] {
+  if ("ome" in attrs) {
+    const ome = attrs.ome as Record<string, unknown>;
+    return ome.multiscales as unknown[];
+  }
+  return attrs.multiscales as unknown[];
 }
 
 Deno.test("toNgffZarr writes orientation when enabledRfcs includes 4", async () => {
@@ -162,7 +173,7 @@ Deno.test("toNgffZarr writes orientation when enabledRfcs includes 4", async () 
 
   // Read back and check metadata
   const attrs = await readZarrAttrs(outputStore);
-  const multiscalesArray = attrs.multiscales as unknown[];
+  const multiscalesArray = getNgffMultiscalesArray(attrs);
   const multiscalesMetadata = multiscalesArray[0] as Record<string, unknown>;
   const axesMetadata = multiscalesMetadata.axes as Array<
     Record<string, unknown>
@@ -231,7 +242,7 @@ Deno.test("toNgffZarr omits orientation when enabledRfcs is undefined", async ()
 
   // Read back and check metadata
   const attrs = await readZarrAttrs(outputStore);
-  const multiscalesArray = attrs.multiscales as unknown[];
+  const multiscalesArray = getNgffMultiscalesArray(attrs);
   const multiscalesMetadata = multiscalesArray[0] as Record<string, unknown>;
   const axesMetadata = multiscalesMetadata.axes as Array<
     Record<string, unknown>
@@ -266,7 +277,7 @@ Deno.test("toNgffZarr omits orientation when enabledRfcs is empty", async () => 
 
   // Read back and check metadata
   const attrs = await readZarrAttrs(outputStore);
-  const multiscalesArray = attrs.multiscales as unknown[];
+  const multiscalesArray = getNgffMultiscalesArray(attrs);
   const multiscalesMetadata = multiscalesArray[0] as Record<string, unknown>;
   const axesMetadata = multiscalesMetadata.axes as Array<
     Record<string, unknown>
@@ -301,7 +312,7 @@ Deno.test("toNgffZarr writes orientation when enabledRfcs=[1,2,4,5]", async () =
 
   // Read back and check metadata
   const attrs = await readZarrAttrs(outputStore);
-  const multiscalesArray = attrs.multiscales as unknown[];
+  const multiscalesArray = getNgffMultiscalesArray(attrs);
   const multiscalesMetadata = multiscalesArray[0] as Record<string, unknown>;
   const axesMetadata = multiscalesMetadata.axes as Array<
     Record<string, unknown>
@@ -394,7 +405,7 @@ Deno.test("Round-trip without orientation passes validation", async () => {
   );
   const metadata = createMetadata(axes, [dataset], "test_no_orientation");
 
-  const multiscales = new Multiscales({
+  const multiscales = new NgffMultiscales({
     images: [ngffImage],
     metadata,
     scaleFactors: undefined,
@@ -506,7 +517,7 @@ Deno.test("fromNgffZarr returns undefined axesOrientations when no orientation i
   );
   const metadata = createMetadata(axes, [dataset], "test");
 
-  const multiscales = new Multiscales({
+  const multiscales = new NgffMultiscales({
     images: [ngffImage],
     metadata,
     scaleFactors: undefined,

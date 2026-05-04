@@ -12,7 +12,7 @@ import httpx
 import zarr
 from ngff_zarr import (  # type: ignore[import-untyped]
     config,
-    from_ngff_zarr,
+    from_ome_zarr,
 )
 
 # Import unit validation function
@@ -116,7 +116,7 @@ def analyze_zarr_store(store_path: str) -> StoreInfo:
 
         # Load multiscales
         try:
-            multiscales = from_ngff_zarr(store)
+            multiscales = from_ome_zarr(store)
         except ValueError as e:
             if "path" in str(e) and "FSMap" in str(e):
                 # Handle zarr v3 FSMap issue by using zarr v2 for remote stores
@@ -125,7 +125,7 @@ def analyze_zarr_store(store_path: str) -> StoreInfo:
                 if store_path.startswith(("http://", "https://")):
                     try:
                         store_v2 = zarr.open(store, mode="r")
-                        multiscales = from_ngff_zarr(store_v2.store)
+                        multiscales = from_ome_zarr(store_v2.store)
                     except KeyError as ke:
                         if str(ke) == "'start'":
                             # Handle OMERO metadata compatibility issue for remote stores
@@ -379,19 +379,13 @@ def get_available_methods() -> list[str]:
 
 
 def get_available_compression_codecs() -> list[str]:
-    """Get available compression codecs."""
-    codecs = ["gzip", "lz4", "zstd"]
+    """Get available compression codecs.
 
-    # Check for blosc variants
-    try:
-        import numcodecs  # type: ignore[import-untyped]  # noqa: F401
+    Delegates to :func:`ngff_zarr.codecs.get_available_codecs`.
+    """
+    from ngff_zarr.codecs import get_available_codecs  # type: ignore[import-untyped]
 
-        blosc_codecs = ["blosc", "blosclz", "lz4", "lz4hc", "snappy", "zlib", "zstd"]
-        codecs.extend([f"blosc:{codec}" for codec in blosc_codecs])
-    except ImportError:
-        pass
-
-    return codecs
+    return get_available_codecs()
 
 
 def setup_dask_config(

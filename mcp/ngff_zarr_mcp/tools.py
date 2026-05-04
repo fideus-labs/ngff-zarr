@@ -10,9 +10,9 @@ from ngff_zarr import (  # type: ignore[import-untyped]
     Methods,
     cli_input_to_ngff_image,
     detect_cli_io_backend,
-    from_ngff_zarr,
+    from_ome_zarr,
     to_multiscales,
-    to_ngff_zarr,
+    to_ome_zarr,
 )
 
 # Import validation function if available
@@ -79,7 +79,7 @@ async def convert_to_ome_zarr(
                 # Check if it's a zarr store URL by trying to load it
                 try:
                     # Try to read as zarr store first
-                    multiscales = from_ngff_zarr(input_path)
+                    multiscales = from_ome_zarr(input_path)
 
                     # If successful, we have a zarr store input
                     # We'll work with the multiscales directly and apply transformations
@@ -159,7 +159,7 @@ async def convert_to_ome_zarr(
                 # Setup caching for large datasets
                 cache = False  # Let the system handle caching automatically
 
-                # Always use to_multiscales to create proper Multiscales object
+                # Always use to_multiscales to create proper NgffMultiscales object
                 # If scale_factors is None, create single-scale multiscales
                 if scale_factors is None:
                     scale_factors = []
@@ -196,31 +196,13 @@ async def convert_to_ome_zarr(
             # Convert to OME-Zarr
             kwargs = {}
             if options.compression_codec:
-                # Create proper compressor object
-                import numcodecs
+                from ngff_zarr.codecs import (
+                    codec_from_name,  # type: ignore[import-untyped]
+                )
 
-                if options.compression_codec == "gzip":
-                    level = options.compression_level or 6
-                    kwargs["compressor"] = numcodecs.GZip(level=level)
-                elif options.compression_codec == "lz4":
-                    kwargs["compressor"] = numcodecs.LZ4()
-                elif options.compression_codec == "zstd":
-                    level = options.compression_level or 3
-                    kwargs["compressor"] = numcodecs.Zstd(level=level)
-                elif options.compression_codec.startswith("blosc"):
-                    # Handle blosc variants like "blosc:lz4", "blosc:zstd", etc.
-                    codec_parts = options.compression_codec.split(":")
-                    if len(codec_parts) == 2:
-                        codec_name = codec_parts[1]
-                    else:
-                        codec_name = "lz4"  # default
-                    level = options.compression_level or 5
-                    kwargs["compressor"] = numcodecs.Blosc(
-                        cname=codec_name, clevel=level
-                    )
-                else:
-                    # Fallback to string (may work for some codecs)
-                    kwargs["compressor"] = options.compression_codec
+                kwargs["compressor"] = codec_from_name(
+                    options.compression_codec, options.compression_level
+                )
 
             # Prepare enabled_rfcs parameter
             # Note: Temporarily disabled due to compatibility issues
@@ -233,7 +215,7 @@ async def convert_to_ome_zarr(
             #     # Remove duplicates
             #     enabled_rfcs = list(set(enabled_rfcs))
 
-            to_ngff_zarr(
+            to_ome_zarr(
                 output_store,
                 multiscales_obj,
                 version=options.ome_zarr_version,
@@ -287,7 +269,7 @@ async def read_ngff_zarr(
     """
     try:
         # Read the multiscales
-        multiscales = from_ngff_zarr(store_path, validate=validate)
+        multiscales = from_ome_zarr(store_path, validate=validate)
 
         # Analyze the store
         store_info = analyze_zarr_store(store_path)
@@ -360,8 +342,8 @@ async def validate_ome_zarr(store_path: str) -> ValidationResult:
 
         # Try to load as NGFF
         try:
-            # Use store_path directly - from_ngff_zarr can handle strings
-            multiscales = from_ngff_zarr(store_path)
+            # Use store_path directly - from_ome_zarr can handle strings
+            multiscales = from_ome_zarr(store_path)
 
             # Basic validation checks
             if len(multiscales.images) == 0:
@@ -425,7 +407,7 @@ async def optimize_zarr_store(options: OptimizationOptions) -> ConversionResult:
             )
 
         # Load multiscales
-        multiscales = from_ngff_zarr(str(input_path))
+        multiscales = from_ome_zarr(str(input_path))
 
         # Setup output store
         output_path = Path(options.output_path)
@@ -460,7 +442,7 @@ async def optimize_zarr_store(options: OptimizationOptions) -> ConversionResult:
             optimized_images.append(optimized_image)
 
         # Create new multiscales object with optimized images
-        # For now, use the original multiscales and rely on to_ngff_zarr to handle optimization
+        # For now, use the original multiscales and rely on to_ome_zarr to handle optimization
         # This preserves metadata and compatibility
         optimized_multiscales = multiscales  # type: ignore[assignment]
 
@@ -473,7 +455,7 @@ async def optimize_zarr_store(options: OptimizationOptions) -> ConversionResult:
                 chunks_per_shard = tuple(chunks_per_shard)
 
         # Save optimized store
-        to_ngff_zarr(
+        to_ome_zarr(
             output_store,
             optimized_multiscales,
             chunks_per_shard=chunks_per_shard,

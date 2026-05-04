@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 import * as zarr from "zarrita";
 
-import { Multiscales } from "../types/multiscales.ts";
+import { NgffMultiscales } from "../types/multiscales.ts";
 import { NgffVersion } from "../types/supported_versions.ts";
 import {
   fromZarrAttrsV04,
@@ -16,7 +16,7 @@ import { zarrGet } from "../utils/worker_pool.ts";
 
 export type { ChunkCache } from "../utils/worker_pool.ts";
 
-export interface FromNgffZarrOptions {
+export interface FromOmeZarrOptions {
   /** Enable schema validation of OME-Zarr metadata. */
   validate?: boolean;
   /** Expected OME-Zarr version. */
@@ -32,13 +32,16 @@ export interface FromNgffZarrOptions {
   cache?: import("../utils/worker_pool.ts").ChunkCache;
 }
 
+/** @deprecated Use {@link FromOmeZarrOptions} instead. */
+export type FromNgffZarrOptions = FromOmeZarrOptions;
+
 export type MemoryStore = Map<string, Uint8Array>;
 
-export async function fromNgffZarr(
+export async function fromOmeZarr(
   // Also accepts FileSystemStore, ZipFileStore, or any zarrita Readable store
   store: string | MemoryStore | zarr.FetchStore | zarr.Readable,
-  options: FromNgffZarrOptions = {},
-): Promise<Multiscales> {
+  options: FromOmeZarrOptions = {},
+): Promise<NgffMultiscales> {
   const validate = options.validate ?? false;
   const requestedVersion = options.version;
 
@@ -157,7 +160,7 @@ export async function fromNgffZarr(
       metadata.metadata = methodMetadata;
     }
 
-    return new Multiscales({
+    return new NgffMultiscales({
       images,
       metadata,
       scaleFactors: undefined,
@@ -172,6 +175,9 @@ export async function fromNgffZarr(
     );
   }
 }
+
+/** @deprecated Use {@link fromOmeZarr} instead. */
+export const fromNgffZarr = fromOmeZarr;
 
 export async function readArrayData(
   storePath: string,

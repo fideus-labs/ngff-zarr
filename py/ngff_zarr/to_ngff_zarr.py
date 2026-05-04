@@ -31,7 +31,7 @@ from ._zarr_types import StoreLike
 from .config import config
 from .memory_usage import memory_usage
 from .methods._support import _dim_scale_factors
-from .multiscales import Multiscales
+from .multiscales import NgffMultiscales
 from .rfc4 import is_rfc4_enabled
 from .rfc9_zip import is_ozx_path, write_store_to_zip
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
@@ -43,7 +43,71 @@ zarr_version = Version(zarr.__version__)
 IS_ZARR_V3_PLUS = zarr_version.major >= 3
 DASK_SUPPORTS_SHARDING = Version(dask_version) >= Version("2025.12.0")
 
+# Detect whether dask.array.to_zarr uses Group.create_array() (which rejects
+# ``zarr_format`` but inherits it from the group) or top-level
+# ``zarr.create_array()`` (which needs ``zarr_format`` to avoid defaulting to
+# format 3).  Changed in dask ~2026.3.0.
+_DASK_USES_GROUP_CREATE = False
+if DASK_SUPPORTS_SHARDING:
+    import inspect as _inspect
+    import re as _re
+
+    _src = _inspect.getsource(dask.array.core.to_zarr)
+    _DASK_USES_GROUP_CREATE = bool(_re.search(r"root\s*=\s*zarr\.open_group", _src))
+
 ScaleStrategy = Literal["pad", "exact"]
+
+
+def _numcodecs_to_zarr_v3_codec(compressor):
+    """Translate a *numcodecs* compressor to its zarr v3 codec equivalent.
+
+    Returns a zarr v3 codec object suitable for use inside a
+    :class:`~zarr.codecs.sharding.ShardingCodec` or as a standalone
+    bytes-to-bytes codec.  Returns ``None`` when *compressor* is ``None``
+    or the codec type is not recognised.
+    """
+    if compressor is None:
+        return None
+
+    codec_id = getattr(compressor, "codec_id", None)
+    if codec_id is None:
+        return None
+
+    try:
+        if codec_id == "blosc":
+            from zarr.codecs.blosc import BloscCodec
+
+            shuffle_val = getattr(compressor, "shuffle", 1)
+            if shuffle_val == 0:
+                from zarr.codecs.blosc import BloscShuffle
+
+                shuffle = BloscShuffle.noshuffle
+            elif shuffle_val == 2:
+                from zarr.codecs.blosc import BloscShuffle
+
+                shuffle = BloscShuffle.bitshuffle
+            else:
+                from zarr.codecs.blosc import BloscShuffle
+
+                shuffle = BloscShuffle.shuffle
+            return BloscCodec(
+                cname=getattr(compressor, "cname", "lz4"),
+                clevel=getattr(compressor, "clevel", 5),
+                shuffle=shuffle,
+            )
+        if codec_id == "gzip":
+            from zarr.codecs.gzip import GzipCodec
+
+            return GzipCodec(level=getattr(compressor, "level", 6))
+        if codec_id == "zstd":
+            from zarr.codecs.zstd import ZstdCodec
+
+            return ZstdCodec(level=getattr(compressor, "level", 3))
+    except ImportError:
+        pass
+
+    return None
+
 
 def _pop_metadata_optionals(metadata_dict, enabled_rfcs: list[int] | None = None):
     # Collect all axes that need cleaning
@@ -359,7 +423,7 @@ def _validate_ngff_parameters(
 
 
 def _prepare_metadata(
-    multiscales: Multiscales, version: str, enabled_rfcs: list[int] | None = None
+    multiscales: NgffMultiscales, version: str, enabled_rfcs: list[int] | None = None
 ) -> tuple[Metadata_v04 | Metadata_v05, tuple[str, ...], dict]:
     """Prepare and convert metadata to the proper version format."""
     metadata = multiscales.metadata
@@ -546,8 +610,26 @@ def _prepare_zarr_kwargs(to_zarr_kwargs: dict):
             to_zarr_kwargs["dimension_separator"] = "/"
             to_zarr_kwargs.pop("chunk_key_encoding", None)
 
-    # New dask doesn't accept zarr_format in zarr_array_kwargs
-    if DASK_SUPPORTS_SHARDING:
+    # Old dask (< 2025.12) passes kwargs to zarr.create() which only accepts
+    # 'compressor' (singular).  Newer dask uses Group.create_array() which
+    # accepts 'compressors' (plural).
+    if IS_ZARR_V3_PLUS and not DASK_SUPPORTS_SHARDING:
+        _sentinel = object()
+        compressors_val = to_zarr_kwargs.pop("compressors", _sentinel)
+        if compressors_val is not _sentinel:
+            if compressors_val is None:
+                to_zarr_kwargs["compressor"] = None
+            elif isinstance(compressors_val, (list, tuple)):
+                to_zarr_kwargs["compressor"] = (
+                    compressors_val[0] if compressors_val else None
+                )
+            else:
+                to_zarr_kwargs["compressor"] = compressors_val
+    # Dask versions that use Group.create_array() (< ~2026.3) reject
+    # zarr_format (it's inherited from the group).  Newer dask uses
+    # zarr.create_array() directly and NEEDS zarr_format to avoid
+    # defaulting to format 3.
+    if DASK_SUPPORTS_SHARDING and _DASK_USES_GROUP_CREATE:
         to_zarr_kwargs.pop("zarr_format", None)
 
 
@@ -567,6 +649,16 @@ def _write_array_direct(
     arr = _prep_for_to_zarr(store, arr)
 
     zarr_fmt = format_kwargs.get("zarr_format")
+
+    # Intercept compressor/compressors from kwargs so they don't leak into
+    # zarr.create_array() or dask.array.to_zarr() as unexpected keyword args.
+    _sentinel = object()
+    user_compressor = kwargs.pop("compressor", _sentinel)
+    has_compressor = user_compressor is not _sentinel
+    if not has_compressor:
+        user_compressor = None
+    user_compressors = kwargs.pop("compressors", None)
+    user_filters = kwargs.pop("filters", None)
 
     # Handle sharding kwargs for direct writing
     cleaned_sharding_kwargs = {}
@@ -596,11 +688,43 @@ def _write_array_direct(
     else:
         cleaned_sharding_kwargs = sharding_kwargs
 
+    # Translate user-supplied compression settings into format-appropriate kwargs.
+    # zarr v3's ``zarr.create_array`` uses ``compressors`` (plural).  When
+    # older dask is used (< 2025.12, calls ``zarr.create()``),
+    # ``_prepare_zarr_kwargs`` converts back to singular ``compressor``.
+    compression_kwargs = {}
+    if IS_ZARR_V3_PLUS:
+        if user_compressors is not None:
+            compression_kwargs["compressors"] = user_compressors
+        elif has_compressor:
+            if user_compressor is None:
+                compression_kwargs["compressors"] = None
+            elif zarr_fmt == 3:
+                # zarr format 3 needs zarr v3 codec objects
+                v3_codec = _numcodecs_to_zarr_v3_codec(user_compressor)
+                compression_kwargs["compressors"] = (
+                    [v3_codec] if v3_codec is not None else [user_compressor]
+                )
+            else:
+                # zarr format 2: numcodecs objects are accepted by
+                # Group.create_array() (used by new dask) when the group
+                # is format 2.
+                compression_kwargs["compressors"] = [user_compressor]
+        if user_filters is not None:
+            compression_kwargs["filters"] = user_filters
+    else:
+        # zarr v2 library uses 'compressor' (singular)
+        if has_compressor:
+            compression_kwargs["compressor"] = user_compressor
+        if user_filters is not None:
+            compression_kwargs["filters"] = user_filters
+
     to_zarr_kwargs = {
         **cleaned_sharding_kwargs,
         **zarr_kwargs,
         **format_kwargs,
         **dimension_names_kwargs,
+        **compression_kwargs,
         **kwargs,
     }
 
@@ -754,19 +878,44 @@ def _handle_large_array_writing(
                 ]
             )
 
-        # Configure the sharding codec with proper defaults
+        # Configure the sharding codec, respecting user-provided compression
         from zarr.codecs.bytes import BytesCodec
         from zarr.codecs.sharding import ShardingCodec
         from zarr.codecs.zstd import ZstdCodec
 
-        # Default inner codecs for sharding
-        default_codecs = [BytesCodec(), ZstdCodec()]
+        # Determine inner codecs: honour user-supplied compressor/compressors
+        user_compressors = kwargs.get("compressors")
+        user_compressor = kwargs.get("compressor")
+        if user_compressors is not None:
+            from collections.abc import Iterable as IterableABC
+
+            from zarr.abc.codec import Codec
+
+            if isinstance(user_compressors, (Codec, dict)):
+                compressor_list = [user_compressors]
+            elif isinstance(user_compressors, IterableABC):
+                compressor_list = list(user_compressors)
+            else:
+                compressor_list = [user_compressors]
+            if any(isinstance(c, BytesCodec) for c in compressor_list):
+                inner_codecs = list(compressor_list)
+            else:
+                inner_codecs = [BytesCodec()] + compressor_list
+        elif user_compressor is not None:
+            v3_codec = _numcodecs_to_zarr_v3_codec(user_compressor)
+            inner_codecs = (
+                [BytesCodec(), v3_codec]
+                if v3_codec is not None
+                else [BytesCodec(), ZstdCodec()]
+            )
+        else:
+            inner_codecs = [BytesCodec(), ZstdCodec()]
 
         # The array's chunk_shape should be the shard shape
         # The sharding codec's chunk_shape should be the internal chunk shape
         sharding_codec = ShardingCodec(
             chunk_shape=internal_chunk_shape,  # Internal chunk shape within shards
-            codecs=default_codecs,
+            codecs=inner_codecs,
         )
 
         # Set up codecs with sharding
@@ -818,6 +967,43 @@ def _handle_large_array_writing(
             del zarr_kwargs["chunk_key_encoding"]
         else:
             zarr_kwargs["dimension_separator"] = "/"
+
+    # For non-sharding paths (codecs_kwargs is empty), propagate user-supplied
+    # compression settings that were not captured by the sharding setup above.
+    if not codecs_kwargs:
+        user_compressor = kwargs.get("compressor")
+        user_compressors = kwargs.get("compressors")
+        zarr_fmt = format_kwargs["zarr_format"]
+        if zarr_fmt == 3:
+            from zarr.codecs.bytes import BytesCodec
+
+            if user_compressors is not None:
+                from collections.abc import Iterable as IterableABC
+
+                from zarr.abc.codec import Codec
+
+                if isinstance(user_compressors, (Codec, dict)):
+                    comp_list = [user_compressors]
+                elif isinstance(user_compressors, IterableABC):
+                    comp_list = list(user_compressors)
+                else:
+                    comp_list = [user_compressors]
+                if not any(isinstance(c, BytesCodec) for c in comp_list):
+                    comp_list = [BytesCodec()] + comp_list
+                codecs_kwargs["codecs"] = comp_list
+            elif user_compressor is not None:
+                v3_codec = _numcodecs_to_zarr_v3_codec(user_compressor)
+                if v3_codec is not None:
+                    codecs_kwargs["codecs"] = [BytesCodec(), v3_codec]
+                else:
+                    codecs_kwargs["codecs"] = [BytesCodec(), user_compressor]
+        elif zarr_fmt == 2 and user_compressor is not None:
+            # open_array() (unlike dask's create_array) accepts 'compressor'
+            # singular for format 2 even in zarr v3.
+            zarr_kwargs["compressor"] = user_compressor
+            user_filters = kwargs.get("filters")
+            if user_filters is not None:
+                zarr_kwargs["filters"] = user_filters
 
     zarr_array = open_array(
         shape=arr.shape,
@@ -943,8 +1129,8 @@ def _compute_write_regions(
             else:
                 region = [slice(arr.shape[i]) for i in range(arr.ndim)]
                 region[z_index] = slice(
-                    slab_index * z_chunks,
-                    min((slab_index + 1) * z_chunks, arr.shape[z_index]),
+                    slab_index * slab_slices,
+                    min((slab_index + 1) * slab_slices, arr.shape[z_index]),
                 )
                 regions.append(tuple(region))
     else:
@@ -1041,7 +1227,7 @@ def _prepare_next_scale(
     image,
     index: int,
     nscales: int,
-    multiscales: Multiscales,
+    multiscales: NgffMultiscales,
     store: StoreLike,
     path: str,
     progress: NgffProgress | NgffProgressCallback | None,
@@ -1147,10 +1333,10 @@ def _prepare_next_scale(
     return multiscales.images[index + 1]
 
 
-def to_ngff_zarr(
+def to_ome_zarr(
     store: StoreLike,
-    multiscales: Multiscales,
-    version: str = "0.4",
+    multiscales: NgffMultiscales,
+    version: str = "0.5",
     overwrite: bool = True,
     use_tensorstore: bool = False,
     chunk_store: StoreLike | None = None,
@@ -1167,8 +1353,8 @@ def to_ngff_zarr(
     compliant zipped OME-Zarr file.
     :type  store: StoreLike
 
-    :param multiscales: Multiscales OME-NGFF image pixel data and metadata. Can be generated with ngff_zarr.to_multiscales.
-    :type  multiscales: Multiscales
+    :param multiscales: NgffMultiscales OME-NGFF image pixel data and metadata. Can be generated with ngff_zarr.to_multiscales.
+    :type  multiscales: NgffMultiscales
 
     :param version: OME-Zarr specification version. For .ozx files, version 0.5 is required.
     :type  version: str, optional
@@ -1287,9 +1473,13 @@ def to_ngff_zarr(
     )
 
 
+#: Backwards-compatible alias for :func:`to_ome_zarr`.
+to_ngff_zarr = to_ome_zarr
+
+
 def _to_ngff_zarr_impl(
     store: StoreLike,
-    multiscales: Multiscales,
+    multiscales: NgffMultiscales,
     version: str = "0.4",
     overwrite: bool = True,
     use_tensorstore: bool = False,
@@ -1324,7 +1514,8 @@ def _to_ngff_zarr_impl(
 
     if version == "0.4" and kwargs.get("compressors") is not None:
         raise ValueError(
-            "The argument `compressors` are not supported for OME-Zarr version 0.4. (Zarr v3). Use `compression` instead."
+            "The argument `compressors` is not supported for OME-Zarr version 0.4 "
+            "(Zarr v2). Use `compressor` instead."
         )
 
     # Process each scale level

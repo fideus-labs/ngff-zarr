@@ -4,27 +4,37 @@
 // (which contains Node.js-specific modules like node:fs, node:buffer, node:path)
 import * as zarr from "zarrita";
 
-import type { Multiscales } from "../types/multiscales.ts";
+import type { NgffMultiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
+import type { ZarrCodec } from "../utils/codecs.ts";
 import { defaultCodecs } from "../utils/codecs.ts";
 import { createWriteQueue, zarrGet, zarrSet } from "../utils/worker_pool.ts";
 import type { MemoryStore } from "./from_ngff_zarr-browser.ts";
 import { memoryStoreToZip } from "./rfc9_zip.ts";
-import { writeMultiscalesToMemoryStore } from "./to_ngff_zarr_ozx_common.ts";
+import { writeNgffMultiscalesToMemoryStore } from "./to_ngff_zarr_ozx_common.ts";
 
 export { isOzxPath } from "./rfc9_zip.ts";
 
-export interface ToNgffZarrOptions {
+export interface ToOmeZarrOptions {
   overwrite?: boolean;
   version?: "0.4" | "0.5";
   chunksPerShard?: number | number[] | Record<string, number>;
+  /**
+   * Custom codec pipeline for array compression. When omitted the default
+   * ``blosc(zstd)`` pipeline from {@link defaultCodecs} is used. Use
+   * {@link codecFromName} or {@link bytesOnlyCodecs} to build common pipelines.
+   */
+  codecs?: ZarrCodec[];
 }
+
+/** @deprecated Use {@link ToOmeZarrOptions} instead. */
+export type ToNgffZarrOptions = ToOmeZarrOptions;
 
 /**
  * Options for writing to .ozx (RFC-9) format.
  * Note: chunksPerShard is NOT supported for .ozx files and will throw an error.
  */
-export interface ToNgffZarrOzxOptions {
+export interface ToOmeZarrOzxOptions {
   /** List of RFC numbers to enable (e.g., [4] for RFC 4 anatomical orientation) */
   enabledRfcs?: number[] | undefined;
   /**
@@ -39,15 +49,18 @@ export interface ToNgffZarrOzxOptions {
     | undefined;
 }
 
+/** @deprecated Use {@link ToOmeZarrOzxOptions} instead. */
+export type ToNgffZarrOzxOptions = ToOmeZarrOzxOptions;
+
 /**
- * Browser-compatible version of toNgffZarr.
+ * Browser-compatible version of toOmeZarr.
  * Only supports MemoryStore (Map) for writing.
  * Does NOT support local file paths or HTTP URLs (use the full version in Node.js/Deno).
  */
-export async function toNgffZarr(
+export async function toOmeZarr(
   store: string | MemoryStore | zarr.FetchStore,
-  multiscales: Multiscales,
-  options: ToNgffZarrOptions = {},
+  multiscales: NgffMultiscales,
+  options: ToOmeZarrOptions = {},
 ): Promise<void> {
   const _overwrite = options.overwrite ?? true;
   const _version = options.version ?? "0.4";
@@ -128,6 +141,8 @@ export async function toNgffZarr(
         rootGroup as zarr.Group<MemoryStore>,
         image,
         dataset.path,
+        undefined, // onProgress
+        options.codecs,
       );
     }
   } catch (error) {
@@ -138,6 +153,9 @@ export async function toNgffZarr(
     );
   }
 }
+
+/** @deprecated Use {@link toOmeZarr} instead. */
+export const toNgffZarr = toOmeZarr;
 
 function _convertDtypeToZarrType(dtype: string): zarr.DataType {
   // Map common numpy/LazyArray dtypes to zarrita data types
@@ -216,6 +234,7 @@ async function _writeImage(
   image: NgffImage,
   arrayPath: string,
   onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
+  codecs?: ZarrCodec[],
 ): Promise<void> {
   try {
     const chunks = getChunksFromImage(image);
@@ -232,7 +251,7 @@ async function _writeImage(
       data_type: zarrDataType,
       chunk_shape: chunks,
       fill_value: 0,
-      codecs: defaultCodecs(zarrDataType),
+      codecs: codecs ?? defaultCodecs(zarrDataType),
     });
 
     await _writeArrayData(
@@ -493,15 +512,15 @@ function calculateChunkStride(chunkShape: number[]): number[] {
  * Note: Sharding is NOT supported because zarrita does not currently
  * support writing shards. If you need sharding, use the Python implementation.
  *
- * @param multiscales - Multiscales data to write
+ * @param multiscales - NgffMultiscales data to write
  * @param options - Options for writing
  * @returns ZIP file data as Uint8Array
  *
  * @see https://ngff.openmicroscopy.org/rfc/9/index.html
  */
-export async function toNgffZarrOzx(
-  multiscales: Multiscales,
-  _options: ToNgffZarrOzxOptions = {},
+export async function toOmeZarrOzx(
+  multiscales: NgffMultiscales,
+  _options: ToOmeZarrOzxOptions = {},
 ): Promise<Uint8Array> {
   const enabledRfcs = _options.enabledRfcs;
 
@@ -509,7 +528,7 @@ export async function toNgffZarrOzx(
   const memoryStore: MemoryStore = new Map<string, Uint8Array>();
 
   // Use the shared write function
-  await writeMultiscalesToMemoryStore(
+  await writeNgffMultiscalesToMemoryStore(
     memoryStore,
     multiscales,
     enabledRfcs,
@@ -522,3 +541,6 @@ export async function toNgffZarrOzx(
 
   return zipData;
 }
+
+/** @deprecated Use {@link toOmeZarrOzx} instead. */
+export const toNgffZarrOzx = toOmeZarrOzx;

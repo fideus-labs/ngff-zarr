@@ -29,7 +29,7 @@ from .to_ngff_image import to_ngff_image
 if TYPE_CHECKING:
     import tifffile
 
-    from .multiscales import Multiscales
+    from .multiscales import NgffMultiscales
 
 # Mapping from TIFF axis characters to NGFF-compatible dimension names
 # Based on tifffile axis conventions:
@@ -671,8 +671,8 @@ def _build_multiscales_from_pyramid(
     ome_units: dict[str, str] | None,
     ome_channel_names: list[str] | None,
     ome_channel_colors: list[str] | None = None,
-) -> "Multiscales":
-    """Build a Multiscales object from a pyramidal TIFF's existing pyramid levels.
+) -> "NgffMultiscales":
+    """Build a NgffMultiscales object from a pyramidal TIFF's existing pyramid levels.
 
     Instead of regenerating the pyramid via downsampling, this reuses the
     resolution levels already stored in the TIFF file.
@@ -694,14 +694,14 @@ def _build_multiscales_from_pyramid(
     ome_channel_colors : list or None
         Channel colors as 6-digit hex strings (e.g., ['FF0000', '00FF00', '0000FF']).
         When provided, these colors will be stored on every NgffImage in the
-        returned Multiscales so that OMERO computation can use them.
+        returned NgffMultiscales so that OMERO computation can use them.
 
     Returns
     -------
-    Multiscales
-        A Multiscales object containing all pyramid levels.
+    NgffMultiscales
+        A NgffMultiscales object containing all pyramid levels.
     """
-    from .multiscales import Multiscales
+    from .multiscales import NgffMultiscales
     from .v04.zarr_metadata import Axis, Dataset, Metadata, Scale, Translation
 
     try:
@@ -911,16 +911,16 @@ def _build_multiscales_from_pyramid(
         coordinateTransformations=None,
     )
 
-    return Multiscales(images, metadata)
+    return NgffMultiscales(images, metadata)
 
 
 def tiff_file_to_ngff_images(
     tiff_path: str | Path,
     series: int | str | list[int | str] | None = None,
     reuse_existing_pyramids: bool = False,
-) -> "list[tuple[str, NgffImage | Multiscales]]":
+) -> "list[tuple[str, NgffImage | NgffMultiscales]]":
     """
-    Convert a TIFF file to a list of (name, NgffImage) or (name, Multiscales) pairs.
+    Convert a TIFF file to a list of (name, NgffImage) or (name, NgffMultiscales) pairs.
 
     This function properly handles multi-series TIFF files (including OME-TIFF)
     and extracts physical size metadata when available.
@@ -937,14 +937,14 @@ def tiff_file_to_ngff_images(
         - list: Convert multiple series by index or pattern
     reuse_existing_pyramids : bool, optional
         If True and a series has multiple pyramid levels, return a
-        ``Multiscales`` object built from the existing levels instead of a
+        ``NgffMultiscales`` object built from the existing levels instead of a
         single ``NgffImage``. Default is False (always return NgffImage).
 
     Returns
     -------
-    List[Tuple[str, Union[NgffImage, Multiscales]]]
+    List[Tuple[str, Union[NgffImage, NgffMultiscales]]]
         List of (series_name, result) tuples. When ``reuse_existing_pyramids``
-        is True and the series is pyramidal, result is a ``Multiscales``.
+        is True and the series is pyramidal, result is a ``NgffMultiscales``.
         Otherwise it is an ``NgffImage`` with:
         - data: Dask array with lazy loading from the TIFF
         - dims: Dimension labels (e.g., ('z', 'y', 'x'))
@@ -1050,10 +1050,11 @@ def tiff_file_to_ngff_images(
             # The 'S' axis in TIFF means interleaved RGB/RGBA colour components.
             # For such images, the three/four channels are always R, G, B[, A]
             # and should be displayed with the canonical RGB colours rather than
-            # an arbitrary Glasbey palette.
+            # an arbitrary Glasbey palette or incorrect OME-XML channel colors.
+            # Always override OME-XML channel colors for S-axis images.
             tiff_axes_str = tiff_series.axes if tiff_series.axes else ""
             has_sample_axis = "s" in tiff_axes_str.lower()
-            if has_sample_axis and ome_channel_colors is None:
+            if has_sample_axis:
                 s_pos = tiff_axes_str.lower().index("s")
                 n_samples = tiff_series.shape[s_pos]
                 if n_samples == 3:

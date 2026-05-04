@@ -17,7 +17,7 @@ import { WorkerPool } from "@fideus-labs/worker-pool";
 import type { Array as ZarrArray, DataType, Readable } from "zarrita";
 
 import { config } from "../config.ts";
-import type { Multiscales } from "../types/multiscales.ts";
+import type { NgffMultiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { Omero } from "../types/zarr_metadata.ts";
 import {
@@ -549,21 +549,21 @@ export async function computeOmeroFromNgffImage(
 // ---------------------------------------------------------------------------
 
 /**
- * Compute OMERO metadata from a Multiscales object.
+ * Compute OMERO metadata from a NgffMultiscales object.
  *
  * This is a convenience function that computes OMERO metadata from the
  * highest resolution image in a multiscales pyramid for accurate statistics.
  *
- * @param multiscales - The Multiscales object to compute metadata for
+ * @param multiscales - The NgffMultiscales object to compute metadata for
  * @param options - Optional configuration for quantiles, colors, and labels
  * @returns Promise resolving to Omero metadata with computed window parameters
  */
 export async function computeOmeroFromMultiscales(
-  multiscales: Multiscales,
+  multiscales: NgffMultiscales,
   options: ComputeOmeroFromMultiscalesOptions = {},
 ): Promise<Omero> {
   if (!multiscales.images || multiscales.images.length === 0) {
-    throw new Error("Multiscales has no images");
+    throw new Error("NgffMultiscales has no images");
   }
 
   // Always use the highest resolution (first) image for accurate statistics

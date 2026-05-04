@@ -34,7 +34,7 @@ mcp = FastMCP("ngff-zarr")
 async def convert_images_to_ome_zarr(
     input_paths: list[str],
     output_path: str,
-    ome_zarr_version: str = "0.4",
+    ome_zarr_version: str = "0.5",
     dims: list[str] | None = None,
     scale: dict[str, float] | None = None,
     translation: dict[str, float] | None = None,

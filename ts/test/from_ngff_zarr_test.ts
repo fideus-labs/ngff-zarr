@@ -7,11 +7,11 @@ import {
   createAxis,
   createDataset,
   createMetadata,
-  createMultiscales,
+  createNgffMultiscales,
 } from "../src/utils/factory.ts";
 import { zarrGet } from "../src/utils/worker_pool.ts";
 import { NgffImage } from "../src/types/ngff_image.ts";
-import { Multiscales } from "../src/types/multiscales.ts";
+import { NgffMultiscales } from "../src/types/multiscales.ts";
 import * as zarr from "zarrita";
 
 /**
@@ -65,7 +65,7 @@ async function createTestLungSeriesData(): Promise<NgffImage> {
 function createMultiscalesFromImage(
   image: NgffImage,
   version = "0.4",
-): Multiscales {
+): NgffMultiscales {
   const axes = [
     createAxis("z", "space", "micrometer"),
     createAxis("y", "space", "micrometer"),
@@ -78,7 +78,7 @@ function createMultiscalesFromImage(
 
   const metadata = createMetadata(axes, datasets, image.name, version);
 
-  return createMultiscales([image], metadata);
+  return createNgffMultiscales([image], metadata);
 }
 
 Deno.test("from_ngff_zarr basic round trip", async () => {
