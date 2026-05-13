@@ -546,14 +546,8 @@ def to_multiscales(
         else:
             ngff_image.data = dask.array.from_array(ngff_image.data)
 
-    # Convert integer dtypes to float before downsampling to avoid
-    # floating-point precision bugs in scipy/ITK gaussian filtering
-    # that produce zeros instead of correct values for certain sigma values.
-    # Use float64 for >16-bit integers (float32 has only 24-bit mantissa).
+    # Save original dtype to restore after downsampling.
     input_dtype = ngff_image.data.dtype
-    if np.issubdtype(input_dtype, np.integer):
-        float_dtype = np.float64 if input_dtype.itemsize > 2 else np.float32
-        ngff_image.data = ngff_image.data.astype(float_dtype)
 
     if isinstance(scale_factors, int):
         scale_factors = _ngff_image_scale_factors(ngff_image, scale_factors, out_chunks)
@@ -571,6 +565,22 @@ def to_multiscales(
 
     if method is None:
         method = Methods.ITKWASM_GAUSSIAN
+
+    # Convert integer dtypes to float before gaussian downsampling to avoid
+    # floating-point precision bugs in scipy/ITK gaussian filtering that
+    # produce zeros instead of correct values for certain sigma values.
+    # Only gaussian methods are affected; label/shrink/near methods
+    # preserve discrete integer values and must not be converted.
+    _GAUSSIAN_METHODS = (
+        Methods.ITKWASM_GAUSSIAN,
+        Methods.ITK_GAUSSIAN,
+        Methods.DASK_IMAGE_GAUSSIAN,
+    )
+    converted_to_float = False
+    if np.issubdtype(input_dtype, np.integer) and method in _GAUSSIAN_METHODS:
+        float_dtype = np.float64 if input_dtype.itemsize > 2 else np.float32
+        ngff_image.data = ngff_image.data.astype(float_dtype)
+        converted_to_float = True
 
     if method is Methods.ITKWASM_GAUSSIAN:
         images = _downsample_itkwasm(
@@ -605,8 +615,8 @@ def to_multiscales(
             ngff_image, default_chunks, out_chunks, scale_factors, label="mode"
         )
 
-    # Convert back to original integer dtype after float32 downsampling.
-    if np.issubdtype(input_dtype, np.integer):
+    # Convert back to original integer dtype after gaussian downsampling.
+    if converted_to_float:
         for img in images:
             img.data = img.data.round().astype(input_dtype)
 

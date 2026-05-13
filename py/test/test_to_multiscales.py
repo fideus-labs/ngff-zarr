@@ -106,18 +106,15 @@ def test_downsample_preserves_dtype_float64():
 
 
 @pytest.mark.parametrize("version", ["0.4", "0.5"])
-def test_to_ngff_zarr_roundtrip_preserves_integer_data(version):
+def test_to_ngff_zarr_roundtrip_preserves_integer_data(version, tmp_path):
     """Write/read round-trip should preserve integer data integrity."""
-    import os
-    import tempfile
-
     from ngff_zarr import from_ngff_zarr, to_ngff_zarr
 
     data = np.ones((1, 2, 50, 60, 70), dtype="uint16")
     image = to_ngff_image(data, dims=["t", "c", "z", "y", "x"])
     multiscales = to_multiscales(image, scale_factors=[2, 4], chunks=(1, 1, 16, 16, 16))
 
-    td = os.path.join(tempfile.mkdtemp(), "test.zarr")
+    td = str(tmp_path / "test.zarr")
     to_ngff_zarr(td, multiscales, version=version)
 
     loaded = from_ngff_zarr(td)
