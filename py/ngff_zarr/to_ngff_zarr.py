@@ -789,6 +789,10 @@ def _handle_large_array_writing(
         2. Be as close as possible to first_chunk
         3. Preferably be divisible by min_divisor for performance
         """
+        # If first_chunk already divides evenly, use it (preserves dask chunk alignment)
+        if dim_size % first_chunk == 0:
+            return first_chunk
+
         # If dimension is very small, just use it directly
         if dim_size <= min_divisor:
             return dim_size
@@ -948,10 +952,11 @@ def _handle_large_array_writing(
 
     if format_kwargs["zarr_format"] == 2:
         if IS_ZARR_V3_PLUS:
-            zarr_kwargs["dimension_separator"] = zarr_kwargs["chunk_key_encoding"][
-                "separator"
-            ]
-            del zarr_kwargs["chunk_key_encoding"]
+            if "chunk_key_encoding" in zarr_kwargs:
+                zarr_kwargs["dimension_separator"] = zarr_kwargs["chunk_key_encoding"][
+                    "separator"
+                ]
+                del zarr_kwargs["chunk_key_encoding"]
         else:
             zarr_kwargs["dimension_separator"] = "/"
 

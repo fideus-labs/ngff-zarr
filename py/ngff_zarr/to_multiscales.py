@@ -190,12 +190,7 @@ def _large_image_serialization(
         path = f"{base_path}/slabs"
         slabs = data.rechunk(rechunks)
 
-        chunks = tuple(
-            [
-                _find_optimal_chunk_size(c[0], data.shape[i])
-                for i, c in enumerate(slabs.chunks)
-            ]
-        )
+        chunks = slabs.chunksize
 
         optimized = dask.array.Array(
             dask.array.optimize(slabs.__dask_graph__(), slabs.__dask_keys__()),
@@ -230,16 +225,7 @@ def _large_image_serialization(
             )
             region = tuple(region)
             arr_region = optimized[region]
-            dask.array.to_zarr(
-                arr_region,
-                zarr_array,
-                region=region,
-                component=path,
-                overwrite=False,
-                compute=True,
-                return_stored=False,
-                **zarr_kwargs,
-            )
+            zarr_array[region] = arr_region.compute()
         data = dask.array.from_zarr(cache_store, component=path)
         if optimized_chunks < data.shape[z_index] and slab_slices < optimized_chunks:
             rechunks[z_index] = optimized_chunks
@@ -279,16 +265,7 @@ def _large_image_serialization(
                 )
                 region = tuple(region)
                 arr_region = data[region]
-                dask.array.to_zarr(
-                    arr_region,
-                    zarr_array,
-                    region=region,
-                    component=path,
-                    overwrite=False,
-                    compute=True,
-                    return_stored=False,
-                    **zarr_kwargs,
-                )
+                zarr_array[region] = arr_region.compute()
             data = dask.array.from_zarr(cache_store, component=path)
         else:
             data = data.rechunk(rechunks)
@@ -349,12 +326,7 @@ def _cache_2d_strips(data, dims, rechunks, cache_store, base_path, progress):
     path = base_path + "/strips"
     slabs = data.rechunk(rechunks)
 
-    chunks = tuple(
-        [
-            _find_optimal_chunk_size(c[0], data.shape[i])
-            for i, c in enumerate(slabs.chunks)
-        ]
-    )
+    chunks = slabs.chunksize
 
     optimized = dask.array.Array(
         dask.array.optimize(slabs.__dask_graph__(), slabs.__dask_keys__()),
@@ -389,16 +361,7 @@ def _cache_2d_strips(data, dims, rechunks, cache_store, base_path, progress):
         )
         region = tuple(region)
         arr_region = optimized[region]
-        dask.array.to_zarr(
-            arr_region,
-            zarr_array,
-            region=region,
-            component=path,
-            overwrite=False,
-            compute=True,
-            return_stored=False,
-            **zarr_kwargs,
-        )
+        zarr_array[region] = arr_region.compute()
 
     return dask.array.from_zarr(cache_store, component=path)
 
@@ -430,12 +393,7 @@ def _cache_1d_segments(data, dims, rechunks, cache_store, base_path, progress):
     path = base_path + "/segments"
     slabs = data.rechunk(rechunks)
 
-    chunks = tuple(
-        [
-            _find_optimal_chunk_size(c[0], data.shape[i])
-            for i, c in enumerate(slabs.chunks)
-        ]
-    )
+    chunks = slabs.chunksize
 
     optimized = dask.array.Array(
         dask.array.optimize(slabs.__dask_graph__(), slabs.__dask_keys__()),
@@ -469,16 +427,7 @@ def _cache_1d_segments(data, dims, rechunks, cache_store, base_path, progress):
         )
         region = tuple(region)
         arr_region = optimized[region]
-        dask.array.to_zarr(
-            arr_region,
-            zarr_array,
-            region=region,
-            component=path,
-            overwrite=False,
-            compute=True,
-            return_stored=False,
-            **zarr_kwargs,
-        )
+        zarr_array[region] = arr_region.compute()
 
     return dask.array.from_zarr(cache_store, component=path)
 
@@ -597,6 +546,13 @@ def to_multiscales(
         else:
             ngff_image.data = dask.array.from_array(ngff_image.data)
 
+    # Convert integer dtypes to float32 before downsampling to avoid
+    # floating-point precision bugs in scipy/ITK gaussian filtering
+    # that produce zeros instead of correct values for certain sigma values.
+    input_dtype = ngff_image.data.dtype
+    if np.issubdtype(input_dtype, np.integer):
+        ngff_image.data = ngff_image.data.astype(np.float32)
+
     if isinstance(scale_factors, int):
         scale_factors = _ngff_image_scale_factors(ngff_image, scale_factors, out_chunks)
 
@@ -646,6 +602,11 @@ def to_multiscales(
         images = _downsample_dask_image(
             ngff_image, default_chunks, out_chunks, scale_factors, label="mode"
         )
+
+    # Convert back to original integer dtype after float32 downsampling.
+    if np.issubdtype(input_dtype, np.integer):
+        for img in images:
+            img.data = img.data.round().astype(input_dtype)
 
     # Propagate channel_names and channel_colors from the input image to
     # all generated pyramid levels so that OMERO computation (which may
