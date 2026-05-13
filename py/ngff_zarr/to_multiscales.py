@@ -546,12 +546,14 @@ def to_multiscales(
         else:
             ngff_image.data = dask.array.from_array(ngff_image.data)
 
-    # Convert integer dtypes to float32 before downsampling to avoid
+    # Convert integer dtypes to float before downsampling to avoid
     # floating-point precision bugs in scipy/ITK gaussian filtering
     # that produce zeros instead of correct values for certain sigma values.
+    # Use float64 for >16-bit integers (float32 has only 24-bit mantissa).
     input_dtype = ngff_image.data.dtype
     if np.issubdtype(input_dtype, np.integer):
-        ngff_image.data = ngff_image.data.astype(np.float32)
+        float_dtype = np.float64 if input_dtype.itemsize > 2 else np.float32
+        ngff_image.data = ngff_image.data.astype(float_dtype)
 
     if isinstance(scale_factors, int):
         scale_factors = _ngff_image_scale_factors(ngff_image, scale_factors, out_chunks)
