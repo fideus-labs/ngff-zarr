@@ -190,12 +190,7 @@ def _large_image_serialization(
         path = f"{base_path}/slabs"
         slabs = data.rechunk(rechunks)
 
-        chunks = tuple(
-            [
-                _find_optimal_chunk_size(c[0], data.shape[i])
-                for i, c in enumerate(slabs.chunks)
-            ]
-        )
+        chunks = tuple(c[0] for c in slabs.chunks)
 
         optimized = dask.array.Array(
             dask.array.optimize(slabs.__dask_graph__(), slabs.__dask_keys__()),
@@ -349,12 +344,7 @@ def _cache_2d_strips(data, dims, rechunks, cache_store, base_path, progress):
     path = base_path + "/strips"
     slabs = data.rechunk(rechunks)
 
-    chunks = tuple(
-        [
-            _find_optimal_chunk_size(c[0], data.shape[i])
-            for i, c in enumerate(slabs.chunks)
-        ]
-    )
+    chunks = tuple(c[0] for c in slabs.chunks)
 
     optimized = dask.array.Array(
         dask.array.optimize(slabs.__dask_graph__(), slabs.__dask_keys__()),
@@ -430,12 +420,7 @@ def _cache_1d_segments(data, dims, rechunks, cache_store, base_path, progress):
     path = base_path + "/segments"
     slabs = data.rechunk(rechunks)
 
-    chunks = tuple(
-        [
-            _find_optimal_chunk_size(c[0], data.shape[i])
-            for i, c in enumerate(slabs.chunks)
-        ]
-    )
+    chunks = tuple(c[0] for c in slabs.chunks)
 
     optimized = dask.array.Array(
         dask.array.optimize(slabs.__dask_graph__(), slabs.__dask_keys__()),
