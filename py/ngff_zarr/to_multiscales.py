@@ -341,8 +341,13 @@ def _cache_2d_strips(data, dims, rechunks, cache_store, base_path, progress):
 
     n_strips = int(np.ceil(data.shape[strip_dim_index] / strip_size))
 
+    # Ensure zarr chunks match the strip size to avoid dask rechunking
+    # during dask.array.to_zarr region writes (gh-issue-487).
+    adjusted_rechunks = dict(rechunks)
+    adjusted_rechunks[strip_dim_index] = strip_size
+
     path = base_path + "/strips"
-    slabs = data.rechunk(rechunks)
+    slabs = data.rechunk(adjusted_rechunks)
 
     chunks = tuple(c[0] for c in slabs.chunks)
 
@@ -417,8 +422,13 @@ def _cache_1d_segments(data, dims, rechunks, cache_store, base_path, progress):
 
     n_segments = int(np.ceil(data.shape[x_index] / segment_size))
 
+    # Ensure zarr chunks match the segment size to avoid dask rechunking
+    # during dask.array.to_zarr region writes (gh-issue-487).
+    adjusted_rechunks = dict(rechunks)
+    adjusted_rechunks[x_index] = segment_size
+
     path = base_path + "/segments"
-    slabs = data.rechunk(rechunks)
+    slabs = data.rechunk(adjusted_rechunks)
 
     chunks = tuple(c[0] for c in slabs.chunks)
 
