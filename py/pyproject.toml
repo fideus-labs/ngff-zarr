@@ -68,7 +68,7 @@ cli = [
   "nibabel",
   "tifffile>=2024.7.24",
   "liffile",
-  "imagecodecs>=2026.3.6,<2026.5.0",
+  "imagecodecs>=2025.3.30,<2026.5.0",
 ]
 tensorstore = ["tensorstore"]
 test = [
