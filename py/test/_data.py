@@ -29,6 +29,7 @@ zarr_version_major = zarr_version.major
 @pytest.fixture(scope="package")
 def input_images():
     untar = pooch.Untar(extract_dir=extract_dir)
+    downloader = pooch.HTTPDownloader(timeout=120)
     pooch.retrieve(
         fname="data.tar.gz",
         path=test_dir,
@@ -37,6 +38,7 @@ def input_images():
         # url=f"https://{test_data_ipfs_cid}.ipfs.w3s.link/ipfs/{test_data_ipfs_cid}/data.tar.gz",
         known_hash=f"sha256:{test_data_sha256}",
         processor=untar,
+        downloader=downloader,
     )
     result = {}
 

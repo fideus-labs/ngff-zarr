@@ -204,7 +204,10 @@ def test_from_ngff_zarr_with_rfc4_validation():
 
     # Create a simple zarr array
     root = zarr.open_group(store, mode="w")
-    root.create_dataset("0", shape=(10, 10, 10), dtype="uint8")
+    if hasattr(root, "create_array"):
+        root.create_array("0", shape=(10, 10, 10), dtype="uint8")
+    else:
+        root.create_dataset("0", shape=(10, 10, 10), dtype="uint8")
 
     # Add OME-NGFF metadata with RFC 4 orientation
     multiscales_metadata = {
@@ -256,7 +259,10 @@ def test_from_ngff_zarr_with_rfc4_validation_invalid():
 
     # Create a simple zarr array
     root = zarr.open_group(store, mode="w")
-    root.create_dataset("0", shape=(10, 10, 10), dtype="uint8")
+    if hasattr(root, "create_array"):
+        root.create_array("0", shape=(10, 10, 10), dtype="uint8")
+    else:
+        root.create_dataset("0", shape=(10, 10, 10), dtype="uint8")
 
     # Add OME-NGFF metadata with incomplete RFC 4 orientation (missing z orientation)
     multiscales_metadata = {
@@ -308,7 +314,10 @@ def test_from_ngff_zarr_without_rfc4_validation():
 
     # Create a simple zarr array
     root = zarr.open_group(store, mode="w")
-    root.create_dataset("0", shape=(10, 10, 10), dtype="uint8")
+    if hasattr(root, "create_array"):
+        root.create_array("0", shape=(10, 10, 10), dtype="uint8")
+    else:
+        root.create_dataset("0", shape=(10, 10, 10), dtype="uint8")
 
     # Add OME-NGFF metadata with incomplete RFC 4 orientation
     multiscales_metadata = {
