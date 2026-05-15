@@ -29,7 +29,7 @@ zarr_version_major = zarr_version.major
 @pytest.fixture(scope="package")
 def input_images():
     untar = pooch.Untar(extract_dir=extract_dir)
-    downloader = pooch.HTTPDownloader(retry_if_failed=3, timeout=60)
+    downloader = pooch.HTTPDownloader(timeout=120)
     pooch.retrieve(
         fname="data.tar.gz",
         path=test_dir,
