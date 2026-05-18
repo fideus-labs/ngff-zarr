@@ -1,7 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 import numpy as np
+import packaging.version
 import pytest
+import zarr
 from ngff_zarr import Methods
 from ngff_zarr.to_multiscales import to_multiscales
 from ngff_zarr.to_ngff_image import to_ngff_image
@@ -105,7 +107,12 @@ def test_downsample_preserves_dtype_float64():
         assert computed.dtype == np.float64, f"Expected float64, got {computed.dtype}"
 
 
-@pytest.mark.parametrize("version", ["0.4", "0.5"])
+_ome_zarr_versions = ["0.4"] + (
+    ["0.5"] if packaging.version.parse(zarr.__version__).major >= 3 else []
+)
+
+
+@pytest.mark.parametrize("version", _ome_zarr_versions)
 def test_to_ngff_zarr_roundtrip_preserves_integer_data(version, tmp_path):
     """Write/read round-trip should preserve integer data integrity."""
     from ngff_zarr import from_ngff_zarr, to_ngff_zarr
