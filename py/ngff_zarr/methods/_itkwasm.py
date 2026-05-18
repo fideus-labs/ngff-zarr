@@ -38,6 +38,19 @@ def _itkwasm_blur_and_downsample(
     """Blur and then downsample a given image chunk"""
     import itkwasm
 
+    # itkwasm_downsample's Gaussian filter performs internal arithmetic
+    # that loses precision on small integer values (e.g. a uint16 input
+    # of 1 produces 0).  Cast integer inputs to float32 for the Gaussian
+    # path, then round and cast back so we preserve the input dtype while
+    # avoiding the upstream precision-loss.  ``label_image`` downsampling
+    # is integer-aware and does not need this workaround.
+    original_dtype = image_data.dtype
+    needs_float_workaround = smoothing == "gaussian" and np.issubdtype(
+        original_dtype, np.integer
+    )
+    if needs_float_workaround:
+        image_data = image_data.astype(np.float32)
+
     # chunk does not have metadata attached, values are ITK defaults
     image = itkwasm.image_from_array(image_data, is_vector=is_vector)
 
@@ -62,7 +75,16 @@ def _itkwasm_blur_and_downsample(
         msg = f"Unknown smoothing method: {smoothing}"
         raise ValueError(msg)
 
-    return downsampled.data
+    data = downsampled.data
+    if needs_float_workaround:
+        if np.issubdtype(original_dtype, np.unsignedinteger):
+            data = np.clip(np.rint(data), 0, np.iinfo(original_dtype).max)
+        else:
+            info = np.iinfo(original_dtype)
+            data = np.clip(np.rint(data), info.min, info.max)
+        data = data.astype(original_dtype)
+
+    return data
 
 
 def _itkwasm_chunk_bin_shrink(
