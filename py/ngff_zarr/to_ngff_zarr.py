@@ -771,6 +771,9 @@ def _handle_large_array_writing(
     **kwargs,
 ) -> None:
     """Handle writing large arrays by splitting them into manageable pieces."""
+    # Copy zarr_kwargs to avoid mutating the caller's dict across loop iterations
+    zarr_kwargs = zarr_kwargs.copy()
+
     shrink_factors = []
     for dim in dims:
         if dim in dim_factors:
