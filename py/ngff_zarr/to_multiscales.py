@@ -192,12 +192,6 @@ def _large_image_serialization(
 
         chunks = tuple(c[0] for c in slabs.chunks)
 
-        optimized = dask.array.Array(
-            dask.array.optimize(slabs.__dask_graph__(), slabs.__dask_keys__()),
-            slabs.name,
-            slabs.chunks,
-            meta=slabs,
-        )
         zarr_array = open_array(
             shape=data.shape,
             chunks=chunks,
@@ -224,7 +218,7 @@ def _large_image_serialization(
                 min((slab_index + 1) * slab_slices, data.shape[z_index]),
             )
             region = tuple(region)
-            arr_region = optimized[region]
+            arr_region = slabs[region]
             dask.array.to_zarr(
                 arr_region,
                 zarr_array,
@@ -351,12 +345,6 @@ def _cache_2d_strips(data, dims, rechunks, cache_store, base_path, progress):
 
     chunks = tuple(c[0] for c in slabs.chunks)
 
-    optimized = dask.array.Array(
-        dask.array.optimize(slabs.__dask_graph__(), slabs.__dask_keys__()),
-        slabs.name,
-        slabs.chunks,
-        meta=slabs,
-    )
     zarr_array = open_array(
         shape=data.shape,
         chunks=chunks,
@@ -383,7 +371,7 @@ def _cache_2d_strips(data, dims, rechunks, cache_store, base_path, progress):
             min((strip_index + 1) * strip_size, data.shape[strip_dim_index]),
         )
         region = tuple(region)
-        arr_region = optimized[region]
+        arr_region = slabs[region]
         dask.array.to_zarr(
             arr_region,
             zarr_array,
@@ -432,12 +420,6 @@ def _cache_1d_segments(data, dims, rechunks, cache_store, base_path, progress):
 
     chunks = tuple(c[0] for c in slabs.chunks)
 
-    optimized = dask.array.Array(
-        dask.array.optimize(slabs.__dask_graph__(), slabs.__dask_keys__()),
-        slabs.name,
-        slabs.chunks,
-        meta=slabs,
-    )
     zarr_array = open_array(
         shape=data.shape,
         chunks=chunks,
@@ -463,7 +445,7 @@ def _cache_1d_segments(data, dims, rechunks, cache_store, base_path, progress):
             min((seg_index + 1) * segment_size, data.shape[x_index]),
         )
         region = tuple(region)
-        arr_region = optimized[region]
+        arr_region = slabs[region]
         dask.array.to_zarr(
             arr_region,
             zarr_array,
