@@ -194,6 +194,47 @@ def test_chunks_default_not_overridden_by_zarr_heuristic():
         assert read.images[0].data.chunksize == expected
 
 
+@pytest.mark.skipif(zarr_version_major < 3, reason="OME-Zarr 0.5 requires zarr v3")
+def test_chunks_robust_to_non_uniform_leading_chunk():
+    """The forwarded chunk shape must use the array's canonical chunk size
+    (``arr.chunksize``), not ``c[0]``.
+
+    Slicing or other dask operations can produce a smaller leading chunk
+    (e.g. ``arr[5:]`` yields a first chunk of size 5 while the rest are 10).
+    Using ``arr.chunks[i][0]`` would forward 5 — the partial leading chunk —
+    rather than the array's intended 10-element chunk size.  This test
+    constructs that pathological input via ``rechunk`` semantics and asserts
+    the on-disk chunks reflect the canonical size.
+    """
+    import dask.array
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "nonuniform.zarr"
+        # Construct an array whose leading chunk is smaller than the rest.
+        # We do this by chunking the data with explicit per-dim block sizes
+        # that produce a small first block on the z axis.
+        np_data = np.full((1, 1, 25, 64, 64), 7, dtype=np.uint16)
+        da_data = dask.array.from_array(
+            np_data, chunks=((1,), (1,), (5, 10, 10), (64,), (64,))
+        )
+        image = to_ngff_image(da_data, dims=["t", "c", "z", "y", "x"])
+        # Skip to_multiscales' own rechunk by writing a single-level
+        # multiscales with the already-chunked dask array.
+        multiscales = to_multiscales(image, scale_factors=[2])
+        # Re-stitch the base level with the non-uniform chunking so we are
+        # exercising the ``arr.chunksize`` path (to_multiscales would have
+        # normalised the chunks).
+        multiscales.images[0].data = da_data
+        to_ngff_zarr(str(out), multiscales, version="0.5")
+        read = from_ngff_zarr(str(out))
+        # ``c[0]`` for z would be 5; ``arr.chunksize`` for z is 10.  The
+        # written chunks must reflect 10.
+        assert read.images[0].data.chunksize[2] == 10, (
+            f"z chunk size was {read.images[0].data.chunksize[2]} — "
+            "leading partial chunk leaked into the on-disk chunk size"
+        )
+
+
 @pytest.mark.skipif(zarr_version_major < 3, reason="Sharding requires zarr v3")
 def test_chunks_per_shard_path_still_works():
     """The Bug B fix is gated on ``chunks`` not already being set in
