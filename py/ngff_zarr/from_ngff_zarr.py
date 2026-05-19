@@ -121,7 +121,8 @@ def from_ome_zarr(
             "  2. The Zarr store is empty or corrupted\n"
             "  3. The download was incomplete\n"
             "  4. The store contains a Zarr array at the root instead of a group\n\n"
-            "For OME-Zarr files, the root must be a Zarr group containing multiscale metadata. "
+            "For OME-Zarr files, the root must be a Zarr group "
+            "containing multiscale metadata. "
             "Please verify that the input path points to a valid OME-Zarr store."
         ) from e
     except zarr.errors.ContainsArrayError as e:
