@@ -715,6 +715,14 @@ def _write_array_direct(
         **kwargs,
     }
 
+    # For Zarr v3 direct writes without sharding, ``zarr.create_array`` picks
+    # its own chunk shape if we do not pass one — that overrides the chunking
+    # the caller selected via ``to_multiscales(chunks=...)``.  Forward the
+    # dask array's canonical chunk shape (``chunksize`` = per-dim max, which
+    # tolerates non-uniform leading chunks) so user intent is respected.
+    if zarr_fmt == 3 and zarr_array is None and "chunks" not in to_zarr_kwargs:
+        to_zarr_kwargs["chunks"] = arr.chunksize
+
     if zarr_fmt == 3 and zarr_array is None:
         # Zarr v3, use zarr.create_array and assign (whole array or region)
         array = zarr.create_array(
