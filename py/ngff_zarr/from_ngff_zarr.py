@@ -109,31 +109,39 @@ def from_ome_zarr(
             if packaging.version.parse(version) < packaging.version.parse("0.5")
             else {"zarr_format": 3}
         )
+
+    def _open_group_with_helpful_errors(**open_kwargs):
+        try:
+            return zarr.open_group(store, mode="r", **open_kwargs)
+        except zarr.errors.GroupNotFoundError as e:
+            store_path = str(store)
+            raise ValueError(
+                f"No valid Zarr group found at '{store_path}'. "
+                "This error typically occurs when:\n"
+                "  1. The path does not contain a valid Zarr store\n"
+                "  2. The Zarr store is empty or corrupted\n"
+                "  3. The download was incomplete\n"
+                "  4. The store contains a Zarr array at the root instead of a group\n\n"
+                "For OME-Zarr files, the root must be a Zarr group "
+                "containing multiscale metadata. "
+                "Please verify that the input path points to a valid OME-Zarr store."
+            ) from e
+        except zarr.errors.ContainsArrayError as e:
+            store_path = str(store)
+            raise ValueError(
+                f"The Zarr store at '{store_path}' contains an array at the root level, "
+                "but OME-Zarr requires a group structure with multiscale metadata. "
+                "Single Zarr arrays cannot be directly converted to OME-Zarr format."
+            ) from e
+
     # Open the Zarr store as a group with helpful error messages
-    try:
-        root = zarr.open_group(store, mode="r", **format_kwargs)
-    except zarr.errors.GroupNotFoundError as e:
-        store_path = str(store)
-        raise ValueError(
-            f"No valid Zarr group found at '{store_path}'. "
-            "This error typically occurs when:\n"
-            "  1. The path does not contain a valid Zarr store\n"
-            "  2. The Zarr store is empty or corrupted\n"
-            "  3. The download was incomplete\n"
-            "  4. The store contains a Zarr array at the root instead of a group\n\n"
-            "For OME-Zarr files, the root must be a Zarr group "
-            "containing multiscale metadata. "
-            "Please verify that the input path points to a valid OME-Zarr store."
-        ) from e
-    except zarr.errors.ContainsArrayError as e:
-        store_path = str(store)
-        raise ValueError(
-            f"The Zarr store at '{store_path}' contains an array at the root level, "
-            "but OME-Zarr requires a group structure with multiscale metadata. "
-            "Single Zarr arrays cannot be directly converted to OME-Zarr format."
-        ) from e
+    root = _open_group_with_helpful_errors(**format_kwargs)
     # When auto-detecting version (no explicit version provided) on zarr-python 3,
     # zarr may prefer a spurious zarr.json (format 3) over .zgroup (format 2),
+    # which can yield an empty-root group. Retry the v2 open through the same
+    # helper so fallback errors get the same helpful wrapping.
+    if version is None and zarr_version_major >= 3 and not root.attrs:
+        root = _open_group_with_helpful_errors(zarr_format=2)
     # resulting in empty root attributes. Fall back to zarr_format=2 in that case.
     if not version and zarr_version_major >= 3:
         root_attrs_check = root.attrs.asdict()
