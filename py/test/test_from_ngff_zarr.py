@@ -281,3 +281,35 @@ def test_omero_metadata_backward_compatibility():
     assert channel3.window.max == 995
     assert channel3.window.start == 15
     assert channel3.window.end == 985
+
+
+def test_from_ngff_zarr_empty_directory(tmp_path):
+    """Test that from_ngff_zarr raises a helpful error for empty directories."""
+    empty_zarr = tmp_path / "empty.zarr"
+    empty_zarr.mkdir()
+
+    with pytest.raises(ValueError, match="No valid Zarr group found"):
+        from_ngff_zarr(str(empty_zarr))
+
+
+def test_from_ngff_zarr_invalid_store(tmp_path):
+    """Test that from_ngff_zarr raises a helpful error for invalid Zarr stores."""
+    invalid_zarr = tmp_path / "invalid.zarr"
+    invalid_zarr.mkdir()
+    # Create a non-zarr file
+    (invalid_zarr / "random.txt").write_text("not a zarr file")
+
+    with pytest.raises(ValueError, match="No valid Zarr group found"):
+        from_ngff_zarr(str(invalid_zarr))
+
+
+def test_from_ngff_zarr_array_at_root(tmp_path):
+    """Test that from_ngff_zarr raises a helpful error when root is an array."""
+    import numpy as np
+
+    array_zarr = tmp_path / "array.zarr"
+    # Create a Zarr array (not a group) at the root
+    zarr.save(str(array_zarr), np.array([1, 2, 3, 4, 5]))
+
+    with pytest.raises(ValueError, match="contains an array at the root level"):
+        from_ngff_zarr(str(array_zarr))
