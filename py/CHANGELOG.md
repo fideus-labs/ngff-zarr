@@ -1,3 +1,22 @@
+## py-v0.34.1 (2026-05-27)
+
+### 🐛 Bug Fixes
+
+- **from-ome-zarr**: better error routing ([095ce7c](https://github.com/fideus-labs/ngff-zarr/commit/095ce7c1e7cacae75727c11bd27e3d187218cc45))
+- **py**: add helpful error messages for GroupNotFoundError in from_ngff_zarr ([89552ac](https://github.com/fideus-labs/ngff-zarr/commit/89552ac488588c94ab5cabfde07b852b85705748))
+- **py**: use arr.chunksize for v0.5 chunks forwarding ([9dcdf07](https://github.com/fideus-labs/ngff-zarr/commit/9dcdf076012b907bbbceb576cd81f5e546f8c5a9))
+- **py**: resolve data loss and chunks regressions from issue #488 ([c93fe01](https://github.com/fideus-labs/ngff-zarr/commit/c93fe012b8451e1409aa679376419f456ea04416))
+- **py**: apply _find_optimal_chunk_size to spatial dims only in z-slabs path ([0fbdb0c](https://github.com/fideus-labs/ngff-zarr/commit/0fbdb0c3f8bbe7af2efe09614595e66246fecdd0))
+- **py**: remove dask.array.optimize to prevent chunk structure fusion ([ab3bbfd](https://github.com/fideus-labs/ngff-zarr/commit/ab3bbfd50ba88493a68028329906d45ed96c93a3))
+- **py**: align 2D strip and 1D segment cache chunks with region write boundaries ([f398ce3](https://github.com/fideus-labs/ngff-zarr/commit/f398ce35e8c501baac3aac5d1d2b8ad42507d65f))
+- **py**: align cache zarr chunks with dask data chunks to prevent PerformanceWarning ([8b2fdd6](https://github.com/fideus-labs/ngff-zarr/commit/8b2fdd62db316fa815f92da37a670c0f663e70a5))
+- **py**: prevent zarr_kwargs mutation across scale loop iterations in _handle_large_array_writing ([f1f88d7](https://github.com/fideus-labs/ngff-zarr/commit/f1f88d752fdb54f767a60bfc7548cf396c0fb7b7))
+- **py**: remove retry_if_failed from pooch downloader ([2f9bda2](https://github.com/fideus-labs/ngff-zarr/commit/2f9bda2f909740e77a2be5707b4f8726d4beee64))
+- **py**: add retry with longer timeout to test data download ([8d9b490](https://github.com/fideus-labs/ngff-zarr/commit/8d9b49031eb9d65f5fdd46b56313889c19330375))
+- **py**: use create_array for zarr v3 compatibility in rfc4 validation tests ([6b9c45f](https://github.com/fideus-labs/ngff-zarr/commit/6b9c45fb4e0210a247e1d1a781343182204e71f3))
+- **ci**: lower imagecodecs lower bound for Python 3.10 support ([74765a8](https://github.com/fideus-labs/ngff-zarr/commit/74765a8c10e27ddce7ed3c0ebc8e15b01501a9aa))
+- **ci**: pin imagecodecs to v2026.3.6 to prevent macOS Intel build failure ([3452bea](https://github.com/fideus-labs/ngff-zarr/commit/3452bea724b4c5089985143e17dc1ae410dbbc80))
+
 ## py-v0.34.0 (2026-04-15)
 
 ### ♻️ Refactoring
