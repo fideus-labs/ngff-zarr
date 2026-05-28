@@ -24,9 +24,11 @@ repos:
       - id: debug-statements
       - id: detect-private-key
       - id: end-of-file-fixer
-        # gh-aw-generated files (lock files, maintenance workflow, dispatcher
-        # agent) intentionally carry trailing whitespace in their ASCII banners;
-        # excluding them keeps `gh aw compile`/`upgrade` output idempotent.
+        # gh-aw regenerates these files and emits trailing whitespace in their
+        # ASCII banners; excluding them keeps `gh aw compile`/`upgrade` output
+        # idempotent. Covers .github/agents/*.agent.md (dispatcher) and, under
+        # .github/workflows/, the compiled *.lock.yml files and the generated
+        # agentics-maintenance.yml.
         exclude: '^\.github/(agents/.*\.agent\.md|workflows/(.*\.lock\.yml|agentics-maintenance\.yml))$'
       - id: mixed-line-ending
       - id: name-tests-test
