@@ -129,6 +129,63 @@ def test_write_store_to_zip_hcs_plate():
     assert len(well.images) == 1
 
 
+def test_write_store_to_zip_overwrites_existing_directory():
+    """A pre-existing directory at the .ozx destination must be replaced.
+
+    Regression test for GH #241: on Windows, opening a directory path in write
+    mode raises PermissionError (Errno 13). This happens when a plate is first
+    written unzipped to the same path that is later used for the .ozx archive.
+    """
+    OUTPUT_DIR.mkdir(exist_ok=True)
+
+    data = np.random.randint(0, 255, (2, 32, 32), dtype=np.uint8)
+    image = to_ngff_image(data=data, dims=["c", "y", "x"])
+    multiscales = to_multiscales(image)
+
+    zarr_path = OUTPUT_DIR / "test_overwrite_dir.ome.zarr"
+    ozx_path = OUTPUT_DIR / "test_overwrite_dir.ozx"
+
+    to_ngff_zarr(str(zarr_path), multiscales, version="0.5")
+
+    # Simulate a stale directory (e.g. an unzipped store) sitting at the
+    # destination .ozx path.
+    if ozx_path.exists():
+        import shutil
+
+        shutil.rmtree(ozx_path, ignore_errors=True)
+    ozx_path.mkdir()
+    (ozx_path / "leftover.txt").write_text("stale")
+    assert ozx_path.is_dir()
+
+    # Should not raise (previously raised PermissionError on Windows).
+    write_store_to_zip(str(zarr_path), str(ozx_path), version="0.5")
+
+    assert ozx_path.is_file()
+    assert zipfile.is_zipfile(ozx_path)
+    with zipfile.ZipFile(ozx_path, "r") as zf:
+        assert "leftover.txt" not in zf.namelist()
+        assert "zarr.json" in zf.namelist()
+
+
+def test_write_store_to_zip_rejects_same_source_and_destination():
+    """Writing the archive onto the source store path must raise, not delete it."""
+    OUTPUT_DIR.mkdir(exist_ok=True)
+
+    data = np.random.randint(0, 255, (2, 32, 32), dtype=np.uint8)
+    image = to_ngff_image(data=data, dims=["c", "y", "x"])
+    multiscales = to_multiscales(image)
+
+    zarr_path = OUTPUT_DIR / "test_same_path_store"
+    to_ngff_zarr(str(zarr_path), multiscales, version="0.5")
+
+    with pytest.raises(ValueError, match="same as the source"):
+        write_store_to_zip(str(zarr_path), str(zarr_path), version="0.5")
+
+    # Source store must remain intact.
+    assert zarr_path.is_dir()
+    assert (zarr_path / "zarr.json").exists()
+
+
 def test_write_store_to_zip_with_path_object():
     """Test that write_store_to_zip works with Path objects too"""
     OUTPUT_DIR.mkdir(exist_ok=True)
