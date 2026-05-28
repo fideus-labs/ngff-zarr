@@ -24,11 +24,17 @@ repos:
       - id: debug-statements
       - id: detect-private-key
       - id: end-of-file-fixer
+        # gh-aw-generated files (lock files, maintenance workflow, dispatcher
+        # agent) intentionally carry trailing whitespace in their ASCII banners;
+        # excluding them keeps `gh aw compile`/`upgrade` output idempotent.
+        exclude: '^\.github/(agents/.*\.agent\.md|workflows/(.*\.lock\.yml|agentics-maintenance\.yml))$'
       - id: mixed-line-ending
       - id: name-tests-test
         args: ["--pytest-test-first"]
       - id: requirements-txt-fixer
       - id: trailing-whitespace
+        # See end-of-file-fixer above: keep gh-aw-generated artifacts verbatim.
+        exclude: '^\.github/(agents/.*\.agent\.md|workflows/(.*\.lock\.yml|agentics-maintenance\.yml))$'
 
   - repo: https://github.com/codespell-project/codespell
     rev: "v2.2.5"
