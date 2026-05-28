@@ -1,3 +1,9 @@
+## py-v0.34.2 (2026-05-28)
+
+### 🐛 Bug Fixes
+
+- stop pre-commit from mangling gh-aw generated files ([d6f1201](https://github.com/fideus-labs/ngff-zarr/commit/d6f120144884bc6a3089e5286a624ed0316f90ba))
+
 ## py-v0.34.1 (2026-05-27)
 
 ### 🐛 Bug Fixes
