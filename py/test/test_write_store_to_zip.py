@@ -152,7 +152,10 @@ def test_write_store_to_zip_overwrites_existing_directory():
     if ozx_path.exists():
         import shutil
 
-        shutil.rmtree(ozx_path, ignore_errors=True)
+        if ozx_path.is_dir():
+            shutil.rmtree(ozx_path)
+        else:
+            ozx_path.unlink()
     ozx_path.mkdir()
     (ozx_path / "leftover.txt").write_text("stale")
     assert ozx_path.is_dir()
