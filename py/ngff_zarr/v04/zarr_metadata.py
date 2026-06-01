@@ -1,5 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+from __future__ import annotations
+
 import functools
 import logging
 import re
@@ -22,7 +24,14 @@ SupportedDims = Union[
 ]
 
 SpatialDims = Union[Literal["x"], Literal["y"], Literal["z"]]
-AxesType = Union[Literal["time"], Literal["space"], Literal["channel"]]
+AxesType = Union[
+    Literal["time"],
+    Literal["space"],
+    Literal["channel"],
+    Literal["array"],
+    Literal["coordinate"],
+    Literal["displacement"],
+]
 SpaceUnits = Union[
     Literal["angstrom"],
     Literal["attometer"],
@@ -146,6 +155,69 @@ def is_unit_supported(unit: str) -> bool:
     return (unit in time_units) or (unit in space_units)
 
 
+def _parse_transform(transform_dict: dict) -> Transform:
+    """Parse a single transformation dict into its appropriate Transform type."""
+    transform_type = transform_dict.get("type", "")
+
+    if transform_type == "identity":
+        return Identity()
+
+    if transform_type == "scale":
+        scale_val = transform_dict.get("scale")
+        if scale_val is not None:
+            return Scale(scale_val)
+        if "path" in transform_dict:
+            return Scale(scale=[], type="scale")
+
+    if transform_type == "translation":
+        translation_val = transform_dict.get("translation")
+        if translation_val is not None:
+            return Translation(translation_val)
+        if "path" in transform_dict:
+            return Translation(translation=[], type="translation")
+
+    if transform_type == "displacements":
+        path = transform_dict.get("path", "")
+        idx_transform = None
+        if "indexTransformation" in transform_dict:
+            idx_transform = _parse_transform(transform_dict["indexTransformation"])
+        return Displacements(
+            path=path,
+            indexTransformation=idx_transform,
+            interpolation=transform_dict.get("interpolation"),
+        )
+
+    if transform_type == "coordinates":
+        path = transform_dict.get("path", "")
+        idx_transform = None
+        if "indexTransformation" in transform_dict:
+            idx_transform = _parse_transform(transform_dict["indexTransformation"])
+        return Coordinates(
+            path=path,
+            indexTransformation=idx_transform,
+            interpolation=transform_dict.get("interpolation"),
+        )
+
+    if "scale" in transform_dict:
+        return Scale(transform_dict["scale"])
+    if "translation" in transform_dict:
+        return Translation(transform_dict["translation"])
+
+    return Scale([], type=transform_type)
+
+
+def _parse_group_transforms(
+    transforms: list[dict] | None,
+) -> list[Transform] | None:
+    """Parse group-level coordinate transformations."""
+    if transforms is None:
+        return None
+    result = []
+    for t in transforms:
+        result.append(_parse_transform(t))
+    return result
+
+
 @functools.lru_cache(maxsize=1)
 def _get_axis_fields() -> set[str]:
     """Get the set of valid field names for the Axis dataclass.
@@ -209,7 +281,25 @@ class Translation:
     type: str = "translation"
 
 
-Transform = Union[Scale, Translation]
+@dataclass
+class Displacements:
+    path: str
+    indexTransformation: Transform | None = None
+    type: str = "displacements"
+    interpolation: str | None = None
+    name: str | None = None
+
+
+@dataclass
+class Coordinates:
+    path: str
+    indexTransformation: Transform | None = None
+    type: str = "coordinates"
+    interpolation: str | None = None
+    name: str | None = None
+
+
+Transform = Union[Scale, Translation, Identity, Displacements, Coordinates]
 
 
 @dataclass
@@ -310,7 +400,7 @@ class Metadata:
     type: str | None = None
     metadata: MethodMetadata | None = None
 
-    def to_version(self, version: str | NgffVersion) -> "Metadata":
+    def to_version(self, version: str | NgffVersion) -> Metadata:
         if isinstance(version, str):
             # raise error for invalid version string
             version = NgffVersion(version)
@@ -322,14 +412,14 @@ class Metadata:
         raise ValueError(f"Unsupported version conversion: 0.4 -> {version}")
 
     @classmethod
-    def from_version(cls, metadata: "Metadata") -> "Metadata":
+    def from_version(cls, metadata: Metadata) -> Metadata:
         from ..v05.zarr_metadata import Metadata as Metadata_v05
 
         if isinstance(metadata, Metadata_v05):
             return cls._from_v05(metadata)
         raise ValueError(f"Unsupported metadata type: {type(metadata)}")
 
-    def _to_v05(self) -> "Metadata":
+    def _to_v05(self) -> Metadata:
         from ..v05.zarr_metadata import Metadata as Metadata_v05
 
         metadata = Metadata_v05(
@@ -344,7 +434,7 @@ class Metadata:
         return metadata
 
     @classmethod
-    def _from_v05(cls, metadata_v05: "Metadata") -> "Metadata":
+    def _from_v05(cls, metadata_v05: Metadata) -> Metadata:
         metadata = cls(
             axes=metadata_v05.axes,
             datasets=metadata_v05.datasets,
@@ -363,7 +453,7 @@ class Metadata:
         store: StoreLike,
         validate: bool = False,
         subpath: str | None = None,
-    ) -> tuple["Metadata", list["NgffImage"]]:
+    ) -> tuple[Metadata, list[NgffImage]]:
         """Create Metadata instance from ome-zarr metadata dictionary.
 
         Parameters
@@ -498,6 +588,8 @@ class Metadata:
                         coordinateTransformations.append(
                             Translation(transformation["translation"])
                         )
+                    elif transformation.get("type") == "identity":
+                        coordinateTransformations.append(Identity())
             datasets.append(
                 Dataset(
                     path=dataset["path"],
@@ -521,7 +613,9 @@ class Metadata:
             name=root_attrs.get("name", "image"),
             version=root_attrs.get("version", "0.4"),
             omero=omero,
-            coordinateTransformations=root_attrs.get("coordinateTransformations", None),
+            coordinateTransformations=_parse_group_transforms(
+                root_attrs.get("coordinateTransformations")
+            ),
         )
 
         return metadata, images

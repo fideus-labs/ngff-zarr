@@ -410,3 +410,8 @@ export class NgffImage {
   with `pixi run --as-is -e test pytest tests/test_*.py`. Do not try to use
   `pixi run --as-is pytest ...` or `pixi run --as-is python -c '<command>'` as these will not
   work correctly.
+- **Before every `git commit`, ALWAYS run the pre-commit lint tasks.** Run
+  `pixi run -e lint lint` from `py/` and `pixi run lint` from `ts/` until they
+  pass cleanly with no file modifications. When pre-commit hooks modify files,
+  re-stage them with `git add` and re-run lint until all hooks pass. Failure to
+  do this causes the `ci` to fail.

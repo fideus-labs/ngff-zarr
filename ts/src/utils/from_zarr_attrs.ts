@@ -10,6 +10,7 @@ import type {
   Axis,
   Dataset,
   FromZarrAttrsResult,
+  Identity,
   MetadataInterface,
   Omero,
   Scale,
@@ -298,36 +299,38 @@ export async function fromZarrAttrsV04(
     );
     const coordinateTransformations: Transform[] = [];
 
-    if ("coordinateTransformations" in dataset) {
-      const transforms = dataset.coordinateTransformations as Array<
-        Record<string, unknown>
-      >;
-      for (const transformation of transforms) {
-        if ("scale" in transformation) {
-          const scaleValues = transformation.scale as number[];
-          dims.forEach((dim, i) => {
-            if (i < scaleValues.length) {
-              scale[dim] = scaleValues[i];
+        if ("coordinateTransformations" in dataset) {
+          const transforms = dataset.coordinateTransformations as Array<
+            Record<string, unknown>
+          >;
+          for (const transformation of transforms) {
+            if ("scale" in transformation) {
+              const scaleValues = transformation.scale as number[];
+              dims.forEach((dim, i) => {
+                if (i < scaleValues.length) {
+                  scale[dim] = scaleValues[i];
+                }
+              });
+              coordinateTransformations.push({
+                type: "scale",
+                scale: scaleValues,
+              } as Scale);
+            } else if ("translation" in transformation) {
+              const translationValues = transformation.translation as number[];
+              dims.forEach((dim, i) => {
+                if (i < translationValues.length) {
+                  translation[dim] = translationValues[i];
+                }
+              });
+              coordinateTransformations.push({
+                type: "translation",
+                translation: translationValues,
+              } as Translation);
+            } else if (transformation.type === "identity") {
+              coordinateTransformations.push({ type: "identity" } as Identity);
             }
-          });
-          coordinateTransformations.push({
-            type: "scale",
-            scale: scaleValues,
-          } as Scale);
-        } else if ("translation" in transformation) {
-          const translationValues = transformation.translation as number[];
-          dims.forEach((dim, i) => {
-            if (i < translationValues.length) {
-              translation[dim] = translationValues[i];
-            }
-          });
-          coordinateTransformations.push({
-            type: "translation",
-            translation: translationValues,
-          } as Translation);
+          }
         }
-      }
-    }
 
     datasets.push({
       path,

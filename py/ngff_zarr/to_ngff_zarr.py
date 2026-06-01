@@ -115,8 +115,16 @@ def _pop_metadata_optionals(metadata_dict, enabled_rfcs: list[int] | None = None
         if not is_rfc4_enabled(enabled_rfcs) and "orientation" in ax:
             ax.pop("orientation")
 
-    if metadata_dict["coordinateTransformations"] is None:
-        metadata_dict.pop("coordinateTransformations")
+    # Clean up coordinateTransformations
+    ct = metadata_dict.get("coordinateTransformations")
+    if ct is None:
+        metadata_dict.pop("coordinateTransformations", None)
+    elif isinstance(ct, list):
+        for transform in ct:
+            if isinstance(transform, dict):
+                for key in list(transform.keys()):
+                    if transform[key] is None:
+                        transform.pop(key)
 
     if metadata_dict["omero"] is None:
         metadata_dict.pop("omero")

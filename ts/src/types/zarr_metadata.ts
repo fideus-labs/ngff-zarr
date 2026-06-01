@@ -35,7 +35,34 @@ export interface Translation {
   type: "translation";
 }
 
-export type Transform = Scale | Translation;
+export type Transform = Scale | Translation | Identity;
+
+export interface DisplacementTransform {
+  type: "displacements";
+  path: string;
+  indexTransformation: Transform;
+  interpolation?: string;
+  input?: string | string[];
+  output?: string | string[];
+  name?: string;
+}
+
+export interface CoordinateTransform {
+  type: "coordinates";
+  path: string;
+  indexTransformation: Transform;
+  interpolation?: string;
+  input?: string | string[];
+  output?: string | string[];
+  name?: string;
+}
+
+export type GroupTransform =
+  | Scale
+  | Translation
+  | Identity
+  | DisplacementTransform
+  | CoordinateTransform;
 
 export interface Dataset {
   path: string;
@@ -73,7 +100,7 @@ export interface MethodMetadata {
 export interface MetadataInterface {
   axes: Axis[];
   datasets: Dataset[];
-  coordinateTransformations: Transform[] | undefined;
+  coordinateTransformations: GroupTransform[] | undefined;
   omero: Omero | undefined;
   name: string;
   version: string;
@@ -131,6 +158,11 @@ export function createMetadataWithVersion(
     return {
       ...metadata,
       version: "0.5",
+    };
+  } else if (version === NgffVersion.V06) {
+    return {
+      ...metadata,
+      version: "0.6",
     };
   } else {
     throw new Error(

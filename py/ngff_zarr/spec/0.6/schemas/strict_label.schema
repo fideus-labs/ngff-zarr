@@ -1,0 +1,21 @@
+{
+  "$id": "https://ngff.openmicroscopy.org/0.6/schemas/strict_label.schema",
+  "allOf": [
+    {
+      "$ref": "https://ngff.openmicroscopy.org/0.6/schemas/label.schema"
+    },
+    {
+      "properties": {
+        "ome": {
+          "properties": {
+            "image-label": {
+              "required": [
+                "colors"
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -12,6 +12,8 @@ import {
   // RFC5 coordinate systems
   CoordinateSystemSchema,
   CoordinateTransformationSchema,
+  CoordinatesTransformationSchema,
+  DisplacementTransformationSchema,
   MetadataSchema,
   ScaleTransformationSchema,
   SequenceTransformationSchema,
@@ -361,3 +363,182 @@ Deno.test("Enhanced MetadataSchema with RFC4 and RFC5 features", () => {
     assertEquals(axis.orientation?.type, "anatomical");
   });
 });
+
+// RFC-5 coordinate/displacement transformations (Issue #520)
+Deno.test(
+  "DisplacementTransformationSchema - valid with scale indexTransformation",
+  () => {
+    const valid = {
+      type: "displacements",
+      path: "coordinateTransformations/field",
+      indexTransformation: { type: "scale", scale: [2.0, 1.0] },
+      interpolation: "nearest",
+      input: "in",
+      output: "out",
+      name: "my_displacement",
+    };
+    const result = DisplacementTransformationSchema.parse(valid);
+    assertEquals(result.type, "displacements");
+    assertEquals(result.path, "coordinateTransformations/field");
+    assertEquals(result.indexTransformation.type, "scale");
+    assertEquals(result.interpolation, "nearest");
+  },
+);
+
+Deno.test(
+  "DisplacementTransformationSchema - valid with identity indexTransformation",
+  () => {
+    const valid = {
+      type: "displacements",
+      path: "field",
+      indexTransformation: { type: "identity" },
+    };
+    const result = DisplacementTransformationSchema.parse(valid);
+    assertEquals(result.type, "displacements");
+    assertEquals(result.indexTransformation.type, "identity");
+  },
+);
+
+Deno.test(
+  "DisplacementTransformationSchema - valid with sequence indexTransformation",
+  () => {
+    const valid = {
+      type: "displacements",
+      path: "coordinateTransformations/field",
+      indexTransformation: {
+        type: "sequence",
+        transformations: [
+          { type: "scale", scale: [2.0, 1.0] },
+          { type: "translation", translation: [0.5, 0.0] },
+        ],
+      },
+    };
+    const result = DisplacementTransformationSchema.parse(valid);
+    assertEquals(result.type, "displacements");
+    assertEquals(result.indexTransformation.type, "sequence");
+    const seq = result.indexTransformation as {
+      type: "sequence";
+      transformations: Record<string, unknown>[];
+    };
+    assertEquals(Array.isArray(seq.transformations), true);
+  },
+);
+
+Deno.test(
+  "DisplacementTransformationSchema - missing indexTransformation throws",
+  () => {
+    assertThrows(() =>
+      DisplacementTransformationSchema.parse({
+        type: "displacements",
+        path: "field",
+      })
+    );
+  },
+);
+
+Deno.test(
+  "DisplacementTransformationSchema - missing path throws",
+  () => {
+    assertThrows(() =>
+      DisplacementTransformationSchema.parse({
+        type: "displacements",
+        indexTransformation: { type: "identity" },
+      })
+    );
+  },
+);
+
+Deno.test(
+  "CoordinatesTransformationSchema - valid with identity indexTransformation",
+  () => {
+    const valid = {
+      type: "coordinates",
+      path: "coordinateTransformations/coord_field",
+      indexTransformation: { type: "identity" },
+      interpolation: "linear",
+    };
+    const result = CoordinatesTransformationSchema.parse(valid);
+    assertEquals(result.type, "coordinates");
+    assertEquals(result.path, "coordinateTransformations/coord_field");
+    assertEquals(result.indexTransformation.type, "identity");
+    assertEquals(result.interpolation, "linear");
+  },
+);
+
+Deno.test(
+  "CoordinatesTransformationSchema - valid with scale indexTransformation",
+  () => {
+    const valid = {
+      type: "coordinates",
+      path: "field",
+      indexTransformation: { type: "scale", scale: [3.0, 1.0] },
+    };
+    const result = CoordinatesTransformationSchema.parse(valid);
+    assertEquals(result.type, "coordinates");
+    assertEquals(result.indexTransformation.type, "scale");
+  },
+);
+
+Deno.test(
+  "CoordinatesTransformationSchema - missing indexTransformation throws",
+  () => {
+    assertThrows(() =>
+      CoordinatesTransformationSchema.parse({
+        type: "coordinates",
+        path: "field",
+      })
+    );
+  },
+);
+
+Deno.test(
+  "CoordinatesTransformationSchema - missing path throws",
+  () => {
+    assertThrows(() =>
+      CoordinatesTransformationSchema.parse({
+        type: "coordinates",
+        indexTransformation: { type: "identity" },
+      })
+    );
+  },
+);
+
+Deno.test(
+  "CoordinatesTransformationSchema - invalid interpolation throws",
+  () => {
+    assertThrows(() =>
+      CoordinatesTransformationSchema.parse({
+        type: "coordinates",
+        path: "field",
+        indexTransformation: { type: "identity" },
+        interpolation: "invalid_method",
+      })
+    );
+  },
+);
+
+Deno.test(
+  "CoordinateTransformationSchema union - accepts displacements",
+  () => {
+    const valid = {
+      type: "displacements",
+      path: "coordinateTransformations/field",
+      indexTransformation: { type: "identity" },
+    };
+    const result = CoordinateTransformationSchema.parse(valid);
+    assertEquals(result.type, "displacements");
+  },
+);
+
+Deno.test(
+  "CoordinateTransformationSchema union - accepts coordinates",
+  () => {
+    const valid = {
+      type: "coordinates",
+      path: "coordinateTransformations/coord_field",
+      indexTransformation: { type: "scale", scale: [1.0] },
+    };
+    const result = CoordinateTransformationSchema.parse(valid);
+    assertEquals(result.type, "coordinates");
+  },
+);

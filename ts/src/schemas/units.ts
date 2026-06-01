@@ -27,7 +27,10 @@ export const AxesTypeSchema: z.ZodEnum<{
   time: "time";
   space: "space";
   channel: "channel";
-}> = z.enum(["time", "space", "channel"]);
+  array: "array";
+  coordinate: "coordinate";
+  displacement: "displacement";
+}> = z.enum(["time", "space", "channel", "array", "coordinate", "displacement"]);
 
 export const SpaceUnitsSchema: z.ZodEnum<{
   angstrom: "angstrom";

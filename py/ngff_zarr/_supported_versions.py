@@ -28,7 +28,8 @@ class NgffVersion(StrEnum):
     V03 = "0.3"
     V04 = "0.4"
     V05 = "0.5"
-    LATEST = "0.5"
+    V06 = "0.6"
+    LATEST = "0.6"
 
 
 # Supported NGFF specification versions
@@ -38,4 +39,5 @@ SUPPORTED_VERSIONS = (
     NgffVersion.V03,
     NgffVersion.V04,
     NgffVersion.V05,
+    NgffVersion.V06,
 )
