@@ -59,6 +59,27 @@ If the TIFF series have names (common for OME-TIFF), their names are used
 instead of the index, for example `output_GFP.ome.zarr`, `output_DAPI.ome.zarr`,
 and so on. Series names are automatically sanitized to ensure filesystem safety.
 
+### Multi-series files written to a single `.ozx`
+
+Whole-slide formats such as Aperio `.svs` always contain several series (a
+full-resolution **Baseline** pyramid plus auxiliary **Thumbnail**, **Label**,
+and **Macro** images). When such a file is converted to a single
+`.ozx` file, the primary (first) series — the full-resolution
+image — is written to the exact path you requested, and any additional series
+are written alongside it with a `_<series_name>` suffix while preserving the
+`.ozx` format:
+
+```shell
+ngff-zarr -i slide.svs -o slide.ozx
+# creates slide.ozx (Baseline) plus slide_Thumbnail.ozx, slide_Label.ozx, ...
+```
+
+To convert only the full-resolution image, select it explicitly:
+
+```shell
+ngff-zarr -i slide.svs -o slide.ozx --series 0
+```
+
 ### Convert a specific series by index
 
 ```shell
