@@ -11,7 +11,10 @@ import { defaultCodecs } from "../utils/codecs.ts";
 import { createWriteQueue, zarrGet, zarrSet } from "../utils/worker_pool.ts";
 import type { MemoryStore } from "./from_ngff_zarr-browser.ts";
 import { memoryStoreToZip } from "./rfc9_zip.ts";
-import { writeNgffMultiscalesToMemoryStore } from "./to_ngff_zarr_ozx_common.ts";
+import {
+  processAxesForRfcs,
+  writeNgffMultiscalesToMemoryStore,
+} from "./to_ngff_zarr_ozx_common.ts";
 
 export { isOzxPath } from "./rfc9_zip.ts";
 
@@ -19,6 +22,8 @@ export interface ToOmeZarrOptions {
   overwrite?: boolean;
   version?: "0.4" | "0.5";
   chunksPerShard?: number | number[] | Record<string, number>;
+  /** List of RFC numbers to enable (e.g., [4] for RFC 4 anatomical orientation) */
+  enabledRfcs?: number[];
   /**
    * Custom codec pipeline for array compression. When omitted the default
    * ``blosc(zstd)`` pipeline from {@link defaultCodecs} is used. Use
@@ -64,6 +69,7 @@ export async function toOmeZarr(
 ): Promise<void> {
   const _overwrite = options.overwrite ?? true;
   const _version = options.version ?? "0.4";
+  const enabledRfcs = options.enabledRfcs;
 
   try {
     // Determine the appropriate store type based on the path
@@ -88,11 +94,17 @@ export async function toOmeZarr(
     // Create root location and group with zarrita v0.5.2 API
     const root = zarr.root(_resolvedStore);
 
+    // Process axes - filter orientation based on enabledRfcs
+    const processedAxes = processAxesForRfcs(
+      multiscales.metadata.axes,
+      enabledRfcs,
+    );
+
     // Prepare multiscales metadata
     const multiscalesMetadata = {
       version: _version,
       name: multiscales.metadata.name,
-      axes: multiscales.metadata.axes,
+      axes: processedAxes,
       datasets: multiscales.metadata.datasets,
       ...(multiscales.metadata.coordinateTransformations && {
         coordinateTransformations:
