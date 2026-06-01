@@ -157,6 +157,28 @@ def write_store_to_zip(
 
     ordered_files = _order_files_rfc9(all_files)
 
+    # Prepare the destination. On Windows, opening a directory path in write
+    # mode raises PermissionError (Errno 13) rather than IsADirectoryError, so
+    # an existing directory at the destination must be removed explicitly. This
+    # commonly happens when a plate was first written as an unzipped store to
+    # the same path before being converted to .ozx (see GH #241). A pre-existing
+    # regular file is fine -- zipfile mode="w" overwrites it.
+    if zip_path.exists() and zip_path.is_dir():
+        # Refuse to delete the source store itself.
+        if root_dir is not None:
+            try:
+                same_path = zip_path.resolve() == root_dir.resolve()
+            except OSError:
+                same_path = False
+            if same_path:
+                raise ValueError(
+                    f"Destination path '{zip_path}' is the same as the source "
+                    "store. Choose a different destination for the .ozx archive."
+                )
+        import shutil
+
+        shutil.rmtree(zip_path)
+
     # Create ZIP archive with ZIP64 support
     with zipfile.ZipFile(
         zip_path, mode="w", compression=compression, allowZip64=True
