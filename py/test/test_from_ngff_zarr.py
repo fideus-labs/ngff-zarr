@@ -313,3 +313,86 @@ def test_from_ngff_zarr_array_at_root(tmp_path):
 
     with pytest.raises(ValueError, match="contains an array at the root level"):
         from_ngff_zarr(str(array_zarr))
+
+
+@pytest.mark.skipif(
+    zarr_version_major < 3, reason="BloscCodec.from_dict exists only in zarr 3"
+)
+class TestBloscCodecCompat:
+    """Tests for blosc codec backward-compatibility (Issue #516)."""
+
+    def test_from_dict_strips_nthreads(self):
+        """BloscCodec.from_dict should accept nthreads/blocksize without error."""
+        from zarr.codecs.blosc import BloscCname, BloscCodec
+
+        result = BloscCodec.from_dict(
+            {
+                "name": "blosc",
+                "configuration": {
+                    "cname": "zlib",
+                    "clevel": 5,
+                    "shuffle": "shuffle",
+                    "nthreads": 4,
+                    "blocksize": 0,
+                },
+            }
+        )
+        assert result is not None
+        assert result.cname == BloscCname.zlib
+        assert result.clevel == 5
+
+    def test_from_ngff_zarr_reads_with_nthreads(self, input_images):
+        """Reading a zarr v3 file with nthreads in blosc metadata should work."""
+        import json
+        import tempfile
+
+        from ngff_zarr import Methods
+
+        dataset_name = "cthead1"
+        image = input_images[dataset_name]
+        chunks = (64, 64)
+        multiscales = to_multiscales(
+            image, [2, 4], chunks=chunks, method=Methods.ITKWASM_GAUSSIAN
+        )
+
+        compressors = zarr.codecs.BloscCodec(
+            cname="zlib", clevel=5, shuffle=zarr.codecs.BloscShuffle.shuffle
+        )
+
+        version = "0.5"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            to_ngff_zarr(
+                tmpdir,
+                multiscales,
+                version=version,
+                compressors=compressors,
+                chunks_per_shard=2,
+            )
+
+            zarr_json_path = tmpdir + "/zarr.json"
+            with open(zarr_json_path) as f:
+                zarr_meta = json.load(f)
+
+            metadata = zarr_meta["consolidated_metadata"]["metadata"]
+            saw_nested_blosc = False
+            for scale_name in metadata:
+                codecs = metadata[scale_name].get("codecs", [])
+                for codec in codecs:
+                    if codec["name"] == "blosc":
+                        codec["configuration"]["nthreads"] = 4
+                        codec["configuration"]["blocksize"] = 0
+                    elif codec["name"] == "sharding_indexed":
+                        inner = codec["configuration"].get("codecs", [])
+                        for inner_codec in inner:
+                            if inner_codec["name"] == "blosc":
+                                saw_nested_blosc = True
+                                inner_codec["configuration"]["nthreads"] = 4
+                                inner_codec["configuration"]["blocksize"] = 0
+
+            assert saw_nested_blosc
+
+            with open(zarr_json_path, "w") as f:
+                json.dump(zarr_meta, f)
+
+            loaded = from_ngff_zarr(tmpdir)
+            assert loaded is not None
