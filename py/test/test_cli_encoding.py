@@ -16,7 +16,7 @@ import io
 import sys
 
 import pytest
-from ngff_zarr.cli import _build_console
+from ngff_zarr.cli import _build_console, _ReplacingTextIO
 
 # The opening corner of the panel border Rich draws -- not encodable as cp1252.
 _BOX_GLYPH = "╭"
@@ -109,17 +109,25 @@ def test_build_console_leaves_utf_stdout_untouched(monkeypatch, encoding):
     assert calls == []
 
 
-def test_build_console_without_reconfigure_does_not_raise(monkeypatch):
-    """A legacy stream lacking ``reconfigure`` degrades gracefully, no crash."""
+def test_build_console_without_reconfigure_renders_without_crashing(monkeypatch):
+    """A legacy stream lacking ``reconfigure`` still renders (via the proxy)."""
+    from rich.spinner import Spinner
+
     stream = _cp1252_stream()
-    # ``getattr(stream, "reconfigure", None)`` now returns None.
+    # ``getattr(stream, "reconfigure", None)`` now returns None, so the helper
+    # cannot reconfigure in place and must fall back to the replacing proxy.
     monkeypatch.setattr(stream, "reconfigure", None)
     monkeypatch.setattr(sys, "stdout", stream)
 
-    _build_console()
+    console = _build_console()
 
-    # The stream could not be switched, so it stays cp1252 -- but no exception.
+    # The stream stays cp1252, but rendering the spinner glyphs that crashed
+    # issue #37 must now degrade gracefully instead of raising.
+    console.print(Spinner("point", text="Loading input..."))
+    stream.flush()
+
     assert stream.encoding.lower() == "cp1252"
+    assert b"Loading input" in stream.buffer.getvalue()
 
 
 def test_build_console_falls_back_to_errors_replace(monkeypatch):
@@ -143,7 +151,9 @@ def test_build_console_falls_back_to_errors_replace(monkeypatch):
 
 
 def test_build_console_swallows_reconfigure_failures(monkeypatch):
-    """When neither reconfigure attempt works, the CLI still gets a console."""
+    """When neither reconfigure attempt works, rendering still degrades gracefully."""
+    from rich.spinner import Spinner
+
     stream = _cp1252_stream()
 
     def reconfigure(*args, **kwargs):
@@ -152,7 +162,27 @@ def test_build_console_swallows_reconfigure_failures(monkeypatch):
     monkeypatch.setattr(stream, "reconfigure", reconfigure)
     monkeypatch.setattr(sys, "stdout", stream)
 
-    # Both attempts raise; the failures must be swallowed and a Console returned.
+    # Both attempts raise; the failures must be swallowed and a usable Console
+    # returned -- one whose writes replace un-encodable glyphs instead of raising.
     console = _build_console()
+    console.print(Spinner("point", text="Loading input..."))
+    stream.flush()
 
-    assert console is not None
+    assert b"Loading input" in stream.buffer.getvalue()
+
+
+def test_replacing_textio_replaces_unencodable_and_delegates():
+    """The proxy replaces un-encodable glyphs on write and delegates attributes."""
+    stream = _cp1252_stream()
+    proxy = _ReplacingTextIO(stream)
+
+    # ``∙`` (U+2219) is not cp1252-encodable; the proxy must not raise.
+    proxy.write("a∙b")
+    proxy.flush()
+
+    raw = stream.buffer.getvalue()
+    assert b"a" in raw  # surrounding text preserved
+    assert b"b" in raw
+    assert proxy.encoding.lower() == "cp1252"  # reports the real encoding
+    # Unknown attributes are delegated to the wrapped stream.
+    assert proxy.writable() is True

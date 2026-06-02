@@ -53,6 +53,37 @@ from .to_ngff_zarr import to_ome_zarr
 from .v04.zarr_metadata import Omero, OmeroChannel, OmeroWindow, is_unit_supported
 
 
+class _ReplacingTextIO:
+    """Text-stream proxy whose ``write`` never raises ``UnicodeEncodeError``.
+
+    A last resort for streams that cannot be reconfigured in place (for
+    example an ``ipykernel`` ``OutStream``, which has no ``reconfigure``).
+    Characters the underlying stream's encoding cannot represent are replaced
+    rather than raising, so Rich can render without crashing (see issue #37).
+    All other stream behavior is delegated to the wrapped stream.
+    """
+
+    def __init__(self, stream):
+        self._stream = stream
+        self.encoding = getattr(stream, "encoding", None) or "utf-8"
+
+    def write(self, text):
+        try:
+            return self._stream.write(text)
+        except UnicodeEncodeError:
+            safe = text.encode(self.encoding, errors="replace").decode(
+                self.encoding, errors="replace"
+            )
+            return self._stream.write(safe)
+
+    def flush(self):
+        return self._stream.flush()
+
+    def __getattr__(self, name):
+        # Delegate everything else (isatty, fileno, close, ...) to the stream.
+        return getattr(self._stream, name)
+
+
 def _build_console() -> Console:
     """Create a Rich ``Console`` resilient to legacy Windows encodings.
 
@@ -61,28 +92,37 @@ def _build_console() -> Console:
     shell-out, or git-bash. Rich emits Unicode box-drawing and spinner
     glyphs that those code pages cannot encode, so the underlying
     ``str.encode`` raises ``UnicodeEncodeError`` and the CLI crashes before
-    doing any work (see issue #37). Reconfigure the stream to UTF-8 so the
-    glyphs encode cleanly; if reconfiguration is unavailable, fall back to
-    replacing any un-encodable characters instead of raising.
+    doing any work (see issue #37).
+
+    Reconfigure the stream to UTF-8 so the glyphs encode cleanly. If the
+    stream cannot be reconfigured in place, bind the console to a proxy that
+    replaces any un-encodable characters at write time, so rendering degrades
+    gracefully instead of raising.
     """
     stream = sys.stdout
     encoding = (getattr(stream, "encoding", None) or "").lower().replace("-", "")
     # ``startswith`` keeps capable UTF variants (utf-8-sig, utf-16-le, ...) as-is
-    # while still reconfiguring legacy code pages (cp1252, latin-1, ascii, ...).
-    if not encoding.startswith(("utf8", "utf16", "utf32")):
-        reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is not None:
+    # while still handling legacy code pages (cp1252, latin-1, ascii, ...).
+    if encoding.startswith(("utf8", "utf16", "utf32")):
+        return Console()
+
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is not None:
+        try:
+            reconfigure(encoding="utf-8")
+            return Console()
+        except (ValueError, OSError):
+            # Could not switch to UTF-8 (e.g. a detached/redirected stream);
+            # keep the encoding but replace un-encodable characters in place.
             try:
-                reconfigure(encoding="utf-8")
+                reconfigure(errors="replace")
+                return Console()
             except (ValueError, OSError):
-                # Could not switch to UTF-8 (e.g. a detached/redirected
-                # stream); degrade gracefully by replacing un-encodable
-                # characters rather than crashing.
-                try:
-                    reconfigure(errors="replace")
-                except (ValueError, OSError):
-                    pass
-    return Console()
+                pass
+
+    # The stream cannot be reconfigured in place; wrap it so Rich's writes
+    # never raise UnicodeEncodeError at render time.
+    return Console(file=_ReplacingTextIO(stream))
 
 
 def _apply_omero_metadata(live, args, multiscales):
