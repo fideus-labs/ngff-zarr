@@ -15,7 +15,7 @@
           "items": {
             "type": "string"
           },
-          "minContains": 1
+          "minItems": 1
         },
         "version": {
           "$ref": "https://ngff.openmicroscopy.org/0.6/schemas/_version.schema"

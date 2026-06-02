@@ -219,9 +219,30 @@ export const ByDimensionTransformationSchema: z.ZodType<{
 // Index transformation for coordinates/displacements
 // Must be identity, scale, or sequence of [scale, translation]
 const indexTransformationTypes: z.ZodType<
-  | { type: "identity"; input?: string | string[] | undefined; output?: string | string[] | undefined; name?: string | undefined }
-  | { type: "scale"; scale?: number[] | undefined; path?: string | undefined; input?: string | string[] | undefined; output?: string | string[] | undefined; name?: string | undefined }
-  | { type: "sequence"; transformations: ({ type: "scale"; scale: number[] } | { type: "translation"; translation: number[] })[]; input?: string | string[] | undefined; output?: string | string[] | undefined; name?: string | undefined }
+  | {
+    type: "identity";
+    input?: string | string[] | undefined;
+    output?: string | string[] | undefined;
+    name?: string | undefined;
+  }
+  | {
+    type: "scale";
+    scale?: number[] | undefined;
+    path?: string | undefined;
+    input?: string | string[] | undefined;
+    output?: string | string[] | undefined;
+    name?: string | undefined;
+  }
+  | {
+    type: "sequence";
+    transformations: ({ type: "scale"; scale: number[] } | {
+      type: "translation";
+      translation: number[];
+    })[];
+    input?: string | string[] | undefined;
+    output?: string | string[] | undefined;
+    name?: string | undefined;
+  }
 > = z.union([
   IdentityTransformationSchema,
   ScaleTransformationSchema,
@@ -229,12 +250,11 @@ const indexTransformationTypes: z.ZodType<
     type: z.literal("sequence"),
     transformations: z.tuple([
       z.object({ type: z.literal("scale"), scale: z.array(z.number()) }),
-    ]).rest(
-      z.union([
-        z.object({ type: z.literal("translation"), translation: z.array(z.number()) }),
-        z.object({ type: z.literal("scale"), scale: z.array(z.number()) }),
-      ]),
-    ),
+      z.object({
+        type: z.literal("translation"),
+        translation: z.array(z.number()),
+      }),
+    ]),
     input: z.union([z.string(), z.array(z.string())]).optional(),
     output: z.union([z.string(), z.array(z.string())]).optional(),
     name: z.string().optional(),

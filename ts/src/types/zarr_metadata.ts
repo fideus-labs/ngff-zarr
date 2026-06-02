@@ -35,7 +35,15 @@ export interface Translation {
   type: "translation";
 }
 
-export type Transform = Scale | Translation | Identity;
+export interface SequenceTransform {
+  type: "sequence";
+  transformations: Transform[];
+  input?: string | string[];
+  output?: string | string[];
+  name?: string;
+}
+
+export type Transform = Scale | Translation | Identity | SequenceTransform;
 
 export interface DisplacementTransform {
   type: "displacements";
@@ -61,6 +69,7 @@ export type GroupTransform =
   | Scale
   | Translation
   | Identity
+  | SequenceTransform
   | DisplacementTransform
   | CoordinateTransform;
 

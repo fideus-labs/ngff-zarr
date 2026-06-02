@@ -9,10 +9,10 @@ import {
   // Enhanced zarr metadata with RFC4 support
   AxisSchema,
   ChannelAxisSchema,
+  CoordinatesTransformationSchema,
   // RFC5 coordinate systems
   CoordinateSystemSchema,
   CoordinateTransformationSchema,
-  CoordinatesTransformationSchema,
   DisplacementTransformationSchema,
   MetadataSchema,
   ScaleTransformationSchema,

@@ -167,14 +167,18 @@ def _parse_transform(transform_dict: dict) -> Transform:
         if scale_val is not None:
             return Scale(scale_val)
         if "path" in transform_dict:
-            return Scale(scale=[], type="scale")
+            raise ValueError(
+                f"Path-backed scale transforms are not supported: {transform_dict}"
+            )
 
     if transform_type == "translation":
         translation_val = transform_dict.get("translation")
         if translation_val is not None:
             return Translation(translation_val)
         if "path" in transform_dict:
-            return Translation(translation=[], type="translation")
+            raise ValueError(
+                f"Path-backed translation transforms are not supported: {transform_dict}"
+            )
 
     if transform_type == "displacements":
         path = transform_dict.get("path", "")
@@ -203,7 +207,7 @@ def _parse_transform(transform_dict: dict) -> Transform:
     if "translation" in transform_dict:
         return Translation(transform_dict["translation"])
 
-    return Scale([], type=transform_type)
+    raise ValueError(f"Unsupported transform type: {transform_dict}")
 
 
 def _parse_group_transforms(
