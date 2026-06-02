@@ -5,7 +5,7 @@ import tempfile
 import warnings
 from dataclasses import asdict
 from pathlib import Path, PurePosixPath
-from typing import Literal
+from typing import Any, Literal
 
 from .methods._metadata import get_method_metadata
 
@@ -106,22 +106,44 @@ def _numcodecs_to_zarr_v3_codec(compressor):
     return None
 
 
-def _pop_metadata_optionals(metadata_dict, enabled_rfcs: list[int] | None = None):
-    for ax in metadata_dict["axes"]:
-        if ax["unit"] is None:
-            ax.pop("unit")
+def _remove_none_values(obj: Any) -> Any:
+    """Recursively strip ``None``-valued keys from nested dicts and lists.
 
-        # Handle RFC 4: Remove orientation if RFC 4 is not enabled
-        if not is_rfc4_enabled(enabled_rfcs) and "orientation" in ax:
-            ax.pop("orientation")
+    In the OME-Zarr spec the absence of a field carries no significance: only
+    fields that are present are meaningful, and an explicit ``null`` is treated
+    as equivalent to omitting the field. Culling every ``None`` therefore keeps
+    the written metadata clean without enumerating optional fields per spec
+    version. Only ``None`` is removed; falsy-but-valid values such as ``0``,
+    ``0.0``, ``""`` and empty collections are preserved.
+    """
+    if isinstance(obj, dict):
+        return {
+            key: _remove_none_values(value)
+            for key, value in obj.items()
+            if value is not None
+        }
+    if isinstance(obj, list):
+        return [_remove_none_values(item) for item in obj]
+    return obj
 
-    if metadata_dict["coordinateTransformations"] is None:
-        metadata_dict.pop("coordinateTransformations")
 
-    if metadata_dict["omero"] is None:
-        metadata_dict.pop("omero")
+def _pop_metadata_optionals(
+    metadata_dict: dict, enabled_rfcs: list[int] | None = None
+) -> dict:
+    """Strip optional metadata fields that must not be serialized.
 
-    return metadata_dict
+    Removes the draft RFC 4 ``orientation`` from every axis unless RFC 4 is
+    enabled, then recursively culls all remaining ``None``-valued keys.
+    """
+    # RFC 4 anatomical orientation is a draft feature gated behind an explicit
+    # opt-in. Drop it from every axis (even when populated) unless RFC 4 is
+    # enabled; populated orientations on enabled writes survive the None
+    # stripping below.
+    if not is_rfc4_enabled(enabled_rfcs):
+        for ax in metadata_dict.get("axes", []):
+            ax.pop("orientation", None)
+
+    return _remove_none_values(metadata_dict)
 
 
 def _prep_for_to_zarr(store: StoreLike, arr: dask.array.Array) -> dask.array.Array:
