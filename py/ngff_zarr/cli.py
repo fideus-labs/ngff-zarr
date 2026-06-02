@@ -35,6 +35,7 @@ if hasattr(zarr.storage, "DirectoryStore"):
 else:
     LocalStore = zarr.storage.LocalStore
 
+from ._zarr_types import StoreLike
 from .cli_input_to_ngff_image import cli_input_to_ngff_image
 from .compute_omero import compute_omero_from_multiscales
 from .config import config
@@ -163,6 +164,62 @@ def _apply_omero_metadata(live, args, multiscales):
     except Exception as e:
         if not args.quiet:
             live.console.log(f"[yellow]Warning: Could not compute OMERO metadata: {e}")
+
+
+def _series_output_target(
+    args: argparse.Namespace,
+    output_store: StoreLike | None,
+    series_name: str,
+    series_index: int,
+    n_series: int,
+) -> tuple[StoreLike | None, str | None]:
+    """Resolve the output store and display path for one series of a file.
+
+    Returns a ``(store, display_path)`` tuple.
+
+    With a single requested output path but several series in the source
+    (every Aperio ``.svs`` whole-slide file has Baseline + Thumbnail + Label +
+    Macro series, for example), the destination depends on the requested
+    format:
+
+    - For a single-file ``.ozx`` output, the primary (first) series is written
+      to the exact requested path so the file the user asked for is actually
+      created, and additional series are written alongside it as
+      ``<base>_<series_name>.ozx`` (preserving the zip format). Previously the
+      ``.ozx`` request was silently discarded and replaced with
+      ``<base>_<series_name>.ome.zarr`` directories, so the requested ``.ozx``
+      never appeared.
+    - For directory-style ``.zarr`` / ``.ome.zarr`` output, each series is
+      written to its own ``<base>_<series_name>.ome.zarr`` directory, the
+      long-standing documented behavior.
+    """
+    if not args.output:
+        return None, None
+    if n_series <= 1:
+        return output_store, args.output
+
+    # ``.ozx`` detection is case-sensitive to match the rest of the codebase
+    # (main()'s output_store selection, rfc9_zip.is_ozx_path, to_ngff_zarr).
+    if args.output.endswith(".ozx"):
+        if series_index == 0:
+            return output_store, args.output
+        base = args.output[: -len(".ozx")]
+        derived = f"{base}_{series_name}.ozx"
+        # to_ngff_zarr handles a string ``.ozx`` path directly.
+        return derived, derived
+
+    # Directory-style outputs: one .ome.zarr per series (documented behavior).
+    # Strip the full ``.ome.zarr`` / ``.zarr`` suffix so that an ``out.ome.zarr``
+    # base does not produce a doubled ``out.ome_<name>.ome.zarr``.
+    if args.output.endswith(".ome.zarr"):
+        base = args.output[: -len(".ome.zarr")]
+    elif args.output.endswith(".zarr"):
+        base = args.output[: -len(".zarr")]
+    else:
+        output_path = Path(args.output)
+        base = str(output_path.parent / output_path.stem)
+    derived = f"{base}_{series_name}.ome.zarr"
+    return LocalStore(derived), derived
 
 
 def _multiscales_to_ngff_zarr(
@@ -819,21 +876,15 @@ def main():
                     live.console.print("[red]No matching series found in TIFF file.")
                     sys.exit(1)
 
-                for series_name, result in series_list:
-                    # Determine output path for this series
-                    if args.output:
-                        if len(series_list) > 1:
-                            # Create separate output per series, preserving original output name
-                            output_base = Path(args.output).stem
-                            output_path = (
-                                Path(args.output).parent
-                                / f"{output_base}_{series_name}.ome.zarr"
-                            )
-                            series_store = LocalStore(str(output_path))
-                        else:
-                            series_store = output_store
-                    else:
-                        series_store = None
+                for series_index, (series_name, result) in enumerate(series_list):
+                    # Determine output store/path for this series
+                    series_store, series_path = _series_output_target(
+                        args,
+                        output_store,
+                        series_name,
+                        series_index,
+                        len(series_list),
+                    )
 
                     if isinstance(result, MultiscalesType):
                         # Pyramidal TIFF: reuse existing pyramid levels
@@ -866,7 +917,9 @@ def main():
                     )
 
                     if len(series_list) > 1 and args.output and not args.quiet:
-                        live.console.print(f"[green]Written series: {series_name}")
+                        live.console.print(
+                            f"[green]Written series '{series_name}' -> {series_path}"
+                        )
 
             except ImportError:
                 sys.stdout.write("[red]Please install the [i]tifffile[/i] package.\n")
@@ -899,7 +952,9 @@ def main():
                         live.console.print("[red]No matching series found in LIF file.")
                         sys.exit(1)
 
-                    for series_name, ngff_image in series_list:
+                    for series_index, (series_name, ngff_image) in enumerate(
+                        series_list
+                    ):
                         # Check for mosaic dimension (M > 1) - requires original lif_image
                         # For now, check if 'm' dimension exists in ngff_image
                         has_mosaic = (
@@ -969,20 +1024,14 @@ def main():
                                 continue
 
                         # Standard image output
-                        # Determine output path for this series
-                        if args.output:
-                            if len(series_list) > 1:
-                                # Create separate output per series, preserving original output name
-                                output_base = Path(args.output).stem
-                                output_path = (
-                                    Path(args.output).parent
-                                    / f"{output_base}_{series_name}.ome.zarr"
-                                )
-                                series_store = LocalStore(str(output_path))
-                            else:
-                                series_store = output_store
-                        else:
-                            series_store = None
+                        # Determine output store/path for this series
+                        series_store, series_path = _series_output_target(
+                            args,
+                            output_store,
+                            series_name,
+                            series_index,
+                            len(series_list),
+                        )
 
                         multiscales = _ngff_image_to_multiscales(
                             live,
@@ -1003,7 +1052,9 @@ def main():
                         )
 
                         if len(series_list) > 1 and args.output and not args.quiet:
-                            live.console.print(f"[green]Written series: {series_name}")
+                            live.console.print(
+                                f"[green]Written series '{series_name}' -> {series_path}"
+                            )
 
             except ImportError:
                 sys.stdout.write("[red]Please install the [i]liffile[/i] package.\n")
