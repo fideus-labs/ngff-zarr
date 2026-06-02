@@ -53,6 +53,38 @@ from .to_ngff_zarr import to_ome_zarr
 from .v04.zarr_metadata import Omero, OmeroChannel, OmeroWindow, is_unit_supported
 
 
+def _build_console() -> Console:
+    """Create a Rich ``Console`` resilient to legacy Windows encodings.
+
+    In some Windows environments the standard output stream uses a legacy
+    code page such as ``cp1252`` -- for example a Jupyter/IPython ``!``
+    shell-out, or git-bash. Rich emits Unicode box-drawing and spinner
+    glyphs that those code pages cannot encode, so the underlying
+    ``str.encode`` raises ``UnicodeEncodeError`` and the CLI crashes before
+    doing any work (see issue #37). Reconfigure the stream to UTF-8 so the
+    glyphs encode cleanly; if reconfiguration is unavailable, fall back to
+    replacing any un-encodable characters instead of raising.
+    """
+    stream = sys.stdout
+    encoding = (getattr(stream, "encoding", None) or "").lower().replace("-", "")
+    # ``startswith`` keeps capable UTF variants (utf-8-sig, utf-16-le, ...) as-is
+    # while still reconfiguring legacy code pages (cp1252, latin-1, ascii, ...).
+    if not encoding.startswith(("utf8", "utf16", "utf32")):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8")
+            except (ValueError, OSError):
+                # Could not switch to UTF-8 (e.g. a detached/redirected
+                # stream); degrade gracefully by replacing un-encodable
+                # characters rather than crashing.
+                try:
+                    reconfigure(errors="replace")
+                except (ValueError, OSError):
+                    pass
+    return Console()
+
+
 def _apply_omero_metadata(live, args, multiscales):
     """Apply OMERO metadata to multiscales based on CLI arguments.
 
@@ -572,7 +604,7 @@ def main():
             Path.makedirs(cache_dir, parents=True)
         config.cache_store = LocalStore(cache_dir)
 
-    console = Console()
+    console = _build_console()
     progress = RichProgress(
         SpinnerColumn(),
         MofNCompleteColumn(),
