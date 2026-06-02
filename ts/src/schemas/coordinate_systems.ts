@@ -235,10 +235,10 @@ const indexTransformationTypes: z.ZodType<
   }
   | {
     type: "sequence";
-    transformations: ({ type: "scale"; scale: number[] } | {
+    transformations: [{ type: "scale"; scale: number[] }, {
       type: "translation";
       translation: number[];
-    })[];
+    }];
     input?: string | string[] | undefined;
     output?: string | string[] | undefined;
     name?: string | undefined;
