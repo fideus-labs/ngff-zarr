@@ -13,7 +13,6 @@ network:
   - github
 imports:
 - shared/github-guard-policy.md
-- shared/otlp.md
 safe-outputs:
   create-pull-request:
     auto-merge: true
