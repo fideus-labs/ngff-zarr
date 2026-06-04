@@ -524,6 +524,27 @@ class Metadata:
             coordinateTransformations=root_attrs.get("coordinateTransformations", None),
         )
 
+        if validate:
+            # Strict structural validation of the parsed Metadata, layered after
+            # the schema pass and RFC 4 dict check above. The structural rules
+            # encode the v0.4+ metadata model (typed axes and per-dataset
+            # coordinate transformations); the legacy v0.1-0.3 layouts predate
+            # it, so the rules are scoped to v0.4 and newer. Imported lazily so
+            # the default validate=False read path incurs no extra import cost.
+            import packaging.version
+
+            from ..structural_validation import (
+                ValidateOptions,
+                ValidationLevel,
+                validate_structural,
+            )
+
+            spec_version = packaging.version.parse(str(metadata.version))
+            if spec_version >= packaging.version.parse("0.4"):
+                validate_structural(
+                    metadata, ValidateOptions(level=ValidationLevel.STRICT)
+                )
+
         return metadata, images
 
     @property

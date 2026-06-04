@@ -354,6 +354,30 @@ Deno.test("Round-trip with RAS orientation - write and read back", async () => {
   assertEquals(multiscalesBack.images.length, 1);
 });
 
+Deno.test("fromNgffZarr preserves RFC 4 orientation on parsed metadata.axes", async () => {
+  // Regression for the read path dropping axisObj.orientation when building
+  // metadata.axes: that silently turned the strict structural pass's
+  // validateAxisOrientation rule into a no-op and lost orientation that the
+  // Python port retains via _filter_axis_dict. Reading back must surface
+  // orientation on the spatial axes as the raw { type, value } record.
+  const { multiscales } = await createMultiscalesWithOrientation(LPS);
+
+  const outputStore: MemoryStore = new Map();
+  await toNgffZarr(outputStore, multiscales, { enabledRfcs: [4] });
+
+  const multiscalesBack = await fromNgffZarr(outputStore, { validate: true });
+  const axisByName = new Map(
+    multiscalesBack.metadata.axes.map((ax) => [ax.name, ax]),
+  );
+
+  for (const [name, expected] of Object.entries(LPS)) {
+    const orientation = axisByName.get(name as "x" | "y" | "z")
+      ?.orientation as { type: string; value: string } | undefined;
+    assertEquals(orientation?.type, "anatomical");
+    assertEquals(orientation?.value, expected.value);
+  }
+});
+
 Deno.test("Round-trip with 5D mixed axes (t,c,z,y,x) and LPS orientation", async () => {
   // Create with 5D dimensions
   const { multiscales } = await createMultiscalesWithOrientation(

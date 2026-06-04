@@ -103,10 +103,12 @@ class HCSPlate:
         plate_metadata: Plate,
         well_cache_size: int | None = None,
         image_cache_size: int | None = None,
+        validate: bool = False,
     ):
         self.store = store
         self.metadata = plate_metadata
         self.image_cache_size = image_cache_size
+        self._validate = validate
 
         # Use bounded cache for wells to prevent memory issues with large plates
         from .config import config
@@ -154,9 +156,26 @@ class HCSPlate:
 
         # Cache wells to avoid reloading - using bounded cache now
         if well_path not in self._wells:
-            self._wells[well_path] = HCSWell.from_store(
+            hcs_well = HCSWell.from_store(
                 self.store, well_path, well_meta, self.image_cache_size
             )
+            if self._validate:
+                # Strict structural validation of the well's own metadata, in
+                # the context of this plate, performed where each well is first
+                # loaded (mirrors the schema/structural split in from_hcs_zarr).
+                # Imported lazily so the default validate=False path is unchanged.
+                from .structural_validation import (
+                    ValidateOptions,
+                    ValidationLevel,
+                    validate_well,
+                )
+
+                validate_well(
+                    self.metadata,
+                    hcs_well.metadata,
+                    ValidateOptions(level=ValidationLevel.STRICT),
+                )
+            self._wells[well_path] = hcs_well
 
         return self._wells[well_path]
 
@@ -350,7 +369,10 @@ def from_hcs_zarr(
     store
         Store or path to directory in file system. Can be a .ozx file.
     validate : bool
-        If True, validate the NGFF metadata against the schema.
+        If True, validate the plate metadata against the schema and then run the
+        strict structural plate rules (raising ``ValidationError`` on failure).
+        Per-well structural rules run lazily as each well is loaded via
+        ``get_well``.
     well_cache_size : int, optional
         Maximum number of wells to cache. If None, uses config default.
     image_cache_size : int, optional
@@ -486,7 +508,26 @@ def from_hcs_zarr(
         name=name,
     )
 
-    return HCSPlate(store, plate_metadata, well_cache_size, image_cache_size)
+    if validate:
+        # Strict structural validation of the parsed plate, layered after the
+        # schema pass above (schema first, then structural). Per-well image
+        # rules run lazily in HCSPlate.get_well, where each well's own metadata
+        # is loaded. Imported lazily so the default validate=False path incurs
+        # no extra import cost. Unlike the image reader's structural pass, no
+        # >=0.4 version gate is needed here: these plate/well rules are
+        # version-agnostic and from_hcs_zarr only reads v0.4/v0.5 plates (there
+        # is no pre-0.4 plate layout to exempt).
+        from .structural_validation import (
+            ValidateOptions,
+            ValidationLevel,
+            validate_plate,
+        )
+
+        validate_plate(plate_metadata, ValidateOptions(level=ValidationLevel.STRICT))
+
+    return HCSPlate(
+        store, plate_metadata, well_cache_size, image_cache_size, validate=validate
+    )
 
 
 def to_hcs_zarr(plate: HCSPlate, store) -> None:
