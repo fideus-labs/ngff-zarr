@@ -8,6 +8,10 @@ import type {
   PlateWell,
   WellImage,
 } from "../schemas/index.ts";
+import {
+  validateWell,
+  ValidationLevel,
+} from "../utils/structural_validation.ts";
 
 export interface LRUCacheOptions {
   maxSize: number;
@@ -75,6 +79,12 @@ export interface HCSPlateOptions {
   metadata: PlateMetadata;
   wellCacheSize?: number | undefined;
   imageCacheSize?: number | undefined;
+  /**
+   * When `true`, each well's structural rules run as it is first loaded via
+   * {@link HCSPlate.getWell}. Defaults to `false`, leaving the read path
+   * unvalidated. Set by `fromHcsZarr` when its own `validate` flag is enabled.
+   */
+  validate?: boolean | undefined;
 }
 
 export interface HCSWellOptions {
@@ -206,6 +216,7 @@ export class HCSPlate {
   public readonly metadata: PlateMetadata;
   private readonly _wells: LRUCache<string, HCSWell>;
   private readonly imageCacheSize: number | undefined;
+  private readonly _validate: boolean;
 
   constructor(options: HCSPlateOptions) {
     this.store = options.store;
@@ -221,6 +232,7 @@ export class HCSPlate {
       name: options.metadata.name,
     };
     this.imageCacheSize = options.imageCacheSize;
+    this._validate = options.validate ?? false;
 
     const wellCacheSize = options.wellCacheSize ?? 500;
     this._wells = new LRUCache<string, HCSWell>({ maxSize: wellCacheSize });
@@ -268,19 +280,31 @@ export class HCSPlate {
     }
 
     // Load the well
+    let well: HCSWell;
     try {
-      const well = HCSWell.fromStore(
+      well = HCSWell.fromStore(
         this.store,
         wellPath,
         wellMeta,
         this.imageCacheSize,
       );
-      this._wells.set(wellPath, well);
-      return well;
     } catch (error) {
       console.error(`Failed to load well at ${wellPath}:`, error);
       return null;
     }
+
+    if (this._validate) {
+      // Strict structural validation of the well's own metadata in the context
+      // of this plate, performed where each well is first loaded (mirrors the
+      // schema/structural split in fromHcsZarr). A ValidationError propagates
+      // to the caller rather than being swallowed as a load failure.
+      validateWell(this.metadata, well.metadata, {
+        level: ValidationLevel.Strict,
+      });
+    }
+
+    this._wells.set(wellPath, well);
+    return well;
   }
 
   getWellByIndices(rowIndex: number, columnIndex: number): HCSWell | null {

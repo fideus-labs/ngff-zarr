@@ -324,7 +324,20 @@ Deno.test("test_hcs_image_axes_and_dims", async () => {
 });
 
 Deno.test("test_validate_hcs_metadata", () => {
-  // This should not throw an exception
+  // With validate: true, fromHcsZarr now runs the strict plate structural
+  // rules (validatePlate). The mock plate is internally consistent, so this
+  // must not throw.
   const plate = fromHcsZarr(HCS_DATA_PATH, { validate: true });
   assertNotEquals(plate, null);
+});
+
+Deno.test("test_validate_hcs_well_metadata", () => {
+  // Loading a well from a plate read with validate: true runs the strict
+  // per-well structural rules (validateWell) where the well's own metadata is
+  // first available. The mock plate declares a single acquisition, so the
+  // acquisition rule is a no-op and the well loads without throwing.
+  const plate = fromHcsZarr(HCS_DATA_PATH, { validate: true });
+  const well = plate.getWell("A", "1");
+  assertNotEquals(well, null, "Well A/1 should load under validation");
+  assertEquals(well!.images.length, 2, "Well should expose its two fields");
 });
