@@ -121,3 +121,20 @@ In addition to specification of credentials explicitly,
 
 The same patterns work for other cloud providers (GCS, Azure) by using their
 respective fsspec implementations (e.g., `gcsfs`, `adlfs`).
+
+## Platform Compatibility
+
+### Does the CLI work on Windows or in Jupyter/IPython terminals?
+
+Yes. The CLI works on Windows terminals and in Jupyter/IPython shell-outs
+(`!ngff-zarr ...`) even when the terminal uses a legacy code page such as
+`cp1252` or `latin-1`.
+
+On startup, the CLI detects whether `sys.stdout` is not already UTF-8 capable
+and transparently reconfigures it. This prevents the `UnicodeEncodeError` that
+previously occurred when Rich's spinner glyphs were rendered on a non-UTF
+stream.
+
+If reconfiguration is not possible (for example, a fully detached or redirected
+stream), the CLI falls back to replacing unencodable characters rather than
+crashing.
