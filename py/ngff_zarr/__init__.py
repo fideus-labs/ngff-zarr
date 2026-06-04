@@ -57,6 +57,15 @@ from .rfc9_zip import (
     read_ozx_version,
     write_store_to_zip,
 )
+from .structural_validation import (
+    SpecRule,
+    ValidateOptions,
+    ValidationError,
+    ValidationLevel,
+    validate_plate,
+    validate_structural,
+    validate_well,
+)
 from .task_count import task_count
 from .tiff_to_ngff_image import (
     tiff_file_to_ngff_images,
@@ -121,6 +130,14 @@ __all__ = [
     "ConversionBackend",
     "cli_input_to_ngff_image",
     "validate",
+    # Structural validation (v0.4 spec MUSTs beyond JSON Schema)
+    "validate_structural",
+    "validate_plate",
+    "validate_well",
+    "SpecRule",
+    "ValidationLevel",
+    "ValidateOptions",
+    "ValidationError",
     # Codec utilities
     "codec_from_name",
     "get_available_codecs",
