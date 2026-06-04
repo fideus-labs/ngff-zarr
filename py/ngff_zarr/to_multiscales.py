@@ -495,8 +495,8 @@ def to_multiscales(
         Scaling is constrained by size of chunks - we do not scale below the chunk size.
     :type  scale_factors: int of minimum length, int per scale or dict of spatial dimension int's per scale
 
-    :param method:  Specify the anti-aliasing method used to downsample the image. Default is ITKWASM_GAUSSIAN.
-    :type  Methods: ngff_zarr.Methods enum
+    :param method:  Specify the anti-aliasing method used to downsample the image. Default is ITKWASM_GAUSSIAN. See the {py:class}`Methods <ngff_zarr.methods.Methods>` enum for all available options.
+    :type  method: Methods, optional
 
     :param chunks: Specify the chunking used in each output scale. The default is 128 for 3D images and 256 for 2D images.
     :type  chunks: Dask array chunking specification, optional
