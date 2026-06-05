@@ -1,3 +1,23 @@
+## py-v0.35.0 (2026-06-04)
+
+### ♻️ Refactoring
+
+- **py**: cull all None metadata fields recursively ([159add6](https://github.com/fideus-labs/ngff-zarr/commit/159add6ae428634cacce8ba13d5a06104c048cd1))
+
+### ✨ Features
+
+- **py**: add OME-Zarr v0.4 structural validation ([d6de82b](https://github.com/fideus-labs/ngff-zarr/commit/d6de82b25ea5207c6b3e201013914a2d6062f5e3))
+
+### 🐛 Bug Fixes
+
+- **py**: degrade gracefully when stdout cannot be reconfigured ([89bfcb2](https://github.com/fideus-labs/ngff-zarr/commit/89bfcb2a8ef39176927d0912c5778e77b56cf8d5))
+- **py**: prevent CLI crash on legacy Windows terminal encodings ([b842050](https://github.com/fideus-labs/ngff-zarr/commit/b842050fc127c9dbbcf635a58445538bf840e845))
+- **ci**: remove OTLP import from daily-doc-updater workflow ([45394c8](https://github.com/fideus-labs/ngff-zarr/commit/45394c8ccb09b5ad3687d8dd834c94af45d69469))
+- **py**: create requested .ozx for multi-series TIFFs, warn on truncated reads ([25cc73a](https://github.com/fideus-labs/ngff-zarr/commit/25cc73a5153f9974ba43e69c52e20342481bcd33))
+- **py**: strip deprecated nthreads/blocksize from blosc codec config when reading zarr v3 files ([572c19a](https://github.com/fideus-labs/ngff-zarr/commit/572c19a6fda86382a6bb7ae3c1b6da9950115033))
+- **test**: handle pre-existing file cleanup in overwrite directory test fixture ([53fc468](https://github.com/fideus-labs/ngff-zarr/commit/53fc468500228501450283689c1874ce6178d688))
+- **py**: handle pre-existing directory at .ozx destination on Windows ([8c85fe4](https://github.com/fideus-labs/ngff-zarr/commit/8c85fe40610491038807609391225034c045e3da))
+
 ## py-v0.34.2 (2026-05-28)
 
 ### 🐛 Bug Fixes
