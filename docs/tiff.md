@@ -228,6 +228,37 @@ This approach ensures:
 - Optimal chunk sizes for the output format
 - Compatibility with OME-Zarr viewers
 
+## Common Issues and Troubleshooting
+
+### Corrupted or Malformed TIFF Files
+
+If you encounter errors like "Invalid page offset" or
+"OSError: [Errno 22] Invalid argument" during conversion, the TIFF file may be
+corrupted or malformed. NGFF-Zarr now reports these with a message identifying
+the source file and likely cause rather than a cryptic traceback. This is
+particularly common with:
+
+- Very large whole-slide imaging (WSI) files like SVS
+- Files that were incompletely transferred or downloaded
+- Files created by buggy software
+- Files that have experienced disk errors
+
+**To diagnose the issue:**
+
+```bash
+# Try opening the file with tifffile to check for errors
+python3 -c "import tifffile; tif = tifffile.TiffFile('your_file.tiff'); print(f'Series: {len(tif.series)}'); tif.close()"
+```
+
+**Solutions:**
+
+1. Re-download or re-transfer the file from the original source
+2. Verify file integrity using checksums if available
+3. Contact the data provider if the file came from an external source
+4. Re-export the image from the original acquisition software
+
+For more troubleshooting tips, see the [FAQ](./faq.md#troubleshooting).
+
 ## API Reference
 
 ### `tiff_file_to_ngff_images(tiff_path, series=None)`
