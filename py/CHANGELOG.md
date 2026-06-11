@@ -1,3 +1,9 @@
+## py-v0.35.1 (2026-06-11)
+
+### 🐛 Bug Fixes
+
+- **py**: give actionable errors for corrupt TIFF/SVS conversions ([5797e3b](https://github.com/fideus-labs/ngff-zarr/commit/5797e3b4ec81595950a80df8b178a39c6ce4bc7a))
+
 ## py-v0.35.0 (2026-06-04)
 
 ### ♻️ Refactoring
