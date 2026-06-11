@@ -68,14 +68,14 @@ def test_pyramidal_rgb_tiff_channel_consistency():
     # Should be a NgffMultiscales object (pyramid was reused)
     from ngff_zarr.multiscales import NgffMultiscales
 
-    assert isinstance(
-        result, NgffMultiscales
-    ), "Should return NgffMultiscales for pyramidal TIFF"
+    assert isinstance(result, NgffMultiscales), (
+        "Should return NgffMultiscales for pyramidal TIFF"
+    )
 
     # Check that we have 3 pyramid levels
-    assert (
-        len(result.images) == 3
-    ), f"Expected 3 pyramid levels, got {len(result.images)}"
+    assert len(result.images) == 3, (
+        f"Expected 3 pyramid levels, got {len(result.images)}"
+    )
 
     # Verify all levels have consistent dimensions
     for i, img in enumerate(result.images):
@@ -88,9 +88,9 @@ def test_pyramidal_rgb_tiff_channel_consistency():
         # Check shape consistency
         expected_size = 256 // (2**i)  # 256, 128, 64
         expected_shape = (expected_size, expected_size, 3)
-        assert (
-            img.data.shape == expected_shape
-        ), f"Level {i} should have shape {expected_shape}, got {img.data.shape}"
+        assert img.data.shape == expected_shape, (
+            f"Level {i} should have shape {expected_shape}, got {img.data.shape}"
+        )
 
     # Verify data can be computed without errors
     for i, img in enumerate(result.images):
@@ -101,9 +101,9 @@ def test_pyramidal_rgb_tiff_channel_consistency():
             4,
             3,
         ), f"Level {i} slice should have shape (4, 4, 3), got {slice_data.shape}"
-        assert (
-            slice_data.dtype == np.uint8
-        ), f"Level {i} should preserve uint8 dtype, got {slice_data.dtype}"
+        assert slice_data.dtype == np.uint8, (
+            f"Level {i} should preserve uint8 dtype, got {slice_data.dtype}"
+        )
 
 
 def test_pyramidal_grayscale_tiff():
@@ -156,6 +156,6 @@ def test_pyramidal_grayscale_tiff():
         ), f"Level {i} should have dims ('y', 'x'), got {img.dims}"
         expected_size = 256 // (2**i)
         expected_shape = (expected_size, expected_size)
-        assert (
-            img.data.shape == expected_shape
-        ), f"Level {i} should have shape {expected_shape}, got {img.data.shape}"
+        assert img.data.shape == expected_shape, (
+            f"Level {i} should have shape {expected_shape}, got {img.data.shape}"
+        )

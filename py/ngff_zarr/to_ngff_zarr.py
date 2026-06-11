@@ -642,6 +642,25 @@ def _prepare_zarr_kwargs(to_zarr_kwargs: dict):
         to_zarr_kwargs.pop("zarr_format", None)
 
 
+def _array_write_error(path: str, error: Exception) -> OSError:
+    """Build an actionable error for failures while writing a zarr array.
+
+    Writing an array triggers lazy evaluation of the dask graph, which reads
+    the source data (e.g. a TIFF/SVS file or its on-disk slab cache). A
+    corrupt source can surface here as a cryptic ``OSError`` (such as the
+    ``[Errno 22] Invalid argument`` reported in gh-issue-343) only after a long
+    conversion. Wrap it with context identifying the likely cause so the
+    failure is diagnosable rather than mysterious.
+    """
+    msg = (
+        f"Failed to write data to the zarr array at path '{path}'. "
+        f"If converting a TIFF/SVS file, this can indicate a corrupted or "
+        f"truncated source file with invalid page offsets or structure. "
+        f"Original error: {type(error).__name__}: {error}"
+    )
+    return OSError(msg)
+
+
 def _write_array_direct(
     arr: dask.array.Array,
     store: StoreLike,
@@ -754,10 +773,13 @@ def _write_array_direct(
             dtype=arr.dtype,
             **to_zarr_kwargs,
         )
-        if region is not None:
-            array[region] = arr.compute()
-        else:
-            array[:] = arr.compute()
+        try:
+            if region is not None:
+                array[region] = arr.compute()
+            else:
+                array[:] = arr.compute()
+        except (OSError, ValueError) as e:
+            raise _array_write_error(path, e) from e
     else:
         _prepare_zarr_kwargs(to_zarr_kwargs)
 
@@ -765,16 +787,21 @@ def _write_array_direct(
             zarr_array if (region is not None and zarr_array is not None) else store
         )
 
-        dask.array.to_zarr(
-            arr,
-            target,
-            region=region if (region is not None and zarr_array is not None) else None,
-            component=path,
-            overwrite=False,
-            compute=True,
-            return_stored=False,
-            **to_zarr_kwargs,
-        )
+        try:
+            dask.array.to_zarr(
+                arr,
+                target,
+                region=region
+                if (region is not None and zarr_array is not None)
+                else None,
+                component=path,
+                overwrite=False,
+                compute=True,
+                return_stored=False,
+                **to_zarr_kwargs,
+            )
+        except (OSError, ValueError) as e:
+            raise _array_write_error(path, e) from e
 
 
 def _handle_large_array_writing(

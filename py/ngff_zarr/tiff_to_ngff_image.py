@@ -1053,6 +1053,26 @@ def tiff_file_to_ngff_images(
     return results
 
 
+# Path/access ``OSError`` subclasses that have a clear meaning of their own.
+# These should propagate unchanged rather than being relabeled as corruption.
+_PATH_ACCESS_ERRORS = (FileNotFoundError, PermissionError, IsADirectoryError)
+
+
+def _tiff_open_error(tiff_path: str | Path, error: Exception) -> OSError:
+    """Build an actionable error for a TIFF that cannot be opened or enumerated.
+
+    Used for failures both at ``TiffFile(...)`` construction and on first
+    ``.series`` access, since different tifffile versions detect corruption at
+    different points (see gh-issue-343).
+    """
+    msg = (
+        f"Failed to open TIFF file {str(tiff_path)!r}. The file may be "
+        f"corrupted, truncated, or not a valid TIFF file. "
+        f"Original error: {type(error).__name__}: {error}"
+    )
+    return OSError(msg)
+
+
 def _read_tiff_series(
     tifffile,
     tiff_path: str | Path,
@@ -1062,8 +1082,29 @@ def _read_tiff_series(
     """Read the requested series from a TIFF file (see tiff_file_to_ngff_images)."""
     results: list = []
 
-    with tifffile.TiffFile(tiff_path) as tif:
-        all_series = tif.series
+    # Opening a truncated or corrupt TIFF can fail with a raw ``TiffFileError``
+    # or ``OSError`` whose message does not mention the offending file.
+    # ``TiffFileError`` subclasses ``ValueError`` in some tifffile versions but
+    # ``Exception`` directly in others, so it is caught explicitly. Depending on
+    # the version, corruption surfaces either at ``TiffFile(...)`` construction
+    # or lazily on first ``.series`` access, so both are wrapped to re-raise
+    # with context (see gh-issue-343). Path/permission errors keep their own
+    # (more specific) type rather than being relabeled as corruption.
+    open_errors = (OSError, ValueError, tifffile.TiffFileError)
+    try:
+        tif = tifffile.TiffFile(tiff_path)
+    except _PATH_ACCESS_ERRORS:
+        raise
+    except open_errors as e:
+        raise _tiff_open_error(tiff_path, e) from e
+
+    with tif:
+        try:
+            all_series = tif.series
+        except _PATH_ACCESS_ERRORS:
+            raise
+        except open_errors as e:
+            raise _tiff_open_error(tiff_path, e) from e
 
         # Determine which series to convert
         if series is None or series == "all":

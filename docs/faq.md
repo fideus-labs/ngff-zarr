@@ -121,3 +121,52 @@ In addition to specification of credentials explicitly,
 
 The same patterns work for other cloud providers (GCS, Azure) by using their
 respective fsspec implementations (e.g., `gcsfs`, `adlfs`).
+
+## Troubleshooting
+
+### I'm getting "Invalid argument", "Invalid page offset", or `OSError` errors when converting TIFF/SVS files
+
+These errors usually mean the TIFF or SVS file is corrupted, truncated, or has
+an invalid internal structure. With very large whole-slide images the failure
+can surface only late in the conversion, once the affected data is actually
+read. Common causes include:
+
+1. **Incomplete file transfer**: the file was partially downloaded or copied
+2. **Disk errors**: physical disk errors during file creation
+3. **Software bugs**: issues in the software that created the file
+4. **File format violations**: non-standard structures that violate the spec
+
+**How to diagnose:**
+
+```bash
+# Try opening the file with tifffile directly to check for errors
+python3 -c "import tifffile; tif = tifffile.TiffFile('your_file.svs'); print(f'Series: {len(tif.series)}'); tif.close()"
+```
+
+If this command fails or reports errors, the file is likely corrupted.
+
+**Possible solutions:**
+
+1. Re-download or re-transfer the file from the original source
+2. Verify file integrity using checksums if available
+3. Contact the data provider if the file came from an external source
+4. Re-export the image from the original acquisition software if possible
+
+### My TIFF/SVS conversion is taking extremely long (hours/days)
+
+Large whole-slide imaging (WSI) files can take significant time to convert.
+To optimize the process:
+
+1. **Increase the memory target** to use more of your available RAM:
+   ```bash
+   # For a system with 64 GB RAM, target ~50 GB
+   ngff-zarr --memory-target 50G -i input.svs -o output.ozx
+   ```
+2. **Validate the file first** to avoid a long run that ends in an error:
+   ```bash
+   python3 -c "import tifffile; tif = tifffile.TiffFile('input.svs'); print(f'{len(tif.series)} series found'); tif.close()"
+   ```
+3. **Use SSD storage** for both input and output, as I/O is often the bottleneck
+
+If a conversion runs for a long time and then fails with an error, the source
+file is likely corrupted; see the section above for diagnosis and solutions.
