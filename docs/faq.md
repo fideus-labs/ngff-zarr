@@ -43,11 +43,16 @@ protocols including S3, Google Cloud Storage, Azure Blob Storage, and more.
 You can construct network stores with authentication options and pass them
 directly to ngff-zarr functions.
 
-The following examples require the `fsspec` and `s3fs` packages:
+The following examples require fsspec backends, which are installed with the
+`remote` extra:
 
 ```bash
-pip install fsspec s3fs
+pip install "ngff-zarr[remote]"
 ```
+
+This provides backends for http(s), S3 (`s3fs`), Google Cloud Storage
+(`gcsfs`), and Azure (`adlfs`). Alternatively, install only the backend you
+need, for example `pip install fsspec s3fs` for S3.
 
 ```python
 import zarr
