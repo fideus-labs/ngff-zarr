@@ -17,6 +17,13 @@ permissions:
 
 network: defaults
 
+# Pin a model supported by the Copilot subscription tier. The default
+# (claude-sonnet-4.6) is not available on Copilot Pro/Education and causes
+# "400 The requested model is not supported" failures (issue #547).
+engine:
+  id: copilot
+  model: gpt-5-mini
+
 tools:
   github:
     # If in a public repo, setting `lockdown: false` allows
