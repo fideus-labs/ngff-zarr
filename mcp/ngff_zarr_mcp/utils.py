@@ -99,7 +99,7 @@ def analyze_zarr_store(store_path: str) -> StoreInfo:
             # Handle remote stores
             if is_s3_url(store_path):
                 try:
-                    import s3fs  # type: ignore[import-not-found]
+                    import s3fs  # type: ignore[import-not-found,import-untyped]
 
                     fs = s3fs.S3FileSystem()
                     store = s3fs.S3Map(store_path, s3=fs)
