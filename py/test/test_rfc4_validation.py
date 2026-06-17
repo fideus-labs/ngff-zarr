@@ -75,6 +75,50 @@ def test_validate_rfc4_orientation_valid():
     validate_rfc4_orientation(axes_lps)
 
 
+@pytest.mark.parametrize(
+    ("x_value", "y_value", "z_value"),
+    [
+        # Forward directions. RFC 4 requires the value to be unique per spatial
+        # axis, so each triple pairs three distinct orientations.
+        ("superficial-to-deep", "apical-to-basal", "apex-to-base"),
+        # Reverse directions, covering the remaining three new values.
+        ("deep-to-superficial", "basal-to-apical", "base-to-apex"),
+    ],
+)
+def test_validate_rfc4_orientation_subject_local_values(x_value, y_value, z_value):
+    """Layered/polarized-tissue values pass validation (ome/ngff#528).
+
+    Exercises both the in-code value set and the JSON-schema enum, so a value
+    missing from either artifact would be caught here. The two parameter sets
+    together cover all six new subject-local orientation values.
+    """
+    pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
+
+    axes_subject_local = [
+        {
+            "name": "x",
+            "type": "space",
+            "unit": "micrometer",
+            "orientation": {"type": "anatomical", "value": x_value},
+        },
+        {
+            "name": "y",
+            "type": "space",
+            "unit": "micrometer",
+            "orientation": {"type": "anatomical", "value": y_value},
+        },
+        {
+            "name": "z",
+            "type": "space",
+            "unit": "micrometer",
+            "orientation": {"type": "anatomical", "value": z_value},
+        },
+    ]
+
+    # Should not raise any exception
+    validate_rfc4_orientation(axes_subject_local)
+
+
 def test_validate_rfc4_orientation_mixed_types():
     """Test RFC 4 validation with mixed axis types."""
     # Valid with time and channel axes mixed in

@@ -57,6 +57,18 @@ class AnatomicalOrientationValues(str, Enum):
     proximal_to_distal = "proximal-to-distal"
     # Describes the directional orientation from the periphery of an anatomical structure or limb to the center of the body
     distal_to_proximal = "distal-to-proximal"
+    # Describes the directional orientation from the outer surface (superficial) to the inner depth (deep) of a layered tissue such as skin, gut, or cortex
+    superficial_to_deep = "superficial-to-deep"
+    # Describes the directional orientation from the inner depth (deep) to the outer surface (superficial) of a layered tissue such as skin, gut, or cortex
+    deep_to_superficial = "deep-to-superficial"
+    # Describes the directional orientation from the apical surface (apical) to the basal surface (basal) of an epithelial layer or polarized cell structure
+    apical_to_basal = "apical-to-basal"
+    # Describes the directional orientation from the basal surface (basal) to the apical surface (apical) of an epithelial layer or polarized cell structure
+    basal_to_apical = "basal-to-apical"
+    # Describes the directional orientation from the tip (apex) to the broad base (base) of an organ such as the heart or lung
+    apex_to_base = "apex-to-base"
+    # Describes the directional orientation from the broad base (base) to the tip (apex) of an organ such as the heart or lung
+    base_to_apex = "base-to-apex"
 
 
 @dataclass

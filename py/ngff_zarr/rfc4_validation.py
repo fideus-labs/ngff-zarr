@@ -84,6 +84,12 @@ def validate_rfc4_orientation(axes: list[dict[str, Any]]) -> None:
         "caudal-to-cranial",
         "proximal-to-distal",
         "distal-to-proximal",
+        "superficial-to-deep",
+        "deep-to-superficial",
+        "apical-to-basal",
+        "basal-to-apical",
+        "apex-to-base",
+        "base-to-apex",
     }
 
     for axis in axes:

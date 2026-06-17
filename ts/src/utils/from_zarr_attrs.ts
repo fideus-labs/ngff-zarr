@@ -54,6 +54,12 @@ const ORIENTATION_VALUE_MAP: Record<string, AnatomicalOrientationValues> = {
   "caudal-to-cranial": AnatomicalOrientationValues.CaudalToCranial,
   "proximal-to-distal": AnatomicalOrientationValues.ProximalToDistal,
   "distal-to-proximal": AnatomicalOrientationValues.DistalToProximal,
+  "superficial-to-deep": AnatomicalOrientationValues.SuperficialToDeep,
+  "deep-to-superficial": AnatomicalOrientationValues.DeepToSuperficial,
+  "apical-to-basal": AnatomicalOrientationValues.ApicalToBasal,
+  "basal-to-apical": AnatomicalOrientationValues.BasalToApical,
+  "apex-to-base": AnatomicalOrientationValues.ApexToBase,
+  "base-to-apex": AnatomicalOrientationValues.BaseToApex,
 };
 
 /**

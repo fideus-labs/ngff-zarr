@@ -22,6 +22,12 @@ export const AnatomicalOrientationValuesSchema: z.ZodType<
   | "caudal-to-cranial"
   | "proximal-to-distal"
   | "distal-to-proximal"
+  | "superficial-to-deep"
+  | "deep-to-superficial"
+  | "apical-to-basal"
+  | "basal-to-apical"
+  | "apex-to-base"
+  | "base-to-apex"
 > = z.enum([
   "left-to-right",
   "right-to-left",
@@ -41,6 +47,12 @@ export const AnatomicalOrientationValuesSchema: z.ZodType<
   "caudal-to-cranial",
   "proximal-to-distal",
   "distal-to-proximal",
+  "superficial-to-deep",
+  "deep-to-superficial",
+  "apical-to-basal",
+  "basal-to-apical",
+  "apex-to-base",
+  "base-to-apex",
 ]);
 
 // AnatomicalOrientation object schema
@@ -64,7 +76,13 @@ export const AnatomicalOrientationSchema: z.ZodType<{
     | "cranial-to-caudal"
     | "caudal-to-cranial"
     | "proximal-to-distal"
-    | "distal-to-proximal";
+    | "distal-to-proximal"
+    | "superficial-to-deep"
+    | "deep-to-superficial"
+    | "apical-to-basal"
+    | "basal-to-apical"
+    | "apex-to-base"
+    | "base-to-apex";
 }> = z.object({
   type: z.literal("anatomical"),
   value: AnatomicalOrientationValuesSchema,
