@@ -190,19 +190,18 @@ def _large_image_serialization(
         path = f"{base_path}/slabs"
         slabs = data.rechunk(rechunks)
 
+        # For spatial dimensions, ensure Zarr chunk sizes are divisors of
+        # the dimension sizes so older dask versions (e.g. 2025.11.0) can
+        # write safely with regions.  For non-spatial dims (t, c), use the
+        # slab chunk directly to keep channels / timepoints together and
+        # avoid dask rechunking (gh-issue-487).
         chunks = tuple(
-            [
-                _find_optimal_chunk_size(c[0], data.shape[i])
-                for i, c in enumerate(slabs.chunks)
-            ]
+            _find_optimal_chunk_size(c[0], data.shape[i])
+            if dim in _spatial_dims
+            else c[0]
+            for i, (c, dim) in enumerate(zip(slabs.chunks, dims))
         )
 
-        optimized = dask.array.Array(
-            dask.array.optimize(slabs.__dask_graph__(), slabs.__dask_keys__()),
-            slabs.name,
-            slabs.chunks,
-            meta=slabs,
-        )
         zarr_array = open_array(
             shape=data.shape,
             chunks=chunks,
@@ -229,7 +228,7 @@ def _large_image_serialization(
                 min((slab_index + 1) * slab_slices, data.shape[z_index]),
             )
             region = tuple(region)
-            arr_region = optimized[region]
+            arr_region = slabs[region]
             dask.array.to_zarr(
                 arr_region,
                 zarr_array,
@@ -346,22 +345,16 @@ def _cache_2d_strips(data, dims, rechunks, cache_store, base_path, progress):
 
     n_strips = int(np.ceil(data.shape[strip_dim_index] / strip_size))
 
+    # Ensure zarr chunks match the strip size to avoid dask rechunking
+    # during dask.array.to_zarr region writes (gh-issue-487).
+    adjusted_rechunks = dict(rechunks)
+    adjusted_rechunks[strip_dim_index] = strip_size
+
     path = base_path + "/strips"
-    slabs = data.rechunk(rechunks)
+    slabs = data.rechunk(adjusted_rechunks)
 
-    chunks = tuple(
-        [
-            _find_optimal_chunk_size(c[0], data.shape[i])
-            for i, c in enumerate(slabs.chunks)
-        ]
-    )
+    chunks = tuple(c[0] for c in slabs.chunks)
 
-    optimized = dask.array.Array(
-        dask.array.optimize(slabs.__dask_graph__(), slabs.__dask_keys__()),
-        slabs.name,
-        slabs.chunks,
-        meta=slabs,
-    )
     zarr_array = open_array(
         shape=data.shape,
         chunks=chunks,
@@ -388,7 +381,7 @@ def _cache_2d_strips(data, dims, rechunks, cache_store, base_path, progress):
             min((strip_index + 1) * strip_size, data.shape[strip_dim_index]),
         )
         region = tuple(region)
-        arr_region = optimized[region]
+        arr_region = slabs[region]
         dask.array.to_zarr(
             arr_region,
             zarr_array,
@@ -427,22 +420,16 @@ def _cache_1d_segments(data, dims, rechunks, cache_store, base_path, progress):
 
     n_segments = int(np.ceil(data.shape[x_index] / segment_size))
 
+    # Ensure zarr chunks match the segment size to avoid dask rechunking
+    # during dask.array.to_zarr region writes (gh-issue-487).
+    adjusted_rechunks = dict(rechunks)
+    adjusted_rechunks[x_index] = segment_size
+
     path = base_path + "/segments"
-    slabs = data.rechunk(rechunks)
+    slabs = data.rechunk(adjusted_rechunks)
 
-    chunks = tuple(
-        [
-            _find_optimal_chunk_size(c[0], data.shape[i])
-            for i, c in enumerate(slabs.chunks)
-        ]
-    )
+    chunks = tuple(c[0] for c in slabs.chunks)
 
-    optimized = dask.array.Array(
-        dask.array.optimize(slabs.__dask_graph__(), slabs.__dask_keys__()),
-        slabs.name,
-        slabs.chunks,
-        meta=slabs,
-    )
     zarr_array = open_array(
         shape=data.shape,
         chunks=chunks,
@@ -468,7 +455,7 @@ def _cache_1d_segments(data, dims, rechunks, cache_store, base_path, progress):
             min((seg_index + 1) * segment_size, data.shape[x_index]),
         )
         region = tuple(region)
-        arr_region = optimized[region]
+        arr_region = slabs[region]
         dask.array.to_zarr(
             arr_region,
             zarr_array,
@@ -508,8 +495,8 @@ def to_multiscales(
         Scaling is constrained by size of chunks - we do not scale below the chunk size.
     :type  scale_factors: int of minimum length, int per scale or dict of spatial dimension int's per scale
 
-    :param method:  Specify the anti-aliasing method used to downsample the image. Default is ITKWASM_GAUSSIAN.
-    :type  Methods: ngff_zarr.Methods enum
+    :param method:  Specify the anti-aliasing method used to downsample the image. Default is ITKWASM_GAUSSIAN. See the {py:class}`Methods <ngff_zarr.methods.Methods>` enum for all available options.
+    :type  method: Methods, optional
 
     :param chunks: Specify the chunking used in each output scale. The default is 128 for 3D images and 256 for 2D images.
     :type  chunks: Dask array chunking specification, optional

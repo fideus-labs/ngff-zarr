@@ -754,3 +754,49 @@ def test_ome_tiff_rgb_s_axis_overrides_xml_colors(tmp_path):
         f"RGB images with S axis must use canonical RGB colors, "
         f"got {img.channel_colors}"
     )
+
+
+def test_tiff_file_to_ngff_images_corrupted_file(tmp_path):
+    """A corrupted TIFF should raise an actionable OSError (gh-issue-343)."""
+    try:
+        import tifffile  # noqa: F401
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    tiff_path = tmp_path / "corrupted.tiff"
+
+    # A file that looks like a TIFF (valid magic) but has an invalid IFD.
+    with tiff_path.open("wb") as f:
+        f.write(b"II\x2a\x00")  # little-endian TIFF magic
+        f.write(b"\x08\x00\x00\x00")  # invalid IFD offset
+        f.write(b"corrupted data" * 100)
+
+    with pytest.raises(OSError) as exc_info:
+        tiff_file_to_ngff_images(tiff_path)
+
+    error_msg = str(exc_info.value)
+    assert "Failed to open TIFF file" in error_msg
+    assert "corrupted" in error_msg.lower()
+
+
+def test_tiff_file_to_ngff_images_nonexistent_file(tmp_path):
+    """A missing path keeps its specific FileNotFoundError, not relabeled.
+
+    Path/permission errors should propagate unchanged rather than being
+    re-raised as a generic "file may be corrupted" error.
+    """
+    try:
+        import tifffile  # noqa: F401
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    missing_path = tmp_path / "does_not_exist.tiff"
+    with pytest.raises(FileNotFoundError) as exc_info:
+        tiff_file_to_ngff_images(missing_path)
+
+    # Should not be relabeled with the corruption message.
+    assert "may be" not in str(exc_info.value).lower()

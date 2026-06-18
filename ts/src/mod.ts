@@ -67,6 +67,15 @@ export {
   parseOmero,
 } from "./utils/parse_metadata.ts";
 export {
+  SpecRule,
+  type ValidateOptions,
+  validatePlate,
+  validateStructural,
+  validateWell,
+  ValidationError,
+  ValidationLevel,
+} from "./utils/structural_validation.ts";
+export {
   isValidDimension,
   isValidUnit,
   validateMetadata,

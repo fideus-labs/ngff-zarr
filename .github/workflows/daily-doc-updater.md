@@ -1,51 +1,61 @@
 ---
-name: Daily Documentation Updater
-description: Automatically reviews and updates documentation to ensure accuracy and completeness
 on:
   schedule:
-    - cron: "54 1 * * 1-4"
-  workflow_dispatch:
-
+  - cron: 54 1 * * 1-4
+  workflow_dispatch: null
 permissions:
   contents: read
   issues: read
   pull-requests: read
-
-tracker-id: daily-doc-updater
-engine: copilot
-strict: true
-
 network:
   allowed:
-    - defaults
-    - github
-
+  - defaults
+  - github
+imports:
+- shared/github-guard-policy.md
 safe-outputs:
   create-pull-request:
-    expires: 1d
-    title-prefix: "[docs] "
-    labels: [documentation, automation]
-    reviewers: [copilot]
-    draft: false
     auto-merge: true
-
-tools:
-  cache-memory: true
-  github:
-    toolsets: [default]
-  edit:
-  bash:
-    - "find docs -name '*.md' -o -name '*.mdx'"
-    - "find docs -maxdepth 1 -ls"
-    - "find docs -name '*.md' -exec cat {} +"
-    - "grep -rF '*' docs"
-    - "git"
-    - "find pkg/parser/schemas -name '*.json'"
-    - "cat pkg/parser/schemas/*.json"
-
+    draft: false
+    expires: 1d
+    labels:
+    - documentation
+    - automation
+    protected-files: fallback-to-issue
+    reviewers:
+    - copilot
+    title-prefix: "[docs] "
+  noop: null
+description: Automatically reviews and updates documentation to ensure accuracy and completeness
+emoji: 📝
+# Pin a model supported by the Copilot subscription tier. The default
+# (claude-sonnet-4.6) is not available on Copilot Pro/Education and causes
+# "400 The requested model is not supported" failures (issue #547).
+engine:
+  id: copilot
+  model: gpt-5-mini
+name: Daily Documentation Updater
+strict: true
 timeout-minutes: 45
-
-source: github/gh-aw/.github/workflows/daily-doc-updater.md@33cd6c7f1fee588654ef19def2e6a4174be66197
+tools:
+  bash:
+  - find docs -name "*.md" -o -name "*.mdx"
+  - find docs -maxdepth 1 -ls
+  - find docs -name "*.md" -exec cat {} +
+  - grep -r "*" docs
+  - git
+  - find pkg/parser/schemas -name "*.json"
+  - cat pkg/parser/schemas/*.json
+  cache-memory: true
+  cli-proxy: true
+  edit: null
+  github:
+    min-integrity: approved
+    mode: gh-proxy
+    toolsets:
+    - default
+tracker-id: daily-doc-updater
+source: github/gh-aw/.github/workflows/daily-doc-updater.md@51c1a43172d27e586e271e615a0f63da36d87654
 ---
 
 {{#runtime-import? .github/shared-instructions.md}}
@@ -57,6 +67,23 @@ You are an AI documentation agent that automatically updates the project documen
 ## Your Mission
 
 Scan the repository for merged pull requests and code changes from the last 24 hours, identify new features or changes that should be documented, and update the documentation accordingly.
+
+## Tool Reference
+
+- **GitHub data (batch reads)**: use `gh` CLI via Bash for the Pre-flight fetch (e.g. `gh pr list`, `gh issue list`)
+- **GitHub data (detailed reads)**: use GitHub MCP tools (`search_pull_requests`, `pull_request_read`, `list_commits`, `get_commit`) for per-item detail lookups in Task Steps
+- **Do NOT** use `mcpscripts` for any GitHub reads — use `gh` CLI or GitHub MCP tools directly
+- **Documentation editing**: use the `Edit` tool, not bash `sed`
+
+## Pre-flight: Batch Data Fetch (do this first, before any analysis)
+
+Before starting any analysis, fetch all needed data in **one parallel batch**:
+1. All PRs merged in the last 24h: `gh pr list --state merged --limit 20 --json number,title,mergedAt,body,url`
+2. Open documentation issues: `gh issue list --label documentation --state open --limit 20 --json number,title,body,url`
+3. Recently closed documentation issues (last 7 days): `gh issue list --label documentation --state closed --limit 20 --json number,title,body,closedAt,url`
+4. Cookie-labeled documentation issues: `gh issue list --label documentation --label cookie --json number,title,body,url --limit 20`
+
+Do all four in a single tool-use block. Do not retry individual calls — if a call returns empty results, treat it as "no items" and proceed.
 
 ## Task Steps
 
@@ -81,10 +108,54 @@ repo:${{ github.repository }} is:issue is:open label:documentation
 For each open issue:
 1. Read the issue body to understand the described gap.
 2. Check the referenced documentation file to verify the gap still exists.
+   - **If the issue references an existing file**: confirm the content is missing or incorrect.
+   - **If the issue references a file path that does not yet exist** (e.g., body says "Create `docs/guides/foo.md`"): treat this as a **confirmed new-file gap** and proceed to Step 5 to create the file.
 3. If confirmed, include a fix in this run's PR and reference the issue with `Closes #NNN`.
-4. If the gap is already fixed, note it (do not reopen or comment on the issue).
+4. If the gap is already fixed (file exists and contains the described content), note it and skip.
+5. If you choose not to address an open documentation issue in this run (e.g., it requires structural navigation changes, is out of scope, or cannot be confirmed), record it in the **Skipped Issues** section of the PR description (see Step 6).
+
+### 1c. Scan Recently Closed Documentation Issues
+
+Search for documentation issues closed in the last 7 days (replace YYYY-MM-DD with the date 7 days ago):
+
+```
+repo:${{ github.repository }} is:issue is:closed label:documentation closed:>=YYYY-MM-DD
+```
+
+For each closed issue:
+- **closed as completed**: Check whether a `[docs]` PR references it. If no such PR exists, also search for any merged PR that closes or fixes the issue by number (e.g. `closes #NNN`, `fixes #NNN`, `resolves #NNN` in the PR body). If such a PR is found and its documentation change is complete, skip the issue.
+  - If no explicit issue-reference PR is found, run a fallback heuristic for likely spec-librarian/copilot fix PRs that omit issue numbers:
+    1. Infer the package from the issue title/body (for example `pkg/constants`).
+    2. Search for merged PRs in a tight window around issue closure (prefer ±60 minutes) that modify `pkg/<package>/README.md`.
+    3. Example query: `repo:${{ github.repository }} is:pr is:merged merged:>=<issue_closed_at-60m> merged:<=<issue_closed_at+60m> path:pkg/<package>/README.md`.
+    4. If such a PR exists and the README change fully resolves the issue gap, treat the issue as already addressed and skip it.
+  - If the fallback heuristic still finds no PR, run a direct content check before Step 2:
+    1. Parse the issue body for referenced file paths and the specific missing symbols/constants/phrases.
+    2. Read only those referenced files directly.
+    3. Verify whether each listed gap is still present.
+    4. If all listed items are already documented, treat the issue as already addressed and skip it (do not continue to Step 2 for this issue).
+  - Otherwise, treat it as an unaddressed gap and follow the normal Step 2 flow.
+- **closed as not_planned**: Do not create documentation based solely on this issue. Instead, cross-reference the issue's subject matter against commits from the same 7-day window (Step 2). If a related code change is found, treat it as a new documentation gap (independent of the original issue decision) and follow the normal Step 2 flow for that code change.
+
+### 1d. Scan Cookie-Labeled Automation Issues
+
+Search for open and recently closed issues from automated monitoring workflows (CLI Consistency Checker, Multi-Device Docs Tester). These carry the `cookie` label and may surface real documentation gaps that Step 1b and 1c miss due to the integrity filter:
+
+```
+repo:${{ github.repository }} is:issue label:documentation label:cookie
+```
+
+For each issue found:
+- Read the issue body to understand the described documentation gap.
+- Check whether the gap still exists in the relevant documentation file.
+- If confirmed, include a fix in this run's PR and reference the issue with `Closes #NNN`.
+- If the issue is already closed and the gap is already fixed, note it and skip.
 
 ### 2. Analyze Changes
+
+**Efficiency rule**: When searching documentation files for multiple patterns, combine them in one bash call using `-e` flags or a pipe:
+`grep -rn -e "pattern1" -e "pattern2" -e "pattern3" docs/`
+Alternatively, use the `Grep` tool (not `Bash`) for file searches — it produces more concise output and doesn't count as a bash call.
 
 For each merged PR and commit, analyze:
 
@@ -122,12 +193,17 @@ Pay special attention to:
 
 Review the documentation in the `docs/src/content/docs/` directory:
 
+**First, use `search` to search for existing documentation** related to each identified change — this is faster and more accurate than browsing files manually:
+- For each new feature or change, run a targeted query: e.g., `search("engine configuration options")` or `search("permissions frontmatter field")`
+- Read the returned file paths to check if documentation already exists
+- Only resort to `find` for exhaustive listing when you need a complete inventory
+
 - Check if new features are already documented
 - Identify which documentation files need updates
 - Determine the appropriate documentation type (tutorial, how-to, reference, explanation)
 - Find the best location for new content
 
-Use bash commands to explore documentation structure:
+Use bash commands to explore documentation structure when needed:
 
 ```bash
 find docs/src/content/docs -name '*.md' -o -name '*.mdx'
@@ -179,7 +255,7 @@ If you made any documentation changes:
 
 **PR Description Template**:
 ```markdown
-## Documentation Updates - [Date]
+### Documentation Updates - [Date]
 
 This PR updates the documentation based on features merged in the last 24 hours.
 
@@ -187,6 +263,9 @@ This PR updates the documentation based on features merged in the last 24 hours.
 
 - Feature 1 (from #PR_NUMBER)
 - Feature 2 (from #PR_NUMBER)
+
+<details>
+<summary>📝 Detailed Changes & References</summary>
 
 ### Changes Made
 
@@ -198,6 +277,15 @@ This PR updates the documentation based on features merged in the last 24 hours.
 - #PR_NUMBER - Brief description
 - #PR_NUMBER - Brief description
 
+</details>
+
+### Skipped Issues
+
+<!-- List every open documentation issue that was NOT addressed in this run -->
+<!-- Format: - #NNN — [title]: [reason for skip] -->
+<!-- Example: - #123 — docs: add guide for foo: requires structural nav changes beyond docs scope -->
+<!-- If all open issues were addressed or confirmed already fixed, write "None." -->
+
 ### Notes
 
 [Any additional notes or features that need manual review]
@@ -205,9 +293,17 @@ This PR updates the documentation based on features merged in the last 24 hours.
 
 ### 7. Handle Edge Cases
 
-- **No recent changes**: If there are no merged PRs in the last 24 hours, exit gracefully without creating a PR
-- **Already documented**: If all features are already documented, exit gracefully
+- **No recent changes**: If there are no merged PRs in the last 24 hours and no open documentation issues need addressing, call `noop` with a brief summary explaining what was scanned and why no action was taken
+- **Already documented**: If all features are already documented and all open issues are resolved, call `noop` with a brief explanation
 - **Unclear features**: If a feature is complex and needs human review, note it in the PR description but don't skip documentation entirely
+
+The `noop` tool signals to the workflow system that you deliberately chose not to take action (no documentation updates needed). Always call either `create_pull_request` or `noop` before finishing — never finish without calling one of these safe-output tools.
+
+When calling `noop`, use this format:
+
+```json
+{"noop": {"message": "No documentation updates needed: [brief explanation of what was scanned and why no action was taken]"}}
+```
 
 ## Guidelines
 
@@ -233,8 +329,4 @@ This PR updates the documentation based on features merged in the last 24 hours.
 
 Good luck! Your documentation updates help keep our project accessible and up-to-date.
 
-**Important**: If no action is needed after completing your analysis, you **MUST** call the `noop` safe-output tool with a brief explanation. Failing to call any safe-output tool is the most common cause of safe-output workflow failures.
-
-```json
-{"noop": {"message": "No action needed: [brief explanation of what was analyzed and why]"}}
-```
+{{#runtime-import shared/noop-reminder.md}}

@@ -214,15 +214,17 @@ async function createTestStore(
 }
 
 Deno.test("fromNgffZarr with valid RFC-4 orientation - validation passes", async () => {
+  // Spatial axes must be ordered (z, y, x) per the OME-Zarr v0.4 axis-order
+  // rule; each axis keeps its own anatomical orientation.
   const multiscalesMetadata = {
     version: "0.4",
     name: "test",
     axes: [
       {
-        name: "x",
+        name: "z",
         type: "space",
         unit: "micrometer",
-        orientation: { type: "anatomical", value: "right-to-left" },
+        orientation: { type: "anatomical", value: "inferior-to-superior" },
       },
       {
         name: "y",
@@ -231,10 +233,10 @@ Deno.test("fromNgffZarr with valid RFC-4 orientation - validation passes", async
         orientation: { type: "anatomical", value: "anterior-to-posterior" },
       },
       {
-        name: "z",
+        name: "x",
         type: "space",
         unit: "micrometer",
-        orientation: { type: "anatomical", value: "inferior-to-superior" },
+        orientation: { type: "anatomical", value: "right-to-left" },
       },
     ],
     datasets: [

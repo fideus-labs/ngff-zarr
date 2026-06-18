@@ -59,6 +59,27 @@ If the TIFF series have names (common for OME-TIFF), their names are used
 instead of the index, for example `output_GFP.ome.zarr`, `output_DAPI.ome.zarr`,
 and so on. Series names are automatically sanitized to ensure filesystem safety.
 
+### Multi-series files written to a single `.ozx`
+
+Whole-slide formats such as Aperio `.svs` always contain several series (a
+full-resolution **Baseline** pyramid plus auxiliary **Thumbnail**, **Label**,
+and **Macro** images). When such a file is converted to a single
+`.ozx` file, the primary (first) series — the full-resolution
+image — is written to the exact path you requested, and any additional series
+are written alongside it with a `_<series_name>` suffix while preserving the
+`.ozx` format:
+
+```shell
+ngff-zarr -i slide.svs -o slide.ozx
+# creates slide.ozx (Baseline) plus slide_Thumbnail.ozx, slide_Label.ozx, ...
+```
+
+To convert only the full-resolution image, select it explicitly:
+
+```shell
+ngff-zarr -i slide.svs -o slide.ozx --series 0
+```
+
 ### Convert a specific series by index
 
 ```shell
@@ -206,6 +227,37 @@ This approach ensures:
 - Consistent downsampling method across all scales
 - Optimal chunk sizes for the output format
 - Compatibility with OME-Zarr viewers
+
+## Common Issues and Troubleshooting
+
+### Corrupted or Malformed TIFF Files
+
+If you encounter errors like "Invalid page offset" or
+"OSError: [Errno 22] Invalid argument" during conversion, the TIFF file may be
+corrupted or malformed. NGFF-Zarr now reports these with a message identifying
+the source file and likely cause rather than a cryptic traceback. This is
+particularly common with:
+
+- Very large whole-slide imaging (WSI) files like SVS
+- Files that were incompletely transferred or downloaded
+- Files created by buggy software
+- Files that have experienced disk errors
+
+**To diagnose the issue:**
+
+```bash
+# Try opening the file with tifffile to check for errors
+python3 -c "import tifffile; tif = tifffile.TiffFile('your_file.tiff'); print(f'Series: {len(tif.series)}'); tif.close()"
+```
+
+**Solutions:**
+
+1. Re-download or re-transfer the file from the original source
+2. Verify file integrity using checksums if available
+3. Contact the data provider if the file came from an external source
+4. Re-export the image from the original acquisition software
+
+For more troubleshooting tips, see the [FAQ](./faq.md#troubleshooting).
 
 ## API Reference
 

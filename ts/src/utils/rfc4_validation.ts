@@ -7,6 +7,7 @@
  */
 
 import { AnatomicalOrientationValuesSchema } from "../schemas/rfc4.ts";
+import { formatNameList } from "./py_format.ts";
 
 /** Valid anatomical orientation values */
 const VALID_ORIENTATION_VALUES = new Set([
@@ -54,6 +55,14 @@ export function hasRfc4OrientationMetadata(
 
 /**
  * Validate RFC 4 anatomical orientation metadata.
+ *
+ * The two inconsistency errors carry stable marker substrings -- `same type`
+ * for a mixed-`type` failure and `all spatial axes` for the all-or-none
+ * completeness failure -- that `validateAxisOrientation` reads to map each
+ * failure onto its `SpecRule`. These markers are a load-bearing contract
+ * pinned by a message-stability test (see
+ * `structural_validation_orientation_test.ts`) so the mapping cannot silently
+ * break if the wording is later edited.
  *
  * @param axes - List of axis metadata dictionaries to validate
  * @throws Error if the orientation metadata is invalid or inconsistent
@@ -114,8 +123,10 @@ export function validateRfc4Orientation(
     throw new Error(
       `RFC 4 requires that if orientation is defined for one spatial axis, ` +
         `it must be defined for all spatial axes. ` +
-        `Axes with orientation: ${spatialAxesWithOrientation.join(", ")}, ` +
-        `axes without orientation: ${spatialAxesWithoutOrientation.join(", ")}`,
+        `Axes with orientation: ` +
+        `${formatNameList(spatialAxesWithOrientation)}, ` +
+        `axes without orientation: ` +
+        `${formatNameList(spatialAxesWithoutOrientation)}`,
     );
   }
 }

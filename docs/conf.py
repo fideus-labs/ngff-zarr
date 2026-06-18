@@ -27,7 +27,10 @@ extensions = [
 myst_enable_extensions = ["colon_fence", "fieldlist"]
 
 templates_path = ["_templates"]
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+# docs/validation/ is a structured DocGraph artifact (YAML front matter +
+# [[wiki-link]] cross-references) for graph navigation, not Sphinx pages, so it
+# is excluded from the MyST/Sphinx build.
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "validation/*"]
 
 autodoc2_packages = [
     {

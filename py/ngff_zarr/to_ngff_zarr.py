@@ -5,7 +5,7 @@ import tempfile
 import warnings
 from dataclasses import asdict
 from pathlib import Path, PurePosixPath
-from typing import Literal
+from typing import Any, Literal
 
 from .methods._metadata import get_method_metadata
 
@@ -109,29 +109,44 @@ def _numcodecs_to_zarr_v3_codec(compressor):
     return None
 
 
-def _pop_metadata_optionals(metadata_dict, enabled_rfcs: list[int] | None = None):
-    # Collect all axes that need cleaning
-    axes_to_clean = []
-    if "axes" in metadata_dict:
-        axes_to_clean = metadata_dict["axes"]
-    elif "coordinateSystems" in metadata_dict:
-        axes_to_clean = [ax for cs in metadata_dict["coordinateSystems"] for ax in cs["axes"]]
-    
-    # Clean axes
-    for ax in axes_to_clean:
-        if not ax["unit"]:
-            ax.pop("unit")
-        if not is_rfc4_enabled(enabled_rfcs):
+def _remove_none_values(obj: Any) -> Any:
+    """Recursively strip ``None``-valued keys from nested dicts and lists.
+
+    In the OME-Zarr spec the absence of a field carries no significance: only
+    fields that are present are meaningful, and an explicit ``null`` is treated
+    as equivalent to omitting the field. Culling every ``None`` therefore keeps
+    the written metadata clean without enumerating optional fields per spec
+    version. Only ``None`` is removed; falsy-but-valid values such as ``0``,
+    ``0.0``, ``""`` and empty collections are preserved.
+    """
+    if isinstance(obj, dict):
+        return {
+            key: _remove_none_values(value)
+            for key, value in obj.items()
+            if value is not None
+        }
+    if isinstance(obj, list):
+        return [_remove_none_values(item) for item in obj]
+    return obj
+
+
+def _pop_metadata_optionals(
+    metadata_dict: dict, enabled_rfcs: list[int] | None = None
+) -> dict:
+    """Strip optional metadata fields that must not be serialized.
+
+    Removes the draft RFC 4 ``orientation`` from every axis unless RFC 4 is
+    enabled, then recursively culls all remaining ``None``-valued keys.
+    """
+    # RFC 4 anatomical orientation is a draft feature gated behind an explicit
+    # opt-in. Drop it from every axis (even when populated) unless RFC 4 is
+    # enabled; populated orientations on enabled writes survive the None
+    # stripping below.
+    if not is_rfc4_enabled(enabled_rfcs):
+        for ax in metadata_dict.get("axes", []):
             ax.pop("orientation", None)
 
-    # pop empty coordinateTransformations on top-level only if they are None
-    if metadata_dict["coordinateTransformations"] is None:
-        metadata_dict.pop("coordinateTransformations")
-
-    if metadata_dict["omero"] is None:
-        metadata_dict.pop("omero")
-
-    return metadata_dict
+    return _remove_none_values(metadata_dict)
 
 
 def _prep_for_to_zarr(store: StoreLike, arr: dask.array.Array) -> dask.array.Array:
@@ -633,6 +648,25 @@ def _prepare_zarr_kwargs(to_zarr_kwargs: dict):
         to_zarr_kwargs.pop("zarr_format", None)
 
 
+def _array_write_error(path: str, error: Exception) -> OSError:
+    """Build an actionable error for failures while writing a zarr array.
+
+    Writing an array triggers lazy evaluation of the dask graph, which reads
+    the source data (e.g. a TIFF/SVS file or its on-disk slab cache). A
+    corrupt source can surface here as a cryptic ``OSError`` (such as the
+    ``[Errno 22] Invalid argument`` reported in gh-issue-343) only after a long
+    conversion. Wrap it with context identifying the likely cause so the
+    failure is diagnosable rather than mysterious.
+    """
+    msg = (
+        f"Failed to write data to the zarr array at path '{path}'. "
+        f"If converting a TIFF/SVS file, this can indicate a corrupted or "
+        f"truncated source file with invalid page offsets or structure. "
+        f"Original error: {type(error).__name__}: {error}"
+    )
+    return OSError(msg)
+
+
 def _write_array_direct(
     arr: dask.array.Array,
     store: StoreLike,
@@ -728,6 +762,14 @@ def _write_array_direct(
         **kwargs,
     }
 
+    # For Zarr v3 direct writes without sharding, ``zarr.create_array`` picks
+    # its own chunk shape if we do not pass one — that overrides the chunking
+    # the caller selected via ``to_multiscales(chunks=...)``.  Forward the
+    # dask array's canonical chunk shape (``chunksize`` = per-dim max, which
+    # tolerates non-uniform leading chunks) so user intent is respected.
+    if zarr_fmt == 3 and zarr_array is None and "chunks" not in to_zarr_kwargs:
+        to_zarr_kwargs["chunks"] = arr.chunksize
+
     if zarr_fmt == 3 and zarr_array is None:
         # Zarr v3, use zarr.create_array and assign (whole array or region)
         array = zarr.create_array(
@@ -737,10 +779,13 @@ def _write_array_direct(
             dtype=arr.dtype,
             **to_zarr_kwargs,
         )
-        if region is not None:
-            array[region] = arr.compute()
-        else:
-            array[:] = arr.compute()
+        try:
+            if region is not None:
+                array[region] = arr.compute()
+            else:
+                array[:] = arr.compute()
+        except (OSError, ValueError) as e:
+            raise _array_write_error(path, e) from e
     else:
         _prepare_zarr_kwargs(to_zarr_kwargs)
 
@@ -748,16 +793,21 @@ def _write_array_direct(
             zarr_array if (region is not None and zarr_array is not None) else store
         )
 
-        dask.array.to_zarr(
-            arr,
-            target,
-            region=region if (region is not None and zarr_array is not None) else None,
-            component=path,
-            overwrite=False,
-            compute=True,
-            return_stored=False,
-            **to_zarr_kwargs,
-        )
+        try:
+            dask.array.to_zarr(
+                arr,
+                target,
+                region=region
+                if (region is not None and zarr_array is not None)
+                else None,
+                component=path,
+                overwrite=False,
+                compute=True,
+                return_stored=False,
+                **to_zarr_kwargs,
+            )
+        except (OSError, ValueError) as e:
+            raise _array_write_error(path, e) from e
 
 
 def _handle_large_array_writing(
@@ -784,6 +834,9 @@ def _handle_large_array_writing(
     **kwargs,
 ) -> None:
     """Handle writing large arrays by splitting them into manageable pieces."""
+    # Copy zarr_kwargs to avoid mutating the caller's dict across loop iterations
+    zarr_kwargs = zarr_kwargs.copy()
+
     shrink_factors = []
     for dim in dims:
         if dim in dim_factors:
