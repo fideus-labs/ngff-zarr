@@ -295,7 +295,7 @@ class Metadata:
 
         if not coordinate_systems:
              raise ValueError(
-                 "Invalid OME-Zarr v0.6 metadata:" \
+                 "Invalid OME-Zarr v0.6 metadata: "
                  " missing 'coordinateSystems' in multiscales metadata."
                  )
 
