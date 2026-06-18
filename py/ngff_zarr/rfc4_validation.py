@@ -39,7 +39,15 @@ def validate_rfc4_orientation(axes: list[dict[str, Any]]) -> None:
     jsonschema.ValidationError
         If the orientation metadata is invalid
     ValueError
-        If orientation is inconsistently defined across spatial axes
+        If orientation is inconsistently defined across spatial axes. The two
+        messages carry stable marker substrings -- ``"same type"`` for a
+        mixed-``type`` failure and ``"all spatial axes"`` for the all-or-none
+        completeness failure -- that
+        :func:`ngff_zarr.structural_validation.validate_axis_orientation` reads
+        to map each failure onto its :class:`SpecRule`. These markers are a
+        load-bearing contract pinned by a message-stability test
+        (``test_rfc4_orientation_messages_carry_mapping_markers``) so the
+        mapping cannot silently break if the wording is later edited.
     """
     try:
         from jsonschema import Draft202012Validator

@@ -9,7 +9,10 @@ These tests verify that:
 4. Channel dimensions are preserved
 5. 2D strip caching works correctly
 6. 1D segment caching works correctly
+7. No dask PerformanceWarning from chunk-size mismatches during cache writes
 """
+
+import warnings
 
 import dask.array
 import numpy as np
@@ -264,3 +267,144 @@ class TestTaskCountReduction:
         # Output tasks should not be significantly more than input tasks.
         # Before the fix, this would be ~16x higher due to 512->128 rechunk.
         assert output_tasks <= input_tasks * 2
+
+
+class TestCacheChunkAlignment:
+    """Verify cache zarr chunks match data chunks to avoid dask PerformanceWarning.
+
+    When cache zarr chunk sizes differ from the dask data chunk sizes,
+    dask must rechunk on-the-fly during dask.array.to_zarr region writes.
+    This triggers a PerformanceWarning about array.chunk-size and can
+    cause data loss (see gh-issue-487).
+    """
+
+    def _assert_no_performance_warning(self, captured_warnings):
+        perf_warnings = [
+            x
+            for x in captured_warnings
+            if (
+                hasattr(x, "category")
+                and "PerformanceWarning" in str(x.category.__name__)
+                and (
+                    "chunk-size" in str(x.message)
+                    or "chunk_size" in str(x.message)
+                    or "chunk size" in str(x.message)
+                )
+            )
+        ]
+        assert len(perf_warnings) == 0, (
+            f"Got unexpected dask PerformanceWarning(s): "
+            f"{[str(x.message) for x in perf_warnings]}"
+        )
+
+    def _assert_no_channel_performance_warning(self, captured_warnings, c_index):
+        """Assert no PerformanceWarning about channel (c) dimension chunk-size.
+
+        The gh-issue-487 fix prevents dask from rechunking the channel
+        dimension by using the slab chunk directly for non-spatial dims.
+        Spatial dims may still warn when memory_target is tiny because
+        slab_slices may not divide the dimension size.
+        """
+        channel_warnings = [
+            x
+            for x in captured_warnings
+            if (
+                hasattr(x, "category")
+                and "PerformanceWarning" in str(x.category.__name__)
+                and f"axis {c_index}" in str(x.message)
+            )
+        ]
+        assert len(channel_warnings) == 0, (
+            f"Got unexpected dask PerformanceWarning on channel axis: "
+            f"{[str(x.message) for x in channel_warnings]}"
+        )
+
+    def test_z_slabs_cache_no_performance_warning(self):
+        """3D z-slabs caching should produce correct data."""
+        shape = (8, 64, 64)
+        arr_np = np.arange(np.prod(shape), dtype=np.uint16).reshape(shape)
+        arr = dask.array.from_array(arr_np, chunks=(8, 64, 64))
+        image = to_ngff_image(arr, dims=("z", "y", "x"))
+
+        old_mem = config.memory_target
+        config.memory_target = 1  # Force caching
+
+        try:
+            multiscales = to_multiscales(image, scale_factors=[])
+            result = multiscales.images[0].data.compute()
+            np.testing.assert_array_equal(result, arr_np)
+        finally:
+            config.memory_target = old_mem
+
+    def test_2d_strips_cache_no_performance_warning(self):
+        """2D strip caching should not raise dask PerformanceWarning."""
+        size = 128
+        arr_np = np.arange(size * size, dtype=np.uint16).reshape(size, size)
+        arr = dask.array.from_array(arr_np, chunks=(64, 64))
+        image = to_ngff_image(arr, dims=("y", "x"))
+
+        old_mem = config.memory_target
+        config.memory_target = 1  # Force caching
+
+        try:
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                multiscales = to_multiscales(image, scale_factors=[])
+
+            self._assert_no_performance_warning(w)
+            result = multiscales.images[0].data.compute()
+            np.testing.assert_array_equal(result, arr_np)
+        finally:
+            config.memory_target = old_mem
+
+    def test_1d_segments_cache_no_performance_warning(self):
+        """1D segment caching should not raise dask PerformanceWarning."""
+        arr_np = np.arange(1024, dtype=np.uint16)
+        arr = dask.array.from_array(arr_np, chunks=(128,))
+        image = to_ngff_image(arr, dims=("x",))
+
+        old_mem = config.memory_target
+        config.memory_target = 1  # Force caching
+
+        try:
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                multiscales = to_multiscales(image, scale_factors=[])
+
+            self._assert_no_performance_warning(w)
+            result = multiscales.images[0].data.compute()
+            np.testing.assert_array_equal(result, arr_np)
+        finally:
+            config.memory_target = old_mem
+
+    def test_multichannel_z_slabs_no_performance_warning(self):
+        """3D z-slabs with channel dim should not raise dask PerformanceWarning
+        on the channel axis.
+
+        This is the exact scenario from gh-issue-487 where the input has
+        shape (t, c, z, y, x) and the channel dimension chunk size (1)
+        is smaller than the full channel count (2).  The fix ensures the
+        Zarr chunk for the channel dimension matches the slab chunk (1)
+        rather than the full dimension (2), preventing dask from
+        rechunking during region writes.
+        """
+        shape = (1, 2, 8, 64, 64)
+        arr_np = np.arange(np.prod(shape), dtype=np.uint16).reshape(shape)
+        arr = dask.array.from_array(arr_np, chunks=(1, 1, 8, 64, 64))
+        image = to_ngff_image(arr, dims=("t", "c", "z", "y", "x"))
+
+        c_index = image.dims.index("c")
+
+        old_mem = config.memory_target
+        config.memory_target = 1  # Force caching
+
+        try:
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                multiscales = to_multiscales(image, scale_factors=[])
+
+            self._assert_no_channel_performance_warning(w, c_index)
+            result = multiscales.images[0].data.compute()
+            np.testing.assert_array_equal(result, arr_np)
+        finally:
+            config.memory_target = old_mem

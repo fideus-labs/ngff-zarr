@@ -25,6 +25,10 @@ import {
   hasRfc4OrientationMetadata,
   validateRfc4Orientation,
 } from "./rfc4_validation.ts";
+import {
+  validateStructural,
+  ValidationLevel,
+} from "./structural_validation.ts";
 import type { AnatomicalOrientation } from "../types/rfc4.ts";
 import { AnatomicalOrientationValues } from "../types/rfc4.ts";
 
@@ -88,6 +92,29 @@ function extractOrientationsFromAxes(
   }
 
   return hasOrientation ? orientations : undefined;
+}
+
+/**
+ * Return whether an OME-Zarr spec version string is `0.4` or newer.
+ *
+ * The dotted version is compared component-wise as integers, so multi-digit
+ * minor versions order correctly: `"0.10"` is newer than `"0.4"`, not older.
+ * A plain `Number.parseFloat("0.10")` would yield `0.1` and wrongly drop v0.10+
+ * metadata from structural validation. This mirrors the Python port's
+ * `packaging.version.parse(version) >= packaging.version.parse("0.4")` gate.
+ *
+ * Returns `false` for an unparsable version (leading component not a number),
+ * matching the prior `Number.isNaN` guard that skipped validation in that case.
+ */
+function isSpecVersionAtLeastV04(version: string): boolean {
+  const [major, minor = 0] = version
+    .split(".")
+    .map((part) => Number.parseInt(part, 10));
+  if (Number.isNaN(major)) {
+    return false;
+  }
+  // A NaN minor (e.g. "0.x") fails `minor >= 4`, so it needs no separate guard.
+  return major > 0 || (major === 0 && minor >= 4);
 }
 
 /**
@@ -203,6 +230,13 @@ export async function fromZarrAttrsV04(
           name: String(axisObj.name) as SupportedDims,
           type: String(axisObj.type) as AxesType,
           unit: axisObj.unit as Units | undefined,
+          // Preserve RFC 4 orientation on the parsed axis so the strict
+          // structural pass below can run validateAxisOrientation; dropping it
+          // here makes that rule a no-op. This mirrors the Python port, whose
+          // _filter_axis_dict keeps the raw orientation field on each Axis.
+          ...(axisObj.orientation !== undefined && axisObj.orientation !== null
+            ? { orientation: axisObj.orientation as Axis["orientation"] }
+            : {}),
         };
       });
     } else {
@@ -382,6 +416,17 @@ export async function fromZarrAttrsV04(
       }
       : {}),
   };
+
+  // Strict structural validation of the parsed metadata, layered after the
+  // schema pass and RFC 4 dict check above. The structural rules encode the
+  // v0.4+ metadata model (typed axes and per-dataset coordinate
+  // transformations); the legacy v0.1-0.3 layouts predate it, so the rules are
+  // scoped to v0.4 and newer.
+  if (validate) {
+    if (isSpecVersionAtLeastV04(metadata.version)) {
+      validateStructural(metadata, { level: ValidationLevel.Strict });
+    }
+  }
 
   return { metadata, images };
 }

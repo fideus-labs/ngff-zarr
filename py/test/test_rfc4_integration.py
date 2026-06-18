@@ -91,6 +91,9 @@ def test_rfc4_integration_with_enabled_rfcs():
                 assert "orientation" in axis
                 assert axis["orientation"]["type"] == "anatomical"
                 assert axis["orientation"]["value"] == "superior-to-inferior"
+
+
+def test_rfc4_integration_without_enabled_rfcs():
     """Test RFC 4 anatomical orientation when not enabled."""
     # Create a simple 3D image
     data = np.random.rand(10, 20, 30).astype(np.float32)
@@ -210,3 +213,55 @@ def test_rfc4_integration_with_other_rfcs():
         assert (
             len(spatial_axes_with_orientation) == 3
         )  # x, y, z should have orientation
+
+
+def test_rfc4_no_null_orientation_on_non_spatial_axes():
+    """Non-spatial axes must not emit ``orientation: null`` when RFC 4 is on.
+
+    Only the spatial axes carry an anatomical orientation. The time and
+    channel axes have ``orientation=None``, which must be culled rather than
+    serialized as an explicit ``null`` (regression test for issue #496).
+    """
+    data = np.random.rand(3, 2, 8, 16, 24).astype(np.float32)
+
+    orientations = {
+        "x": AnatomicalOrientation(value=AnatomicalOrientationValues.left_to_right),
+        "y": AnatomicalOrientation(
+            value=AnatomicalOrientationValues.posterior_to_anterior
+        ),
+        "z": AnatomicalOrientation(
+            value=AnatomicalOrientationValues.superior_to_inferior
+        ),
+    }
+
+    ngff_image = NgffImage(
+        data=data,
+        dims=("t", "c", "z", "y", "x"),
+        scale={"x": 1.0, "y": 1.0, "z": 1.0, "c": 1.0, "t": 1.0},
+        translation={"x": 0.0, "y": 0.0, "z": 0.0, "c": 0.0, "t": 0.0},
+        axes_orientations=orientations,
+    )
+
+    multiscales = to_multiscales(ngff_image, scale_factors=[2])
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        store_path = Path(temp_dir) / "test.zarr"
+
+        to_ngff_zarr(store=str(store_path), multiscales=multiscales, enabled_rfcs=[4])
+
+        zarr_group = zarr.open(str(store_path), mode="r")
+        raw_attrs = dict(zarr_group.attrs)
+        if "ome" in raw_attrs:
+            multiscales_metadata = raw_attrs["ome"]["multiscales"][0]
+        else:
+            multiscales_metadata = raw_attrs["multiscales"][0]
+        axes_metadata = multiscales_metadata["axes"]
+
+        for axis in axes_metadata:
+            if axis["name"] in ("t", "c"):
+                # The key must be absent entirely, not present with a null value.
+                assert "orientation" not in axis, (
+                    f"Non-spatial axis {axis['name']} should not carry orientation"
+                )
+            else:
+                assert axis["orientation"]["type"] == "anatomical"

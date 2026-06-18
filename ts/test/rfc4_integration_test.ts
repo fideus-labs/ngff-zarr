@@ -8,6 +8,7 @@
 import { assertEquals } from "@std/assert";
 import * as zarr from "zarrita";
 import { toNgffZarr } from "../src/io/to_ngff_zarr.ts";
+import { toOmeZarr as toOmeZarrBrowser } from "../src/io/to_ngff_zarr-browser.ts";
 import { fromNgffZarr, type MemoryStore } from "../src/io/from_ngff_zarr.ts";
 import { NgffMultiscales } from "../src/types/multiscales.ts";
 import { NgffImage } from "../src/types/ngff_image.ts";
@@ -353,6 +354,30 @@ Deno.test("Round-trip with RAS orientation - write and read back", async () => {
   assertEquals(multiscalesBack.images.length, 1);
 });
 
+Deno.test("fromNgffZarr preserves RFC 4 orientation on parsed metadata.axes", async () => {
+  // Regression for the read path dropping axisObj.orientation when building
+  // metadata.axes: that silently turned the strict structural pass's
+  // validateAxisOrientation rule into a no-op and lost orientation that the
+  // Python port retains via _filter_axis_dict. Reading back must surface
+  // orientation on the spatial axes as the raw { type, value } record.
+  const { multiscales } = await createMultiscalesWithOrientation(LPS);
+
+  const outputStore: MemoryStore = new Map();
+  await toNgffZarr(outputStore, multiscales, { enabledRfcs: [4] });
+
+  const multiscalesBack = await fromNgffZarr(outputStore, { validate: true });
+  const axisByName = new Map(
+    multiscalesBack.metadata.axes.map((ax) => [ax.name, ax]),
+  );
+
+  for (const [name, expected] of Object.entries(LPS)) {
+    const orientation = axisByName.get(name as "x" | "y" | "z")
+      ?.orientation as { type: string; value: string } | undefined;
+    assertEquals(orientation?.type, "anatomical");
+    assertEquals(orientation?.value, expected.value);
+  }
+});
+
 Deno.test("Round-trip with 5D mixed axes (t,c,z,y,x) and LPS orientation", async () => {
   // Create with 5D dimensions
   const { multiscales } = await createMultiscalesWithOrientation(
@@ -535,4 +560,190 @@ Deno.test("fromNgffZarr returns undefined axesOrientations when no orientation i
 
   const image = multiscalesBack.images[0];
   assertEquals(image.axesOrientations, undefined);
+});
+
+// Browser parity tests (issue #481): the browser toOmeZarr must honor the
+// enabledRfcs option identically to the Node implementation.
+
+Deno.test("toOmeZarr (browser) writes orientation when enabledRfcs includes 4", async () => {
+  const orientations: Record<string, AnatomicalOrientation> = {
+    x: createAnatomicalOrientation(AnatomicalOrientationValues.LeftToRight),
+    y: createAnatomicalOrientation(
+      AnatomicalOrientationValues.PosteriorToAnterior,
+    ),
+    z: createAnatomicalOrientation(
+      AnatomicalOrientationValues.SuperiorToInferior,
+    ),
+  };
+
+  const { multiscales } = await createMultiscalesWithOrientation(orientations);
+
+  // Write to a new store with RFC 4 enabled using the browser implementation
+  const outputStore: MemoryStore = new Map();
+  await toOmeZarrBrowser(outputStore, multiscales, { enabledRfcs: [4] });
+
+  // Read back and check metadata
+  const attrs = await readZarrAttrs(outputStore);
+  const multiscalesArray = getNgffMultiscalesArray(attrs);
+  const multiscalesMetadata = multiscalesArray[0] as Record<string, unknown>;
+  const axesMetadata = multiscalesMetadata.axes as Array<
+    Record<string, unknown>
+  >;
+
+  // Find spatial axes and check for orientation
+  const spatialAxesWithOrientation = axesMetadata.filter(
+    (ax) => ax.orientation,
+  );
+  assertEquals(spatialAxesWithOrientation.length, 3); // x, y, z should have orientation
+
+  // Check specific orientations
+  for (const axis of axesMetadata) {
+    if (axis.name === "x") {
+      assertEquals(
+        (axis.orientation as { type: string; value: string }).value,
+        "left-to-right",
+      );
+    } else if (axis.name === "y") {
+      assertEquals(
+        (axis.orientation as { type: string; value: string }).value,
+        "posterior-to-anterior",
+      );
+    } else if (axis.name === "z") {
+      assertEquals(
+        (axis.orientation as { type: string; value: string }).value,
+        "superior-to-inferior",
+      );
+    }
+  }
+});
+
+Deno.test("toOmeZarr (browser) omits orientation when enabledRfcs is undefined", async () => {
+  const orientations: Record<string, AnatomicalOrientation> = {
+    x: createAnatomicalOrientation(AnatomicalOrientationValues.LeftToRight),
+    y: createAnatomicalOrientation(
+      AnatomicalOrientationValues.PosteriorToAnterior,
+    ),
+    z: createAnatomicalOrientation(
+      AnatomicalOrientationValues.SuperiorToInferior,
+    ),
+  };
+
+  const { multiscales } = await createMultiscalesWithOrientation(orientations);
+
+  // Write without RFC 4 enabled (default) using the browser implementation
+  const outputStore: MemoryStore = new Map();
+  await toOmeZarrBrowser(outputStore, multiscales, {});
+
+  // Read back and check metadata
+  const attrs = await readZarrAttrs(outputStore);
+  const multiscalesArray = getNgffMultiscalesArray(attrs);
+  const multiscalesMetadata = multiscalesArray[0] as Record<string, unknown>;
+  const axesMetadata = multiscalesMetadata.axes as Array<
+    Record<string, unknown>
+  >;
+
+  // Check that no spatial axes have orientation
+  for (const axis of axesMetadata) {
+    assertEquals(
+      "orientation" in axis,
+      false,
+      `Axis ${axis.name} should not have orientation when RFC 4 is disabled`,
+    );
+  }
+});
+
+Deno.test("toOmeZarr (browser) omits orientation when enabledRfcs is empty", async () => {
+  const orientations: Record<string, AnatomicalOrientation> = {
+    x: createAnatomicalOrientation(AnatomicalOrientationValues.LeftToRight),
+    y: createAnatomicalOrientation(
+      AnatomicalOrientationValues.PosteriorToAnterior,
+    ),
+    z: createAnatomicalOrientation(
+      AnatomicalOrientationValues.SuperiorToInferior,
+    ),
+  };
+
+  const { multiscales } = await createMultiscalesWithOrientation(orientations);
+
+  // Write with empty enabledRfcs using the browser implementation
+  const outputStore: MemoryStore = new Map();
+  await toOmeZarrBrowser(outputStore, multiscales, { enabledRfcs: [] });
+
+  // Read back and check metadata
+  const attrs = await readZarrAttrs(outputStore);
+  const multiscalesArray = getNgffMultiscalesArray(attrs);
+  const multiscalesMetadata = multiscalesArray[0] as Record<string, unknown>;
+  const axesMetadata = multiscalesMetadata.axes as Array<
+    Record<string, unknown>
+  >;
+
+  // Check that no spatial axes have orientation
+  for (const axis of axesMetadata) {
+    assertEquals(
+      "orientation" in axis,
+      false,
+      `Axis ${axis.name} should not have orientation when RFC 4 is disabled`,
+    );
+  }
+});
+
+Deno.test("toOmeZarr (browser) preserves axis name, type, and unit", async () => {
+  // Guards the switch from raw metadata.axes to processAxesForRfcs output:
+  // the standard OME-Zarr axis fields must survive regardless of enabledRfcs.
+  const { multiscales } = await createMultiscalesWithOrientation(LPS);
+
+  const outputStore: MemoryStore = new Map();
+  await toOmeZarrBrowser(outputStore, multiscales, {}); // RFC 4 not enabled
+
+  const attrs = await readZarrAttrs(outputStore);
+  const multiscalesArray = getNgffMultiscalesArray(attrs);
+  const multiscalesMetadata = multiscalesArray[0] as Record<string, unknown>;
+  const axesMetadata = multiscalesMetadata.axes as Array<
+    Record<string, unknown>
+  >;
+
+  // Default dims are z, y, x — all spatial axes carrying the micrometer unit
+  assertEquals(
+    axesMetadata.map((ax) => ax.name),
+    ["z", "y", "x"],
+  );
+  for (const axis of axesMetadata) {
+    assertEquals(axis.type, "space");
+    assertEquals(axis.unit, "micrometer");
+    // Orientation is stripped when RFC 4 is not enabled
+    assertEquals("orientation" in axis, false);
+  }
+});
+
+Deno.test("toOmeZarr (browser) writes orientation under ome namespace for version 0.5", async () => {
+  const { multiscales } = await createMultiscalesWithOrientation(LPS);
+
+  const outputStore: MemoryStore = new Map();
+  await toOmeZarrBrowser(outputStore, multiscales, {
+    version: "0.5",
+    enabledRfcs: [4],
+  });
+
+  // Version 0.5 nests multiscales metadata under the "ome" attribute
+  const attrs = await readZarrAttrs(outputStore);
+  assertEquals("ome" in attrs, true);
+
+  const multiscalesArray = getNgffMultiscalesArray(attrs);
+  const multiscalesMetadata = multiscalesArray[0] as Record<string, unknown>;
+  const axesMetadata = multiscalesMetadata.axes as Array<
+    Record<string, unknown>
+  >;
+
+  // All three spatial axes should carry orientation through the v0.5 path
+  const spatialAxesWithOrientation = axesMetadata.filter(
+    (ax) => ax.orientation,
+  );
+  assertEquals(spatialAxesWithOrientation.length, 3);
+
+  // LPS x axis increases right-to-left
+  const xAxis = axesMetadata.find((ax) => ax.name === "x");
+  assertEquals(
+    (xAxis?.orientation as { type: string; value: string }).value,
+    "right-to-left",
+  );
 });

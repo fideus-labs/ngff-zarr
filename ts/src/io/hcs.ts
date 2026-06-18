@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: MIT
 import type { HCSPlate, PlateMetadata } from "../types/hcs.ts";
 import { HCSPlate as HCSPlateClass } from "../types/hcs.ts";
+import {
+  validatePlate,
+  ValidationLevel,
+} from "../utils/structural_validation.ts";
 
 export interface FromHcsZarrOptions {
   validate?: boolean;
@@ -22,10 +26,6 @@ export function fromHcsZarr(
   options: FromHcsZarrOptions = {},
 ): HCSPlate {
   const { validate = false, wellCacheSize, imageCacheSize } = options;
-
-  if (validate) {
-    console.warn("HCS validation not yet implemented");
-  }
 
   if (typeof store !== "string") {
     throw new Error("Non-string store types not yet supported");
@@ -48,11 +48,22 @@ export function fromHcsZarr(
     name: "Test Plate",
   };
 
+  if (validate) {
+    // Strict structural validation of the parsed plate, layered after the
+    // schema pass (schema first, then structural -- mirrors the image reader).
+    // Per-well image rules run lazily in HCSPlate.getWell, where each well's
+    // own metadata is loaded. These plate/well rules are version-agnostic and
+    // the HCS reader handles only v0.4/v0.5 plates, so -- unlike the image
+    // reader's structural pass -- no >=0.4 version gate is required.
+    validatePlate(plateMetadata, { level: ValidationLevel.Strict });
+  }
+
   return new HCSPlateClass({
     store,
     metadata: plateMetadata,
     wellCacheSize,
     imageCacheSize,
+    validate,
   });
 }
 

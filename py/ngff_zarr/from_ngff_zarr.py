@@ -4,6 +4,7 @@ from pathlib import Path
 
 import packaging.version
 import zarr
+import zarr.errors
 import zarr.storage
 
 from ._zarr_types import StoreLike
@@ -15,6 +16,53 @@ zarr_version_major = zarr_version.major
 
 # Supported remote URL schemes for storage
 REMOTE_URL_SCHEMES = ("s3://", "gs://", "azure://", "http://", "https://")
+
+# -- blosc codec backward-compatibility -----------------------------------
+
+# Deprecated Blosc codec configuration keys that should be stripped on read.
+_DEPRECATED_BLOSC_KEYS: frozenset = frozenset({"nthreads", "blocksize"})
+
+
+def _apply_blosc_codec_compat() -> None:
+    """Monkey-patch BloscCodec.from_dict to strip deprecated nthreads/blocksize keys.
+
+    Older zarr v3 implementations wrote ``nthreads`` and ``blocksize`` into the
+    Blosc codec metadata.  These keys are no longer recognised and cause
+    ``BloscCodec.from_dict`` to raise.  This patch filters them out (both at
+    the top level of the codec dict and inside a nested ``"configuration"``
+    mapping) before passing control to the original method.
+    """
+    try:
+        from zarr.codecs.blosc import BloscCodec
+
+        _orig = BloscCodec.from_dict
+
+        @classmethod
+        def _patched(cls, data):
+            if isinstance(data, dict):
+                if any(k in _DEPRECATED_BLOSC_KEYS for k in data):
+                    data = {
+                        k: v for k, v in data.items() if k not in _DEPRECATED_BLOSC_KEYS
+                    }
+                if "configuration" in data and isinstance(data["configuration"], dict):
+                    cfg = data["configuration"]
+                    if any(k in _DEPRECATED_BLOSC_KEYS for k in cfg):
+                        data = {
+                            **data,
+                            "configuration": {
+                                k: v
+                                for k, v in cfg.items()
+                                if k not in _DEPRECATED_BLOSC_KEYS
+                            },
+                        }
+            return _orig.__func__(cls, data)
+
+        BloscCodec.from_dict = _patched
+    except ImportError:
+        pass
+
+
+_apply_blosc_codec_compat()
 
 
 def from_ome_zarr(
@@ -108,10 +156,39 @@ def from_ome_zarr(
             if packaging.version.parse(version) < packaging.version.parse("0.5")
             else {"zarr_format": 3}
         )
-    root = zarr.open_group(store, mode="r", **format_kwargs)
 
+    def _open_group_with_helpful_errors(**open_kwargs):
+        try:
+            return zarr.open_group(store, mode="r", **open_kwargs)
+        except zarr.errors.GroupNotFoundError as e:
+            store_path = str(store)
+            raise ValueError(
+                f"No valid Zarr group found at '{store_path}'. "
+                "This error typically occurs when:\n"
+                "  1. The path does not contain a valid Zarr store\n"
+                "  2. The Zarr store is empty or corrupted\n"
+                "  3. The download was incomplete\n"
+                "  4. The store contains a Zarr array at the root instead of a group\n\n"
+                "For OME-Zarr files, the root must be a Zarr group "
+                "containing multiscale metadata. "
+                "Please verify that the input path points to a valid OME-Zarr store."
+            ) from e
+        except zarr.errors.ContainsArrayError as e:
+            store_path = str(store)
+            raise ValueError(
+                f"The Zarr store at '{store_path}' contains an array at the root level, "
+                "but OME-Zarr requires a group structure with multiscale metadata. "
+                "Single Zarr arrays cannot be directly converted to OME-Zarr format."
+            ) from e
+
+    # Open the Zarr store as a group with helpful error messages
+    root = _open_group_with_helpful_errors(**format_kwargs)
     # When auto-detecting version (no explicit version provided) on zarr-python 3,
     # zarr may prefer a spurious zarr.json (format 3) over .zgroup (format 2),
+    # which can yield an empty-root group. Retry the v2 open through the same
+    # helper so fallback errors get the same helpful wrapping.
+    if version is None and zarr_version_major >= 3 and not root.attrs:
+        root = _open_group_with_helpful_errors(zarr_format=2)
     # resulting in empty root attributes. Fall back to zarr_format=2 in that case.
     if not version and zarr_version_major >= 3:
         root_attrs_check = root.attrs.asdict()
@@ -200,7 +277,6 @@ def from_ome_zarr(
                 f"Sub-path '{subpath}' not found in store. "
                 f"Ensure the path is correct (e.g., 'A/1/0' for well A1, field 0)."
             )
-
     root_attrs = root.attrs.asdict()
 
     if not version:

@@ -1,3 +1,54 @@
+## py-v0.35.1 (2026-06-11)
+
+### 🐛 Bug Fixes
+
+- **py**: give actionable errors for corrupt TIFF/SVS conversions ([5797e3b](https://github.com/fideus-labs/ngff-zarr/commit/5797e3b4ec81595950a80df8b178a39c6ce4bc7a))
+
+## py-v0.35.0 (2026-06-04)
+
+### ♻️ Refactoring
+
+- **py**: cull all None metadata fields recursively ([159add6](https://github.com/fideus-labs/ngff-zarr/commit/159add6ae428634cacce8ba13d5a06104c048cd1))
+
+### ✨ Features
+
+- **py**: add OME-Zarr v0.4 structural validation ([d6de82b](https://github.com/fideus-labs/ngff-zarr/commit/d6de82b25ea5207c6b3e201013914a2d6062f5e3))
+
+### 🐛 Bug Fixes
+
+- **py**: degrade gracefully when stdout cannot be reconfigured ([89bfcb2](https://github.com/fideus-labs/ngff-zarr/commit/89bfcb2a8ef39176927d0912c5778e77b56cf8d5))
+- **py**: prevent CLI crash on legacy Windows terminal encodings ([b842050](https://github.com/fideus-labs/ngff-zarr/commit/b842050fc127c9dbbcf635a58445538bf840e845))
+- **ci**: remove OTLP import from daily-doc-updater workflow ([45394c8](https://github.com/fideus-labs/ngff-zarr/commit/45394c8ccb09b5ad3687d8dd834c94af45d69469))
+- **py**: create requested .ozx for multi-series TIFFs, warn on truncated reads ([25cc73a](https://github.com/fideus-labs/ngff-zarr/commit/25cc73a5153f9974ba43e69c52e20342481bcd33))
+- **py**: strip deprecated nthreads/blocksize from blosc codec config when reading zarr v3 files ([572c19a](https://github.com/fideus-labs/ngff-zarr/commit/572c19a6fda86382a6bb7ae3c1b6da9950115033))
+- **test**: handle pre-existing file cleanup in overwrite directory test fixture ([53fc468](https://github.com/fideus-labs/ngff-zarr/commit/53fc468500228501450283689c1874ce6178d688))
+- **py**: handle pre-existing directory at .ozx destination on Windows ([8c85fe4](https://github.com/fideus-labs/ngff-zarr/commit/8c85fe40610491038807609391225034c045e3da))
+
+## py-v0.34.2 (2026-05-28)
+
+### 🐛 Bug Fixes
+
+- stop pre-commit from mangling gh-aw generated files ([d6f1201](https://github.com/fideus-labs/ngff-zarr/commit/d6f120144884bc6a3089e5286a624ed0316f90ba))
+
+## py-v0.34.1 (2026-05-27)
+
+### 🐛 Bug Fixes
+
+- **from-ome-zarr**: better error routing ([095ce7c](https://github.com/fideus-labs/ngff-zarr/commit/095ce7c1e7cacae75727c11bd27e3d187218cc45))
+- **py**: add helpful error messages for GroupNotFoundError in from_ngff_zarr ([89552ac](https://github.com/fideus-labs/ngff-zarr/commit/89552ac488588c94ab5cabfde07b852b85705748))
+- **py**: use arr.chunksize for v0.5 chunks forwarding ([9dcdf07](https://github.com/fideus-labs/ngff-zarr/commit/9dcdf076012b907bbbceb576cd81f5e546f8c5a9))
+- **py**: resolve data loss and chunks regressions from issue #488 ([c93fe01](https://github.com/fideus-labs/ngff-zarr/commit/c93fe012b8451e1409aa679376419f456ea04416))
+- **py**: apply _find_optimal_chunk_size to spatial dims only in z-slabs path ([0fbdb0c](https://github.com/fideus-labs/ngff-zarr/commit/0fbdb0c3f8bbe7af2efe09614595e66246fecdd0))
+- **py**: remove dask.array.optimize to prevent chunk structure fusion ([ab3bbfd](https://github.com/fideus-labs/ngff-zarr/commit/ab3bbfd50ba88493a68028329906d45ed96c93a3))
+- **py**: align 2D strip and 1D segment cache chunks with region write boundaries ([f398ce3](https://github.com/fideus-labs/ngff-zarr/commit/f398ce35e8c501baac3aac5d1d2b8ad42507d65f))
+- **py**: align cache zarr chunks with dask data chunks to prevent PerformanceWarning ([8b2fdd6](https://github.com/fideus-labs/ngff-zarr/commit/8b2fdd62db316fa815f92da37a670c0f663e70a5))
+- **py**: prevent zarr_kwargs mutation across scale loop iterations in _handle_large_array_writing ([f1f88d7](https://github.com/fideus-labs/ngff-zarr/commit/f1f88d752fdb54f767a60bfc7548cf396c0fb7b7))
+- **py**: remove retry_if_failed from pooch downloader ([2f9bda2](https://github.com/fideus-labs/ngff-zarr/commit/2f9bda2f909740e77a2be5707b4f8726d4beee64))
+- **py**: add retry with longer timeout to test data download ([8d9b490](https://github.com/fideus-labs/ngff-zarr/commit/8d9b49031eb9d65f5fdd46b56313889c19330375))
+- **py**: use create_array for zarr v3 compatibility in rfc4 validation tests ([6b9c45f](https://github.com/fideus-labs/ngff-zarr/commit/6b9c45fb4e0210a247e1d1a781343182204e71f3))
+- **ci**: lower imagecodecs lower bound for Python 3.10 support ([74765a8](https://github.com/fideus-labs/ngff-zarr/commit/74765a8c10e27ddce7ed3c0ebc8e15b01501a9aa))
+- **ci**: pin imagecodecs to v2026.3.6 to prevent macOS Intel build failure ([3452bea](https://github.com/fideus-labs/ngff-zarr/commit/3452bea724b4c5089985143e17dc1ae410dbbc80))
+
 ## py-v0.34.0 (2026-04-15)
 
 ### ♻️ Refactoring

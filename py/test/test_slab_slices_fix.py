@@ -1,6 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-"""Regression tests for PR #447 fix: _compute_write_regions uses slab_slices for Z boundaries."""
+"""Regression tests for PR #447 fix and zarr_kwargs mutation fix.
+
+PR #447: _compute_write_regions uses slab_slices for Z boundaries.
+GH #490: _handle_large_array_writing mutated caller's zarr_kwargs dict.
+"""
 
 import tempfile
 
@@ -145,6 +149,55 @@ def test_slab_slices_with_non_divisible_shape(ome_zarr_version):
             )
 
             # Full round-trip check, including the partial final slab z[16:20].
+            np.testing.assert_array_equal(read_data, data)
+
+    finally:
+        config.memory_target = default_mem_target
+
+
+@pytest.mark.skipif(
+    zarr_version_major < 3,
+    reason="Bug only manifests with zarr v3 (IS_ZARR_V3_PLUS) writing zarr v2 format",
+)
+def test_zarr_kwargs_not_mutated_across_scale_iterations():
+    """Regression test for zarr_kwargs mutation in _handle_large_array_writing.
+
+    _handle_large_array_writing mutates zarr_kwargs in-place when
+    zarr_format == 2 (OME-Zarr v0.4) and IS_ZARR_V3_PLUS (deleting
+    chunk_key_encoding, adding dimension_separator).  Without a defensive
+    copy, subsequent loop iterations in _to_ngff_zarr_impl fail with
+    KeyError: 'chunk_key_encoding'.
+    """
+    default_mem_target = config.memory_target
+
+    try:
+        shape = (64, 128, 128)
+        data = np.arange(np.prod(shape), dtype=np.uint8).reshape(shape)
+
+        image = to_ngff_image(
+            data=data,
+            dims=("z", "y", "x"),
+            scale={"z": 1.0, "y": 1.0, "x": 1.0},
+        )
+
+        multiscales = to_multiscales(image, scale_factors=[2], cache=False)
+
+        assert len(multiscales.images) == 2, (
+            f"Expected 2 scales, got {len(multiscales.images)}"
+        )
+
+        # Force large-array path for both scales:
+        #   scale 0: (64, 128, 128) = 1 048 576 bytes
+        #   scale 1: (32,  64,  64) =   131 072 bytes
+        config.memory_target = 100_000
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            to_ngff_zarr(tmpdir, multiscales, version="0.4")
+
+            read_multiscales = from_ngff_zarr(tmpdir)
+            assert len(read_multiscales.images) == 2
+
+            read_data = np.asarray(read_multiscales.images[0].data)
             np.testing.assert_array_equal(read_data, data)
 
     finally:

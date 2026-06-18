@@ -17,22 +17,32 @@ permissions:
 
 network: defaults
 
+# Pin a model supported by the Copilot subscription tier. The default
+# (claude-sonnet-4.6) is not available on Copilot Pro/Education and causes
+# "400 The requested model is not supported" failures (issue #547).
+engine:
+  id: copilot
+  model: gpt-5-mini
+
 tools:
   github:
     # If in a public repo, setting `lockdown: false` allows
     # reading issues, pull requests and comments from 3rd-parties
     # If in a private repo this has no particular effect.
     lockdown: false
+    min-integrity: none # This workflow is allowed to examine and comment on any issues
 
 safe-outputs:
+  mentions: false
+  allowed-github-references: []
   create-issue:
     title-prefix: "[repo-status] "
     labels: [report, daily-status]
-source: githubnext/agentics/workflows/daily-repo-status.md@6d161046e38a40d68f8891b27ea86719956b550c
-engine: copilot
+    close-older-issues: true
+source: githubnext/agentics/workflows/repo-status.md@main
 ---
 
-# Daily Repo Status
+# Repo Status
 
 Create an upbeat daily status report for the repo as a GitHub issue.
 

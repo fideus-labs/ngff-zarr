@@ -13,6 +13,7 @@ NgffImage.
 Requires the `tifffile` package: pip install tifffile
 """
 
+import logging
 import re
 import warnings
 import xml.etree.ElementTree as ET
@@ -914,6 +915,43 @@ def _build_multiscales_from_pyramid(
     return NgffMultiscales(images, metadata)
 
 
+class _TiffStructuralErrorHandler(logging.Handler):
+    """Collect ERROR-level messages emitted by tifffile while reading a file.
+
+    tifffile logs ERROR records such as ``invalid page offset ...`` or
+    ``corrupted tag list ...`` when a file's IFD chain is truncated or
+    corrupt. When this happens tifffile silently stops enumerating pages, so
+    the resulting conversion can be missing pyramid levels or whole series
+    (producing an unexpectedly tiny, visually wrong output). Collecting these
+    messages lets us warn the user instead of silently producing an
+    incomplete or incorrect result.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.ERROR)
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self.messages.append(record.getMessage())
+        except Exception:  # pragma: no cover - logging must never raise
+            pass
+
+
+def _summarize_tiff_error_messages(messages: list[str], limit: int = 5) -> str:
+    """Deduplicate and truncate captured tifffile error messages for display.
+
+    Preserves first-seen order, drops duplicates, and appends a ``... (N more)``
+    note when more than ``limit`` distinct messages were collected so a corrupt
+    file with many bad IFDs does not produce an unbounded warning string.
+    """
+    unique_messages = list(dict.fromkeys(messages))
+    detail = "; ".join(unique_messages[:limit])
+    if len(unique_messages) > limit:
+        detail += f"; ... ({len(unique_messages) - limit} more)"
+    return detail
+
+
 def tiff_file_to_ngff_images(
     tiff_path: str | Path,
     series: int | str | list[int | str] | None = None,
@@ -983,8 +1021,90 @@ def tiff_file_to_ngff_images(
 
     results: list = []
 
-    with tifffile.TiffFile(tiff_path) as tif:
-        all_series = tif.series
+    # Capture tifffile's own ERROR logs (e.g. "invalid page offset",
+    # "corrupted tag list") emitted while the IFD chain / series are
+    # enumerated. These indicate a truncated or corrupt file that tifffile
+    # reads only partially, which would otherwise silently yield an
+    # incomplete conversion.
+    tiff_logger = logging.getLogger("tifffile")
+    structural_error_handler = _TiffStructuralErrorHandler()
+    tiff_logger.addHandler(structural_error_handler)
+    try:
+        results = _read_tiff_series(
+            tifffile,
+            tiff_path,
+            series,
+            reuse_existing_pyramids,
+        )
+    finally:
+        tiff_logger.removeHandler(structural_error_handler)
+
+    if structural_error_handler.messages:
+        detail = _summarize_tiff_error_messages(structural_error_handler.messages)
+        warnings.warn(
+            f"tifffile reported errors while reading {Path(tiff_path).name!r}. "
+            "The file may be truncated or corrupt; the converted output may be "
+            "missing pyramid levels or image data and appear incomplete or "
+            f"incorrect. Details: {detail}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
+    return results
+
+
+# Path/access ``OSError`` subclasses that have a clear meaning of their own.
+# These should propagate unchanged rather than being relabeled as corruption.
+_PATH_ACCESS_ERRORS = (FileNotFoundError, PermissionError, IsADirectoryError)
+
+
+def _tiff_open_error(tiff_path: str | Path, error: Exception) -> OSError:
+    """Build an actionable error for a TIFF that cannot be opened or enumerated.
+
+    Used for failures both at ``TiffFile(...)`` construction and on first
+    ``.series`` access, since different tifffile versions detect corruption at
+    different points (see gh-issue-343).
+    """
+    msg = (
+        f"Failed to open TIFF file {str(tiff_path)!r}. The file may be "
+        f"corrupted, truncated, or not a valid TIFF file. "
+        f"Original error: {type(error).__name__}: {error}"
+    )
+    return OSError(msg)
+
+
+def _read_tiff_series(
+    tifffile,
+    tiff_path: str | Path,
+    series: int | str | list[int | str] | None,
+    reuse_existing_pyramids: bool,
+) -> "list[tuple[str, NgffImage | NgffMultiscales]]":
+    """Read the requested series from a TIFF file (see tiff_file_to_ngff_images)."""
+    results: list = []
+
+    # Opening a truncated or corrupt TIFF can fail with a raw ``TiffFileError``
+    # or ``OSError`` whose message does not mention the offending file.
+    # ``TiffFileError`` subclasses ``ValueError`` in some tifffile versions but
+    # ``Exception`` directly in others, so it is caught explicitly. Depending on
+    # the version, corruption surfaces either at ``TiffFile(...)`` construction
+    # or lazily on first ``.series`` access, so both are wrapped to re-raise
+    # with context (see gh-issue-343). Path/permission errors keep their own
+    # (more specific) type rather than being relabeled as corruption.
+    open_errors = (OSError, ValueError, tifffile.TiffFileError)
+    try:
+        tif = tifffile.TiffFile(tiff_path)
+    except _PATH_ACCESS_ERRORS:
+        raise
+    except open_errors as e:
+        raise _tiff_open_error(tiff_path, e) from e
+
+    with tif:
+        try:
+            all_series = tif.series
+        except _PATH_ACCESS_ERRORS:
+            raise
+        except open_errors as e:
+            raise _tiff_open_error(tiff_path, e) from e
 
         # Determine which series to convert
         if series is None or series == "all":

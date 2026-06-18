@@ -204,18 +204,23 @@ def test_from_ngff_zarr_with_rfc4_validation():
 
     # Create a simple zarr array
     root = zarr.open_group(store, mode="w")
-    root.create_dataset("0", shape=(10, 10, 10), dtype="uint8")
+    if hasattr(root, "create_array"):
+        root.create_array("0", shape=(10, 10, 10), dtype="uint8")
+    else:
+        root.create_dataset("0", shape=(10, 10, 10), dtype="uint8")
 
-    # Add OME-NGFF metadata with RFC 4 orientation
+    # Add OME-NGFF metadata with RFC 4 orientation. Spatial axes are ordered
+    # (z, y, x) -- the suffix of (z, y, x) required by the v0.4 axis-order MUST
+    # now enforced on read -- with each orientation kept on its named axis.
     multiscales_metadata = {
         "version": "0.4",
         "name": "test",
         "axes": [
             {
-                "name": "x",
+                "name": "z",
                 "type": "space",
                 "unit": "micrometer",
-                "orientation": {"type": "anatomical", "value": "right-to-left"},
+                "orientation": {"type": "anatomical", "value": "inferior-to-superior"},
             },
             {
                 "name": "y",
@@ -224,10 +229,10 @@ def test_from_ngff_zarr_with_rfc4_validation():
                 "orientation": {"type": "anatomical", "value": "anterior-to-posterior"},
             },
             {
-                "name": "z",
+                "name": "x",
                 "type": "space",
                 "unit": "micrometer",
-                "orientation": {"type": "anatomical", "value": "inferior-to-superior"},
+                "orientation": {"type": "anatomical", "value": "right-to-left"},
             },
         ],
         "datasets": [
@@ -256,7 +261,10 @@ def test_from_ngff_zarr_with_rfc4_validation_invalid():
 
     # Create a simple zarr array
     root = zarr.open_group(store, mode="w")
-    root.create_dataset("0", shape=(10, 10, 10), dtype="uint8")
+    if hasattr(root, "create_array"):
+        root.create_array("0", shape=(10, 10, 10), dtype="uint8")
+    else:
+        root.create_dataset("0", shape=(10, 10, 10), dtype="uint8")
 
     # Add OME-NGFF metadata with incomplete RFC 4 orientation (missing z orientation)
     multiscales_metadata = {
@@ -308,7 +316,10 @@ def test_from_ngff_zarr_without_rfc4_validation():
 
     # Create a simple zarr array
     root = zarr.open_group(store, mode="w")
-    root.create_dataset("0", shape=(10, 10, 10), dtype="uint8")
+    if hasattr(root, "create_array"):
+        root.create_array("0", shape=(10, 10, 10), dtype="uint8")
+    else:
+        root.create_dataset("0", shape=(10, 10, 10), dtype="uint8")
 
     # Add OME-NGFF metadata with incomplete RFC 4 orientation
     multiscales_metadata = {

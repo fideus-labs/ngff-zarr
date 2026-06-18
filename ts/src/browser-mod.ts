@@ -102,6 +102,15 @@ export {
 } from "./utils/factory.ts";
 export { getMethodMetadata } from "./utils/method_metadata.ts";
 export {
+  SpecRule,
+  type ValidateOptions,
+  validatePlate,
+  validateStructural,
+  validateWell,
+  ValidationError,
+  ValidationLevel,
+} from "./utils/structural_validation.ts";
+export {
   isValidDimension,
   isValidUnit,
   validateMetadata,

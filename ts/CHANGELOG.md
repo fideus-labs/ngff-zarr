@@ -1,3 +1,15 @@
+## ts-v0.19.0 (2026-06-04)
+
+### ✨ Features
+
+- **ts**: add OME-Zarr v0.4 structural validation ([7c0e3e2](https://github.com/fideus-labs/ngff-zarr/commit/7c0e3e222f6ceb62e2aa7d0e97ba367be3695da5))
+
+### 🐛 Bug Fixes
+
+- **ci**: remove OTLP import from daily-doc-updater workflow ([45394c8](https://github.com/fideus-labs/ngff-zarr/commit/45394c8ccb09b5ad3687d8dd834c94af45d69469))
+- **ts**: honor enabledRfcs in browser toOmeZarr ([62c1ffc](https://github.com/fideus-labs/ngff-zarr/commit/62c1ffc7fa4b47734f25d2eed740289f24263601))
+- stop pre-commit from mangling gh-aw generated files ([d6f1201](https://github.com/fideus-labs/ngff-zarr/commit/d6f120144884bc6a3089e5286a624ed0316f90ba))
+
 ## ts-v0.18.1 (2026-04-16)
 
 ### 🐛 Bug Fixes
