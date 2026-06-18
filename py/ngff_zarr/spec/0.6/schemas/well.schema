@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ngff.openmicroscopy.org/0.6.dev3/schemas/well.schema",
+  "$id": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/well.schema",
   "title": "Well",
   "description": "OME-Zarr well.",
   "type": "object",
@@ -25,7 +25,14 @@
                   "path": {
                     "description": "The path for this field of view subgroup",
                     "type": "string",
-                    "pattern": "^[A-Za-z0-9]+$"
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.-]+$",
+                    "not": {
+                      "anyOf": [
+                        { "pattern": "^\\.+$" },
+                        { "pattern": "^__" }
+                      ]
+                    }
                   }
                 },
                 "required": [
@@ -41,7 +48,7 @@
           ]
         },
         "version": {
-          "$ref": "https://ngff.openmicroscopy.org/0.6.dev3/schemas/_version.schema"
+          "$ref": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/_version.schema"
         }
       },
       "required": [

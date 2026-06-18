@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ngff.openmicroscopy.org/0.6.dev3/schemas/ome.schema",
+  "$id": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/ome.schema",
   "title": "OME",
   "description": "OME-Zarr OME metadata.",
   "type": "object",
@@ -18,7 +18,7 @@
           "minContains": 1
         },
         "version": {
-          "$ref": "https://ngff.openmicroscopy.org/0.6.dev3/schemas/_version.schema"
+          "$ref": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/_version.schema"
         }
       },
       "required": [

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ngff.openmicroscopy.org/0.6.dev3/schemas/coordinate_transformations.schema",
+  "$id": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/coordinate_transformations.schema",
   "title": "Coordinate Transformations",
   "description": "OME-Zarr Coordinate transforms.",
   "type": "array",
@@ -15,39 +15,15 @@
         "type": "object",
         "properties": {
           "input": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "type": "string"
-                  },
-                  "path": {
-                    "type": "string"
-                  }
-                }
-              }
+            "allOf": [
+              {"$ref": "#/$defs/inputOutput"},
+              {"required": ["path"]}
             ]
           },
           "output": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "type": "string"
-                  },
-                  "path": {
-                    "type": "string"
-                  }
-                }
-              }
+            "allOf": [
+              {"$ref": "#/$defs/inputOutput"},
+              {"required": ["name"]}
             ]
           }
         },
@@ -59,6 +35,13 @@
     ]
   },
   "$defs": {
+    "inputOutput": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string"},
+        "path": {"type": "string"}
+      }
+    },
     "coordinateTransformation": {
       "description": "OME-NGFF coordinate transformation.",
       "allOf": [
@@ -331,30 +314,30 @@
         "transformations": {
           "type": "array",
           "items": {
-            "allOf": [
-              { "$ref": "#/$defs/coordinateTransformation" },
-              {
-                "properties": {
-                  "input_axes": {
-                    "type": "array",
-                    "items": {
-                      "type": "integer"
-                    },
-                    "description": "Index of the input axes for this transformation."
-                  },
-                  "output_axes": {
-                    "type": "array",
-                    "items": {
-                      "type": "integer"
-                    },
-                    "description": "Index of the output axes for this transformation."
-                  }
+            "type": "object",
+            "properties": {
+              "transformation": {
+                "$ref": "#/$defs/coordinateTransformation"
+              },
+              "input_axes": {
+                "type": "array",
+                "items": {
+                  "type": "number"
                 },
-                "required": [
-                  "input_axes",
-                  "output_axes"
-                ]
+                "description": "Names of the input axes for this transformation."
+              },
+              "output_axes": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "description": "Names of the output axes for this transformation."
               }
+            },
+            "required": [
+              "transformation",
+              "input_axes",
+              "output_axes"
             ]
           }
         }

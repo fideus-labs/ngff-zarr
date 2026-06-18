@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ngff.openmicroscopy.org/0.6.dev3/schemas/scene.schema",
+  "$id": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/scene.schema",
   "title": "Scene",
   "description": "Scene metadata combining coordinate systems and coordinate transformations to define spatial relationships",
   "type": "object",
@@ -28,20 +28,16 @@
                       {
                         "properties": {
                           "input": {
-                            "type": "object",
-                            "properties": {
-                              "name": {"type": "string"},
-                              "path": {"type": "string"}
-                            },
-                            "required": ["name"]
+                            "allOf": [
+                              {"$ref": "coordinate_transformations.schema#/$defs/inputOutput"},
+                              {"required": ["name"]}
+                            ]
                           },
                           "output": {
-                            "type": "object",
-                            "properties": {
-                              "name": {"type": "string"},
-                              "path": {"type": "string"}
-                            },
-                            "required": ["name"]
+                            "allOf": [
+                              {"$ref": "coordinate_transformations.schema#/$defs/inputOutput"},
+                              {"required": ["name"]}
+                            ]
                           }
                         }
                       }

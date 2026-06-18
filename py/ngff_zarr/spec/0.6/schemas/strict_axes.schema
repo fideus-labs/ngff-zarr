@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ngff.openmicroscopy.org/0.6.dev3/schemas/strict_axes.schema",
+  "$id": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/strict_axes.schema",
   "title": "NGFF Strict Axes",
   "description": "JSON from OME-NGFF .zattrs",
   "allOf": [
     {
-      "$ref": "https://ngff.openmicroscopy.org/0.6.dev3/schemas/axes.schema"
+      "$ref": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/axes.schema"
     },
     {
       "items": {
