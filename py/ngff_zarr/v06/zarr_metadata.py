@@ -346,7 +346,10 @@ class Metadata:
                         scale = Scale(scale=[1.0 for d in dims])
                         translation = Translation(translation=[0.0 for d in dims])
                     else:
-                        raise ValueError(f"Unsupported transform type: {transform['type']} in dataset {dataset['path']}")
+                        raise ValueError(
+                            "Unsupported transform type: " \
+                            f"{transform.type} in dataset {dataset['path']}"
+                            )
                 
             cs_intrinsic = [
                 cs for cs in coordinate_systems if cs.name == coordinateTransformations[0].output.name
