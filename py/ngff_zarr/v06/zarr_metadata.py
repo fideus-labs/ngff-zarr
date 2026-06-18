@@ -279,7 +279,7 @@ class Metadata:
                 if axes_dicts and has_rfc4_orientation_metadata(axes_dicts):
                     validate_rfc4_orientation(axes_dicts)
 
-        omero = _parse_omero(root_attrs.get("omero", None))
+        omero = _parse_omero(root_attrs.get("ome", {}).get("omero"))
         root_attrs = root_attrs['ome']['multiscales'][0]
         
         coordinate_systems = []
