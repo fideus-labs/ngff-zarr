@@ -1,3 +1,10 @@
+## ts-v0.20.0 (2026-06-18)
+
+### ✨ Features
+
+- **py,ts**: add OME-Zarr v0.5 structural validation and schema support ([598ed91](https://github.com/fideus-labs/ngff-zarr/commit/598ed91e6f3b15533d9a50a59b8cd68b3674e22f))
+- **py,ts**: extend RFC-4 vocabulary with subject-local tissue orientations ([0cc4a91](https://github.com/fideus-labs/ngff-zarr/commit/0cc4a9146fb9113d0a7c289f7787abdd825e362d))
+
 ## ts-v0.19.0 (2026-06-04)
 
 ### ✨ Features
