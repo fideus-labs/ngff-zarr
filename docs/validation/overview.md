@@ -17,13 +17,15 @@ related:
 
 # Structural Validation Overview
 
-**Structural validation** enforces the OME-Zarr v0.4 specification MUSTs that a
+**Structural validation** enforces the OME-Zarr specification MUSTs that a
 JSON Schema cannot express. It is layered conceptually on top of *schema*
 validation: where schema validation answers "is this shaped like OME-Zarr?",
 structural validation answers "does this obey the spec's structural
 invariants?" — axis counts and ordering, coordinate-transformation arity,
 finest-to-coarsest dataset ordering, OMERO channel color format, RFC 4
-anatomical orientation, and HCS plate/well consistency.
+anatomical orientation, and HCS plate/well consistency. Most rules enforce v0.4
+MUSTs; two additional rules (`zarr-format`, `ome-namespace`) enforce the v0.5
+`ome`-namespace and Zarr v3 store conventions and fire only for v0.5 metadata.
 
 The rules operate on the already-parsed metadata object (the `Metadata`,
 `Plate`, and `Well` dataclasses in Python; their equivalents in TypeScript), so
@@ -59,6 +61,10 @@ conditional constraints that span multiple nodes:
   `plate.rows`, a derived lookup across objects.
 - **Conditional** — `well-acquisition-missing` only applies when the plate
   declares more than one acquisition.
+- **Store-format / namespacing** — `zarr-format` and `ome-namespace` enforce
+  v0.5 conventions (a Zarr v3 store, and metadata wrapped under the top-level
+  `ome` namespace rather than duplicated into each multiscale entry) that the
+  per-document schema does not capture.
 
 These imperative, multi-node dependencies are exactly why the rules are
 implemented as ordinary code layered on top of schema validation, rather than

@@ -74,8 +74,18 @@ class Metadata:
     ) -> tuple["Metadata", list["NgffImage"]]:  # noqa: F821
         from ..v04.zarr_metadata import Metadata as Metadata_v04
 
+        # The v0.4 parser hoists the group-level ``version`` (here ``ome.version``)
+        # so its structural pass sees the true spec version, which the v0.5
+        # namespacing rules gate on. This entry point definitionally handles
+        # v0.5, so floor ``ome.version`` to ``"0.5"`` when it is missing *or*
+        # explicitly null (a malformed ``"version": null`` reads back as ``None``);
+        # either way the store would otherwise be validated as v0.4 and skip the
+        # v0.5 rules. Shallow-copy so the caller's attrs are untouched.
+        ome_attrs = dict(root_attrs["ome"])
+        if ome_attrs.get("version") is None:
+            ome_attrs["version"] = "0.5"
         v4_metadata, images = Metadata_v04._from_zarr_attrs(
-            root_attrs["ome"], store, validate=validate, subpath=subpath
+            ome_attrs, store, validate=validate, subpath=subpath
         )
         metadata = cls._from_v04(v4_metadata)
         return metadata, images

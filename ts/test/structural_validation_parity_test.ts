@@ -52,11 +52,13 @@ import {
   type Omero,
 } from "../src/types/zarr_metadata.ts";
 
-// The locked rule manifest: every active OME-Zarr v0.4 structural rule, in
-// canonical declaration order. This identical literal list appears in the
-// Python twin so the two are directly comparable. The first nine entries are
-// the image/multiscales rules dispatched by validateStructural; the final two
-// are the HCS plate/well rules dispatched by validatePlate / validateWell.
+// The locked rule manifest: every active OME-Zarr structural rule, in canonical
+// declaration order. This identical literal list appears in the Python twin so
+// the two are directly comparable. The first eleven entries are the
+// image/multiscales rules dispatched by validateStructural -- the first nine are
+// the v0.4 rules and the next two (zarr-format, ome-namespace) are the v0.5
+// namespacing rules, inert for v0.4; the final two are the HCS plate/well rules
+// dispatched by validatePlate / validateWell.
 const CANONICAL_SPEC_RULE_IDS: string[] = [
   "axis-count",
   "axis-type",
@@ -67,6 +69,8 @@ const CANONICAL_SPEC_RULE_IDS: string[] = [
   "omero-channel-color-format",
   "axis-orientation-consistent-type",
   "axis-orientation-completeness",
+  "zarr-format",
+  "ome-namespace",
   "plate-row-index-consistency",
   "well-acquisition-missing",
 ];
@@ -79,7 +83,9 @@ const CANONICAL_SPEC_RULE_IDS: string[] = [
 // AxisOrder (positions 3-4), and validatePerDatasetScaleCount and
 // validateTransformOrder both surface GlobalCoordTransformAfterPerLevel
 // (positions 5 and 7). The two HCS rules are absent: they are not part of the
-// image/multiscales orchestrator.
+// image/multiscales orchestrator. The two v0.5 namespacing rules (zarr-format,
+// ome-namespace) run last in the orchestrator but are inert for the v0.4
+// metadata exercised here, so they never appear in the observed order.
 const EXPECTED_EVALUATION_ORDER: SpecRule[] = [
   SpecRule.AxisCount,
   SpecRule.AxisType,

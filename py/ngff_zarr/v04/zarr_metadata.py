@@ -3,7 +3,7 @@
 import functools
 import logging
 import re
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING, Literal, Union
 
 from .._supported_versions import NgffVersion
@@ -299,6 +299,29 @@ class Well:
     version: str = "0.4"
 
 
+# Recognized keys of a single ``multiscales[]`` entry. Any other key present in
+# an entry is a leak -- a group-level ``ome`` / ``multiscales`` wrapper, a
+# ``zarr_format`` byte that belongs on the enclosing Zarr v3 group, and so on --
+# and is routed to :attr:`Metadata.extra` for the v0.5 namespacing rules to
+# inspect. ``omero`` is absent on purpose: it is a sibling of ``multiscales``,
+# parsed separately, never a field of the entry. ``@type`` *is* recognized: the
+# writer (:func:`ngff_zarr.to_ngff_zarr`) stamps the JSON-LD ``@type``
+# (``"ngff:Image"``) onto every entry, so it is a legitimate library-written key,
+# not a leak.
+_MULTISCALE_ENTRY_FIELDS = frozenset(
+    {
+        "@type",
+        "version",
+        "name",
+        "axes",
+        "datasets",
+        "coordinateTransformations",
+        "type",
+        "metadata",
+    }
+)
+
+
 @dataclass
 class Metadata:
     axes: list[Axis]
@@ -309,6 +332,12 @@ class Metadata:
     version: str = "0.4"
     type: str | None = None
     metadata: MethodMetadata | None = None
+    #: Unrecognized keys that leaked into the ``multiscales[]`` entry (a
+    #: malformed or double-namespaced v0.5 document). Captured verbatim so the
+    #: v0.5 namespacing rules (``zarr-format``, ``ome-namespace``) can flag them;
+    #: mirrors the Rust port's ``#[serde(flatten)]`` ``extra`` passthrough. It is
+    #: a validation aid only and is never serialized back to the store.
+    extra: dict = field(default_factory=dict)
 
     def to_version(self, version: str | NgffVersion) -> "Metadata":
         if isinstance(version, str):
@@ -381,6 +410,7 @@ class Metadata:
         import sys
 
         import dask.array
+        import packaging.version
 
         from ..ngff_image import NgffImage
         from ..parse_metadata import _parse_omero
@@ -399,9 +429,26 @@ class Metadata:
             )
 
         if validate:
-            validate_ngff(
-                root_attrs, version=root_attrs["multiscales"][0].get("version", "0.4")
+            # OME-Zarr v0.5 hoists the spec ``version`` to the group-level
+            # ``ome`` namespace and validates the ``ome``-wrapped instance
+            # against the v0.5 image schema; v0.4 keeps ``version`` on each
+            # multiscale entry and validates the bare root. Prefer the
+            # group-level version (the v0.5 read path floors it to ``"0.5"``) so
+            # a v0.5 store selects the v0.5 schema, falling back to the per-entry
+            # version for v0.4 and the legacy v0.1-0.3 layouts.
+            schema_version = str(
+                root_attrs.get("version")
+                or root_attrs["multiscales"][0].get("version", "0.4")
             )
+            if packaging.version.parse(schema_version) >= packaging.version.parse(
+                "0.5"
+            ):
+                # ``root_attrs`` is the unwrapped ``ome`` content (multiscales +
+                # hoisted version + omero); re-wrap it so the instance matches
+                # the v0.5 image schema's required ``ome`` namespace.
+                validate_ngff({"ome": root_attrs}, version=schema_version)
+            else:
+                validate_ngff(root_attrs, version=schema_version)
 
             # RFC 4 validation for anatomical orientation
             if "axes" in root_attrs["multiscales"][0] and isinstance(
@@ -416,6 +463,13 @@ class Metadata:
                     validate_rfc4_orientation(axes_dicts)
 
         omero = _parse_omero(root_attrs.get("omero"))
+        # OME-Zarr v0.5 hoists the spec ``version`` to the group-level ``ome``
+        # namespace; v0.4 carries it on each multiscale entry. Capture the
+        # group-level value (if any) before descending into the entry so the
+        # parsed Metadata records the true spec version -- which the v0.5
+        # structural rules (zarr-format, ome-namespace) gate on. v0.4 has no
+        # group-level version, so this falls back to the entry's below.
+        group_version = root_attrs.get("version")
         root_attrs = root_attrs["multiscales"][0]
 
         # This handles backwards compatibility for version<=0.3
@@ -515,13 +569,25 @@ class Metadata:
             )
             images.append(ngff_image)
 
+        # Keys that a malformed or double-namespaced document leaked into the
+        # multiscale entry -- e.g. a group-level ``ome`` / ``multiscales``
+        # wrapper, or a ``zarr_format`` byte that belongs on the enclosing
+        # Zarr v3 group, never on the entry. Captured verbatim so the v0.5
+        # namespacing rules can flag them.
+        extra = {
+            key: value
+            for key, value in root_attrs.items()
+            if key not in _MULTISCALE_ENTRY_FIELDS
+        }
+
         metadata = cls(
             axes=axes,
             datasets=datasets,
             name=root_attrs.get("name", "image"),
-            version=root_attrs.get("version", "0.4"),
+            version=group_version or root_attrs.get("version", "0.4"),
             omero=omero,
             coordinateTransformations=root_attrs.get("coordinateTransformations", None),
+            extra=extra,
         )
 
         if validate:
@@ -531,8 +597,6 @@ class Metadata:
             # coordinate transformations); the legacy v0.1-0.3 layouts predate
             # it, so the rules are scoped to v0.4 and newer. Imported lazily so
             # the default validate=False read path incurs no extra import cost.
-            import packaging.version
-
             from ..structural_validation import (
                 ValidateOptions,
                 ValidationLevel,
