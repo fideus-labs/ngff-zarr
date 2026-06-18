@@ -60,7 +60,7 @@ def _ngff_image_scale_factors(ngff_image, min_length, out_chunks):
     double_chunks = np.array(
         [2 * s for d, s in out_chunks.items() if d in _spatial_dims]
     )
-    while (sizes_array > double_chunks).any():
+    while (sizes_array >= double_chunks).any():
         max_size = np.array(list(sizes.values())).max()
         to_skip = {d: sizes[d] <= max_size / 2 for d in previous}
         scale_factor = {}
