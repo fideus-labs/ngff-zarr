@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from typing import List, Optional, Union, TYPE_CHECKING
+from typing import List, Union, TYPE_CHECKING
 from dataclasses import dataclass
 
 from ..v04.zarr_metadata import Axis, Omero, MethodMetadata
@@ -18,22 +18,22 @@ class CoordinateSystem:
     axes: List[Axis]
 
 @dataclass
-class InputOutput:
+class CoordinateSystemIdentifier:
     """
-    InputOutput field used in Scene metadata.
+    CoordinateSystemIdentifier field used in transformations metadata.
      
     There, the input/output fields of transformations must be an object with
-    'path' and 'coordinateSystem' fields.
+    'path' and 'name' fields.
     """
-    path: str
-    coordinateSystem: str
+    path: str | None = None
+    name: str | None = None
 
 @dataclass(kw_only=True)
 class BaseTransform(ABC):
-    input: Optional[Union[CoordinateSystem, InputOutput, str]] = None
-    output: Optional[Union[CoordinateSystem, InputOutput, str]] = None
-    name: Optional[str] = None
-    type: str = ""
+    input: CoordinateSystemIdentifier | None = None
+    output: CoordinateSystemIdentifier | None = None
+    name: str | None = None
+    type: str | None = None
 
     def to_dict(self) -> dict:
         from dataclasses import asdict
@@ -46,32 +46,27 @@ class BaseTransform(ABC):
 @dataclass(kw_only=True)
 class Identity(BaseTransform):
     type: str = "identity"
-    name: Optional[str] = "identity"
 
 @dataclass(kw_only=True)
 class Scale(BaseTransform):
     scale: List[float]
-    name: Optional[str] = "scale"
     type: str = "scale"
 
 @dataclass(kw_only=True)
 class Translation(BaseTransform):
     translation: List[float]
-    name: Optional[str] = "translation"
     type: str = "translation"
 
 @dataclass(kw_only=True)
 class Rotation(BaseTransform):
     rotation: List[List[float]]
-    path: Optional[str] = None
-    name: Optional[str] = "rotation"
+    path: str | None = None
     type: str = "rotation"
 
 @dataclass(kw_only=True)
 class Affine(BaseTransform):
     affine: List[List[float]]
-    path: Optional[str] = None
-    name: Optional[str] = "affine"
+    path: str | None = None
     type: str = "affine"
 
 Transform = Union[Identity, Scale, Translation, Rotation, Affine, "TransformSequence"]
@@ -79,7 +74,7 @@ Transform = Union[Identity, Scale, Translation, Rotation, Affine, "TransformSequ
 @dataclass(kw_only=True)
 class TransformSequence(BaseTransform):
     transformations: List[Transform]
-    name: Optional[str] = "transformSequence"
+    name: str | None = "transformSequence"
     type: str = "sequence"
 
 @dataclass
@@ -102,11 +97,11 @@ class Dataset:
 class Metadata:
     coordinateSystems: List[CoordinateSystem]
     datasets: List[Dataset]
-    coordinateTransformations: Optional[List[Transform]] = None
-    omero: Optional[Omero] = None
+    coordinateTransformations: List[Transform] | None = None
+    omero: Omero | None = None
     name: str = "image"
-    type: Optional[str] = None
-    metadata: Optional[MethodMetadata] = None
+    type: str | None = None
+    metadata: MethodMetadata | None = None
 
     def to_version(self, version: Union[str, NgffVersion]) -> Union["Metadata", "Metadata_v05", "Metadata_v04"]:
         if isinstance(version, str):
@@ -175,14 +170,18 @@ class Metadata:
                 outputs.append(transform.output)
 
             # make sure all outputs are the same
-            assert len(set(outputs)) == 1
+            if not all(output == outputs[0] for output in outputs):
+                raise ValueError(
+                    "Multiple different outputs coordinate systems found in"
+                    f" coordinate transformations for multiscales: {transforms}. "
+                )
             output = outputs[0]
 
             scale = Scale_v05(scale=scale.scale)
             translation = Translation_v05(translation=translation.translation)
             coordinateTransformations = [scale, translation]
 
-            cs = [cs for cs in self.coordinateSystems if cs.name == output][0]
+            cs = [cs for cs in self.coordinateSystems if cs.name == output.name][0]
 
             datasets.append(Dataset_v05(
                 path=path,
@@ -313,8 +312,8 @@ class Metadata:
             coordinateTransformations: List[Transform] = [
                 TransformSequence(
                     transformations=[scale, translation],
-                    input=dataset["path"],
-                    output=coordinate_systems[0].name,
+                    input=CoordinateSystemIdentifier(path=dataset["path"]),
+                    output=CoordinateSystemIdentifier(name=coordinate_systems[0].name),
                     name=f"scale_{index}_to_{coordinate_systems[0].name}",
                 )
             ]
@@ -344,7 +343,9 @@ class Metadata:
                     else:
                         raise ValueError(f"Unsupported transform type: {transform['type']} in dataset {dataset['path']}")
                 
-            cs_intrinsic = [cs for cs in coordinate_systems if cs.name == coordinateTransformations[0].output][0]
+            cs_intrinsic = [
+                cs for cs in coordinate_systems if cs.name == coordinateTransformations[0].output.name
+                ][0]
 
             datasets.append(
                 Dataset(
@@ -409,11 +410,11 @@ class Metadata:
             coordinate_system_names = [cs.name for cs in coordinateSystems]
             input = transform.get("input", None)
             if input in coordinate_system_names:
-                input = [cs.name for cs in coordinateSystems if cs.name == input][0]
+                input = [cs.name for cs in coordinateSystems if cs.name == input.name][0]
 
             output = transform.get("output", None)
             if output in coordinate_system_names:
-                output = [cs.name for cs in coordinateSystems if cs.name == output][0]
+                output = [cs.name for cs in coordinateSystems if cs.name == output.name][0]
             transformation.input = input
             transformation.output = output
             parsed_transforms.append(transformation)
