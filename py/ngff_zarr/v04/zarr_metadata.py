@@ -330,9 +330,12 @@ class Metadata:
     @classmethod
     def from_version(cls, metadata: Union["Metadata", "Metadata_v05", "Metadata_v06"]) -> "Metadata":
         from ..v05.zarr_metadata import Metadata as Metadata_v05
+        from ..v06.zarr_metadata import Metadata as Metadata_v06
 
         if isinstance(metadata, Metadata_v05):
             return cls._from_v05(metadata)
+        if isinstance(metadata, Metadata_v06):
+            return cls._from_v05(Metadata_v05._from_v06(metadata))
         raise ValueError(f"Unsupported metadata type: {type(metadata)}")
 
     def _to_v05(self) -> "Metadata_v05":
