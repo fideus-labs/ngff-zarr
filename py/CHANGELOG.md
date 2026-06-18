@@ -1,3 +1,9 @@
+## py-v0.36.1 (2026-06-18)
+
+### 🐛 Bug Fixes
+
+- **py**: support reading remote OME-Zarr out of the box via a [remote] extra ([35cbd65](https://github.com/fideus-labs/ngff-zarr/commit/35cbd658c69c96e73a4f6e58f462ee711583b484))
+
 ## py-v0.36.0 (2026-06-18)
 
 ### ✨ Features
