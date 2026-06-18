@@ -69,8 +69,17 @@ cli = [
   "tifffile>=2024.7.24",
   "liffile",
   "imagecodecs>=2025.3.30,<2026.5.0",
+  "ngff-zarr[remote]",
 ]
 tensorstore = ["tensorstore"]
+remote = [
+  "fsspec",
+  "aiohttp",
+  "requests",
+  "s3fs",
+  "gcsfs",
+  "adlfs",
+]
 test = [
   "pytest >=6",
   "pooch",
@@ -80,7 +89,7 @@ validate = [
   "jsonschema"
 ]
 docs = [ "furo>=2024.7.18,<2025", "myst-parser>=3.0.1,<4", "sphinx>=7.4.7,<8", "sphinx-autodoc2>=0.5.0,<0.6", "sphinx-copybutton>=0.5.2,<0.6", "sphinx-design>=0.6.0,<0.7", "sphinxext-opengraph>=0.9.1,<0.10", "sphinx-autobuild>=2024.4.16,<2025"]
-all = ["ngff-zarr[cli]", "ngff-zarr[docs]", "ngff-zarr[test]", "ngff-zarr[validate]", "ngff-zarr[tensorstore]"]
+all = ["ngff-zarr[cli]", "ngff-zarr[docs]", "ngff-zarr[test]", "ngff-zarr[validate]", "ngff-zarr[tensorstore]", "ngff-zarr[remote]"]
 
 
 [tool.coverage.report]
@@ -189,7 +198,7 @@ ngff-zarr = { path = ".", editable = true }
 
 [tool.pixi.environments]
 default = { solve-group = "default" }
-test = { features = ["test", "dask-image", "itk", "cli", "validate", "tensorstore"], solve-group = "default" }
+test = { features = ["test", "dask-image", "itk", "cli", "validate", "tensorstore", "remote"], solve-group = "default" }
 lint = { features = ["lint"], no-default-feature = true, solve-group = "default" }
 docs = { features = ["docs"], no-default-feature = true, solve-group = "default" }
 data = { features = ["data"], no-default-feature = true, solve-group = "default" }

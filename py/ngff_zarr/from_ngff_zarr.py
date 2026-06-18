@@ -17,6 +17,45 @@ zarr_version_major = zarr_version.major
 # Supported remote URL schemes for storage
 REMOTE_URL_SCHEMES = ("s3://", "gs://", "azure://", "http://", "https://")
 
+# fsspec filesystem protocols that imply a remote backend is required. Used to
+# recognize a remote store even after a URL has been wrapped in an FsspecStore,
+# whose ``str()`` is ``"<FsspecStore(...)>"`` rather than the original URL.
+REMOTE_FS_PROTOCOLS = frozenset(
+    {"s3", "s3a", "gcs", "gs", "az", "abfs", "abfss", "adl", "http", "https"}
+)
+
+
+def _is_remote_store(store) -> bool:
+    """Whether ``store`` refers to remote storage needing an fsspec backend.
+
+    Handles plain URL strings/paths as well as zarr-python 3 ``FsspecStore``
+    instances (built here when ``storage_options`` is provided, or passed in
+    directly), whose ``str()`` does not start with the URL scheme.
+    """
+    if str(store).startswith(REMOTE_URL_SCHEMES):
+        return True
+    # ``FsspecStore.path`` keeps the full URL for http(s) but strips the
+    # protocol for s3/gcs/azure, so fall back to the filesystem's protocol.
+    path = getattr(store, "path", "")
+    if isinstance(path, str) and path.startswith(REMOTE_URL_SCHEMES):
+        return True
+    fs = getattr(store, "fs", None)
+    protocol = getattr(fs, "protocol", ())
+    protocols = {protocol} if isinstance(protocol, str) else set(protocol or ())
+    return not protocols.isdisjoint(REMOTE_FS_PROTOCOLS)
+
+
+def _remote_backend_import_error(store, original: ImportError) -> ImportError:
+    """Build an actionable ImportError pointing at the ``[remote]`` extra."""
+    return ImportError(
+        f"Reading from the remote store '{store}' requires additional "
+        "packages that are not installed. Install them with:\n\n"
+        '    pip install "ngff-zarr[remote]"\n\n'
+        "This provides the fsspec backends for http(s), S3, GCS, and Azure. "
+        f"Original error: {original}"
+    )
+
+
 # -- blosc codec backward-compatibility -----------------------------------
 
 # Deprecated Blosc codec configuration keys that should be stripped on read.
@@ -140,9 +179,15 @@ def from_ome_zarr(
     if isinstance(store, str) and storage_options is not None:
         if store.startswith(REMOTE_URL_SCHEMES):
             if zarr_version_major >= 3 and hasattr(zarr.storage, "FsspecStore"):
-                store = zarr.storage.FsspecStore.from_url(
-                    store, storage_options=storage_options
-                )
+                try:
+                    store = zarr.storage.FsspecStore.from_url(
+                        store, storage_options=storage_options
+                    )
+                except ImportError as e:
+                    # Building the FsspecStore imports the fsspec backend
+                    # eagerly, so a missing backend surfaces here rather than
+                    # in _open_group_with_helpful_errors below.
+                    raise _remote_backend_import_error(store, e) from e
             else:
                 raise RuntimeError(
                     "storage_options parameter requires zarr-python 3+ with FsspecStore support. "
@@ -180,6 +225,16 @@ def from_ome_zarr(
                 "but OME-Zarr requires a group structure with multiscale metadata. "
                 "Single Zarr arrays cannot be directly converted to OME-Zarr format."
             ) from e
+        except ImportError as e:
+            # Reading a remote store (e.g. https://, s3://) goes through an
+            # fsspec filesystem backend such as aiohttp, requests, s3fs, gcsfs,
+            # or adlfs. When the relevant backend is missing, fsspec raises an
+            # ImportError. Rewrite it into an actionable message; re-raise any
+            # unrelated import failure unchanged. _is_remote_store also matches
+            # an FsspecStore, whose str() is not the original URL.
+            if _is_remote_store(store):
+                raise _remote_backend_import_error(store, e) from e
+            raise
 
     # Open the Zarr store as a group with helpful error messages
     root = _open_group_with_helpful_errors(**format_kwargs)

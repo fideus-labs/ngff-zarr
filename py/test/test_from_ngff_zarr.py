@@ -142,6 +142,83 @@ def test_from_ngff_zarr_string_url_with_storage_options():
                     )
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/does-not-matter.zarr",
+        "http://example.com/does-not-matter.zarr",
+        "s3://bucket/does-not-matter.zarr",
+        "gs://bucket/does-not-matter.zarr",
+        "azure://container/does-not-matter.zarr",
+    ],
+)
+def test_from_ngff_zarr_remote_missing_backend_helpful_error(url):
+    """A missing fsspec backend for any remote scheme yields an actionable error."""
+    from unittest.mock import patch
+
+    # Simulate fsspec failing to import its filesystem backend (aiohttp,
+    # requests, s3fs, gcsfs, adlfs, ...).
+    with patch(
+        "zarr.open_group",
+        side_effect=ModuleNotFoundError("No module named 'a_backend'"),
+    ):
+        with pytest.raises(ImportError) as exc_info:
+            from_ngff_zarr(url)
+
+    message = str(exc_info.value)
+    assert "ngff-zarr[remote]" in message
+    assert url in message
+    # The original cause is preserved for debugging.
+    assert isinstance(exc_info.value.__cause__, ModuleNotFoundError)
+
+
+def test_from_ngff_zarr_local_import_error_not_rewritten():
+    """A non-remote store re-raises an ImportError unchanged (remote-only guard)."""
+    from unittest.mock import patch
+
+    original_message = "No module named 'unrelated_dependency'"
+    with patch(
+        "zarr.open_group",
+        side_effect=ModuleNotFoundError(original_message),
+    ):
+        with pytest.raises(ModuleNotFoundError) as exc_info:
+            from_ngff_zarr("local-store.zarr")
+
+    message = str(exc_info.value)
+    assert "ngff-zarr[remote]" not in message
+    assert original_message in message
+
+
+def test_from_ngff_zarr_remote_https_read_smoke():
+    """End-to-end read of a public remote OME-Zarr store (opt-in).
+
+    This hits a live third-party endpoint, so it is gated behind
+    ``NGFF_ZARR_NETWORK_TESTS`` and does not run in normal CI. A transient
+    remote failure and a real regression are indistinguishable here: both
+    surface as ``ValueError: No valid Zarr group found`` once zarr wraps the
+    failed metadata read (observed on Windows + zarr v2, where the response is
+    mis-decoded by the ``charmap`` codec). A broad ``except`` skip would
+    therefore also mask genuine regressions, so the deterministic
+    backend-handling paths are covered by the mocked tests above instead.
+    """
+    import os
+
+    if not os.environ.get("NGFF_ZARR_NETWORK_TESTS"):
+        pytest.skip("live remote read is opt-in; set NGFF_ZARR_NETWORK_TESTS=1 to run")
+    pytest.importorskip("aiohttp", reason="aiohttp required to read https stores")
+
+    url = "https://s3.embl.de/i2k-2020/platy-raw.ome.zarr"
+    try:
+        multiscales = from_ngff_zarr(url)
+    except OSError as exc:
+        # Connection refused / DNS / timeout: clearly the network, not the code.
+        pytest.skip(f"remote store unavailable: {exc!r}")
+
+    # Metadata is read eagerly; pixel data stays lazy, so this stays cheap.
+    assert len(multiscales.images) > 0
+    assert multiscales.images[0].data.ndim > 0
+
+
 @pytest.mark.skipif(
     zarr_version_major < 3, reason="storage_options requires zarr-python 3"
 )

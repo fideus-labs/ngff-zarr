@@ -37,6 +37,10 @@ Optional extras dependencies include:
 
 `itk` : Support multiscale generation with [itk] [methods](./methods.md).
 
+`remote` : Read and write OME-Zarr on remote stores -- http(s), S3, Google
+Cloud Storage, and Azure -- via [fsspec] backends. See
+[Network Storage and Authentication](./faq.md#network-storage-and-authentication).
+
 `tensorstore` : Support writing with [tensorstore].
 
 `validate` : Support OME-Zarr data model metadata validation when reading.
@@ -45,6 +49,7 @@ Optional extras dependencies include:
 [JupyterLite]: https://jupyterlite.readthedocs.io/en/latest/try/lab
 [dask-image]: https://image.dask.org/en/latest/
 [itk]: https://docs.itk.org/en/latest/learn/python_quick_start.html
+[fsspec]: https://filesystem-spec.readthedocs.io/en/latest/
 [tensorstore]: https://google.github.io/tensorstore/
 
 ### Install all optional dependencies
@@ -52,7 +57,7 @@ Optional extras dependencies include:
 To install all optional dependencies:
 
 ```shell
-pip install "ngff-zarr[cli,dask-image,itk,tensorstore,validate]"
+pip install "ngff-zarr[cli,dask-image,itk,remote,tensorstore,validate]"
 ```
 
 which is equivalent to:
