@@ -20,9 +20,9 @@ related:
 # Cross-Language Parity Guarantee
 
 The Python and TypeScript ports expose an **identical, byte-stable**
-structural-validation surface for OME-Zarr v0.4. This page describes the
-contract and the tests that lock it. For the rules, see [[rule-reference]]; for
-usage, see [[api]].
+structural-validation surface for OME-Zarr v0.4 and v0.5. This page describes
+the contract and the tests that lock it. For the rules, see [[rule-reference]];
+for usage, see [[api]].
 
 ## The contract
 
@@ -59,11 +59,15 @@ The canonical `SpecRule` set, in evaluation order:
 7. `omero-channel-color-format`
 8. `axis-orientation-consistent-type`
 9. `axis-orientation-completeness`
-10. `plate-row-index-consistency`
-11. `well-acquisition-missing`
+10. `zarr-format`
+11. `ome-namespace`
+12. `plate-row-index-consistency`
+13. `well-acquisition-missing`
 
-Each suite pins this list as a `CANONICAL_SPEC_RULE_IDS` literal — byte-identical
-between the two languages so the tests are line-for-line comparable.
+Entries 10–11 are the v0.5 namespacing rules; they fire only for v0.5 metadata
+and are inert for v0.4. Each suite pins this list as a `CANONICAL_SPEC_RULE_IDS`
+literal — byte-identical between the two languages so the tests are
+line-for-line comparable.
 
 ## The parity tests
 
@@ -86,16 +90,19 @@ Each suite independently locks:
   `/^[a-z]+(-[a-z]+)*$/` in TypeScript).
 - **Level set and default** — `ValidationLevel` has exactly `schema_only` and
   `strict`, and `strict` is the default.
-- **Fail-fast evaluation order** — driving the orchestrator with metadata that
-  violates the earliest rule plus every later rule, then repairing exactly one
-  rule per stage across ten stages, the rule raised at each stage builds a
+- **Fail-fast evaluation order** — driving the orchestrator with v0.4 metadata
+  that violates the earliest rule plus every later rule, then repairing exactly
+  one rule per stage across ten stages, the rule raised at each stage builds a
   sequence equal to a shared `EXPECTED_EVALUATION_ORDER`. This proves every rule
   is evaluated strictly before all rules after it; a final, fully-repaired
   metadata is accepted with no violation.
 
-The two HCS rules (`plate-row-index-consistency`, `well-acquisition-missing`)
-are deliberately absent from the image orchestrator's evaluation order; they are
-dispatched by the separate plate/well orchestrators (see [[rule-reference]]).
+The two v0.5 namespacing rules (`zarr-format`, `ome-namespace`) run last in the
+image orchestrator but are inert for the v0.4 metadata the order test exercises,
+so they never appear in `EXPECTED_EVALUATION_ORDER`. The two HCS rules
+(`plate-row-index-consistency`, `well-acquisition-missing`) are deliberately
+absent from the image orchestrator's evaluation order; they are dispatched by
+the separate plate/well orchestrators (see [[rule-reference]]).
 
 ## Sanctioned TypeScript-only adaptations
 

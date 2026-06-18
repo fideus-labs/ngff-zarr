@@ -124,6 +124,27 @@ function isSpecVersionAtLeastV04(version: string): boolean {
 }
 
 /**
+ * Recognized keys of a single `multiscales[]` entry. Any other key present in an
+ * entry is a leak -- a group-level `ome` / `multiscales` wrapper, a
+ * `zarr_format` byte that belongs on the enclosing Zarr v3 group, and so on --
+ * and is routed to `Metadata.extra` for the v0.5 namespacing rules to inspect.
+ * `omero` is absent on purpose: it is a sibling of `multiscales`, parsed
+ * separately, never a field of the entry. `@type` *is* recognized: the Python
+ * writer stamps the JSON-LD `@type` (`"ngff:Image"`) onto every entry, so it is
+ * a legitimate library-written key, not a leak.
+ */
+const MULTISCALE_ENTRY_FIELDS = new Set<string>([
+  "@type",
+  "version",
+  "name",
+  "axes",
+  "datasets",
+  "coordinateTransformations",
+  "type",
+  "metadata",
+]);
+
+/**
  * Parse Metadata and NgffImages from OME-Zarr v0.4 root attributes.
  *
  * This mirrors the Python `Metadata._from_zarr_attrs` class method.
@@ -397,13 +418,32 @@ export async function fromZarrAttrsV04(
     images.push(ngffImage);
   }
 
+  // Keys that a malformed or double-namespaced document leaked into the
+  // multiscale entry -- e.g. a group-level `ome` / `multiscales` wrapper, or a
+  // `zarr_format` byte that belongs on the enclosing Zarr v3 group, never on the
+  // entry. Captured verbatim so the v0.5 namespacing rules can flag them.
+  const extra: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(multiscalesMetadata)) {
+    if (!MULTISCALE_ENTRY_FIELDS.has(key)) {
+      extra[key] = value;
+    }
+  }
+
   // Build the metadata object - use spread to only include optional properties if defined
   const metadata: MetadataInterface = {
     axes,
     datasets,
     name: (multiscalesMetadata.name as string) ?? "image",
-    version: (multiscalesMetadata.version as string) ?? "0.4",
+    // OME-Zarr v0.5 hoists the spec `version` to the group-level `ome`
+    // namespace; v0.4 carries it on each multiscale entry. Prefer the
+    // group-level value (which fromZarrAttrsV05 forwards as a top-level
+    // `version`) so the structural pass sees the true spec version -- which the
+    // v0.5 namespacing rules gate on. v0.4 has no top-level version, so this
+    // falls back to the entry's.
+    version: (rootAttrs.version as string | undefined) ??
+      (multiscalesMetadata.version as string) ?? "0.4",
     omero,
+    extra,
     coordinateTransformations:
       (multiscalesMetadata.coordinateTransformations as Transform[]) ??
         undefined,
@@ -454,14 +494,24 @@ export async function fromZarrAttrsV05(
 
   let v04Attrs: Record<string, unknown>;
   if (omeData && "multiscales" in omeData) {
-    // Standard v0.5 format with "ome" wrapper
+    // Standard v0.5 format with "ome" wrapper. Forward the hoisted
+    // `ome.version` as a top-level `version` so fromZarrAttrsV04 records the
+    // true spec version (v0.5), which the v0.5 namespacing rules gate on. This
+    // entry point definitionally handles v0.5, so default to "0.5" when
+    // `ome.version` is absent -- otherwise a malformed v0.5 store missing its
+    // version would fall back to "0.4" and skip the v0.5 namespacing rules
+    // during the structural pass (which runs before the version is corrected
+    // below).
     v04Attrs = {
+      version: omeData.version ?? "0.5",
       multiscales: omeData.multiscales,
       omero: omeData.omero ?? rootAttrs.omero,
     };
   } else if ("multiscales" in rootAttrs) {
-    // Compatibility mode: multiscales at root level (as written by toNgffZarr)
+    // Compatibility mode: multiscales at root level (as written by toNgffZarr).
+    // Same v0.5 floor as the wrapped branch above.
     v04Attrs = {
+      version: rootAttrs.version ?? "0.5",
       multiscales: rootAttrs.multiscales,
       omero: rootAttrs.omero,
     };

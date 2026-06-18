@@ -36,11 +36,13 @@ from ngff_zarr.v04.zarr_metadata import (
     Translation,
 )
 
-# The locked rule manifest: every active OME-Zarr v0.4 structural rule, in
-# canonical declaration order. This identical literal list appears in the Deno
-# mirror test so the two are directly comparable. The first nine entries are
-# the image/multiscales rules dispatched by validate_structural; the final two
-# are the HCS plate/well rules dispatched by validate_plate / validate_well.
+# The locked rule manifest: every active OME-Zarr structural rule, in canonical
+# declaration order. This identical literal list appears in the Deno mirror test
+# so the two are directly comparable. The first eleven entries are the
+# image/multiscales rules dispatched by validate_structural -- the first nine
+# are the v0.4 rules and the next two (zarr-format, ome-namespace) are the v0.5
+# namespacing rules, inert for v0.4; the final two are the HCS plate/well rules
+# dispatched by validate_plate / validate_well.
 CANONICAL_SPEC_RULE_IDS = [
     "axis-count",
     "axis-type",
@@ -51,6 +53,8 @@ CANONICAL_SPEC_RULE_IDS = [
     "omero-channel-color-format",
     "axis-orientation-consistent-type",
     "axis-orientation-completeness",
+    "zarr-format",
+    "ome-namespace",
     "plate-row-index-consistency",
     "well-acquisition-missing",
 ]
@@ -63,7 +67,9 @@ CANONICAL_SPEC_RULE_IDS = [
 # AXIS_ORDER (positions 3-4), and validate_per_dataset_scale_count and
 # validate_transform_order both surface GLOBAL_COORD_TRANSFORM_AFTER_PER_LEVEL
 # (positions 5 and 7). The two HCS rules are absent: they are not part of the
-# image/multiscales orchestrator.
+# image/multiscales orchestrator. The two v0.5 namespacing rules (zarr-format,
+# ome-namespace) run last in the orchestrator but are inert for the v0.4
+# metadata exercised here, so they never appear in the observed order.
 EXPECTED_EVALUATION_ORDER = [
     SpecRule.AXIS_COUNT,
     SpecRule.AXIS_TYPE,

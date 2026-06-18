@@ -65,6 +65,10 @@ export const SpecRule = {
   AxisOrientationConsistentType: "axis-orientation-consistent-type",
   /** If any spatial axis declares an orientation, all spatial axes do. */
   AxisOrientationCompleteness: "axis-orientation-completeness",
+  /** A v0.5 entry implies a Zarr v3 store: a leaked `zarr_format` must be 3. */
+  ZarrFormat: "zarr-format",
+  /** A v0.5 entry must not retain a group-level `ome`/`multiscales` wrapper. */
+  OmeNamespace: "ome-namespace",
   /** Each well's rowIndex/columnIndex agrees with the row/column in its path. */
   PlateRowIndexConsistency: "plate-row-index-consistency",
   /** Each well image references an acquisition when the plate declares many. */
@@ -651,6 +655,74 @@ function pyRepr(value: string): string {
 }
 
 /**
+ * Validate that a v0.5 multiscales entry implies a Zarr v3 store.
+ *
+ * OME-Zarr v0.5 metadata MUST be backed by a Zarr v3 store
+ * (`zarr_format === 3`). A v0.4 dataset is always Zarr v2 and carries no
+ * `zarr_format`, so this rule is inert below v0.5. The parsed {@link Metadata}
+ * does not surface the group's `zarr_format` byte -- its authoritative on-disk
+ * verification is a store-backed concern -- but a `zarr_format` mis-embedded
+ * *inside* the multiscale entry (captured in {@link Metadata.extra}) is
+ * reachable here: it belongs on the enclosing Zarr v3 group, never on the entry,
+ * and any value other than `3` is incompatible with v0.5.
+ *
+ * @param metadata - The parsed multiscales metadata to validate.
+ * @throws {ValidationError} With {@link SpecRule.ZarrFormat} when v0.5 metadata
+ * carries a `zarr_format` other than `3` in its `extra` passthrough; location
+ * `multiscales[0]`.
+ */
+export function validateZarrFormatForVersion(metadata: Metadata): void {
+  if (metadata.version !== "0.5") {
+    return;
+  }
+  const zarrFormat = metadata.extra?.zarr_format;
+  if (zarrFormat !== undefined && zarrFormat !== 3) {
+    throw new ValidationError(
+      SpecRule.ZarrFormat,
+      `OME-Zarr v0.5 requires a Zarr v3 store (zarr_format == 3), but ` +
+        `the entry declares zarr_format = ${String(zarrFormat)}.`,
+      "multiscales[0]",
+    );
+  }
+}
+
+/**
+ * Validate that a v0.5 multiscales entry is not double-namespaced.
+ *
+ * At v0.5 the multiscales metadata lives under the top-level `ome` namespace key
+ * of the group's `zarr.json` attributes, with the spec `version` hoisted to
+ * `ome.version`. The reader unwraps that namespace into this {@link Metadata}, so
+ * the group-level wrapper keys -- `ome` itself and the `multiscales` array --
+ * must never reappear *inside* a multiscale entry. A surviving wrapper key
+ * (captured in {@link Metadata.extra}) means the document is double-namespaced,
+ * was not unwrapped, or is otherwise malformed with respect to the v0.5 `ome`
+ * namespacing. A v0.4 store keeps multiscales at the `.zattrs` top level with no
+ * `ome` wrapper, so this rule is inert below v0.5.
+ *
+ * @param metadata - The parsed multiscales metadata to validate.
+ * @throws {ValidationError} With {@link SpecRule.OmeNamespace} when v0.5 metadata
+ * retains a group-level `ome` or `multiscales` key in its `extra` passthrough;
+ * location `multiscales[0]`.
+ */
+export function validateOmeNamespace(metadata: Metadata): void {
+  if (metadata.version !== "0.5") {
+    return;
+  }
+  const extra = metadata.extra ?? {};
+  for (const wrapperKey of ["ome", "multiscales"]) {
+    if (wrapperKey in extra) {
+      throw new ValidationError(
+        SpecRule.OmeNamespace,
+        `v0.5 metadata entry retains the group-level '${wrapperKey}' ` +
+          `key; the 'ome' namespace wraps the group attributes, not each ` +
+          `multiscale entry.`,
+        "multiscales[0]",
+      );
+    }
+  }
+}
+
+/**
  * Validate each plate well's recorded indices against its `path`.
  *
  * Every `PlateWell` records a `path` of the form `"<row>/<column>"` (e.g.
@@ -776,6 +848,11 @@ export function validateWellAcquisition(
  * 8. {@link validateDatasetOrder}
  * 9. {@link validateOmeroColorHex}
  * 10. {@link validateAxisOrientation}
+ * 11. {@link validateZarrFormatForVersion}
+ * 12. {@link validateOmeNamespace}
+ *
+ * Rules 11 and 12 are the OME-Zarr v0.5 namespacing checks; they fire only for
+ * v0.5 metadata and are inert (a no-op) for v0.4.
  *
  * Under {@link ValidationLevel.SchemaOnly} this function returns immediately
  * without running any structural rule -- shape/schema validation is the
@@ -816,6 +893,8 @@ export function validateStructural(
   validateDatasetOrder(metadata);
   validateOmeroColorHex(metadata);
   validateAxisOrientation(metadata);
+  validateZarrFormatForVersion(metadata);
+  validateOmeNamespace(metadata);
 }
 
 /**

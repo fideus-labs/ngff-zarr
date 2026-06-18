@@ -79,6 +79,14 @@ export interface MetadataInterface {
   version: string;
   type?: string;
   metadata?: MethodMetadata;
+  /**
+   * Unrecognized keys that leaked into the `multiscales[]` entry (a malformed
+   * or double-namespaced v0.5 document). Captured verbatim so the v0.5
+   * namespacing rules (`zarr-format`, `ome-namespace`) can flag them; mirrors
+   * the Rust port's `#[serde(flatten)]` `extra` passthrough. It is a read-side
+   * validation aid only and is never serialized back to the store.
+   */
+  extra?: Record<string, unknown>;
 }
 
 /**

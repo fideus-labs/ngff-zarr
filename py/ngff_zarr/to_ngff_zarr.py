@@ -135,6 +135,11 @@ def _pop_metadata_optionals(
     Removes the draft RFC 4 ``orientation`` from every axis unless RFC 4 is
     enabled, then recursively culls all remaining ``None``-valued keys.
     """
+    # ``Metadata.extra`` is a read-side validation aid (leaked-key capture for
+    # the v0.5 namespacing rules), never part of the written multiscale entry.
+    # It is an empty dict on every clean read, which ``_remove_none_values``
+    # would not strip, so drop it explicitly.
+    metadata_dict.pop("extra", None)
     # RFC 4 anatomical orientation is a draft feature gated behind an explicit
     # opt-in. Drop it from every axis (even when populated) unless RFC 4 is
     # enabled; populated orientations on enabled writes survive the None

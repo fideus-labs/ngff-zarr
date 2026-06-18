@@ -52,6 +52,12 @@ violation, in canonical spec-MUST order.
 #   axis-orientation-completeness
 #       if any spatial axis has orientation, all spatial axes do
 #       e.g. multiscales[0].axes
+#   zarr-format
+#       a v0.5 entry implies a Zarr v3 store (a leaked zarr_format must be 3)
+#       e.g. multiscales[0]
+#   ome-namespace
+#       a v0.5 entry must not retain a group-level ome/multiscales wrapper key
+#       e.g. multiscales[0]
 #   plate-row-index-consistency
 #       each well's rowIndex/columnIndex matches the row/column named in its path
 #       e.g. plate.wells[3]
@@ -87,6 +93,8 @@ class SpecRule(str, Enum):
     OMERO_CHANNEL_COLOR_FORMAT = "omero-channel-color-format"
     AXIS_ORIENTATION_CONSISTENT_TYPE = "axis-orientation-consistent-type"
     AXIS_ORIENTATION_COMPLETENESS = "axis-orientation-completeness"
+    ZARR_FORMAT = "zarr-format"
+    OME_NAMESPACE = "ome-namespace"
     PLATE_ROW_INDEX_CONSISTENCY = "plate-row-index-consistency"
     WELL_ACQUISITION_MISSING = "well-acquisition-missing"
 
@@ -571,6 +579,73 @@ def validate_axis_orientation(metadata: Metadata) -> None:
         raise
 
 
+def validate_zarr_format_for_version(metadata: Metadata) -> None:
+    """Validate that a v0.5 multiscales entry implies a Zarr v3 store.
+
+    OME-Zarr v0.5 metadata MUST be backed by a Zarr v3 store
+    (``zarr_format == 3``). A v0.4 dataset is always Zarr v2 and carries no
+    ``zarr_format``, so this rule is inert below v0.5. The parsed
+    :class:`~ngff_zarr.v04.zarr_metadata.Metadata` does not surface the group's
+    ``zarr_format`` byte -- its authoritative on-disk verification is a
+    store-backed concern -- but a ``zarr_format`` mis-embedded *inside* the
+    multiscale entry (captured in :attr:`~ngff_zarr.v04.zarr_metadata.Metadata.extra`)
+    is reachable here: it belongs on the enclosing Zarr v3 group, never on the
+    entry, and any value other than ``3`` is incompatible with v0.5.
+
+    Raises
+    ------
+    ValidationError
+        With :attr:`SpecRule.ZARR_FORMAT` when v0.5 metadata carries a
+        ``zarr_format`` other than ``3`` in its ``extra`` passthrough; location
+        ``multiscales[0]``.
+    """
+    if metadata.version != "0.5":
+        return
+    zarr_format = metadata.extra.get("zarr_format")
+    if zarr_format is not None and zarr_format != 3:
+        raise ValidationError(
+            SpecRule.ZARR_FORMAT,
+            f"OME-Zarr v0.5 requires a Zarr v3 store (zarr_format == 3), but "
+            f"the entry declares zarr_format = {zarr_format}.",
+            "multiscales[0]",
+        )
+
+
+def validate_ome_namespace(metadata: Metadata) -> None:
+    """Validate that a v0.5 multiscales entry is not double-namespaced.
+
+    At v0.5 the multiscales metadata lives under the top-level ``ome`` namespace
+    key of the group's ``zarr.json`` attributes, with the spec ``version``
+    hoisted to ``ome.version``. The reader unwraps that namespace into this
+    :class:`~ngff_zarr.v04.zarr_metadata.Metadata`, so the group-level wrapper
+    keys -- ``ome`` itself and the ``multiscales`` array -- must never reappear
+    *inside* a multiscale entry. A surviving wrapper key (captured in
+    :attr:`~ngff_zarr.v04.zarr_metadata.Metadata.extra`) means the document is
+    double-namespaced, was not unwrapped, or is otherwise malformed with respect
+    to the v0.5 ``ome`` namespacing. A v0.4 store keeps multiscales at the
+    ``.zattrs`` top level with no ``ome`` wrapper, so this rule is inert below
+    v0.5.
+
+    Raises
+    ------
+    ValidationError
+        With :attr:`SpecRule.OME_NAMESPACE` when v0.5 metadata retains a
+        group-level ``ome`` or ``multiscales`` key in its ``extra`` passthrough;
+        location ``multiscales[0]``.
+    """
+    if metadata.version != "0.5":
+        return
+    for wrapper_key in ("ome", "multiscales"):
+        if wrapper_key in metadata.extra:
+            raise ValidationError(
+                SpecRule.OME_NAMESPACE,
+                f"v0.5 metadata entry retains the group-level '{wrapper_key}' "
+                f"key; the 'ome' namespace wraps the group attributes, not each "
+                f"multiscale entry.",
+                "multiscales[0]",
+            )
+
+
 def validate_plate_well_index_consistency(plate: Plate) -> None:
     """Validate each plate well's recorded indices against its ``path``.
 
@@ -688,11 +763,16 @@ def validate_structural(
     8. :func:`validate_dataset_order`
     9. :func:`validate_omero_color_hex`
     10. :func:`validate_axis_orientation`
+    11. :func:`validate_zarr_format_for_version`
+    12. :func:`validate_ome_namespace`
+
+    Rules 11 and 12 are the OME-Zarr v0.5 namespacing checks; they fire only for
+    v0.5 metadata and are inert (a no-op) for v0.4.
 
     Parameters
     ----------
     metadata:
-        The parsed OME-Zarr v0.4 multiscales metadata to validate.
+        The parsed OME-Zarr v0.4+ multiscales metadata to validate.
     options:
         Validation options. Defaults to :class:`ValidateOptions`, i.e.
         :attr:`ValidationLevel.STRICT`. Under
@@ -730,6 +810,8 @@ def validate_structural(
     validate_dataset_order(metadata)
     validate_omero_color_hex(metadata)
     validate_axis_orientation(metadata)
+    validate_zarr_format_for_version(metadata)
+    validate_ome_namespace(metadata)
 
 
 def validate_plate(plate: Plate, options: ValidateOptions | None = None) -> None:
