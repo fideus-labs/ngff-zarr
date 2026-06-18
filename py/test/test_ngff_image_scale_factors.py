@@ -21,6 +21,16 @@ rng = np.random.default_rng(12345)
                 {"x": 8, "y": 8, "z": 1},
             ],
         ),
+        # Image size exactly twice the chunk size should still downsample once.
+        # Regression tests for
+        # https://github.com/fideus-labs/ngff-zarr/issues/551
+        # Cubic 3D at the exact 2x boundary.
+        ((128, 128, 128), [{"x": 2, "y": 2, "z": 2}]),
+        # 2D at the exact 2x boundary.
+        ((128, 128), [{"x": 2, "y": 2}]),
+        # Anisotropic: the max dim is exactly 2x the chunk while z sits at the
+        # chunk size, so only y/x downsample.
+        ((64, 128, 128), [{"x": 2, "y": 2, "z": 1}]),
     ],
 )
 def test_scale_factors(shape, expected_factors):

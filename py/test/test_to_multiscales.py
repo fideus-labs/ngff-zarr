@@ -36,3 +36,17 @@ def test_to_multiscales_metadata_synced_with_data(shape, chunk_shape):
 
         # Assert scale factors are applied to the correct dimensions
         assert image.data.shape[2] == image.data.shape[3]  # 512 != 1024
+
+
+def test_downsamples_when_size_is_exactly_double_chunk():
+    # Regression test for
+    # https://github.com/fideus-labs/ngff-zarr/issues/551
+    # When the image size is exactly twice the chunk size, to_multiscales()
+    # should still produce a downsampled level rather than only the original.
+    array = rng.integers(low=0, high=2**16, size=(128, 128, 128), dtype=np.uint16)
+    input_image = to_ngff_image(array)
+    multiscales = to_multiscales(input_image, scale_factors=4, chunks=64)
+
+    assert len(multiscales.images) == 2
+    assert multiscales.images[0].data.shape == (128, 128, 128)
+    assert multiscales.images[1].data.shape == (64, 64, 64)
