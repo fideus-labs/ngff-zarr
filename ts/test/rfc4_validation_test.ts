@@ -72,6 +72,33 @@ Deno.test("validateRfc4Orientation - valid LPS orientation passes", () => {
   validateRfc4Orientation(axesLps);
 });
 
+Deno.test("validateRfc4Orientation - subject-local tissue values pass", () => {
+  // Layered/polarized-tissue values (ome/ngff#528) must be accepted.
+  const axesSubjectLocal = [
+    {
+      name: "x",
+      type: "space",
+      unit: "micrometer",
+      orientation: { type: "anatomical", value: "superficial-to-deep" },
+    },
+    {
+      name: "y",
+      type: "space",
+      unit: "micrometer",
+      orientation: { type: "anatomical", value: "apical-to-basal" },
+    },
+    {
+      name: "z",
+      type: "space",
+      unit: "micrometer",
+      orientation: { type: "anatomical", value: "apex-to-base" },
+    },
+  ];
+
+  // Should not throw any exception
+  validateRfc4Orientation(axesSubjectLocal);
+});
+
 Deno.test("validateRfc4Orientation - mixed axis types (time/channel) pass", () => {
   const axesMixed = [
     { name: "t", type: "time", unit: "second" },

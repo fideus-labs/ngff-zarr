@@ -29,6 +29,12 @@ const VALID_ORIENTATION_VALUES = new Set([
   "caudal-to-cranial",
   "proximal-to-distal",
   "distal-to-proximal",
+  "superficial-to-deep",
+  "deep-to-superficial",
+  "apical-to-basal",
+  "basal-to-apical",
+  "apex-to-base",
+  "base-to-apex",
 ]);
 
 /**

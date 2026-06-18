@@ -112,6 +112,17 @@ def test_anatomical_orientation_values_enum():
     assert (
         AnatomicalOrientationValues.superior_to_inferior.value == "superior-to-inferior"
     )
+    # Subject-local layered- and polarized-tissue values (per ome/ngff#528)
+    assert (
+        AnatomicalOrientationValues.superficial_to_deep.value == "superficial-to-deep"
+    )
+    assert (
+        AnatomicalOrientationValues.deep_to_superficial.value == "deep-to-superficial"
+    )
+    assert AnatomicalOrientationValues.apical_to_basal.value == "apical-to-basal"
+    assert AnatomicalOrientationValues.basal_to_apical.value == "basal-to-apical"
+    assert AnatomicalOrientationValues.apex_to_base.value == "apex-to-base"
+    assert AnatomicalOrientationValues.base_to_apex.value == "base-to-apex"
 
 
 # --- Tests for anatomical_orientation_to_itk_direction ---
@@ -175,6 +186,18 @@ class TestAnatomicalOrientationToItkDirection:
             )
             is None
         )
+
+    def test_subject_local_returns_none(self):
+        """Layered/polarized-tissue values are not LPS-compatible (ome/ngff#528)."""
+        for value in (
+            AnatomicalOrientationValues.superficial_to_deep,
+            AnatomicalOrientationValues.deep_to_superficial,
+            AnatomicalOrientationValues.apical_to_basal,
+            AnatomicalOrientationValues.basal_to_apical,
+            AnatomicalOrientationValues.apex_to_base,
+            AnatomicalOrientationValues.base_to_apex,
+        ):
+            assert anatomical_orientation_to_itk_direction(value) is None
 
 
 # --- Tests for itk_direction_to_anatomical_orientation ---

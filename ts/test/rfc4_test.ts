@@ -139,6 +139,19 @@ Deno.test("AnatomicalOrientationValues enum - correct string values", () => {
     AnatomicalOrientationValues.SuperiorToInferior,
     "superior-to-inferior",
   );
+  // Subject-local layered- and polarized-tissue values (per ome/ngff#528)
+  assertEquals(
+    AnatomicalOrientationValues.SuperficialToDeep,
+    "superficial-to-deep",
+  );
+  assertEquals(
+    AnatomicalOrientationValues.DeepToSuperficial,
+    "deep-to-superficial",
+  );
+  assertEquals(AnatomicalOrientationValues.ApicalToBasal, "apical-to-basal");
+  assertEquals(AnatomicalOrientationValues.BasalToApical, "basal-to-apical");
+  assertEquals(AnatomicalOrientationValues.ApexToBase, "apex-to-base");
+  assertEquals(AnatomicalOrientationValues.BaseToApex, "base-to-apex");
 });
 
 Deno.test("LPS coordinate system - correct orientations", () => {
@@ -235,6 +248,43 @@ Deno.test("anatomicalOrientationToItkDirection - non-LPS returns undefined", () 
   assertEquals(
     anatomicalOrientationToItkDirection(
       AnatomicalOrientationValues.ProximalToDistal,
+    ),
+    undefined,
+  );
+  // Subject-local layered/polarized-tissue values (ome/ngff#528)
+  assertEquals(
+    anatomicalOrientationToItkDirection(
+      AnatomicalOrientationValues.SuperficialToDeep,
+    ),
+    undefined,
+  );
+  assertEquals(
+    anatomicalOrientationToItkDirection(
+      AnatomicalOrientationValues.DeepToSuperficial,
+    ),
+    undefined,
+  );
+  assertEquals(
+    anatomicalOrientationToItkDirection(
+      AnatomicalOrientationValues.ApicalToBasal,
+    ),
+    undefined,
+  );
+  assertEquals(
+    anatomicalOrientationToItkDirection(
+      AnatomicalOrientationValues.BasalToApical,
+    ),
+    undefined,
+  );
+  assertEquals(
+    anatomicalOrientationToItkDirection(
+      AnatomicalOrientationValues.ApexToBase,
+    ),
+    undefined,
+  );
+  assertEquals(
+    anatomicalOrientationToItkDirection(
+      AnatomicalOrientationValues.BaseToApex,
     ),
     undefined,
   );

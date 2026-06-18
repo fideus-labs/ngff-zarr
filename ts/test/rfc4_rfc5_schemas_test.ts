@@ -29,6 +29,12 @@ Deno.test("AnatomicalOrientationValuesSchema validation", () => {
     "posterior-to-anterior",
     "rostral-to-caudal",
     "proximal-to-distal",
+    "superficial-to-deep",
+    "deep-to-superficial",
+    "apical-to-basal",
+    "basal-to-apical",
+    "apex-to-base",
+    "base-to-apex",
   ];
 
   validValues.forEach((value) => {

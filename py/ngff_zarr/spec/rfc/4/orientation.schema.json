@@ -38,7 +38,13 @@
                 "cranial-to-caudal",
                 "caudal-to-cranial",
                 "proximal-to-distal",
-                "distal-to-proximal"
+                "distal-to-proximal",
+                "superficial-to-deep",
+                "deep-to-superficial",
+                "apical-to-basal",
+                "basal-to-apical",
+                "apex-to-base",
+                "base-to-apex"
             ],
             "title": "AnatomicalOrientationValues",
             "type": "string"

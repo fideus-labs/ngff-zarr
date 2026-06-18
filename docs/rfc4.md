@@ -139,6 +139,27 @@ ngff_image = ngff_zarr.itk_image_to_ngff_image(
 - `distal-to-proximal`: Describes the directional orientation from the periphery
   of an anatomical structure or limb to the center of the body.
 
+The following values describe subject-local orientation within layered and
+polarized tissues (e.g. biopsies, histology slides), independent of the
+specimen's position relative to the whole organism:
+
+- `superficial-to-deep`: Describes the directional orientation from the outer
+  surface (superficial) to the inner depth (deep) of a layered tissue such as
+  skin, gut, or cortex.
+- `deep-to-superficial`: Describes the directional orientation from the inner
+  depth (deep) to the outer surface (superficial) of a layered tissue such as
+  skin, gut, or cortex.
+- `apical-to-basal`: Describes the directional orientation from the apical
+  surface (apical) to the basal surface (basal) of an epithelial layer or
+  polarized cell structure.
+- `basal-to-apical`: Describes the directional orientation from the basal
+  surface (basal) to the apical surface (apical) of an epithelial layer or
+  polarized cell structure.
+- `apex-to-base`: Describes the directional orientation from the tip (apex) to
+  the broad base (base) of an organ such as the heart or lung.
+- `base-to-apex`: Describes the directional orientation from the broad base
+  (base) to the tip (apex) of an organ such as the heart or lung.
+
 ## ITK LPS Coordinate System
 
 ITK uses the LPS (Left-Posterior-Superior) coordinate system by default. In LPS,

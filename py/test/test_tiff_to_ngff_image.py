@@ -454,9 +454,16 @@ def test_tiff_file_to_ngff_images_unsupported_axis_warning():
         warnings.simplefilter("always")
         images = tiff_file_to_ngff_images(tiff_path)
 
-        # Check warning was issued
-        assert len(w) == 1
-        assert "Dropping unsupported TIFF axes: Q" in str(w[0].message)
+        # Check the expected warning was issued. Filter for the relevant
+        # warning rather than asserting on the total count, since unrelated
+        # libraries (e.g. tifffile/numpy) may emit additional warnings on
+        # some platforms.
+        dropped_warnings = [
+            warning
+            for warning in w
+            if "Dropping unsupported TIFF axes: Q" in str(warning.message)
+        ]
+        assert len(dropped_warnings) == 1
 
     assert len(images) == 1
     name, img = images[0]
