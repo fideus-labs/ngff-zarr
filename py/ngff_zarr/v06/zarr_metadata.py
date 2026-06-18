@@ -137,7 +137,6 @@ class Metadata:
         from ..v04.zarr_metadata import Translation as Translation_v05
 
         datasets = []
-        outputs = []
         for idx, ds in enumerate(self.datasets):
             path = ds.path
 
@@ -146,9 +145,9 @@ class Metadata:
 
             # set reasonable defaults
             spatial_dims = ("x", "y", "z")
-            scale=[2.0**idx if d in spatial_dims else 1.0 for d in self.dimension_names]
-            translation=[0.0 for d in self.dimension_names]
-
+            scale = Scale(scale=[2.0**idx if d in spatial_dims else 1.0 for d in self.dimension_names])
+            translation = Translation(translation=[0.0 for d in self.dimension_names])
+            outputs = []
 
             for transform in transforms:
                 if isinstance(transform, TransformSequence):
