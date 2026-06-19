@@ -1,3 +1,9 @@
+## py-v0.36.2 (2026-06-19)
+
+### 🐛 Bug Fixes
+
+- use >= in to_multiscales loop to handle exact chunk-size multiples ([53d6f08](https://github.com/fideus-labs/ngff-zarr/commit/53d6f088584ff8c4cf7d161cce03272d2ff6bcc6))
+
 ## py-v0.36.1 (2026-06-18)
 
 ### 🐛 Bug Fixes
