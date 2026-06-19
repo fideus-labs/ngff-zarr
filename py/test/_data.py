@@ -3,6 +3,7 @@
 import asyncio
 import json
 import sys
+import time
 from pathlib import Path
 
 import pooch
@@ -25,11 +26,72 @@ test_data_dir = test_dir / extract_dir
 zarr_version = version.parse(zarr.__version__)
 zarr_version_major = zarr_version.major
 
+# The test-data archive is downloaded from a GitHub release at the start of the
+# test session. CI runners occasionally hit transient network failures (DNS
+# blips, connection timeouts to github.com); without retries a single blip
+# fails the entire test matrix. See the retrying downloader below.
+#
+# (connect, read) timeout in seconds: fail fast on an unreachable host but
+# still allow a slow-but-alive download to finish.
+_DOWNLOAD_TIMEOUT = (30, 120)
+_DOWNLOAD_MAX_ATTEMPTS = 4
+_DOWNLOAD_BACKOFF_SECONDS = 3.0
+
+
+def _retrying_downloader(
+    max_attempts=_DOWNLOAD_MAX_ATTEMPTS,
+    backoff=_DOWNLOAD_BACKOFF_SECONDS,
+    timeout=_DOWNLOAD_TIMEOUT,
+):
+    """Build a pooch downloader that retries transient network failures.
+
+    Wraps :class:`pooch.HTTPDownloader`, retrying on connection/timeout errors
+    and 5xx/429 responses with exponential backoff. Non-transient errors (such
+    as a 404) are raised immediately. ``pooch`` hands the downloader a fresh
+    temporary path each call and ``HTTPDownloader`` reopens it with ``"w+b"``,
+    so every retry restarts the download from a clean file.
+    """
+    import requests.exceptions
+
+    transient_errors = (
+        requests.exceptions.ConnectionError,
+        requests.exceptions.Timeout,
+        requests.exceptions.ChunkedEncodingError,
+    )
+
+    def _is_transient(exc):
+        if isinstance(exc, transient_errors):
+            return True
+        if isinstance(exc, requests.exceptions.HTTPError):
+            response = exc.response
+            return response is not None and (
+                response.status_code >= 500 or response.status_code == 429
+            )
+        return False
+
+    def download(url, output_file, pooch_, check_only=False):
+        http_downloader = pooch.HTTPDownloader(timeout=timeout)
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return http_downloader(url, output_file, pooch_, check_only=check_only)
+            except requests.exceptions.RequestException as exc:
+                if check_only or attempt == max_attempts or not _is_transient(exc):
+                    raise
+                wait = backoff * 2 ** (attempt - 1)
+                sys.stderr.write(
+                    f"Download of {url} failed "
+                    f"(attempt {attempt}/{max_attempts}): {exc}. "
+                    f"Retrying in {wait:.0f}s...\n"
+                )
+                time.sleep(wait)
+        return None
+
+    return download
+
 
 @pytest.fixture(scope="package")
 def input_images():
     untar = pooch.Untar(extract_dir=extract_dir)
-    downloader = pooch.HTTPDownloader(timeout=120)
     pooch.retrieve(
         fname="data.tar.gz",
         path=test_dir,
@@ -38,7 +100,7 @@ def input_images():
         # url=f"https://{test_data_ipfs_cid}.ipfs.w3s.link/ipfs/{test_data_ipfs_cid}/data.tar.gz",
         known_hash=f"sha256:{test_data_sha256}",
         processor=untar,
-        downloader=downloader,
+        downloader=_retrying_downloader(),
     )
     result = {}
 
