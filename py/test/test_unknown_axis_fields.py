@@ -109,7 +109,7 @@ def test_unknown_axis_fields_are_filtered(caplog, zarr_helpers):
     assert len(multiscales_back.images) > 0
 
     # Verify that the unknown fields are not present in the Axis objects
-    axes = multiscales_back.metadata.axes
+    axes = multiscales_back.metadata.intrinsic_coordinate_system.axes
     z_axis = next((axis for axis in axes if axis.name == "z"), None)
     assert z_axis is not None
     assert not hasattr(z_axis, "discrete")
@@ -288,7 +288,7 @@ def test_valid_optional_fields_preserved(zarr_helpers):
 
     # Verify that the valid 'unit' field is preserved
     z_axis = next(
-        (axis for axis in multiscales_back.metadata.axes if axis.name == "z"), None
+        (axis for axis in multiscales_back.metadata.intrinsic_coordinate_system.axes if axis.name == "z"), None
     )
     assert z_axis is not None
     assert z_axis.unit == "micrometer"

@@ -103,6 +103,34 @@ class Metadata:
     type: str | None = None
     metadata: MethodMetadata | None = None
 
+    def __post_init__(self):
+        """
+        We use the post-init to do some on-the-fly validation
+        that is not covered by the json schemas well.
+        """
+        
+        _ = self.intrinsic_coordinate_system
+
+    @property
+    def intrinsic_coordinate_system(self) -> CoordinateSystem:
+        output_cs = [ds.coordinateTransformations[0].output for ds in self.datasets]
+
+        if output_cs[0] is None:
+            raise ValueError(
+                "No output coordinate system found in dataset coordinate transformations. " 
+            )
+
+        # raise an error if these aren't all the same
+        if not all(output == output_cs[0] for output in output_cs):
+            raise ValueError(
+                "Multiple different outputs coordinate systems found in"
+                f" coordinate transformations for multiscales: {output_cs}. "
+                "This is out of spec for this ome-zarr 0.6."
+            )
+        
+        # find the cs in the list of coordinate systems with the same name as the output
+        return next(cs for cs in self.coordinateSystems if cs.name == output_cs[0].name)
+
     def to_version(self, version: Union[str, NgffVersion]) -> Union["Metadata", "Metadata_v05", "Metadata_v04"]:
         if isinstance(version, str):
             # raise error for invalid version string
