@@ -3,6 +3,8 @@
 import pytest
 import tempfile
 import numpy as np
+import zarr
+from packaging import version
 import ngff_zarr as nz
 from ngff_zarr.v06.zarr_metadata import (
   Scale,
@@ -17,6 +19,15 @@ from ngff_zarr.v06.zarr_metadata import (
 )
 
 rng = np.random.default_rng(12345)
+
+# OME-Zarr v0.6 requires a Zarr v3 store, which zarr-python only writes at
+# >= 3.0.0b1. The CI matrix exercises legs pinned to zarr 2.x (e.g. Python
+# 3.10), where ``to_ngff_zarr(..., version="0.6")`` raises; skip there.
+requires_zarr_v3 = pytest.mark.skipif(
+    version.parse(zarr.__version__) < version.parse("3.0.0b1"),
+    reason="OME-Zarr v0.6 requires zarr-python >= 3.0.0b1",
+)
+
 
 def identity_transform() -> Identity:
     return Identity()
@@ -53,6 +64,7 @@ def transform_sequence() -> TransformSequence:
         ]
     )
 
+@requires_zarr_v3
 @pytest.mark.parametrize(
     "transform",
     [

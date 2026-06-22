@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 from typing import List, Union, TYPE_CHECKING
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ..v04.zarr_metadata import Axis, Omero, MethodMetadata
 from .._supported_versions import NgffVersion
@@ -102,6 +102,11 @@ class Metadata:
     name: str = "image"
     type: str | None = None
     metadata: MethodMetadata | None = None
+    #: Unrecognized keys captured on read (see
+    #: :attr:`ngff_zarr.v04.zarr_metadata.Metadata.extra`). Carried across
+    #: version conversion so a value read back through ``to_version`` retains
+    #: the field; a read-side validation aid that is never serialized.
+    extra: dict = field(default_factory=dict)
 
     def __post_init__(self):
         """
