@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/axes.schema",
+  "title": "Axes",
+  "description": "OME-Zarr Axes.",
+  "type": "array",
+  "uniqueItems": true,
+  "minItems": 1,
+  "maxItems": 5,
+  "items": {
+    "$ref": "#/$defs/axis"
+  },
+  "$comment": "Ensure that there exist at most three space axes",
+  "oneOf": [
+      {
+        "contains": {
+          "type": "object",
+          "properties": {
+            "type": { "const": "space" }
+          },
+          "required": ["type"]
+        },
+        "minContains": 2,
+        "maxContains": 3
+      },
+      {
+        "contains": {
+          "type": "object",
+          "properties": {
+            "type": { "const": "array" }
+          },
+          "required": ["type"]
+        },
+        "minContains": 2
+      }
+    ],
+  "minContains": 2,
+  "maxContains": 3,
+  "$defs": {
+    "axis": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name of the axis. Must be unique within the coordinate system."
+        },
+        "longName": {
+          "type": "string",
+          "description": "Longer name or description of the axis."
+        },
+        "type": {
+          "type": "string",
+          "description": "Type of the axis. Can be a predefined type or custom type."
+        },
+        "discrete": {
+          "type": "boolean",
+          "description": "Whether the dimension is discrete"
+        },
+        "unit": {
+          "type": "string",
+          "description": "Unit for the axis"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  }
+}

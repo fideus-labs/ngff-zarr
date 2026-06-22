@@ -167,5 +167,7 @@ def has_rfc4_orientation_metadata(axes: list[dict[str, Any]]) -> bool:
             and axis.get("type") == "space"
             and "orientation" in axis
         ):
-            return True
+            # Orientation value has to be non-empty for it to count as valid orientation metadata
+            if axis['orientation']:
+                return True
     return False

@@ -23,6 +23,9 @@ from itkwasm import array_like_to_numpy_array
 from packaging.version import Version
 
 from ._zarr_kwargs import zarr_kwargs
+from ._supported_versions import NgffVersion
+
+
 from ._zarr_open_array import open_array
 from ._zarr_types import StoreLike
 from .config import config
@@ -413,17 +416,20 @@ def _write_with_tensorstore(
 
 
 def _validate_ngff_parameters(
-    version: str,
+    version: str | NgffVersion,
     chunks_per_shard: int | tuple[int, ...] | dict[str, int] | None,
     use_tensorstore: bool,
     store: StoreLike,
 ) -> None:
     """Validate the parameters for the NGFF Zarr generation."""
-    if version != "0.4" and version != "0.5":
+    if isinstance(version, str):
+        version = NgffVersion(version)
+    
+    if version not in [NgffVersion.V04, NgffVersion.V05, NgffVersion.V06]:
         raise ValueError(f"Unsupported version: {version}")
 
     if chunks_per_shard is not None:
-        if version == "0.4":
+        if version == NgffVersion.V04:
             raise ValueError(
                 "Sharding is only supported for OME-Zarr version 0.5 and later"
             )

@@ -29,7 +29,7 @@ def test_to_multiscales_metadata_synced_with_data(shape, chunk_shape):
     )
     for i, dataset in enumerate(multiscales.metadata.datasets):
         image = multiscales.images[i]
-        toplevel_meta_scale = dataset.coordinateTransformations[0].scale
+        toplevel_meta_scale = dataset.coordinateTransformations[0].transformations[0].scale
 
         image_scale_spatial_only = [image.scale[d] for d in ["z", "y", "x"]]
         assert image_scale_spatial_only == toplevel_meta_scale[1:]

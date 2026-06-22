@@ -337,7 +337,24 @@ def from_ome_zarr(
     if not version:
         version = _detect_version(root_attrs).value
 
-    if version == "0.5":
+    # Check if this is an HCS plate structure
+    if _is_hcs_plate(root_attrs):
+        raise ValueError(
+            "The input appears to be an HCS (High Content Screening) plate structure, "
+            "which contains multiple wells and images. Use from_hcs_zarr() instead of from_ngff_zarr() "
+            "to load plate data. For CLI usage, you may need to specify a specific well/image path "
+            "within the plate (e.g., 'plate.zarr/A/1/0' for well A1, field 0)."
+        )
+
+    if version == "0.6":
+        from .v06.zarr_metadata import Metadata
+        # TODO: Restore validation for v0.6
+        metadata_obj, images = Metadata._from_zarr_attrs(
+            root_attrs, store, validate=False)
+        method, method_type, method_metadata = _extract_method_metadata(
+            root_attrs['ome']['multiscales'][0])
+
+    elif version == "0.5":
         from .v05.zarr_metadata import Metadata
 
         # Validate v0.5 structure before accessing
@@ -385,6 +402,7 @@ def from_ome_zarr(
             root_attrs["multiscales"][0]
         )
 
+    metadata_obj = metadata_obj.to_version("0.6")
     metadata_obj.type = method_type
     metadata_obj.metadata = method_metadata
 

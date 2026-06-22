@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+from typing import Optional, Union
 
 from ._supported_versions import NgffVersion
 from .methods import Methods
@@ -35,7 +36,7 @@ def _extract_method_metadata(
     return method, method_type, method_metadata
 
 
-def _parse_omero(omero_data: dict) -> Omero | None:
+def _parse_omero(omero_data: Union[dict, None]) -> Optional[Omero]:
     """Parse OMERO metadata dictionary into Omero dataclass."""
     omero = None
     if isinstance(omero_data, dict) and "channels" in omero_data:

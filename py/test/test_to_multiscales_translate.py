@@ -113,5 +113,5 @@ def test_multiscale_translate():
 
     scaled = [[scale1[k] for k in dims], [translation1[k] for k in dims]]
 
-    check_transformation(set0.coordinateTransformations, original)
-    check_transformation(set1.coordinateTransformations, scaled)
+    check_transformation(set0.coordinateTransformations[0].transformations, original)
+    check_transformation(set1.coordinateTransformations[0].transformations, scaled)

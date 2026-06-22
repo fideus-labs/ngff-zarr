@@ -34,7 +34,7 @@ def test_gaussian_isotropic_scale_factors(input_images):
 
     array0 = zarr.open_array(store=store, path="scale0/image", mode="r", zarr_format=3)
     dimension_names = array0.metadata.dimension_names
-    for idx, ax in enumerate(multiscales.metadata.axes):
+    for idx, ax in enumerate(multiscales.metadata.intrinsic_coordinate_system.axes):
         assert ax.name == dimension_names[idx]
 
 
@@ -59,7 +59,7 @@ def test_gaussian_isotropic_scale_factors_tensorstore(input_images):
             store=tmpdir, path="scale0/image", mode="r", zarr_format=3
         )
         dimension_names = array0.metadata.dimension_names
-        for idx, ax in enumerate(multiscales.metadata.axes):
+        for idx, ax in enumerate(multiscales.metadata.intrinsic_coordinate_system.axes):
             assert ax.name == dimension_names[idx]
 
 

@@ -1,10 +1,15 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from dataclasses import dataclass
+from typing import Union, TYPE_CHECKING
+from dataclasses import dataclass, field
 
 from .._supported_versions import NgffVersion
 from .._zarr_types import StoreLike
 from ..v04.zarr_metadata import Axis, Dataset, MethodMetadata, Omero, Transform
+
+if TYPE_CHECKING:
+    from ..v06.zarr_metadata import Metadata as Metadata_v06
+    from ..v04.zarr_metadata import Metadata as Metadata_v04
 
 
 @dataclass
@@ -16,6 +21,11 @@ class Metadata:
     name: str = "image"
     type: str | None = None
     metadata: MethodMetadata | None = None
+    #: Unrecognized keys captured on read (see
+    #: :attr:`ngff_zarr.v04.zarr_metadata.Metadata.extra`). Carried across
+    #: version conversion so a value read back through ``to_version`` retains
+    #: the field; a read-side validation aid that is never serialized.
+    extra: dict = field(default_factory=dict)
 
     def to_version(self, version: str | NgffVersion) -> "Metadata":
         """Convert metadata to specified NGFF version."""
@@ -26,18 +36,36 @@ class Metadata:
             return self._to_v04()
         if version == NgffVersion.V05:
             return self
-        raise ValueError(f"Unsupported version conversion: 0.5 -> {version}")
+        elif version == NgffVersion.V06:
+            return self._to_v06()
+        else:
+            raise ValueError(f"Unsupported version conversion: 0.5 -> {version}")
 
     @classmethod
-    def from_version(cls, metadata: "Metadata") -> "Metadata":
+    def from_version(cls, metadata: Union["Metadata", "Metadata_v04", "Metadata_v06"]) -> "Metadata":
         """Convert metadata from specified NGFF version."""
         from ..v04.zarr_metadata import Metadata as Metadata_v04
-
+        from ..v06.zarr_metadata import Metadata as Metadata_v06
+        
         if isinstance(metadata, Metadata_v04):
             return cls._from_v04(metadata)
-        raise ValueError(f"Unsupported metadata type: {type(metadata)}")
+        elif isinstance(metadata, Metadata_v06):
+            return cls._from_v06(metadata)
+        else:
+            raise ValueError(f"Unsupported metadata type: {type(metadata)}")
 
-    def _to_v04(self) -> "Metadata":
+    def _to_v06(self) -> "Metadata_v06":
+        """Convert v0.5 metadata to v0.6."""
+        from ..v06.zarr_metadata import Metadata as Metadata_v06
+        return Metadata_v06.from_version(self)
+    
+    @classmethod
+    def _from_v06(cls, metadata_v06: "Metadata_v06") -> "Metadata":
+        """Convert v0.6 metadata to v0.5."""
+        return metadata_v06._to_v05()
+
+
+    def _to_v04(self) -> "Metadata_v04":
         from ..v04.zarr_metadata import Metadata as Metadata_v04
 
         metadata = Metadata_v04(
@@ -52,7 +80,8 @@ class Metadata:
         return metadata
 
     @classmethod
-    def _from_v04(cls, metadata_v04: "Metadata") -> "Metadata":
+    def _from_v04(cls, metadata_v04: "Metadata_v04") -> "Metadata":
+        
         metadata = cls(
             axes=metadata_v04.axes,
             datasets=metadata_v04.datasets,

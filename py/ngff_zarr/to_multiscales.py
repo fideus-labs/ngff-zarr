@@ -41,7 +41,16 @@ from .ngff_image import NgffImage
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
 from .task_count import task_count
 from .to_ngff_image import to_ngff_image
-from .v04.zarr_metadata import Axis, Dataset, Metadata, Scale, Translation
+from .v06.zarr_metadata import (
+    Axis,
+    Dataset,
+    Metadata,
+    Scale,
+    Translation,
+    TransformSequence,
+    CoordinateSystem,
+    CoordinateSystemIdentifier,
+)
 
 
 def _ngff_image_scale_factors(ngff_image, min_length, out_chunks):
@@ -668,6 +677,7 @@ def to_multiscales(
             msg = f"Dimension identifier is not valid: {dim}"
             raise KeyError(msg)
         axes.append(axis)
+    coordinate_system = CoordinateSystem(name="intrinsic", axes=axes)
 
     datasets = []
     for index, image in enumerate(images):
@@ -684,9 +694,17 @@ def to_multiscales(
                 translation.append(image.translation[dim])
             else:
                 translation.append(0.0)
-        coordinateTransformations = [Scale(scale), Translation(translation)]
+        coordinateTransformations = TransformSequence(
+            name=f"scale{index}_to_intrinsic",
+            transformations=[
+                Scale(scale=scale),
+                Translation(translation=translation)
+                ],
+            input=CoordinateSystemIdentifier(path=path),
+            output=CoordinateSystemIdentifier(name="intrinsic"),
+        )
         dataset = Dataset(
-            path=path, coordinateTransformations=coordinateTransformations
+            path=path, coordinateTransformations=[coordinateTransformations]
         )
         datasets.append(dataset)
     # Convert method enum to lowercase string for the type field
@@ -697,7 +715,7 @@ def to_multiscales(
         method_metadata = get_method_metadata(method)
 
     metadata = Metadata(
-        axes=axes,
+        coordinateSystems=[coordinate_system],
         datasets=datasets,
         name=ngff_image.name,
         coordinateTransformations=None,

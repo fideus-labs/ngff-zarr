@@ -14,6 +14,8 @@ from ..rfc4 import AnatomicalOrientation
 
 if TYPE_CHECKING:
     from ..ngff_image import NgffImage
+    from ..v05.zarr_metadata import Metadata as Metadata_v05
+    from ..v06.zarr_metadata import Metadata as Metadata_v06
 
 logger = logging.getLogger(__name__)
 
@@ -339,7 +341,8 @@ class Metadata:
     #: a validation aid only and is never serialized back to the store.
     extra: dict = field(default_factory=dict)
 
-    def to_version(self, version: str | NgffVersion) -> "Metadata":
+
+    def to_version(self, version: Union[str, NgffVersion]) -> Union["Metadata", "Metadata_v05", "Metadata_v06"]:
         if isinstance(version, str):
             # raise error for invalid version string
             version = NgffVersion(version)
@@ -348,17 +351,23 @@ class Metadata:
             return self
         if version == NgffVersion.V05:
             return self._to_v05()
-        raise ValueError(f"Unsupported version conversion: 0.4 -> {version}")
+        elif version == NgffVersion.V06:
+            return self._to_v05()._to_v06()
+        else:
+            raise ValueError(f"Unsupported version conversion: 0.4 -> {version}")
 
     @classmethod
-    def from_version(cls, metadata: "Metadata") -> "Metadata":
+    def from_version(cls, metadata: Union["Metadata", "Metadata_v05", "Metadata_v06"]) -> "Metadata":
         from ..v05.zarr_metadata import Metadata as Metadata_v05
+        from ..v06.zarr_metadata import Metadata as Metadata_v06
 
         if isinstance(metadata, Metadata_v05):
             return cls._from_v05(metadata)
+        if isinstance(metadata, Metadata_v06):
+            return cls._from_v05(Metadata_v05._from_v06(metadata))
         raise ValueError(f"Unsupported metadata type: {type(metadata)}")
 
-    def _to_v05(self) -> "Metadata":
+    def _to_v05(self) -> "Metadata_v05":
         from ..v05.zarr_metadata import Metadata as Metadata_v05
 
         metadata = Metadata_v05(
@@ -373,7 +382,8 @@ class Metadata:
         return metadata
 
     @classmethod
-    def _from_v05(cls, metadata_v05: "Metadata") -> "Metadata":
+    def _from_v05(cls, metadata_v05: "Metadata_v05") -> "Metadata":
+        
         metadata = cls(
             axes=metadata_v05.axes,
             datasets=metadata_v05.datasets,
