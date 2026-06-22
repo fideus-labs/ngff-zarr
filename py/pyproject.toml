@@ -39,7 +39,7 @@ dependencies = [
   "rich",
   "rich-argparse",
   "typing_extensions",
-  "zarr",
+  "zarr>=3.0.0b2",
 ]
 dynamic = ["version"]
 
