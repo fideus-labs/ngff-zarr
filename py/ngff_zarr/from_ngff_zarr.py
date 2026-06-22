@@ -347,6 +347,7 @@ def from_ome_zarr(
             root_attrs["multiscales"][0]
         )
 
+    metadata_obj = metadata_obj.to_version("0.6")
     metadata_obj.type = method_type
     metadata_obj.metadata = method_metadata
 
