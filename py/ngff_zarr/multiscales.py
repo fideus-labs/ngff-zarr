@@ -11,12 +11,13 @@ from .methods import Methods
 from .ngff_image import NgffImage
 from .v04.zarr_metadata import Metadata as Metadata_v04
 from .v05.zarr_metadata import Metadata as Metadata_v05
+from .v06.zarr_metadata import Metadata as Metadata_v06
 
 
 @dataclass
 class NgffMultiscales:
     images: list[NgffImage]
-    metadata: Metadata_v04 | Metadata_v05
+    metadata: Metadata_v04 | Metadata_v05 | Metadata_v06
     scale_factors: Sequence[dict[str, int] | int] | None = None
     method: Methods | None = None
     chunks: (
