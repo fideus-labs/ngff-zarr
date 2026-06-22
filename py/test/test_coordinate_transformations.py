@@ -103,6 +103,3 @@ def test_transform_serialization(transform):
         assert imported_transforms[0].type == transform.type
         assert imported_transforms[0].input == CoordinateSystemIdentifier(name=input_cs.name)
         assert imported_transforms[0].output == CoordinateSystemIdentifier(name=output_cs.name)
-
-if __name__ == "__main__":
-    pytest.main([__file__])
