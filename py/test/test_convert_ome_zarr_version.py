@@ -36,7 +36,3 @@ def test_conversion(input_version, output_version):
     new_store = zarr.storage.MemoryStore()
     to_ome_zarr(new_store, multiscales, version=output_version)
     from_ome_zarr(new_store, validate=True, version=output_version)
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])
