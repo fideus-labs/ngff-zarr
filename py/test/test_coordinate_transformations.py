@@ -4,7 +4,17 @@ import pytest
 import tempfile
 import numpy as np
 import ngff_zarr as nz
-from ngff_zarr.v06.zarr_metadata import Scale, Translation, Rotation, Affine, Identity, TransformSequence, CoordinateSystem, Axis
+from ngff_zarr.v06.zarr_metadata import (
+  Scale,
+  Translation,
+  Rotation,
+  Affine,
+  Identity,
+  TransformSequence,
+  CoordinateSystem,
+  CoordinateSystemIdentifier,
+  Axis
+)
 
 rng = np.random.default_rng(12345)
 
@@ -74,9 +84,9 @@ def test_transform_serialization(transform):
             Axis(name="x", type="space"),
         ]
     )
-    input_cs = multiscales.metadata.coordinateSystems[0]
-    transform.input = input_cs.name
-    transform.output = output_cs.name
+    input_cs = multiscales.metadata.intrinsic_coordinate_system
+    transform.input = CoordinateSystemIdentifier(name=input_cs.name)
+    transform.output = CoordinateSystemIdentifier(name=output_cs.name)
     transform.name = f"additional_{transform.type}"
 
     multiscales.metadata.coordinateSystems.append(output_cs)
@@ -91,8 +101,8 @@ def test_transform_serialization(transform):
         assert len(imported.metadata.coordinateSystems) == 2
 
         assert imported_transforms[0].type == transform.type
-        assert imported_transforms[0].input == input_cs.name
-        assert imported_transforms[0].output == output_cs.name
+        assert imported_transforms[0].input == CoordinateSystemIdentifier(name=input_cs.name)
+        assert imported_transforms[0].output == CoordinateSystemIdentifier(name=output_cs.name)
 
 if __name__ == "__main__":
     pytest.main([__file__])

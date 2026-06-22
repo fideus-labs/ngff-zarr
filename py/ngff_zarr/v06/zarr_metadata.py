@@ -225,9 +225,9 @@ class Metadata:
                 transformations=[
                     Scale(scale=scale),
                     Translation(translation=translation)],
-                input=ds.path,
+                input=CoordinateSystemIdentifier(path=ds.path),
                 name=f"scale{index}_to_intrinsic",
-                output=coordinate_systems[0].name
+                output=CoordinateSystemIdentifier(name=coordinate_systems[0].name)
             )
 
             datasets.append(
@@ -416,13 +416,25 @@ class Metadata:
             # because coordinate system may not exist for multiscale transforms
             # where input is a dataset path
             coordinate_system_names = [cs.name for cs in coordinateSystems]
-            input = transform.get("input", None)
-            if input in coordinate_system_names:
-                input = [cs.name for cs in coordinateSystems if cs.name == input.name][0]
+            tf_input = transform.get("input", None)
+            tf_output = transform.get("output", None)
 
-            output = transform.get("output", None)
-            if output in coordinate_system_names:
-                output = [cs.name for cs in coordinateSystems if cs.name == output.name][0]
+            input = None
+            output = None
+            if isinstance(tf_input, dict):
+                input = CoordinateSystemIdentifier()
+                if "name" in tf_input and tf_input["name"] in coordinate_system_names:
+                    input.name = tf_input["name"]
+                if "path" in tf_input:
+                    input.path = tf_input["path"]
+
+            if isinstance(tf_output, dict):
+                output = CoordinateSystemIdentifier()
+                if "name" in tf_output and tf_output["name"] in coordinate_system_names:
+                    output.name = tf_output["name"]
+                if "path" in tf_output:
+                    output.path = tf_output["path"]
+
             transformation.input = input
             transformation.output = output
             parsed_transforms.append(transformation)

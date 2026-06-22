@@ -41,7 +41,16 @@ from .ngff_image import NgffImage
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
 from .task_count import task_count
 from .to_ngff_image import to_ngff_image
-from .v06.zarr_metadata import Axis, Dataset, Metadata, Scale, Translation, TransformSequence, CoordinateSystem
+from .v06.zarr_metadata import (
+    Axis,
+    Dataset,
+    Metadata,
+    Scale,
+    Translation,
+    TransformSequence,
+    CoordinateSystem,
+    CoordinateSystemIdentifier,
+)
 
 
 def _ngff_image_scale_factors(ngff_image, min_length, out_chunks):
@@ -691,8 +700,8 @@ def to_multiscales(
                 Scale(scale=scale),
                 Translation(translation=translation)
                 ],
-            input=path,
-            output="intrinsic",
+            input=CoordinateSystemIdentifier(path=path),
+            output=CoordinateSystemIdentifier(name="intrinsic"),
         )
         dataset = Dataset(
             path=path, coordinateTransformations=[coordinateTransformations]
