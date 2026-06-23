@@ -7,6 +7,7 @@ import { NgffVersion } from "../types/supported_versions.ts";
 import {
   fromZarrAttrsV04,
   fromZarrAttrsV05,
+  fromZarrAttrsV06,
 } from "../utils/from_zarr_attrs.ts";
 import {
   detectVersion,
@@ -20,7 +21,7 @@ export interface FromOmeZarrOptions {
   /** Enable schema validation of OME-Zarr metadata. */
   validate?: boolean;
   /** Expected OME-Zarr version. */
-  version?: "0.4" | "0.5";
+  version?: "0.4" | "0.5" | "0.6";
   /**
    * Optional decoded-chunk cache passed to `zarrGet` calls.
    *
@@ -137,7 +138,9 @@ export async function fromOmeZarr(
 
     // Parse metadata using version-specific function
     let result;
-    if (detectedVersion === NgffVersion.V05) {
+    if (detectedVersion === NgffVersion.V06) {
+      result = await fromZarrAttrsV06(rootAttrs, resolvedStore, validate);
+    } else if (detectedVersion === NgffVersion.V05) {
       result = await fromZarrAttrsV05(rootAttrs, resolvedStore, validate);
     } else {
       result = await fromZarrAttrsV04(rootAttrs, resolvedStore, validate);

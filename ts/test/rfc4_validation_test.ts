@@ -46,6 +46,37 @@ Deno.test("hasRfc4OrientationMetadata - returns true when spatial axes have orie
   assertEquals(hasRfc4OrientationMetadata(axesWithOrientation), true);
 });
 
+Deno.test("hasRfc4OrientationMetadata - empty or null orientation does not count", () => {
+  // Mirrors the Python `if axis['orientation']:` guard: a spatial axis whose
+  // orientation is present but falsy ({}, null, "") carries no real
+  // orientation metadata and must not trigger RFC-4 validation.
+  const emptyObject = [
+    { name: "x", type: "space", unit: "micrometer", orientation: {} },
+  ];
+  assertEquals(hasRfc4OrientationMetadata(emptyObject), false);
+
+  const nullOrientation = [
+    { name: "y", type: "space", unit: "micrometer", orientation: null },
+  ];
+  assertEquals(hasRfc4OrientationMetadata(nullOrientation), false);
+
+  const emptyString = [
+    { name: "z", type: "space", unit: "micrometer", orientation: "" },
+  ];
+  assertEquals(hasRfc4OrientationMetadata(emptyString), false);
+
+  // A non-empty orientation on the same axis shape still counts.
+  const populated = [
+    {
+      name: "x",
+      type: "space",
+      unit: "micrometer",
+      orientation: { type: "anatomical", value: "right-to-left" },
+    },
+  ];
+  assertEquals(hasRfc4OrientationMetadata(populated), true);
+});
+
 Deno.test("validateRfc4Orientation - valid LPS orientation passes", () => {
   const axesLps = [
     {

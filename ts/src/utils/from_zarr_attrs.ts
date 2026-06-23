@@ -8,6 +8,7 @@
 import * as zarr from "zarrita";
 import type {
   Axis,
+  CoordinateSystem,
   Dataset,
   FromZarrAttrsResult,
   MetadataInterface,
@@ -15,8 +16,10 @@ import type {
   Scale,
   Transform,
   Translation,
+  V06Transform,
 } from "../types/zarr_metadata.ts";
 import { SUPPORTED_DIMS } from "../types/zarr_metadata.ts";
+import { extractScaleTranslation, parseV06Transforms } from "./v06_metadata.ts";
 import { NgffImage } from "../types/ngff_image.ts";
 import type { AxesType, SupportedDims, Units } from "../types/units.ts";
 import { parseOmero } from "./parse_metadata.ts";
@@ -527,4 +530,248 @@ export async function fromZarrAttrsV05(
   result.metadata.version = "0.5";
 
   return result;
+}
+
+/**
+ * Parse Metadata and NgffImages from OME-Zarr v0.6 (RFC 5) root attributes.
+ *
+ * Unlike v0.4/v0.5, a v0.6 multiscale entry carries `coordinateSystems` instead
+ * of a top-level `axes` list, and maps each dataset's array index space into the
+ * implicit "intrinsic" system through a `sequence` of scale + translation. This
+ * reader recovers the version-agnostic in-memory model (axes + per-dataset scale
+ * and translation) while preserving the coordinate systems and any top-level
+ * transformations for round-tripping. Mirrors the Python
+ * `v06.zarr_metadata.Metadata._from_zarr_attrs`.
+ */
+export async function fromZarrAttrsV06(
+  rootAttrs: Record<string, unknown>,
+  store: MemoryStore | zarr.FetchStore | zarr.Readable,
+  validate = false,
+): Promise<FromZarrAttrsResult> {
+  // v0.6 wraps the multiscales under the "ome" key; tolerate a root-level
+  // layout for symmetry with the v0.5 reader.
+  const omeData = rootAttrs.ome as Record<string, unknown> | undefined;
+  let entry: Record<string, unknown>;
+  let omeroRaw: unknown;
+  if (omeData && "multiscales" in omeData) {
+    const multiscales = omeData.multiscales as unknown[];
+    if (!Array.isArray(multiscales) || multiscales.length === 0) {
+      throw new Error("No multiscales metadata found in root attributes");
+    }
+    entry = multiscales[0] as Record<string, unknown>;
+    omeroRaw = omeData.omero ?? rootAttrs.omero;
+  } else if ("multiscales" in rootAttrs) {
+    const multiscales = rootAttrs.multiscales as unknown[];
+    if (!Array.isArray(multiscales) || multiscales.length === 0) {
+      throw new Error("No multiscales metadata found in root attributes");
+    }
+    entry = multiscales[0] as Record<string, unknown>;
+    omeroRaw = rootAttrs.omero;
+  } else {
+    throw new Error(
+      "No multiscales metadata found in root attributes for v0.6 format",
+    );
+  }
+
+  const coordinateSystemsRaw = entry.coordinateSystems as
+    | Array<Record<string, unknown>>
+    | undefined;
+  if (
+    !Array.isArray(coordinateSystemsRaw) || coordinateSystemsRaw.length === 0
+  ) {
+    throw new Error(
+      "Invalid OME-Zarr v0.6 metadata: missing 'coordinateSystems' in " +
+        "multiscales metadata.",
+    );
+  }
+
+  const coordinateSystems: CoordinateSystem[] = coordinateSystemsRaw.map(
+    (cs, csIndex) => {
+      // Guard the untrusted-input boundary: a missing/non-array `axes` would
+      // otherwise surface as a generic `.map` TypeError rather than a clear
+      // metadata error. (Per-axis name/type are still coerced, mirroring the
+      // v0.4 reader's tolerance.)
+      if (!Array.isArray(cs.axes)) {
+        throw new Error(
+          "Invalid OME-Zarr v0.6 metadata: " +
+            `coordinateSystems[${csIndex}].axes must be an array.`,
+        );
+      }
+      return {
+        name: String(cs.name),
+        axes: (cs.axes as Array<Record<string, unknown>>).map((axis) => ({
+          name: String(axis.name) as SupportedDims,
+          type: String(axis.type) as AxesType,
+          unit: axis.unit as Units | undefined,
+          ...(axis.orientation !== undefined && axis.orientation !== null
+            ? { orientation: axis.orientation as Axis["orientation"] }
+            : {}),
+        })),
+      };
+    },
+  );
+  const coordinateSystemNames = coordinateSystems.map((cs) => cs.name);
+
+  // The intrinsic coordinate system (the first one) backs the multiscale image
+  // dimensions, units, and anatomical orientations.
+  const intrinsic = coordinateSystems[0];
+  const intrinsicRawAxes = coordinateSystemsRaw[0].axes as Array<
+    Record<string, unknown> | string
+  >;
+  const dims = intrinsic.axes.map((axis) => String(axis.name));
+
+  const units: Record<string, Units> = {};
+  for (const axis of intrinsic.axes) {
+    if (axis.unit !== undefined && axis.unit !== null) {
+      units[axis.name] = axis.unit;
+    }
+  }
+  const axesOrientations = extractOrientationsFromAxes(intrinsicRawAxes);
+
+  // RFC 4 anatomical-orientation validation, mirroring the v0.4 reader.
+  if (validate) {
+    const axesDicts = intrinsicRawAxes.filter(
+      (axis): axis is Record<string, unknown> =>
+        typeof axis === "object" && axis !== null,
+    );
+    if (axesDicts.length > 0 && hasRfc4OrientationMetadata(axesDicts)) {
+      validateRfc4Orientation(axesDicts);
+    }
+  }
+
+  // Open root group for array access (reuse consolidated metadata if present).
+  let optimizedStore: MemoryStore | zarr.FetchStore | zarr.Readable;
+  try {
+    const tryWithConsolidated: ((s: unknown) => Promise<unknown>) | undefined =
+      (zarr as unknown as {
+        tryWithConsolidated?: (s: unknown) => Promise<unknown>;
+      }).tryWithConsolidated;
+    optimizedStore = tryWithConsolidated
+      ? (await tryWithConsolidated(store)) as
+        | MemoryStore
+        | zarr.FetchStore
+        | zarr.Readable
+      : store;
+  } catch {
+    optimizedStore = store;
+  }
+  const root = await zarr.open(optimizedStore as zarr.Readable, {
+    kind: "group",
+  });
+
+  const datasetsData = entry.datasets as Array<Record<string, unknown>>;
+  if (!Array.isArray(datasetsData) || datasetsData.length === 0) {
+    throw new Error(
+      "Invalid OME-Zarr metadata: 'datasets' must be a non-empty array",
+    );
+  }
+
+  const images: NgffImage[] = [];
+  const datasets: Dataset[] = [];
+
+  for (const dataset of datasetsData) {
+    const path = String(dataset.path);
+    const zarrArray = (await zarr.open(root.resolve(path), {
+      kind: "array",
+    })) as zarr.Array<zarr.DataType, zarr.Readable>;
+
+    let scaleValues = dims.map(() => 1.0);
+    let translationValues = dims.map(() => 0.0);
+    if ("coordinateTransformations" in dataset) {
+      if (!Array.isArray(dataset.coordinateTransformations)) {
+        throw new Error(
+          "Invalid OME-Zarr v0.6 metadata: " +
+            `dataset '${path}' coordinateTransformations must be an array.`,
+        );
+      }
+      const parsed = parseV06Transforms(
+        dataset.coordinateTransformations as Array<Record<string, unknown>>,
+        coordinateSystemNames,
+      );
+      const extracted = extractScaleTranslation(parsed, dims);
+      scaleValues = extracted.scale;
+      translationValues = extracted.translation;
+    }
+
+    const scale: Record<string, number> = {};
+    const translation: Record<string, number> = {};
+    dims.forEach((dim, i) => {
+      scale[dim] = i < scaleValues.length ? scaleValues[i] : 1.0;
+      translation[dim] = i < translationValues.length
+        ? translationValues[i]
+        : 0.0;
+    });
+
+    datasets.push({
+      path,
+      coordinateTransformations: [
+        { type: "scale", scale: scaleValues } as Scale,
+        { type: "translation", translation: translationValues } as Translation,
+      ],
+    });
+
+    images.push(
+      new NgffImage({
+        data: zarrArray,
+        dims,
+        scale,
+        translation,
+        name: (entry.name as string) ?? "image",
+        axesUnits: Object.keys(units).length > 0 ? units : undefined,
+        axesOrientations,
+        computedCallbacks: undefined,
+      }),
+    );
+  }
+
+  let coordinateTransformations: V06Transform[] | undefined;
+  if ("coordinateTransformations" in entry) {
+    if (!Array.isArray(entry.coordinateTransformations)) {
+      throw new Error(
+        "Invalid OME-Zarr v0.6 metadata: multiscales " +
+          "coordinateTransformations must be an array.",
+      );
+    }
+    coordinateTransformations = parseV06Transforms(
+      entry.coordinateTransformations as Array<Record<string, unknown>>,
+      coordinateSystemNames,
+    );
+  }
+
+  const omero: Omero | undefined = parseOmero(
+    omeroRaw as Record<string, unknown> | undefined,
+  );
+
+  const metadata: MetadataInterface = {
+    axes: intrinsic.axes,
+    datasets,
+    coordinateSystems,
+    coordinateTransformations,
+    name: (entry.name as string) ?? "image",
+    version: "0.6",
+    omero,
+    ...(entry.type !== undefined && entry.type !== null
+      ? { type: String(entry.type) }
+      : {}),
+    ...(entry.metadata !== undefined && entry.metadata !== null
+      ? {
+        metadata: entry.metadata as {
+          description: string;
+          method: string;
+          version: string;
+        },
+      }
+      : {}),
+  };
+
+  // Run the structural pass against the normalized metadata (axes + per-dataset
+  // scale/translation), matching the v0.4/v0.5 readers. The metadata is
+  // reconstructed into the same shape, so the same rules apply. Full RFC-5 wire
+  // validation (coordinate-system graphs, arbitrary transform chains) remains
+  // deferred.
+  if (validate) {
+    validateStructural(metadata, { level: ValidationLevel.Strict });
+  }
+
+  return { metadata, images };
 }

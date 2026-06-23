@@ -10,6 +10,7 @@ import * as zarr from "zarrita";
 import type { NgffMultiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { Axis } from "../types/zarr_metadata.ts";
+import { legacyTopLevelTransforms } from "../utils/v06_metadata.ts";
 import type { MemoryStore } from "./rfc9_zip.ts";
 
 /**
@@ -75,13 +76,22 @@ export function prepareRfc9Metadata(
   // Process axes (orientation included when present)
   const processedAxes = processAxes(multiscales.metadata.axes);
 
+  // RFC-9 (.ozx) is always v0.5, which only supports the simple
+  // scale/translation subset of top-level transforms. Reduce any v0.6-only
+  // transforms (rotation/affine/sequence, or input/output/name on a
+  // scale/translation) to that subset so they cannot leak into the store,
+  // matching the v0.4/v0.5 branch of the regular writer.
+  const legacyTransforms = legacyTopLevelTransforms(
+    multiscales.metadata.coordinateTransformations,
+  );
+
   return {
     version: _version,
     name: multiscales.metadata.name,
     axes: processedAxes,
     datasets: multiscales.metadata.datasets,
-    ...(multiscales.metadata.coordinateTransformations && {
-      coordinateTransformations: multiscales.metadata.coordinateTransformations,
+    ...(legacyTransforms && {
+      coordinateTransformations: legacyTransforms,
     }),
     ...(multiscales.metadata.type && {
       type: multiscales.metadata.type,

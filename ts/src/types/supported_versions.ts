@@ -11,7 +11,8 @@ export enum NgffVersion {
   V03 = "0.3",
   V04 = "0.4",
   V05 = "0.5",
-  LATEST = "0.5",
+  V06 = "0.6",
+  LATEST = "0.6",
 }
 
 /**
@@ -23,6 +24,7 @@ export const SUPPORTED_VERSIONS: readonly NgffVersion[] = [
   NgffVersion.V03,
   NgffVersion.V04,
   NgffVersion.V05,
+  NgffVersion.V06,
 ] as const;
 
 /**

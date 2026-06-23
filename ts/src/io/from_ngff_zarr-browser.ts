@@ -10,6 +10,7 @@ import { NgffImage } from "../types/ngff_image.ts";
 import type { Units } from "../types/units.ts";
 import type { Metadata, Omero } from "../types/zarr_metadata.ts";
 import { extractMethodMetadata } from "../utils/parse_metadata.ts";
+import { fromZarrAttrsV06 } from "../utils/from_zarr_attrs.ts";
 
 export type { ChunkCache } from "../utils/worker_pool.ts";
 
@@ -17,7 +18,7 @@ export interface FromOmeZarrOptions {
   /** Enable schema validation of OME-Zarr metadata. */
   validate?: boolean;
   /** Expected OME-Zarr version. */
-  version?: "0.4" | "0.5";
+  version?: "0.4" | "0.5" | "0.6";
   /**
    * Optional decoded-chunk cache passed to `zarrGet` calls.
    *
@@ -88,6 +89,47 @@ export async function fromOmeZarr(
       kind: "group",
     });
     const attrs = root.attrs as unknown;
+
+    // OME-Zarr v0.6 (RFC 5) uses a different on-disk shape (coordinateSystems +
+    // per-dataset sequence transforms) than the inline v0.4/v0.5 parser below,
+    // so delegate to the shared, environment-agnostic v0.6 reader.
+    const rootAttrsForVersion = attrs as Record<string, unknown>;
+    const omeForVersion = rootAttrsForVersion.ome as
+      | Record<string, unknown>
+      | undefined;
+    if (omeForVersion && omeForVersion.version === "0.6") {
+      // Gate the requested-version mismatch behind `validate`, matching the node
+      // reader and the v0.4/v0.5 path below; otherwise behavior diverges by
+      // version and environment.
+      if (validate && version && version !== "0.6") {
+        throw new Error(`Expected OME-Zarr version ${version}, but found 0.6`);
+      }
+      const result = await fromZarrAttrsV06(
+        rootAttrsForVersion,
+        resolvedStore,
+        validate,
+      );
+      const entry = (omeForVersion.multiscales as unknown[])[0] as Record<
+        string,
+        unknown
+      >;
+      const { method, methodType, methodMetadata } = extractMethodMetadata(
+        entry,
+      );
+      if (methodType) {
+        result.metadata.type = methodType;
+      }
+      if (methodMetadata) {
+        result.metadata.metadata = methodMetadata;
+      }
+      return new NgffMultiscales({
+        images: result.images,
+        metadata: result.metadata,
+        scaleFactors: undefined,
+        method,
+        chunks: undefined,
+      });
+    }
 
     // Handle both 0.4 (multiscales at root) and 0.5 (multiscales under ome) formats
     let multiscalesArray: unknown[];

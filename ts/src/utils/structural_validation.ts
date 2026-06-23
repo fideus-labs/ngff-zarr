@@ -29,6 +29,7 @@ import {
   type Dataset,
   type Metadata,
   type Transform,
+  type V06Transform,
   validateColor,
 } from "../types/zarr_metadata.ts";
 import type { PlateMetadata, WellMetadata } from "../types/hcs.ts";
@@ -150,7 +151,7 @@ export class ValidationError extends Error {
  * transform's vector length disagrees with `axesLen`; otherwise `null`.
  */
 function transformLenMismatch(
-  transform: Transform,
+  transform: Transform | V06Transform,
   axesLen: number,
 ): [kind: string, actual: number] | null {
   if (transform.type === "scale") {
