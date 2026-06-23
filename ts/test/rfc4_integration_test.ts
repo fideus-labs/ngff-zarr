@@ -136,6 +136,62 @@ async function createMultiscalesWithOrientation(
   return { multiscales, store };
 }
 
+// Helper function to create a NgffMultiscales without any orientation
+async function createMultiscalesWithoutOrientation(
+  dims: string[] = ["z", "y", "x"],
+  shape: number[] = [10, 20, 30],
+): Promise<{ multiscales: NgffMultiscales; store: MemoryStore }> {
+  const store: MemoryStore = new Map();
+  const zarrArray = await createTestZarrArray(store, "test_array", shape);
+
+  const scale: Record<string, number> = {};
+  const translation: Record<string, number> = {};
+  dims.forEach((dim) => {
+    scale[dim] = 1.0;
+    translation[dim] = 0.0;
+  });
+
+  const ngffImage = new NgffImage({
+    data: zarrArray,
+    dims,
+    scale,
+    translation,
+    name: "test_no_orientation",
+    axesUnits: undefined,
+    axesOrientations: undefined,
+    computedCallbacks: undefined,
+  });
+
+  const axes = dims.map((dim) => {
+    if (dim === "x" || dim === "y" || dim === "z") {
+      return createAxis(dim as "x" | "y" | "z", "space", "micrometer");
+    } else if (dim === "c") {
+      return createAxis(dim as "c", "channel");
+    } else if (dim === "t") {
+      return createAxis(dim as "t", "time", "second");
+    } else {
+      throw new Error(`Unsupported dimension: ${dim}`);
+    }
+  });
+
+  const dataset = createDataset(
+    "scale0",
+    dims.map((dim) => scale[dim]),
+    dims.map((dim) => translation[dim]),
+  );
+  const metadata = createMetadata(axes, [dataset], "test_no_orientation");
+
+  const multiscales = new NgffMultiscales({
+    images: [ngffImage],
+    metadata,
+    scaleFactors: undefined,
+    method: undefined,
+    chunks: undefined,
+  });
+
+  return { multiscales, store };
+}
+
 // Helper to read zarr attributes
 async function readZarrAttrs(
   store: MemoryStore,
@@ -155,7 +211,7 @@ function getNgffMultiscalesArray(
   return attrs.multiscales as unknown[];
 }
 
-Deno.test("toNgffZarr writes orientation when enabledRfcs includes 4", async () => {
+Deno.test("toNgffZarr writes orientation automatically when present", async () => {
   const orientations: Record<string, AnatomicalOrientation> = {
     x: createAnatomicalOrientation(AnatomicalOrientationValues.LeftToRight),
     y: createAnatomicalOrientation(
@@ -168,9 +224,9 @@ Deno.test("toNgffZarr writes orientation when enabledRfcs includes 4", async () 
 
   const { multiscales } = await createMultiscalesWithOrientation(orientations);
 
-  // Write to a new store with RFC 4 enabled
+  // No opt-in flag: orientation is written because it is present
   const outputStore: MemoryStore = new Map();
-  await toNgffZarr(outputStore, multiscales, { enabledRfcs: [4] });
+  await toNgffZarr(outputStore, multiscales, {});
 
   // Read back and check metadata
   const attrs = await readZarrAttrs(outputStore);
@@ -222,24 +278,11 @@ Deno.test("toNgffZarr writes orientation when enabledRfcs includes 4", async () 
   }
 });
 
-Deno.test("toNgffZarr omits orientation when enabledRfcs is undefined", async () => {
-  const orientations: Record<string, AnatomicalOrientation> = {
-    x: createAnatomicalOrientation(AnatomicalOrientationValues.LeftToRight),
-    y: createAnatomicalOrientation(
-      AnatomicalOrientationValues.PosteriorToAnterior,
-    ),
-    z: createAnatomicalOrientation(
-      AnatomicalOrientationValues.SuperiorToInferior,
-    ),
-  };
+Deno.test("toNgffZarr omits orientation when none is present", async () => {
+  const { multiscales } = await createMultiscalesWithoutOrientation();
 
-  const { multiscales } = await createMultiscalesWithOrientation(orientations);
-
-  // Write to a new store WITHOUT RFC 4 enabled (default)
   const outputStore: MemoryStore = new Map();
-  await toNgffZarr(outputStore, multiscales, {
-    // enabledRfcs not specified
-  });
+  await toNgffZarr(outputStore, multiscales, {});
 
   // Read back and check metadata
   const attrs = await readZarrAttrs(outputStore);
@@ -254,76 +297,9 @@ Deno.test("toNgffZarr omits orientation when enabledRfcs is undefined", async ()
     assertEquals(
       "orientation" in axis,
       false,
-      `Axis ${axis.name} should not have orientation when RFC 4 is disabled`,
+      `Axis ${axis.name} should not have orientation when none was specified`,
     );
   }
-});
-
-Deno.test("toNgffZarr omits orientation when enabledRfcs is empty", async () => {
-  const orientations: Record<string, AnatomicalOrientation> = {
-    x: createAnatomicalOrientation(AnatomicalOrientationValues.LeftToRight),
-    y: createAnatomicalOrientation(
-      AnatomicalOrientationValues.PosteriorToAnterior,
-    ),
-    z: createAnatomicalOrientation(
-      AnatomicalOrientationValues.SuperiorToInferior,
-    ),
-  };
-
-  const { multiscales } = await createMultiscalesWithOrientation(orientations);
-
-  // Write to a new store with empty enabledRfcs
-  const outputStore: MemoryStore = new Map();
-  await toNgffZarr(outputStore, multiscales, { enabledRfcs: [] });
-
-  // Read back and check metadata
-  const attrs = await readZarrAttrs(outputStore);
-  const multiscalesArray = getNgffMultiscalesArray(attrs);
-  const multiscalesMetadata = multiscalesArray[0] as Record<string, unknown>;
-  const axesMetadata = multiscalesMetadata.axes as Array<
-    Record<string, unknown>
-  >;
-
-  // Check that no spatial axes have orientation
-  for (const axis of axesMetadata) {
-    assertEquals(
-      "orientation" in axis,
-      false,
-      `Axis ${axis.name} should not have orientation when RFC 4 is disabled`,
-    );
-  }
-});
-
-Deno.test("toNgffZarr writes orientation when enabledRfcs=[1,2,4,5]", async () => {
-  const orientations: Record<string, AnatomicalOrientation> = {
-    x: createAnatomicalOrientation(AnatomicalOrientationValues.LeftToRight),
-    y: createAnatomicalOrientation(
-      AnatomicalOrientationValues.PosteriorToAnterior,
-    ),
-    z: createAnatomicalOrientation(
-      AnatomicalOrientationValues.SuperiorToInferior,
-    ),
-  };
-
-  const { multiscales } = await createMultiscalesWithOrientation(orientations);
-
-  // Write to a new store with RFC 4 enabled alongside other RFCs
-  const outputStore: MemoryStore = new Map();
-  await toNgffZarr(outputStore, multiscales, { enabledRfcs: [1, 2, 4, 5] });
-
-  // Read back and check metadata
-  const attrs = await readZarrAttrs(outputStore);
-  const multiscalesArray = getNgffMultiscalesArray(attrs);
-  const multiscalesMetadata = multiscalesArray[0] as Record<string, unknown>;
-  const axesMetadata = multiscalesMetadata.axes as Array<
-    Record<string, unknown>
-  >;
-
-  // Find spatial axes and check for orientation
-  const spatialAxesWithOrientation = axesMetadata.filter(
-    (ax) => ax.orientation,
-  );
-  assertEquals(spatialAxesWithOrientation.length, 3); // x, y, z should have orientation
 });
 
 // Round-trip integration tests (from py/test/test_rfc4_integration_validation.py)
@@ -331,9 +307,8 @@ Deno.test("toNgffZarr writes orientation when enabledRfcs=[1,2,4,5]", async () =
 Deno.test("Round-trip with LPS orientation - write and read back", async () => {
   const { multiscales } = await createMultiscalesWithOrientation(LPS);
 
-  // Write to store with RFC 4 enabled
   const outputStore: MemoryStore = new Map();
-  await toNgffZarr(outputStore, multiscales, { enabledRfcs: [4] });
+  await toNgffZarr(outputStore, multiscales, {});
 
   // Read back with validation enabled - should pass
   const multiscalesBack = await fromNgffZarr(outputStore, { validate: true });
@@ -344,9 +319,8 @@ Deno.test("Round-trip with LPS orientation - write and read back", async () => {
 Deno.test("Round-trip with RAS orientation - write and read back", async () => {
   const { multiscales } = await createMultiscalesWithOrientation(RAS);
 
-  // Write to store with RFC 4 enabled
   const outputStore: MemoryStore = new Map();
-  await toNgffZarr(outputStore, multiscales, { enabledRfcs: [4] });
+  await toNgffZarr(outputStore, multiscales, {});
 
   // Read back with validation enabled - should pass
   const multiscalesBack = await fromNgffZarr(outputStore, { validate: true });
@@ -363,7 +337,7 @@ Deno.test("fromNgffZarr preserves RFC 4 orientation on parsed metadata.axes", as
   const { multiscales } = await createMultiscalesWithOrientation(LPS);
 
   const outputStore: MemoryStore = new Map();
-  await toNgffZarr(outputStore, multiscales, { enabledRfcs: [4] });
+  await toNgffZarr(outputStore, multiscales, {});
 
   const multiscalesBack = await fromNgffZarr(outputStore, { validate: true });
   const axisByName = new Map(
@@ -386,9 +360,8 @@ Deno.test("Round-trip with 5D mixed axes (t,c,z,y,x) and LPS orientation", async
     [3, 2, 5, 10, 15],
   );
 
-  // Write to store with RFC 4 enabled
   const outputStore: MemoryStore = new Map();
-  await toNgffZarr(outputStore, multiscales, { enabledRfcs: [4] });
+  await toNgffZarr(outputStore, multiscales, {});
 
   // Read back with validation enabled - should pass
   const multiscalesBack = await fromNgffZarr(outputStore, { validate: true });
@@ -397,48 +370,8 @@ Deno.test("Round-trip with 5D mixed axes (t,c,z,y,x) and LPS orientation", async
 });
 
 Deno.test("Round-trip without orientation passes validation", async () => {
-  // Create multiscales without orientation
-  const store: MemoryStore = new Map();
-  const zarrArray = await createTestZarrArray(store, "test_array", [
-    10,
-    20,
-    30,
-  ]);
+  const { multiscales } = await createMultiscalesWithoutOrientation();
 
-  const dims = ["z", "y", "x"];
-  const scale: Record<string, number> = { z: 2.5, y: 1.0, x: 1.0 };
-  const translation: Record<string, number> = { z: 0.0, y: 0.0, x: 0.0 };
-
-  const ngffImage = new NgffImage({
-    data: zarrArray,
-    dims,
-    scale,
-    translation,
-    name: "test_no_orientation",
-    axesUnits: undefined,
-    axesOrientations: undefined, // No orientations
-    computedCallbacks: undefined,
-  });
-
-  const axes = dims.map((dim) =>
-    createAxis(dim as "x" | "y" | "z", "space", "micrometer")
-  );
-  const dataset = createDataset(
-    "scale0",
-    dims.map((dim) => scale[dim]),
-    dims.map((dim) => translation[dim]),
-  );
-  const metadata = createMetadata(axes, [dataset], "test_no_orientation");
-
-  const multiscales = new NgffMultiscales({
-    images: [ngffImage],
-    metadata,
-    scaleFactors: undefined,
-    method: undefined,
-    chunks: undefined,
-  });
-
-  // Write to store (no RFC 4 enabled)
   const outputStore: MemoryStore = new Map();
   await toNgffZarr(outputStore, multiscales, {});
 
@@ -453,9 +386,8 @@ Deno.test("Round-trip without orientation passes validation", async () => {
 Deno.test("fromNgffZarr extracts LPS orientation into NgffImage.axesOrientations", async () => {
   const { multiscales } = await createMultiscalesWithOrientation(LPS);
 
-  // Write to store with RFC 4 enabled
   const outputStore: MemoryStore = new Map();
-  await toNgffZarr(outputStore, multiscales, { enabledRfcs: [4] });
+  await toNgffZarr(outputStore, multiscales, {});
 
   // Read back
   const multiscalesBack = await fromNgffZarr(outputStore, { validate: true });
@@ -482,9 +414,8 @@ Deno.test("fromNgffZarr extracts LPS orientation into NgffImage.axesOrientations
 Deno.test("fromNgffZarr extracts RAS orientation into NgffImage.axesOrientations", async () => {
   const { multiscales } = await createMultiscalesWithOrientation(RAS);
 
-  // Write to store with RFC 4 enabled
   const outputStore: MemoryStore = new Map();
-  await toNgffZarr(outputStore, multiscales, { enabledRfcs: [4] });
+  await toNgffZarr(outputStore, multiscales, {});
 
   // Read back
   const multiscalesBack = await fromNgffZarr(outputStore, { validate: true });
@@ -509,48 +440,8 @@ Deno.test("fromNgffZarr extracts RAS orientation into NgffImage.axesOrientations
 });
 
 Deno.test("fromNgffZarr returns undefined axesOrientations when no orientation in metadata", async () => {
-  // Create multiscales without orientation
-  const store: MemoryStore = new Map();
-  const zarrArray = await createTestZarrArray(store, "test_array", [
-    10,
-    20,
-    30,
-  ]);
+  const { multiscales } = await createMultiscalesWithoutOrientation();
 
-  const dims = ["z", "y", "x"];
-  const scale: Record<string, number> = { z: 1.0, y: 1.0, x: 1.0 };
-  const translation: Record<string, number> = { z: 0.0, y: 0.0, x: 0.0 };
-
-  const ngffImage = new NgffImage({
-    data: zarrArray,
-    dims,
-    scale,
-    translation,
-    name: "test",
-    axesUnits: undefined,
-    axesOrientations: undefined,
-    computedCallbacks: undefined,
-  });
-
-  const axes = dims.map((dim) =>
-    createAxis(dim as "x" | "y" | "z", "space", "micrometer")
-  );
-  const dataset = createDataset(
-    "scale0",
-    dims.map((dim) => scale[dim]),
-    dims.map((dim) => translation[dim]),
-  );
-  const metadata = createMetadata(axes, [dataset], "test");
-
-  const multiscales = new NgffMultiscales({
-    images: [ngffImage],
-    metadata,
-    scaleFactors: undefined,
-    method: undefined,
-    chunks: undefined,
-  });
-
-  // Write to store without orientation
   const outputStore: MemoryStore = new Map();
   await toNgffZarr(outputStore, multiscales, {});
 
@@ -562,10 +453,11 @@ Deno.test("fromNgffZarr returns undefined axesOrientations when no orientation i
   assertEquals(image.axesOrientations, undefined);
 });
 
-// Browser parity tests (issue #481): the browser toOmeZarr must honor the
-// enabledRfcs option identically to the Node implementation.
+// Browser parity tests (issue #481): the browser toOmeZarr must serialize
+// orientation identically to the Node implementation -- written automatically
+// whenever it is present.
 
-Deno.test("toOmeZarr (browser) writes orientation when enabledRfcs includes 4", async () => {
+Deno.test("toOmeZarr (browser) writes orientation automatically when present", async () => {
   const orientations: Record<string, AnatomicalOrientation> = {
     x: createAnatomicalOrientation(AnatomicalOrientationValues.LeftToRight),
     y: createAnatomicalOrientation(
@@ -578,9 +470,8 @@ Deno.test("toOmeZarr (browser) writes orientation when enabledRfcs includes 4", 
 
   const { multiscales } = await createMultiscalesWithOrientation(orientations);
 
-  // Write to a new store with RFC 4 enabled using the browser implementation
   const outputStore: MemoryStore = new Map();
-  await toOmeZarrBrowser(outputStore, multiscales, { enabledRfcs: [4] });
+  await toOmeZarrBrowser(outputStore, multiscales, {});
 
   // Read back and check metadata
   const attrs = await readZarrAttrs(outputStore);
@@ -617,20 +508,9 @@ Deno.test("toOmeZarr (browser) writes orientation when enabledRfcs includes 4", 
   }
 });
 
-Deno.test("toOmeZarr (browser) omits orientation when enabledRfcs is undefined", async () => {
-  const orientations: Record<string, AnatomicalOrientation> = {
-    x: createAnatomicalOrientation(AnatomicalOrientationValues.LeftToRight),
-    y: createAnatomicalOrientation(
-      AnatomicalOrientationValues.PosteriorToAnterior,
-    ),
-    z: createAnatomicalOrientation(
-      AnatomicalOrientationValues.SuperiorToInferior,
-    ),
-  };
+Deno.test("toOmeZarr (browser) omits orientation when none is present", async () => {
+  const { multiscales } = await createMultiscalesWithoutOrientation();
 
-  const { multiscales } = await createMultiscalesWithOrientation(orientations);
-
-  // Write without RFC 4 enabled (default) using the browser implementation
   const outputStore: MemoryStore = new Map();
   await toOmeZarrBrowser(outputStore, multiscales, {});
 
@@ -647,53 +527,19 @@ Deno.test("toOmeZarr (browser) omits orientation when enabledRfcs is undefined",
     assertEquals(
       "orientation" in axis,
       false,
-      `Axis ${axis.name} should not have orientation when RFC 4 is disabled`,
-    );
-  }
-});
-
-Deno.test("toOmeZarr (browser) omits orientation when enabledRfcs is empty", async () => {
-  const orientations: Record<string, AnatomicalOrientation> = {
-    x: createAnatomicalOrientation(AnatomicalOrientationValues.LeftToRight),
-    y: createAnatomicalOrientation(
-      AnatomicalOrientationValues.PosteriorToAnterior,
-    ),
-    z: createAnatomicalOrientation(
-      AnatomicalOrientationValues.SuperiorToInferior,
-    ),
-  };
-
-  const { multiscales } = await createMultiscalesWithOrientation(orientations);
-
-  // Write with empty enabledRfcs using the browser implementation
-  const outputStore: MemoryStore = new Map();
-  await toOmeZarrBrowser(outputStore, multiscales, { enabledRfcs: [] });
-
-  // Read back and check metadata
-  const attrs = await readZarrAttrs(outputStore);
-  const multiscalesArray = getNgffMultiscalesArray(attrs);
-  const multiscalesMetadata = multiscalesArray[0] as Record<string, unknown>;
-  const axesMetadata = multiscalesMetadata.axes as Array<
-    Record<string, unknown>
-  >;
-
-  // Check that no spatial axes have orientation
-  for (const axis of axesMetadata) {
-    assertEquals(
-      "orientation" in axis,
-      false,
-      `Axis ${axis.name} should not have orientation when RFC 4 is disabled`,
+      `Axis ${axis.name} should not have orientation when none was specified`,
     );
   }
 });
 
 Deno.test("toOmeZarr (browser) preserves axis name, type, and unit", async () => {
-  // Guards the switch from raw metadata.axes to processAxesForRfcs output:
-  // the standard OME-Zarr axis fields must survive regardless of enabledRfcs.
+  // Guards the switch from raw metadata.axes to processAxes output:
+  // the standard OME-Zarr axis fields must survive, and orientation present on
+  // the source axes is written through.
   const { multiscales } = await createMultiscalesWithOrientation(LPS);
 
   const outputStore: MemoryStore = new Map();
-  await toOmeZarrBrowser(outputStore, multiscales, {}); // RFC 4 not enabled
+  await toOmeZarrBrowser(outputStore, multiscales, {});
 
   const attrs = await readZarrAttrs(outputStore);
   const multiscalesArray = getNgffMultiscalesArray(attrs);
@@ -710,8 +556,8 @@ Deno.test("toOmeZarr (browser) preserves axis name, type, and unit", async () =>
   for (const axis of axesMetadata) {
     assertEquals(axis.type, "space");
     assertEquals(axis.unit, "micrometer");
-    // Orientation is stripped when RFC 4 is not enabled
-    assertEquals("orientation" in axis, false);
+    // Orientation is present because the source axes carry it
+    assertEquals("orientation" in axis, true);
   }
 });
 
@@ -721,7 +567,6 @@ Deno.test("toOmeZarr (browser) writes orientation under ome namespace for versio
   const outputStore: MemoryStore = new Map();
   await toOmeZarrBrowser(outputStore, multiscales, {
     version: "0.5",
-    enabledRfcs: [4],
   });
 
   // Version 0.5 nests multiscales metadata under the "ome" attribute

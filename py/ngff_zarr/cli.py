@@ -47,6 +47,11 @@ from .detect_cli_io_backend import (
 from .from_ngff_zarr import from_ome_zarr
 from .methods import Methods, methods_values
 from .ngff_image_to_itk_image import ngff_image_to_itk_image
+from .rfc4 import (
+    AnatomicalOrientation,
+    AnatomicalOrientationValues,
+    orientation_from_name,
+)
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
 from .to_multiscales import to_multiscales
 from .to_ngff_zarr import to_ome_zarr
@@ -337,7 +342,6 @@ def _multiscales_to_ngff_zarr(
         progress=rich_dask_progress,
         use_tensorstore=args.use_tensorstore,
         version=args.ome_zarr_version,
-        enabled_rfcs=args.enable_rfc,
         **codec_kwargs,
     )
 
@@ -394,6 +398,46 @@ def _apply_cli_metadata_overrides(ngff_image, args, live):
         ngff_image.axes_units = unit_pairs
     if args.name:
         ngff_image.name = args.name
+    if args.orientation:
+        ngff_image.axes_orientations = _parse_orientation_arg(args.orientation, live)
+
+
+def _parse_orientation_arg(values, live):
+    """Parse the CLI ``--orientation`` argument into an axes_orientations mapping.
+
+    Accepts either a single preset name (``"LPS"``/``"RAS"``) or an even number
+    of ordered dim/value pairs, e.g.
+    ``x right-to-left y anterior-to-posterior z inferior-to-superior``.
+    """
+    if len(values) == 1:
+        try:
+            return orientation_from_name(values[0])
+        except ValueError as exc:
+            live.console.print(f"[red]{exc}")
+            sys.exit(1)
+
+    if len(values) % 2 != 0:
+        live.console.print(
+            "[red]--orientation expects either a preset name (LPS, RAS) or "
+            "dim/value pairs, e.g. x right-to-left y anterior-to-posterior"
+        )
+        sys.exit(1)
+
+    orientations: dict[str, AnatomicalOrientation] = {}
+    for pair in range(len(values) // 2):
+        dim = values[pair * 2]
+        value = values[pair * 2 + 1]
+        try:
+            orientation_value = AnatomicalOrientationValues(value)
+        except ValueError:
+            supported = ", ".join(v.value for v in AnatomicalOrientationValues)
+            live.console.print(
+                f"[red]Unsupported anatomical orientation value: {value!r}.\n"
+                f"[yellow]Supported values: {supported}"
+            )
+            sys.exit(1)
+        orientations[dim] = AnatomicalOrientation(value=orientation_value)
+    return orientations
 
 
 def _ngff_image_to_multiscales(
@@ -481,11 +525,13 @@ def main():
         choices=["0.4", "0.5"],
     )
     metadata_group.add_argument(
-        "--enable-rfc",
-        action="append",
-        type=int,
-        help="Enable specific RFC features. Can be used multiple times. Currently supported: 4 (anatomical orientation)",
-        metavar="RFC_NUMBER",
+        "--orientation",
+        nargs="+",
+        help="Anatomical orientation (RFC 4) for the spatial axes. Either a preset "
+        'coordinate system ("LPS" or "RAS") or ordered dim/value pairs, e.g. '
+        '"x" "right-to-left" "y" "anterior-to-posterior" "z" "inferior-to-superior". '
+        "Orientation is written to the output automatically when present.",
+        metavar="ORIENTATION",
     )
     metadata_group.add_argument(
         "--series",

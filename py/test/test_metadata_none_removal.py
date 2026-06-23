@@ -84,12 +84,23 @@ def _sample_metadata_dict():
     }
 
 
-def test_pop_optionals_rfc4_disabled_drops_populated_orientation():
-    """With RFC 4 disabled, orientation and all ``None`` fields are removed."""
-    result = _pop_metadata_optionals(_sample_metadata_dict(), enabled_rfcs=None)
-    for axis in result["axes"]:
-        assert "orientation" not in axis
-        assert "unit" not in axis  # None units are stripped too
+def test_pop_optionals_keeps_populated_drops_null_orientation():
+    """Populated orientation is kept; ``None`` orientation and fields are culled.
+
+    Anatomical orientation (RFC 4) is written whenever it is present, with no
+    separate opt-in. ``None`` orientations and other ``None`` fields are culled.
+    """
+    result = _pop_metadata_optionals(_sample_metadata_dict())
+    by_name = {axis["name"]: axis for axis in result["axes"]}
+    # Populated orientation survives.
+    assert by_name["x"]["orientation"] == {
+        "type": "anatomical",
+        "value": "left-to-right",
+    }
+    # None units are stripped too.
+    assert "unit" not in by_name["x"]
+    # A None orientation on a non-spatial axis is culled, not serialized.
+    assert "orientation" not in by_name["c"]
     # All None-valued top-level fields are gone.
     assert "coordinateTransformations" not in result
     assert "omero" not in result
@@ -97,16 +108,3 @@ def test_pop_optionals_rfc4_disabled_drops_populated_orientation():
     assert "metadata" not in result
     # Valid data, including a zero scale value, is preserved.
     assert result["datasets"][0]["coordinateTransformations"][0]["scale"] == [1.0, 0.0]
-
-
-def test_pop_optionals_rfc4_enabled_keeps_populated_drops_null_orientation():
-    """With RFC 4 enabled, populated orientation stays but ``None`` is culled."""
-    result = _pop_metadata_optionals(_sample_metadata_dict(), enabled_rfcs=[4])
-    by_name = {axis["name"]: axis for axis in result["axes"]}
-    # Populated orientation survives when RFC 4 is enabled.
-    assert by_name["x"]["orientation"] == {
-        "type": "anatomical",
-        "value": "left-to-right",
-    }
-    # A None orientation on a non-spatial axis is culled, not serialized.
-    assert "orientation" not in by_name["c"]

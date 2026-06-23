@@ -32,7 +32,7 @@ def test_rfc4_validation_integration_with_lps():
     # Convert to multiscales and store to zarr
     multiscales = to_multiscales(ngff_image)
     store = MemoryStore()
-    to_ngff_zarr(store, multiscales, version="0.4", enabled_rfcs=[4])
+    to_ngff_zarr(store, multiscales, version="0.4")
 
     # Read back with validation enabled - should pass (no validation errors)
     multiscales_back = from_ngff_zarr(store, validate=True)
@@ -61,7 +61,7 @@ def test_rfc4_validation_integration_with_ras():
     # Convert to multiscales and store to zarr
     multiscales = to_multiscales(ngff_image)
     store = MemoryStore()
-    to_ngff_zarr(store, multiscales, version="0.4", enabled_rfcs=[4])
+    to_ngff_zarr(store, multiscales, version="0.4")
 
     # Read back with validation enabled - should pass (no validation errors)
     multiscales_back = from_ngff_zarr(store, validate=True)
@@ -90,7 +90,7 @@ def test_rfc4_validation_integration_mixed_axes():
     # Convert to multiscales and store to zarr
     multiscales = to_multiscales(ngff_image)
     store = MemoryStore()
-    to_ngff_zarr(store, multiscales, version="0.4", enabled_rfcs=[4])
+    to_ngff_zarr(store, multiscales, version="0.4")
 
     # Read back with validation enabled - should pass (no validation errors)
     multiscales_back = from_ngff_zarr(store, validate=True)

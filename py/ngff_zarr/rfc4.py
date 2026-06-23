@@ -139,6 +139,47 @@ Example usage:
 """
 
 
+_ORIENTATION_PRESETS: dict[str, dict[str, AnatomicalOrientation]] = {
+    "lps": LPS,
+    "ras": RAS,
+}
+
+
+def orientation_from_name(
+    name: str,
+) -> dict[str, AnatomicalOrientation]:
+    """Resolve an anatomical orientation preset name to per-axis orientations.
+
+    Parameters
+    ----------
+    name : str
+        A preset coordinate-system name. Supported values are ``"LPS"`` and
+        ``"RAS"`` (case-insensitive).
+
+    Returns
+    -------
+    dict[str, AnatomicalOrientation]
+        A mapping of spatial axis name to :class:`AnatomicalOrientation`,
+        suitable for ``NgffImage.axes_orientations`` or the ``orientation``
+        argument of :func:`ngff_zarr.to_multiscales`.
+
+    Raises
+    ------
+    ValueError
+        If ``name`` is not a recognized preset.
+    """
+    try:
+        preset = _ORIENTATION_PRESETS[name.lower()]
+    except KeyError:
+        supported = ", ".join(sorted(p.upper() for p in _ORIENTATION_PRESETS))
+        msg = (
+            f"Unknown anatomical orientation preset: {name!r}. "
+            f"Supported presets: {supported}."
+        )
+        raise ValueError(msg) from None
+    return dict(preset)
+
+
 def itk_lps_to_anatomical_orientation(
     axis_name: str,
 ) -> AnatomicalOrientation | None:
@@ -289,11 +330,6 @@ def anatomical_orientation_to_itk_direction(
             col[axis_index] = -1.0
             return col
     return None
-
-
-def is_rfc4_enabled(enabled_rfcs: list[int] | None) -> bool:
-    """Check if RFC 4 is enabled in the list of enabled RFCs."""
-    return enabled_rfcs is not None and 4 in enabled_rfcs
 
 
 def add_anatomical_orientation_to_axis(

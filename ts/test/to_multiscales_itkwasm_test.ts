@@ -13,6 +13,8 @@ import {
 } from "../src/process/to_multiscales-node.ts";
 import { toNgffZarr } from "../src/mod.ts";
 import type { MemoryStore } from "../src/io/from_ngff_zarr.ts";
+import { NgffImage } from "../src/types/ngff_image.ts";
+import { LPS, RAS } from "../src/types/rfc4.ts";
 
 Deno.test("downsample czyx", async () => {
   const data = new Uint8Array(2 * 32 * 64 * 64);
@@ -423,6 +425,64 @@ Deno.test("itkwasm label image many channels (>8)", async () => {
   assertEquals(multiscales.images[1].data.shape[0], numChannels); // c unchanged
   assertEquals(multiscales.images[1].data.shape[1], 16); // y: 32/2
   assertEquals(multiscales.images[1].data.shape[2], 16); // x: 32/2
+});
+
+Deno.test("toMultiscales orientation option (preset) populates spatial axes", async () => {
+  const data = new Uint8Array(16 * 32 * 32);
+  for (let i = 0; i < data.length; i++) {
+    data[i] = i % 256;
+  }
+
+  const image = await toNgffImage(data, {
+    dims: ["z", "y", "x"],
+    shape: [16, 32, 32],
+  });
+
+  const multiscales = await toMultiscales(image, {
+    scaleFactors: [2],
+    orientation: "LPS",
+  });
+
+  const byName = new Map(multiscales.metadata.axes.map((ax) => [ax.name, ax]));
+  // LPS preset values
+  assertEquals(byName.get("x")?.orientation?.value, "right-to-left");
+  assertEquals(byName.get("y")?.orientation?.value, "anterior-to-posterior");
+  assertEquals(byName.get("z")?.orientation?.value, "inferior-to-superior");
+});
+
+Deno.test("toMultiscales orientation option overrides image axesOrientations", async () => {
+  const data = new Uint8Array(16 * 32 * 32);
+  for (let i = 0; i < data.length; i++) {
+    data[i] = i % 256;
+  }
+
+  // Build an image that already carries LPS orientation...
+  const base = await toNgffImage(data, {
+    dims: ["z", "y", "x"],
+    shape: [16, 32, 32],
+  });
+  const image = new NgffImage({
+    data: base.data,
+    dims: base.dims,
+    scale: base.scale,
+    translation: base.translation,
+    name: base.name,
+    axesUnits: base.axesUnits,
+    axesOrientations: LPS,
+    computedCallbacks: base.computedCallbacks,
+  });
+
+  // ...but the explicit orientation option (RAS) takes precedence.
+  const multiscales = await toMultiscales(image, {
+    scaleFactors: [2],
+    orientation: RAS,
+  });
+
+  const byName = new Map(multiscales.metadata.axes.map((ax) => [ax.name, ax]));
+  // RAS values, not LPS
+  assertEquals(byName.get("x")?.orientation?.value, "left-to-right");
+  assertEquals(byName.get("y")?.orientation?.value, "posterior-to-anterior");
+  assertEquals(byName.get("z")?.orientation?.value, "inferior-to-superior");
 });
 
 console.log("✅ All ITK-Wasm downsampling tests completed!");

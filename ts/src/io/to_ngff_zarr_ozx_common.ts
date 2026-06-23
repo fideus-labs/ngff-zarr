@@ -9,21 +9,17 @@ import * as zarr from "zarrita";
 
 import type { NgffMultiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
-import { isRfc4Enabled } from "../types/rfc4.ts";
 import type { Axis } from "../types/zarr_metadata.ts";
 import type { MemoryStore } from "./rfc9_zip.ts";
 
 /**
- * Process axes for RFC enablement.
- * If RFC 4 is enabled, include orientation metadata.
- * If RFC 4 is not enabled, strip orientation from axes.
+ * Process axes for serialization.
+ * Anatomical orientation (RFC 4) is included whenever an axis carries it;
+ * axes without orientation simply omit the field.
  */
-export function processAxesForRfcs(
+export function processAxes(
   axes: Axis[],
-  enabledRfcs?: number[],
 ): Record<string, unknown>[] {
-  const rfc4Enabled = isRfc4Enabled(enabledRfcs);
-
   return axes.map((axis) => {
     const result: Record<string, unknown> = {
       name: axis.name,
@@ -35,8 +31,8 @@ export function processAxesForRfcs(
       result.unit = axis.unit;
     }
 
-    // Include orientation only if RFC 4 is enabled and orientation exists
-    if (rfc4Enabled && axis.orientation) {
+    // Include orientation whenever it is present
+    if (axis.orientation) {
       result.orientation = {
         type: axis.orientation.type,
         value: axis.orientation.value,
@@ -65,23 +61,19 @@ export function validateRfc9Version(multiscales: NgffMultiscales): void {
 
 /**
  * Prepare multiscales metadata for RFC-9 export.
- * This includes processing axes for RFC enablement and setting version to 0.5.
+ * Processes axes (anatomical orientation is serialized whenever present) and
+ * sets version to 0.5.
  *
  * @param multiscales - Source multiscales data
- * @param enabledRfcs - Optional list of RFC numbers to enable
  * @returns Prepared metadata object
  */
 export function prepareRfc9Metadata(
   multiscales: NgffMultiscales,
-  enabledRfcs?: number[],
 ): Record<string, unknown> {
   const _version = "0.5";
 
-  // Process axes - filter orientation based on enabledRfcs
-  const processedAxes = processAxesForRfcs(
-    multiscales.metadata.axes,
-    enabledRfcs,
-  );
+  // Process axes (orientation included when present)
+  const processedAxes = processAxes(multiscales.metadata.axes);
 
   return {
     version: _version,
@@ -147,7 +139,6 @@ export function createRfc9RootAttributes(
  *
  * @param store - Memory store to write to
  * @param multiscales - NgffMultiscales data to write
- * @param enabledRfcs - Optional list of RFC numbers to enable
  * @param writeImage - Function to write individual images
  * @param onProgress - Optional progress callback for cumulative chunk
  *   progress across all scale levels
@@ -155,7 +146,6 @@ export function createRfc9RootAttributes(
 export async function writeNgffMultiscalesToMemoryStore(
   store: MemoryStore,
   multiscales: NgffMultiscales,
-  enabledRfcs: number[] | undefined,
   writeImage: (
     group: zarr.Group<MemoryStore>,
     image: NgffImage,
@@ -173,7 +163,7 @@ export async function writeNgffMultiscalesToMemoryStore(
   const root = zarr.root(store);
 
   // Prepare metadata
-  const multiscalesMetadata = prepareRfc9Metadata(multiscales, enabledRfcs);
+  const multiscalesMetadata = prepareRfc9Metadata(multiscales);
 
   // Create root attributes
   const attributes = createRfc9RootAttributes(multiscalesMetadata, multiscales);

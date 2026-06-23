@@ -32,7 +32,6 @@ from .config import config
 from .memory_usage import memory_usage
 from .methods._support import _dim_scale_factors
 from .multiscales import NgffMultiscales
-from .rfc4 import is_rfc4_enabled
 from .rfc9_zip import is_ozx_path, write_store_to_zip
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
 from .to_multiscales import to_multiscales
@@ -130,26 +129,19 @@ def _remove_none_values(obj: Any) -> Any:
     return obj
 
 
-def _pop_metadata_optionals(
-    metadata_dict: dict, enabled_rfcs: list[int] | None = None
-) -> dict:
+def _pop_metadata_optionals(metadata_dict: dict) -> dict:
     """Strip optional metadata fields that must not be serialized.
 
-    Removes the draft RFC 4 ``orientation`` from every axis unless RFC 4 is
-    enabled, then recursively culls all remaining ``None``-valued keys.
+    Recursively culls all ``None``-valued keys. Axes that carry a populated
+    RFC 4 ``orientation`` keep it -- anatomical orientation is written whenever
+    it is present -- while axes whose ``orientation`` is ``None`` have the key
+    dropped by the ``None`` stripping below.
     """
     # ``Metadata.extra`` is a read-side validation aid (leaked-key capture for
     # the v0.5 namespacing rules), never part of the written multiscale entry.
     # It is an empty dict on every clean read, which ``_remove_none_values``
     # would not strip, so drop it explicitly.
     metadata_dict.pop("extra", None)
-    # RFC 4 anatomical orientation is a draft feature gated behind an explicit
-    # opt-in. Drop it from every axis (even when populated) unless RFC 4 is
-    # enabled; populated orientations on enabled writes survive the None
-    # stripping below.
-    if not is_rfc4_enabled(enabled_rfcs):
-        for ax in metadata_dict.get("axes", []):
-            ax.pop("orientation", None)
 
     return _remove_none_values(metadata_dict)
 
@@ -444,7 +436,7 @@ def _validate_ngff_parameters(
 
 
 def _prepare_metadata(
-    multiscales: NgffMultiscales, version: str, enabled_rfcs: list[int] | None = None
+    multiscales: NgffMultiscales, version: str
 ) -> tuple[Metadata_v04 | Metadata_v05, tuple[str, ...], dict]:
     """Prepare and convert metadata to the proper version format."""
     metadata = multiscales.metadata
@@ -1401,7 +1393,6 @@ def to_ome_zarr(
     chunk_store: StoreLike | None = None,
     progress: NgffProgress | NgffProgressCallback | None = None,
     chunks_per_shard: int | tuple[int, ...] | dict[str, int] | None = None,
-    enabled_rfcs: list[int] | None = None,
     scale_strategy: ScaleStrategy = "pad",
     **kwargs,
 ) -> None:
@@ -1434,8 +1425,6 @@ def to_ome_zarr(
     :param chunks_per_shard: Number of chunks along each axis in a shard. If None, no sharding. For .ozx files, defaults to 2 if not specified. Requires OME-Zarr version >= 0.5.
     :type  chunks_per_shard: int, tuple, or dict, optional
 
-    :param enabled_rfcs: List of RFC numbers to enable. If RFC 4 is included, anatomical orientation metadata will be preserved in the output.
-    :type  enabled_rfcs: list of int, optional
 
     :param scale_strategy: Strategy for handling non-power-of-2 scale factors during
         multiscale writing. "pad" (default) always uses incremental downsampling from
@@ -1447,6 +1436,18 @@ def to_ome_zarr(
 
     :param **kwargs: Passed to the zarr.create_array() or zarr.creation.create() function, e.g., compression options.
     """
+    # ``enabled_rfcs`` was removed: RFC-4 anatomical orientation is now written
+    # automatically whenever it is present. Reject it explicitly so a legacy
+    # caller gets a clear migration message instead of an opaque error from the
+    # downstream zarr-creation kwargs.
+    if "enabled_rfcs" in kwargs:
+        raise TypeError(
+            "to_ome_zarr()/to_ngff_zarr() no longer accepts 'enabled_rfcs'. "
+            "RFC-4 anatomical orientation is now written automatically whenever "
+            "it is present. Set NgffImage.axes_orientations, or pass "
+            "orientation= to to_multiscales()."
+        )
+
     # RFC-9: Handle .ozx (zipped OME-Zarr) files
     if isinstance(store, (str, Path)) and is_ozx_path(store):
         if version != "0.5":
@@ -1493,7 +1494,6 @@ def to_ome_zarr(
                 chunk_store=None,
                 progress=progress,
                 chunks_per_shard=chunks_per_shard,
-                enabled_rfcs=enabled_rfcs,
                 scale_strategy=scale_strategy,
                 **kwargs,
             )
@@ -1526,7 +1526,6 @@ def to_ome_zarr(
         chunk_store=chunk_store,
         progress=progress,
         chunks_per_shard=chunks_per_shard,
-        enabled_rfcs=enabled_rfcs,
         scale_strategy=scale_strategy,
         **kwargs,
     )
@@ -1545,7 +1544,6 @@ def _to_ngff_zarr_impl(
     chunk_store: StoreLike | None = None,
     progress: NgffProgress | NgffProgressCallback | None = None,
     chunks_per_shard: int | tuple[int, ...] | dict[str, int] | None = None,
-    enabled_rfcs: list[int] | None = None,
     scale_strategy: ScaleStrategy = "pad",
     **kwargs,
 ) -> None:
@@ -1557,10 +1555,10 @@ def _to_ngff_zarr_impl(
 
     _validate_ngff_parameters(version, chunks_per_shard, use_tensorstore, store)
     metadata, dimension_names, dimension_names_kwargs = _prepare_metadata(
-        multiscales, version, enabled_rfcs
+        multiscales, version
     )
     metadata_dict = asdict(metadata)
-    metadata_dict = _pop_metadata_optionals(metadata_dict, enabled_rfcs)
+    metadata_dict = _pop_metadata_optionals(metadata_dict)
     metadata_dict["@type"] = "ngff:Image"
 
     # Create Zarr root

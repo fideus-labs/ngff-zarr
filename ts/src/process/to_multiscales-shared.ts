@@ -20,6 +20,8 @@ import {
   createNgffMultiscales,
 } from "../utils/factory.ts";
 import { getMethodMetadata } from "../utils/method_metadata.ts";
+import type { AnatomicalOrientation } from "../types/rfc4.ts";
+import { orientationFromName } from "../types/rfc4.ts";
 
 export type { ZarrCodec };
 
@@ -27,6 +29,15 @@ export interface ToMultiscalesOptions {
   scaleFactors?: (Record<string, number> | number)[];
   method?: Methods;
   chunks?: number | number[] | Record<string, number>;
+
+  /**
+   * Anatomical orientation (RFC 4) for the spatial axes. Either a preset
+   * coordinate-system name ("LPS" or "RAS", case-insensitive) or a mapping of
+   * axis name to {@link AnatomicalOrientation}. When provided, it takes
+   * precedence over any `axesOrientations` on the input image. Orientation is
+   * written to the output automatically whenever it is present.
+   */
+  orientation?: string | Record<string, AnatomicalOrientation>;
 
   /**
    * Codec pipeline for intermediate zarr arrays created during
@@ -71,7 +82,18 @@ export async function toMultiscalesCore(
     method = Methods.ITKWASM_GAUSSIAN,
     chunks: _chunks,
     codecs,
+    orientation,
   } = options;
+
+  // Resolve anatomical orientation (RFC 4). An explicit `orientation` option
+  // (preset name or mapping) takes precedence over the input image's
+  // axesOrientations.
+  const axesOrientations: Record<string, AnatomicalOrientation> | undefined =
+    orientation === undefined
+      ? image.axesOrientations
+      : typeof orientation === "string"
+      ? orientationFromName(orientation)
+      : orientation;
 
   let images: NgffImage[];
 
@@ -103,12 +125,12 @@ export async function toMultiscalesCore(
   // Create axes from image dimensions, including orientation if present
   const axes = image.dims.map((dim) => {
     if (dim === "x" || dim === "y" || dim === "z") {
-      const orientation = image.axesOrientations?.[dim];
+      const axisOrientation = axesOrientations?.[dim];
       return createAxis(
         dim as "x" | "y" | "z",
         "space",
         image.axesUnits?.[dim],
-        orientation,
+        axisOrientation,
       );
     } else if (dim === "c") {
       return createAxis(dim as "c", "channel");

@@ -251,3 +251,47 @@ async def test_convert_to_ome_zarr_invalid_options(test_input_file, temp_output_
     assert not result.success
     assert result.error is not None
     assert "validation" in result.error.lower() or "method" in result.error.lower()
+
+
+@pytest.mark.asyncio
+async def test_convert_with_anatomical_orientation(test_input_file, temp_output_dir):
+    """The ``anatomical_orientation`` preset is applied and written to the output."""
+    import zarr
+
+    assert test_input_file.exists(), f"Test input file not found: {test_input_file}"
+
+    output_path = Path(temp_output_dir) / "mr_head_orientation.ome.zarr"
+
+    # Request the RAS coordinate system explicitly.
+    options = ConversionOptions(
+        output_path=str(output_path),
+        ome_zarr_version="0.4",
+        method="itkwasm_gaussian",
+        scale_factors=None,
+        chunks=64,
+        anatomical_orientation="RAS",
+    )
+
+    result = await convert_to_ome_zarr([str(test_input_file)], options)
+    assert result.success, f"Conversion failed: {result.error}"
+    assert output_path.exists()
+
+    # Read the written metadata; v0.4 stores multiscales at the root.
+    zarr_group = zarr.open(str(output_path), mode="r")
+    raw_attrs = dict(zarr_group.attrs)
+    if "ome" in raw_attrs:
+        multiscales_metadata = raw_attrs["ome"]["multiscales"][0]
+    else:
+        multiscales_metadata = raw_attrs["multiscales"][0]
+    axes = multiscales_metadata["axes"]
+
+    # RAS preset values must be written to the spatial axes.
+    expected = {
+        "x": "left-to-right",
+        "y": "posterior-to-anterior",
+        "z": "inferior-to-superior",
+    }
+    by_name = {ax["name"]: ax for ax in axes}
+    for dim, value in expected.items():
+        assert by_name[dim]["orientation"]["type"] == "anatomical"
+        assert by_name[dim]["orientation"]["value"] == value

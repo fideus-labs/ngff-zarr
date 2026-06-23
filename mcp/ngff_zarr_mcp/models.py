@@ -29,12 +29,16 @@ class ConversionOptions(BaseModel):
     units: dict[str, str] | None = Field(None, description="Units for each dimension")
     name: str | None = Field(None, description="Image name")
 
-    # RFC 4 - Anatomical Orientation support
+    # RFC 4 - Anatomical Orientation support. Anatomical orientation is written
+    # automatically whenever it is present, so specifying a preset here is all
+    # that is required to enable it.
     anatomical_orientation: str | None = Field(
-        None, description="Anatomical orientation preset (LPS, RAS) or custom mapping"
-    )
-    enable_rfc4: bool = Field(
-        False, description="Enable RFC 4 anatomical orientation support"
+        None,
+        description=(
+            "Anatomical orientation preset (LPS, RAS). Applies to file/array "
+            "inputs only; existing zarr-store inputs keep their source "
+            "orientation metadata."
+        ),
     )
 
     # Storage options for cloud/remote storage
@@ -66,12 +70,6 @@ class ConversionOptions(BaseModel):
         False, description="Use Dask LocalCluster for large datasets"
     )
     cache_dir: str | None = Field(None, description="Directory for caching")
-
-    # RFC and advanced features
-    enabled_rfcs: list[int] | None = Field(
-        None,
-        description="List of RFC numbers to enable (e.g., [4] for anatomical orientation)",
-    )
 
     @field_validator("dims")
     @classmethod
