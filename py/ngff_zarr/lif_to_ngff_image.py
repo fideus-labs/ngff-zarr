@@ -10,6 +10,7 @@ into OME-Zarr format.
 Requires the `liffile` package: pip install liffile
 """
 
+import os
 import re
 from collections.abc import Sequence
 from functools import reduce
@@ -54,6 +55,62 @@ SPATIAL_DIMS = {"x", "y", "z"}
 def _get_lif_image_data_delayed(lif_image: Any) -> np.ndarray:
     """Load LIF image data (for use with dask.delayed)."""
     return lif_image.asarray()
+
+
+def _read_lif_image_array(lif_path: str, index: int) -> np.ndarray:
+    """Re-open the LIF file and read a single image's array.
+
+    Re-opening per read keeps the dask graph self-contained: the ``LifFile``
+    handle that produced the graph is typically closed (and the graph may be
+    serialized to other worker processes) by the time chunks are computed, so
+    holding a reference to a ``LifImage`` from that handle raises
+    ``ValueError: seek of closed file``.
+    """
+    from liffile import LifFile
+
+    with LifFile(lif_path) as lif:
+        return lif.images[index].asarray()
+
+
+def _lif_reopen_locator(lif_image: Any) -> tuple[str, int] | None:
+    """Derive a ``(filepath, index)`` that re-opens the source LIF and
+    reselects ``lif_image``.
+
+    Returns ``None`` when the source file path cannot be determined (e.g. the
+    image is a test mock or was created without a backing file), in which case
+    the caller falls back to referencing the ``LifImage`` directly.
+    """
+    parent = getattr(lif_image, "parent", None)
+    filepath = getattr(parent, "filepath", None)
+    if not isinstance(filepath, (str, os.PathLike)):
+        return None
+    try:
+        images = list(parent.images)
+    except TypeError:
+        return None
+    uuid = getattr(lif_image, "uuid", None)
+    for i, img in enumerate(images):
+        if img is lif_image:
+            return (os.fspath(filepath), i)
+    if uuid is not None:
+        for i, img in enumerate(images):
+            if getattr(img, "uuid", None) == uuid:
+                return (os.fspath(filepath), i)
+    return None
+
+
+def _delayed_lif_data(lif_image: Any, shape: Sequence[int], dtype: Any) -> da.Array:
+    """Build a lazy dask array for ``lif_image`` that survives the source
+    ``LifFile`` being closed by re-opening the file at compute time when
+    possible.
+    """
+    locator = _lif_reopen_locator(lif_image)
+    if locator is not None:
+        lif_path, index = locator
+        delayed_data = dask.delayed(_read_lif_image_array)(lif_path, index)
+    else:
+        delayed_data = dask.delayed(_get_lif_image_data_delayed)(lif_image)
+    return da.from_delayed(delayed_data, shape=tuple(shape), dtype=dtype)
 
 
 def _extract_scale_translation(
@@ -327,10 +384,10 @@ def lif_to_ngff_image(
             if dim not in translation:
                 translation[dim] = 0.0
 
-    # Create lazy dask array from the LIF image
-    # Use delayed to avoid loading data until needed
-    delayed_data = dask.delayed(_get_lif_image_data_delayed)(lif_image)
-    data = da.from_delayed(delayed_data, shape=lif_shape, dtype=dtype)
+    # Create lazy dask array from the LIF image. Re-open the source file at
+    # compute time so the array remains valid after the producing LifFile
+    # handle is closed.
+    data = _delayed_lif_data(lif_image, lif_shape, dtype)
 
     # Reshape if needed for flattened channels
     if data.shape != ngff_shape:
@@ -546,9 +603,10 @@ def lif_to_hcs_plate(
     lif_dims = lif_image.dims
     lif_shape = lif_image.shape
 
-    # Create a delayed load for the full data
-    delayed_data = dask.delayed(_get_lif_image_data_delayed)(lif_image)
-    full_data = da.from_delayed(delayed_data, shape=lif_shape, dtype=lif_image.dtype)
+    # Create a delayed load for the full data. Re-open the source file at
+    # compute time so the array remains valid after the producing LifFile
+    # handle is closed.
+    full_data = _delayed_lif_data(lif_image, lif_shape, lif_image.dtype)
 
     # Build slicing for each mosaic position
     for pos_idx in range(n_positions):

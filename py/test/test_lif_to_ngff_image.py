@@ -426,3 +426,127 @@ class TestLifFileToNgffImages:
         assert "SHG_area_1" in names
         assert "SHG_area_2" in names
         assert "Overview" not in names
+
+
+class TestDelayedReopen:
+    """Regression tests for lazy reads surviving a closed source LifFile.
+
+    The lazy dask array must not depend on the LifFile handle that produced
+    it remaining open: that handle is closed (and the graph may be serialized
+    to worker processes) before chunks are computed, which previously raised
+    ``ValueError: seek of closed file`` during multiscale generation / write.
+    """
+
+    def test_reopen_locator_resolves_path_and_index(self):
+        from ngff_zarr.lif_to_ngff_image import _lif_reopen_locator
+
+        parent = Mock()
+        parent.filepath = "/data/sample.lif"
+        img_a = Mock()
+        img_b = Mock()
+        parent.images = [img_a, img_b]
+        img_b.parent = parent
+
+        assert _lif_reopen_locator(img_b) == ("/data/sample.lif", 1)
+
+    def test_reopen_locator_none_without_real_filepath(self):
+        from ngff_zarr.lif_to_ngff_image import _lif_reopen_locator
+
+        # A plain Mock has an auto-attribute (non-str) filepath -> no locator,
+        # so the caller falls back to referencing the image directly.
+        assert _lif_reopen_locator(Mock()) is None
+
+    def test_reopen_locator_falls_back_to_uuid_when_identity_differs(self):
+        """When re-listing parent.images yields fresh objects (so ``is``
+        identity fails), the stable uuid is used to find the index."""
+        from ngff_zarr.lif_to_ngff_image import _lif_reopen_locator
+
+        parent = Mock()
+        parent.filepath = "/data/sample.lif"
+        # A distinct object with the same uuid stands in for the same series
+        # re-read from a freshly opened handle.
+        other_first = Mock()
+        other_first.uuid = "uuid-0"
+        other_match = Mock()
+        other_match.uuid = "uuid-1"
+        parent.images = [other_first, other_match]
+
+        lif_image = Mock()
+        lif_image.parent = parent
+        lif_image.uuid = "uuid-1"
+
+        assert _lif_reopen_locator(lif_image) == ("/data/sample.lif", 1)
+
+    def test_reopen_locator_none_when_no_identity_or_uuid_match(self):
+        """Identity and uuid both fail to match any image -> no locator."""
+        from ngff_zarr.lif_to_ngff_image import _lif_reopen_locator
+
+        parent = Mock()
+        parent.filepath = "/data/sample.lif"
+        sibling = Mock()
+        sibling.uuid = "uuid-other"
+        parent.images = [sibling]
+
+        lif_image = Mock()
+        lif_image.parent = parent
+        lif_image.uuid = None
+
+        assert _lif_reopen_locator(lif_image) is None
+
+    def test_reopen_locator_none_when_images_not_iterable(self):
+        """A real filepath but a non-iterable parent.images -> no locator
+        (falls back to a direct read rather than raising)."""
+        from ngff_zarr.lif_to_ngff_image import _lif_reopen_locator
+
+        parent = Mock()
+        parent.filepath = "/data/sample.lif"
+        # parent.images is an auto-Mock attribute, which is not iterable.
+        lif_image = Mock()
+        lif_image.parent = parent
+
+        assert _lif_reopen_locator(lif_image) is None
+
+    @patch("liffile.LifFile")
+    def test_delayed_data_reopens_after_close(self, mock_liffile_class):
+        """Computing the array re-opens the file instead of using the stale,
+        now-closed source image."""
+        expected = np.arange(10 * 4 * 4, dtype=np.uint8).reshape(10, 4, 4)
+
+        reopened_img = Mock()
+        reopened_img.asarray.return_value = expected
+        reopened_lif = MagicMock()
+        reopened_lif.images = [reopened_img]
+        mock_liffile_class.return_value.__enter__ = Mock(return_value=reopened_lif)
+        mock_liffile_class.return_value.__exit__ = Mock(return_value=False)
+
+        parent = Mock()
+        parent.filepath = "/data/sample.lif"
+        src_img = Mock()
+        src_img.parent = parent
+        parent.images = [src_img]
+        # Simulate the closed-handle failure if the stale image is touched.
+        src_img.asarray.side_effect = ValueError("seek of closed file")
+
+        from ngff_zarr.lif_to_ngff_image import _delayed_lif_data
+
+        arr = _delayed_lif_data(src_img, (10, 4, 4), np.uint8)
+        result = np.asarray(arr.compute())
+
+        assert np.array_equal(result, expected)
+        src_img.asarray.assert_not_called()
+        mock_liffile_class.assert_called_once_with("/data/sample.lif")
+
+    def test_delayed_data_falls_back_to_direct_read(self):
+        """Without a resolvable source path (e.g. mocks), the array still
+        computes via the image's own asarray()."""
+        src_img = Mock()
+        src_img.parent = None
+        src_img.asarray.return_value = np.ones((2, 3, 3), dtype=np.uint8)
+
+        from ngff_zarr.lif_to_ngff_image import _delayed_lif_data
+
+        arr = _delayed_lif_data(src_img, (2, 3, 3), np.uint8)
+        result = np.asarray(arr.compute())
+
+        assert result.shape == (2, 3, 3)
+        src_img.asarray.assert_called()
