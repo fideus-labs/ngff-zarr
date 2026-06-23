@@ -501,6 +501,8 @@ def _create_zarr_root(
 
     if version != "0.4":
         # RFC 2, Zarr 3 - omero goes inside ome namespace
+        if version == "0.6":
+            version = "0.6.dev4"
         ome_dict = {"version": version, "multiscales": [metadata_dict]}
         if "omero" in metadata_dict:
             ome_dict["omero"] = metadata_dict.pop("omero")
