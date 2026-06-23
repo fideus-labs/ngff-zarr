@@ -346,7 +346,7 @@ def from_ome_zarr(
             "within the plate (e.g., 'plate.zarr/A/1/0' for well A1, field 0)."
         )
 
-    if version == "0.6":
+    if version.startswith("0.6"):
         from .v06.zarr_metadata import Metadata
         # TODO: Restore validation for v0.6
         metadata_obj, images = Metadata._from_zarr_attrs(
