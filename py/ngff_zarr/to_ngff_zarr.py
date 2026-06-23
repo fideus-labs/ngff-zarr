@@ -195,15 +195,16 @@ def _numpy_to_zarr_dtype(dtype):
         "complex128": "complex128",
     }
 
-    dtype_str = str(dtype)
-
-    # Handle endianness - strip byte order chars
-    if dtype_str.startswith(("<", ">", "|")):
-        dtype_str = dtype_str[1:]
+    # ``np.dtype(...).name`` yields the canonical, byte-order-independent name
+    # (e.g. ">u2", "<u2", and "uint16" all resolve to "uint16"), so big-endian
+    # and other non-native dtypes map correctly.  ``str(dtype)`` would instead
+    # surface a byte-order-prefixed short code such as ">u2" for non-native
+    # dtypes, whose stripped form ("u2") is absent from ``dtype_map``.
+    dtype_name = np.dtype(dtype).name
 
     # Look up corresponding zarr dtype
     try:
-        return dtype_map[dtype_str]
+        return dtype_map[dtype_name]
     except KeyError:
         raise ValueError(f"dtype {dtype} cannot be mapped to Zarr v3 core dtype")
 
