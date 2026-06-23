@@ -348,9 +348,11 @@ Methods.DASK_IMAGE_GAUSSIAN    # scipy-based fallback
 ### RFC-4 Anatomical Orientation
 
 ```python
-from ngff_zarr.rfc4 import LPS, RAS, AnatomicalOrientation
-# Use add_anatomical_orientation_to_axis() to add spatial context
-# Enable via is_rfc4_enabled() configuration
+from ngff_zarr.rfc4 import LPS, RAS, AnatomicalOrientation, orientation_from_name
+# Set NgffImage.axes_orientations, or pass orientation= to to_multiscales()
+# (a preset name like "LPS"/"RAS" or a per-axis mapping). Anatomical
+# orientation is written to the output automatically whenever it is present;
+# there is no separate enable flag.
 ```
 
 ### Error Handling Patterns

@@ -5,15 +5,15 @@
  * Ported from py/test/test_rfc4.py
  */
 
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertThrows } from "@std/assert";
 import {
   addAnatomicalOrientationToAxis,
   anatomicalOrientationToItkDirection,
   AnatomicalOrientationValues,
   createAnatomicalOrientation,
-  isRfc4Enabled,
   itkLpsToAnatomicalOrientation,
   LPS,
+  orientationFromName,
   RAS,
   removeAnatomicalOrientationFromAxis,
 } from "../src/types/rfc4.ts";
@@ -61,18 +61,20 @@ Deno.test("itkLpsToAnatomicalOrientation - non-spatial axis returns undefined", 
   assertEquals(tOrientation, undefined);
 });
 
-Deno.test("isRfc4Enabled - returns true when 4 is in list", () => {
-  assertEquals(isRfc4Enabled([4]), true);
-  assertEquals(isRfc4Enabled([1, 2, 4, 5]), true);
+Deno.test("orientationFromName - resolves LPS and RAS presets", () => {
+  assertEquals(orientationFromName("LPS"), LPS);
+  assertEquals(orientationFromName("RAS"), RAS);
+  // Case-insensitive
+  assertEquals(orientationFromName("lps"), LPS);
+  assertEquals(orientationFromName("ras"), RAS);
 });
 
-Deno.test("isRfc4Enabled - returns false when 4 is not in list", () => {
-  assertEquals(isRfc4Enabled([1, 2, 3]), false);
-  assertEquals(isRfc4Enabled([]), false);
-});
-
-Deno.test("isRfc4Enabled - returns false for undefined", () => {
-  assertEquals(isRfc4Enabled(undefined), false);
+Deno.test("orientationFromName - throws on unknown preset", () => {
+  assertThrows(
+    () => orientationFromName("FOO"),
+    Error,
+    "Unknown anatomical orientation preset",
+  );
 });
 
 Deno.test("addAnatomicalOrientationToAxis - adds orientation to axis dict", () => {

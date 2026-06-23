@@ -320,7 +320,13 @@ Deno.test("MR-head - ITKWASM_GAUSSIAN scale factors [2, 3, 4]", async () => {
   const inputPath = join(INPUT_DIR, "MR-head.nrrd");
   const itkImage = await readImageNode(inputPath);
   assertExists(itkImage);
-  const ngffImage = await itkImageToNgffImage(itkImage);
+  // The baseline store predates automatic anatomical-orientation writing and
+  // carries no orientation, so its ITK direction is identity. Disable
+  // orientation here to compare downsampled pixel output apples-to-apples; the
+  // orientation round-trip itself is covered by rfc4_integration_test.ts.
+  const ngffImage = await itkImageToNgffImage(itkImage, {
+    addAnatomicalOrientation: false,
+  });
 
   // Generate multiscales
   const multiscales = await toMultiscales(ngffImage, {

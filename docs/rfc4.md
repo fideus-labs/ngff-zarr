@@ -17,34 +17,47 @@ facilitating consistent analysis and interpretation of biological data.
 
 ### Programmatic Usage
 
-#### Enabling RFC-4
+#### Writing Anatomical Orientation
 
-To enable [RFC-4] support when writing OME-NGFF Zarr data, include `4` in the
-`enabled_rfcs` parameter:
+Anatomical orientation is written to the output automatically whenever it is
+present -- there is no separate opt-in. Provide orientation either by setting
+`axes_orientations` on the `NgffImage`, or by passing the `orientation` keyword
+to `to_multiscales()` (a preset name such as `"LPS"` or `"RAS"`, or a per-axis
+mapping of `AnatomicalOrientation`):
 
 ```python
 import ngff_zarr
 
-# Enable RFC-4 when converting to NGFF Zarr
+# Provide orientation via the `orientation` keyword (a preset name here)
+multiscales = ngff_zarr.to_multiscales(ngff_image, orientation="LPS")
+
+# Orientation is written automatically -- no enable flag required
 ngff_zarr.to_ngff_zarr(
     store="output.ome.zarr",
     multiscales=multiscales,
-    enabled_rfcs=[4]  # Enable RFC-4
 )
 ```
 
+Images that carry no anatomical orientation produce standard OME-NGFF metadata
+with no `orientation` field.
+
 ### CLI Usage
 
-RFC-4 can be enabled via the command line using the `--enable-rfc` flag:
+Use the `--orientation` flag to attach anatomical orientation to the spatial
+axes. It accepts a preset coordinate system (`LPS` or `RAS`) or ordered
+dim/value pairs. Orientation is written to the output automatically when
+present:
 
 ```bash
-# Convert a medical image with RFC-4 anatomical orientation enabled
-ngff-zarr -i image.nii.gz -o output.ome.zarr --enable-rfc 4
+# Convert a medical image using the LPS coordinate system
+ngff-zarr -i image.nii.gz -o output.ome.zarr --orientation LPS
 
-# Enable multiple RFCs (when available)
-ngff-zarr -i image.nii.gz -o output.ome.zarr --enable-rfc 4 --enable-rfc 5
+# Or specify orientation per axis as ordered dim/value pairs
+ngff-zarr -i image.nii.gz -o output.ome.zarr \
+    --orientation x right-to-left y anterior-to-posterior z inferior-to-superior
 
-# Without RFC-4 (default behavior - orientation metadata filtered out)
+# Inputs that already carry orientation (e.g. NIfTI, NRRD, DICOM via ITK)
+# write it automatically with no extra flags
 ngff-zarr -i image.nii.gz -o output.ome.zarr
 ```
 
@@ -68,12 +81,12 @@ ngff_image = ngff_zarr.itk_image_to_ngff_image(
     add_anatomical_orientation=True
 )
 
-# Convert to multiscales and write to Zarr with RFC-4 enabled
+# Convert to multiscales and write to Zarr -- because the image carries
+# orientation, it is written automatically
 multiscales = ngff_zarr.to_multiscales(ngff_image)
 ngff_zarr.to_ngff_zarr(
     store="output.ome.zarr",
     multiscales=multiscales,
-    enabled_rfcs=[4]
 )
 ```
 
@@ -204,12 +217,11 @@ ngff_image = nz.NgffImage(
     axes_orientations=nz.LPS
 )
 
-# Convert to multiscales and write with RFC-4 enabled
+# Convert to multiscales and write -- orientation is written automatically
 multiscales = nz.to_multiscales(ngff_image)
 nz.to_ngff_zarr(
     store="output.ome.zarr",
     multiscales=multiscales,
-    enabled_rfcs=[4]
 )
 ```
 
@@ -248,12 +260,11 @@ ngff_image = nz.NgffImage(
     axes_orientations=ngff_zarr.RAS
 )
 
-# Convert to multiscales and write with RFC-4 enabled
+# Convert to multiscales and write -- orientation is written automatically
 multiscales = nz.to_multiscales(ngff_image)
 nz.to_ngff_zarr(
     store="brain_data.ome.zarr",
     multiscales=multiscales,
-    enabled_rfcs=[4]
 )
 ```
 
@@ -307,8 +318,8 @@ ngff_image = NgffImage(
 
 ## Metadata Format
 
-When RFC-4 is enabled, spatial axes in the OME-NGFF metadata include an
-`orientation` field:
+When anatomical orientation is present, the spatial axes in the OME-NGFF
+metadata include an `orientation` field:
 
 ```json
 {
@@ -350,6 +361,8 @@ When RFC-4 is enabled, spatial axes in the OME-NGFF metadata include an
 
 - `itk_lps_to_anatomical_orientation(axis_name)`: Map ITK LPS axes to
   orientations
+- `orientation_from_name(name)`: Resolve a preset name (`"LPS"`/`"RAS"`) to a
+  per-axis orientation mapping
 - `add_anatomical_orientation_to_axis(axis_dict, orientation)`: Add orientation
   to axis
 - `remove_anatomical_orientation_from_axis(axis_dict)`: Remove orientation from
@@ -373,14 +386,16 @@ When RFC-4 is enabled, spatial axes in the OME-NGFF metadata include an
 
 ## Compatibility
 
-When RFC-4 is not enabled (the default), orientation metadata is automatically
-filtered out during Zarr writing to maintain compatibility with standard
-OME-NGFF consumers.
+Anatomical orientation is written only when it is present on the image's axes.
+Images without orientation produce standard OME-NGFF metadata with no
+`orientation` field, so consumers that do not understand [RFC-4] are
+unaffected.
 
 ## Best Practices
 
-1. **Enable RFC-4** when working with medical/biological images where
-   orientation matters
+1. **Provide orientation** (via `axes_orientations` or the `orientation`
+   keyword of `to_multiscales`) when working with medical/biological images
+   where orientation matters
 2. **Use convenience constants** (`LPS`, `RAS`) for standard coordinate systems
 3. **Use ITK integration** for automatic LPS-based orientation when converting
    from medical image formats

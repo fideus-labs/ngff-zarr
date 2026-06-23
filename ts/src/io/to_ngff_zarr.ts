@@ -10,7 +10,7 @@ import { createWriteQueue, zarrGet, zarrSet } from "../utils/worker_pool.ts";
 import type { MemoryStore } from "./from_ngff_zarr.ts";
 import { isOzxPath, memoryStoreToZip } from "./rfc9_zip.ts";
 import {
-  processAxesForRfcs,
+  processAxes,
   writeNgffMultiscalesToMemoryStore,
 } from "./to_ngff_zarr_ozx_common.ts";
 
@@ -24,8 +24,6 @@ export interface ToOmeZarrOptions {
    */
   version?: "0.4" | "0.5";
   chunksPerShard?: number | number[] | Record<string, number>;
-  /** List of RFC numbers to enable (e.g., [4] for RFC 4 anatomical orientation) */
-  enabledRfcs?: number[];
   /**
    * Custom codec pipeline for array compression. When omitted the default
    * ``blosc(zstd)`` pipeline from {@link defaultCodecs} is used. Use
@@ -42,8 +40,6 @@ export type ToNgffZarrOptions = ToOmeZarrOptions;
  * Note: chunksPerShard is NOT supported for .ozx files and will throw an error.
  */
 export interface ToOmeZarrOzxOptions {
-  /** List of RFC numbers to enable (e.g., [4] for RFC 4 anatomical orientation) */
-  enabledRfcs?: number[] | undefined;
   /**
    * Optional progress callback invoked after each chunk is written.
    * Reports cumulative progress across all scale levels.
@@ -91,7 +87,6 @@ export async function toOmeZarr(
 ): Promise<void> {
   const _overwrite = options.overwrite ?? true;
   const _version = options.version ?? "0.5";
-  const enabledRfcs = options.enabledRfcs;
 
   // Handle .ozx paths (RFC-9)
   if (typeof store === "string" && isOzxPath(store)) {
@@ -115,7 +110,7 @@ export async function toOmeZarr(
     }
 
     // Delegate to toOmeZarrOzx (which always uses version 0.5)
-    await toOmeZarrOzx(store, multiscales, { enabledRfcs });
+    await toOmeZarrOzx(store, multiscales);
     return;
   }
 
@@ -156,11 +151,8 @@ export async function toOmeZarr(
     // Create root location and group with zarrita v0.5.2 API
     const root = zarr.root(_resolvedStore as MemoryStore);
 
-    // Process axes - filter orientation based on enabledRfcs
-    const processedAxes = processAxesForRfcs(
-      multiscales.metadata.axes,
-      enabledRfcs,
-    );
+    // Process axes (orientation included when present)
+    const processedAxes = processAxes(multiscales.metadata.axes);
 
     // Prepare multiscales metadata
     const multiscalesMetadata = {
@@ -647,8 +639,6 @@ export async function toOmeZarrOzxData(
   multiscales: NgffMultiscales,
   options: ToOmeZarrOzxOptions = {},
 ): Promise<Uint8Array> {
-  const enabledRfcs = options.enabledRfcs;
-
   // Create a memory store to hold the zarr data
   const memoryStore: MemoryStore = new Map<string, Uint8Array>();
 
@@ -658,7 +648,6 @@ export async function toOmeZarrOzxData(
   await _writeToMemoryStore(
     memoryStore,
     multiscales,
-    enabledRfcs,
     options.onProgress ?? null,
   );
 
@@ -678,13 +667,11 @@ export const toNgffZarrOzxData = toOmeZarrOzxData;
 async function _writeToMemoryStore(
   store: MemoryStore,
   multiscales: NgffMultiscales,
-  enabledRfcs?: number[],
   onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
 ): Promise<void> {
   await writeNgffMultiscalesToMemoryStore(
     store,
     multiscales,
-    enabledRfcs,
     _writeImage,
     onProgress,
   );

@@ -38,6 +38,7 @@ from .methods._metadata import get_method_metadata
 from .methods._support import _spatial_dims
 from .multiscales import NgffMultiscales
 from .ngff_image import NgffImage
+from .rfc4 import AnatomicalOrientation, orientation_from_name
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
 from .task_count import task_count
 from .to_ngff_image import to_ngff_image
@@ -481,6 +482,7 @@ def to_multiscales(
     | None = None,
     progress: NgffProgress | NgffProgressCallback | None = None,
     cache: bool | None = None,
+    orientation: str | Mapping[str, AnatomicalOrientation] | None = None,
 ) -> NgffMultiscales:
     """
     Generate multiple resolution scales for the OME-NGFF standard data model.
@@ -506,6 +508,13 @@ def to_multiscales(
 
     :param progress: Optional progress logger
     :type  progress: NgffProgress, NgffProgressCallback
+
+    :param orientation: Anatomical orientation (RFC 4) for the spatial axes. Either a preset
+        coordinate-system name (``"LPS"`` or ``"RAS"``, case-insensitive) or a mapping of axis
+        name to :class:`AnatomicalOrientation`. When provided, it takes precedence over any
+        ``axes_orientations`` on the input image. Anatomical orientation is written to the
+        output automatically whenever it is present; no separate opt-in is required.
+    :type  orientation: str or mapping of str to AnatomicalOrientation, optional
 
     :return: NgffImage for each resolution and NGFF multiscales metadata
     :rtype : NgffMultiscales
@@ -648,18 +657,28 @@ def to_multiscales(
                 if img.channel_colors is None and src_channel_colors is not None:
                     img.channel_colors = list(src_channel_colors)
 
+    # Resolve anatomical orientation (RFC 4). An explicit ``orientation``
+    # argument (preset name or mapping) takes precedence over any orientations
+    # carried on the input image.
+    if orientation is None:
+        axes_orientations = ngff_image.axes_orientations
+    elif isinstance(orientation, str):
+        axes_orientations = orientation_from_name(orientation)
+    else:
+        axes_orientations = orientation
+
     axes = []
     for dim in ngff_image.dims:
         unit = None
         if ngff_image.axes_units and dim in ngff_image.axes_units:
             unit = ngff_image.axes_units[dim]
 
-        orientation = None
-        if ngff_image.axes_orientations and dim in ngff_image.axes_orientations:
-            orientation = ngff_image.axes_orientations[dim]
+        axis_orientation = None
+        if axes_orientations and dim in axes_orientations:
+            axis_orientation = axes_orientations[dim]
 
         if dim in {"x", "y", "z"}:
-            axis = Axis(name=dim, type="space", unit=unit, orientation=orientation)
+            axis = Axis(name=dim, type="space", unit=unit, orientation=axis_orientation)
         elif dim == "c":
             axis = Axis(name=dim, type="channel", unit=unit)
         elif dim == "t":

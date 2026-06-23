@@ -51,8 +51,6 @@ async def convert_images_to_ome_zarr(
     cache_dir: str | None = None,
     # New RFC 4 and storage options
     anatomical_orientation: str | None = None,
-    enable_rfc4: bool = False,
-    enabled_rfcs: list[int] | None = None,
     storage_options: dict[str, str] | None = None,
 ) -> ConversionResult:
     """
@@ -76,9 +74,9 @@ async def convert_images_to_ome_zarr(
         use_tensorstore: Use TensorStore for I/O
         use_local_cluster: Use Dask LocalCluster for large datasets
         cache_dir: Directory for caching
-        anatomical_orientation: Anatomical orientation preset (LPS, RAS)
-        enable_rfc4: Enable RFC 4 anatomical orientation support
-        enabled_rfcs: List of RFC numbers to enable
+        anatomical_orientation: Anatomical orientation preset (LPS, RAS).
+            Applies to file/array inputs only; for existing zarr-store inputs
+            the orientation already in the source metadata is preserved.
         storage_options: Storage options for remote stores (S3, GCS, etc.)
 
     Returns:
@@ -115,8 +113,6 @@ async def convert_images_to_ome_zarr(
         use_local_cluster=use_local_cluster,
         cache_dir=cache_dir,
         anatomical_orientation=anatomical_orientation,
-        enable_rfc4=enable_rfc4,
-        enabled_rfcs=enabled_rfcs,
         storage_options=storage_options,  # type: ignore[arg-type]
     )
 

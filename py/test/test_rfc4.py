@@ -4,13 +4,15 @@
 
 import pytest
 from ngff_zarr.rfc4 import (
+    LPS,
+    RAS,
     AnatomicalOrientation,
     AnatomicalOrientationValues,
     add_anatomical_orientation_to_axis,
     anatomical_orientation_to_itk_direction,
-    is_rfc4_enabled,
     itk_direction_to_anatomical_orientation,
     itk_lps_to_anatomical_orientation,
+    orientation_from_name,
     remove_anatomical_orientation_from_axis,
 )
 
@@ -47,13 +49,18 @@ def test_itk_lps_to_anatomical_orientation():
     assert c_orientation is None
 
 
-def test_is_rfc4_enabled():
-    """Test RFC 4 enablement check."""
-    assert is_rfc4_enabled([4]) is True
-    assert is_rfc4_enabled([1, 2, 4, 5]) is True
-    assert is_rfc4_enabled([1, 2, 3]) is False
-    assert is_rfc4_enabled([]) is False
-    assert is_rfc4_enabled(None) is False
+def test_orientation_from_name():
+    """Test resolving anatomical orientation presets by name."""
+    assert orientation_from_name("LPS") == LPS
+    assert orientation_from_name("RAS") == RAS
+    # Case-insensitive
+    assert orientation_from_name("lps") == LPS
+    assert orientation_from_name("ras") == RAS
+    # Returns a copy, not the shared module-level constant
+    assert orientation_from_name("LPS") is not LPS
+    # Unknown presets raise ValueError
+    with pytest.raises(ValueError, match="Unknown anatomical orientation preset"):
+        orientation_from_name("FOO")
 
 
 def test_add_anatomical_orientation_to_axis():

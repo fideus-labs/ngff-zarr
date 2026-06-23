@@ -46,9 +46,9 @@ from .rfc4 import (
     AnatomicalOrientationValues,
     add_anatomical_orientation_to_axis,
     anatomical_orientation_to_itk_direction,
-    is_rfc4_enabled,
     itk_direction_to_anatomical_orientation,
     itk_lps_to_anatomical_orientation,
+    orientation_from_name,
     remove_anatomical_orientation_from_axis,
 )
 from .rfc9_zip import (
@@ -182,7 +182,7 @@ __all__ = [
     "itk_lps_to_anatomical_orientation",
     "itk_direction_to_anatomical_orientation",
     "anatomical_orientation_to_itk_direction",
-    "is_rfc4_enabled",
+    "orientation_from_name",
     "add_anatomical_orientation_to_axis",
     "remove_anatomical_orientation_from_axis",
     # RFC 9 - Zipped OME-Zarr (.ozx)

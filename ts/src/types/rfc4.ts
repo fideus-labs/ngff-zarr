@@ -121,6 +121,40 @@ export const RAS: Record<string, AnatomicalOrientation> = {
 };
 
 /**
+ * Preset anatomical orientation coordinate systems, keyed by lowercased name.
+ */
+const ORIENTATION_PRESETS: Record<
+  string,
+  Record<string, AnatomicalOrientation>
+> = {
+  lps: LPS,
+  ras: RAS,
+};
+
+/**
+ * Resolve an anatomical orientation preset name to per-axis orientations.
+ *
+ * @param name - A preset coordinate-system name: "LPS" or "RAS" (case-insensitive)
+ * @returns A mapping of spatial axis name to AnatomicalOrientation
+ * @throws Error if the name is not a recognized preset
+ */
+export function orientationFromName(
+  name: string,
+): Record<string, AnatomicalOrientation> {
+  const preset = ORIENTATION_PRESETS[name.toLowerCase()];
+  if (preset === undefined) {
+    const supported = Object.keys(ORIENTATION_PRESETS)
+      .map((p) => p.toUpperCase())
+      .join(", ");
+    throw new Error(
+      `Unknown anatomical orientation preset: "${name}". ` +
+        `Supported presets: ${supported}.`,
+    );
+  }
+  return { ...preset };
+}
+
+/**
  * Convert ITK LPS coordinate system to anatomical orientation.
  *
  * ITK uses the LPS (Left-Posterior-Superior) coordinate system by default.
@@ -271,13 +305,6 @@ export function anatomicalOrientationToItkDirection(
     }
   }
   return undefined;
-}
-
-/**
- * Check if RFC 4 is enabled in the list of enabled RFCs.
- */
-export function isRfc4Enabled(enabledRfcs?: number[]): boolean {
-  return enabledRfcs !== undefined && enabledRfcs.includes(4);
 }
 
 /**

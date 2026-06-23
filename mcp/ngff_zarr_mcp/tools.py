@@ -104,7 +104,11 @@ async def convert_to_ome_zarr(
                     # Load input image
                     ngff_image = cli_input_to_ngff_image(backend, prepared_inputs)
 
-            # Apply metadata options (only to single NgffImage for non-zarr inputs)
+            # Apply metadata options (dims, scale, translation, name,
+            # anatomical_orientation). These overrides apply only to file/array
+            # inputs: for existing zarr-store inputs the source multiscales --
+            # including any orientation already in its metadata -- is written
+            # through unchanged.
             if not is_zarr_input and ngff_image is not None:
                 if options.dims:
                     if len(options.dims) != len(ngff_image.dims):
@@ -129,11 +133,15 @@ async def convert_to_ome_zarr(
                 if options.name:
                     ngff_image.name = options.name
 
-                # Apply anatomical orientation if requested (RFC 4)
+                # Apply anatomical orientation if requested (RFC 4). Setting the
+                # orientations on the image is enough -- orientation is written
+                # to the output automatically whenever it is present.
                 if options.anatomical_orientation:
-                    # Note: RFC4 orientation assignment may need proper implementation
-                    # For now, we'll skip this to avoid attribute errors
-                    pass
+                    from ngff_zarr import orientation_from_name
+
+                    ngff_image.axes_orientations = orientation_from_name(
+                        options.anatomical_orientation
+                    )
 
             # Setup chunking
             chunks = options.chunks
@@ -204,24 +212,12 @@ async def convert_to_ome_zarr(
                     options.compression_codec, options.compression_level
                 )
 
-            # Prepare enabled_rfcs parameter
-            # Note: Temporarily disabled due to compatibility issues
-            # enabled_rfcs = []
-            # if options.enable_rfc4 or options.enabled_rfcs:
-            #     if options.enable_rfc4:
-            #         enabled_rfcs.append(4)
-            #     if options.enabled_rfcs:
-            #         enabled_rfcs.extend(options.enabled_rfcs)
-            #     # Remove duplicates
-            #     enabled_rfcs = list(set(enabled_rfcs))
-
             to_ome_zarr(
                 output_store,
                 multiscales_obj,
                 version=options.ome_zarr_version,
                 chunks_per_shard=chunks_per_shard,
                 use_tensorstore=options.use_tensorstore,
-                # enabled_rfcs=enabled_rfcs if enabled_rfcs else None,  # Temporarily disabled
                 **kwargs,
             )
 
