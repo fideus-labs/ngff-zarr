@@ -14,8 +14,11 @@ flexible, and easy to use.
 
 NGFF-Zarr supports conversion of any NumPy array-like object that follows the
 [Python Array API Standard] into the OME-Zarr data model. This includes such
-objects an NumPy `ndarray`'s, Dask Arrays, PyTorch Tensors, CuPy arrays, Zarr
-array, etc.
+objects as NumPy `ndarray`s, Dask Arrays, PyTorch Tensors, CuPy arrays, Zarr
+arrays, etc.
+
+NumPy arrays with explicit byte order, including big-endian arrays, are accepted
+and normalized during writes so values round-trip correctly.
 
 Convert the array to an [`NgffImage`], which is a standard Python [dataclass]
 that represents an OME-Zarr image for a single scale.
@@ -268,6 +271,9 @@ pip install "ngff-zarr[tensorstore]"
 ```python
 nz.to_ngff_zarr('cthead1.ome.zarr', multiscales, use_tensorstore=True)
 ```
+
+The TensorStore backend uses the same dtype canonicalization, including for
+big-endian NumPy arrays written to Zarr v3 stores.
 
 ### Write a sharded OME-Zarr store
 
