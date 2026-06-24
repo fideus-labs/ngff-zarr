@@ -3,10 +3,11 @@
 import * as zarr from "zarrita";
 
 import { NgffMultiscales } from "../types/multiscales.ts";
-import { NgffVersion } from "../types/supported_versions.ts";
+import { isV06Version, NgffVersion } from "../types/supported_versions.ts";
 import {
   fromZarrAttrsV04,
   fromZarrAttrsV05,
+  fromZarrAttrsV06,
 } from "../utils/from_zarr_attrs.ts";
 import {
   detectVersion,
@@ -20,7 +21,7 @@ export interface FromOmeZarrOptions {
   /** Enable schema validation of OME-Zarr metadata. */
   validate?: boolean;
   /** Expected OME-Zarr version. */
-  version?: "0.4" | "0.5";
+  version?: "0.4" | "0.5" | "0.6";
   /**
    * Optional decoded-chunk cache passed to `zarrGet` calls.
    *
@@ -126,18 +127,25 @@ export async function fromOmeZarr(
     // Detect version from attributes
     const detectedVersion = detectVersion(rootAttrs);
 
-    // Validate version if requested
+    // Validate version if requested. Treat the v0.6 family as equivalent so a
+    // store tagged `0.6.dev4` on disk satisfies a requested version of `"0.6"`
+    // (and vice versa).
     if (validate && requestedVersion) {
-      if (detectedVersion !== requestedVersion) {
+      const versionsMatch = detectedVersion === requestedVersion ||
+        (isV06Version(detectedVersion) && isV06Version(requestedVersion));
+      if (!versionsMatch) {
         throw new Error(
           `Expected OME-Zarr version ${requestedVersion}, but found ${detectedVersion}`,
         );
       }
     }
 
-    // Parse metadata using version-specific function
+    // Parse metadata using version-specific function. The v0.6 reader handles
+    // both `0.6` and the draft `0.6.dev4` on-disk version strings.
     let result;
-    if (detectedVersion === NgffVersion.V05) {
+    if (isV06Version(detectedVersion)) {
+      result = await fromZarrAttrsV06(rootAttrs, resolvedStore, validate);
+    } else if (detectedVersion === NgffVersion.V05) {
       result = await fromZarrAttrsV05(rootAttrs, resolvedStore, validate);
     } else {
       result = await fromZarrAttrsV04(rootAttrs, resolvedStore, validate);

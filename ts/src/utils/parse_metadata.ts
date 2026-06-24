@@ -7,6 +7,7 @@
 
 import {
   isSupportedVersion,
+  isV06Version,
   NgffVersion,
 } from "../types/supported_versions.ts";
 import type { Methods } from "../types/methods.ts";
@@ -176,6 +177,13 @@ export function detectVersion(
 
   if (versionStr === undefined) {
     throw new Error("Could not detect NGFF version from root attributes.");
+  }
+
+  // Any 0.6-family version, including draft development tags such as
+  // `0.6.dev4`, is read as v0.6. Mirrors the Python port's
+  // `version.startswith("0.6")` read check so dev releases remain readable.
+  if (isV06Version(versionStr)) {
+    return NgffVersion.V06;
   }
 
   if (!isSupportedVersion(versionStr)) {

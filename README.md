@@ -66,7 +66,7 @@ The TypeScript package provides universal OME-Zarr support for modern JavaScript
 - 🦕 **Deno-first** with first-class TypeScript support
 - 📦 **Universal compatibility** - Works in Deno, Node.js, and browsers
 - 🔍 **Type-safe** with Zod schema validation
-- 🗂️ **OME-Zarr v0.4 and v0.5** support
+- 🗂️ **OME-Zarr v0.4, v0.5, and v0.6** support (v0.6 adds RFC-5 coordinate systems and transformations)
 - 🌐 **Web ready** - No filesystem dependencies, works with remote stores
 - 🏗️ **Mirrors Python API** - Familiar interfaces for Python users
 - 📚 **Lazy loading** - Efficient handling of large datasets

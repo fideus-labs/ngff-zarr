@@ -22,6 +22,10 @@ import {
 import { getMethodMetadata } from "../utils/method_metadata.ts";
 import type { AnatomicalOrientation } from "../types/rfc4.ts";
 import { orientationFromName } from "../types/rfc4.ts";
+import {
+  createCoordinateSystem,
+  INTRINSIC_COORDINATE_SYSTEM_NAME,
+} from "../types/zarr_metadata.ts";
 
 export type { ZarrCodec };
 
@@ -153,6 +157,12 @@ export async function toMultiscalesCore(
   // Create metadata with method information
   const methodMetadata = getMethodMetadata(method);
   const metadata = createMetadata(axes, datasets, image.name);
+  // RFC 5 / v0.6 exposes the implicit "intrinsic" coordinate system (the axes
+  // of the full-resolution image); each dataset maps into it. Older versions
+  // ignore this field on write. Mirrors the Python v0.6 `to_multiscales`.
+  metadata.coordinateSystems = [
+    createCoordinateSystem(INTRINSIC_COORDINATE_SYSTEM_NAME, axes),
+  ];
   // The 'type' field, part of the OME-Zarr specification, in metadata is used here to
   // record the downsampling method applied to generate multiscale images for provenance.
   metadata.type = method;

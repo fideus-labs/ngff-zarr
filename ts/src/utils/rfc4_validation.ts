@@ -51,12 +51,29 @@ export function hasRfc4OrientationMetadata(
       typeof axis === "object" &&
       axis !== null &&
       axis.type === "space" &&
-      "orientation" in axis
+      "orientation" in axis &&
+      // Orientation value has to be non-empty for it to count as orientation
+      // metadata, mirroring the Python `if axis['orientation']:` guard (null,
+      // {}, and "" are all treated as "no orientation").
+      isNonEmptyOrientation(axis.orientation)
     ) {
       return true;
     }
   }
   return false;
+}
+
+function isNonEmptyOrientation(orientation: unknown): boolean {
+  if (orientation === null || orientation === undefined) {
+    return false;
+  }
+  if (typeof orientation === "object") {
+    return Object.keys(orientation as Record<string, unknown>).length > 0;
+  }
+  if (typeof orientation === "string") {
+    return orientation.length > 0;
+  }
+  return Boolean(orientation);
 }
 
 /**
