@@ -11,6 +11,7 @@ import type { Units } from "../types/units.ts";
 import type { Metadata, Omero } from "../types/zarr_metadata.ts";
 import { extractMethodMetadata } from "../utils/parse_metadata.ts";
 import { fromZarrAttrsV06 } from "../utils/from_zarr_attrs.ts";
+import { isV06Version } from "../types/supported_versions.ts";
 
 export type { ChunkCache } from "../utils/worker_pool.ts";
 
@@ -97,12 +98,18 @@ export async function fromOmeZarr(
     const omeForVersion = rootAttrsForVersion.ome as
       | Record<string, unknown>
       | undefined;
-    if (omeForVersion && omeForVersion.version === "0.6") {
+    if (
+      omeForVersion && typeof omeForVersion.version === "string" &&
+      isV06Version(omeForVersion.version)
+    ) {
       // Gate the requested-version mismatch behind `validate`, matching the node
       // reader and the v0.4/v0.5 path below; otherwise behavior diverges by
-      // version and environment.
-      if (validate && version && version !== "0.6") {
-        throw new Error(`Expected OME-Zarr version ${version}, but found 0.6`);
+      // version and environment. The v0.6 family (`0.6` and draft `0.6.dev4`)
+      // is treated as equivalent.
+      if (validate && version && !isV06Version(version)) {
+        throw new Error(
+          `Expected OME-Zarr version ${version}, but found ${omeForVersion.version}`,
+        );
       }
       const result = await fromZarrAttrsV06(
         rootAttrsForVersion,

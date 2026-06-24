@@ -8,6 +8,7 @@ import type { ZarrCodec } from "../utils/codecs.ts";
 import { defaultCodecs } from "../utils/codecs.ts";
 import { createWriteQueue, zarrGet, zarrSet } from "../utils/worker_pool.ts";
 import type { MemoryStore } from "./from_ngff_zarr.ts";
+import { V06_ONDISK_VERSION } from "../types/supported_versions.ts";
 import { isOzxPath, memoryStoreToZip } from "./rfc9_zip.ts";
 import {
   processAxes,
@@ -172,7 +173,9 @@ export async function toOmeZarr(
       );
       attributes = {
         ome: {
-          version: _version,
+          // The v0.6 spec is still a draft; tag the store with the development
+          // version `0.6.dev4` even though the requested version is `"0.6"`.
+          version: V06_ONDISK_VERSION,
           multiscales: [v06Entry],
           ...(multiscales.metadata.omero && {
             omero: multiscales.metadata.omero,

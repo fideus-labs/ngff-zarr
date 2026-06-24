@@ -22,6 +22,8 @@ import {
   createTransformSequence,
   createTranslation,
   fromOmeZarr,
+  isSupportedVersion,
+  isV06Version,
   type MemoryStore,
   NgffImage,
   type NgffMultiscales,
@@ -95,6 +97,25 @@ function mutateRootEntry(
   throw new Error("No root group with an 'ome' attribute found in the store");
 }
 
+// Overwrite the root group's `ome.version` string in place, so the reader can
+// be exercised against an on-disk version tag independent of what the writer
+// currently emits (e.g. a plain `0.6` store, or a future draft tag).
+function setOmeVersion(store: MemoryStore, version: string): void {
+  for (const [key, bytes] of store.entries()) {
+    if (!key.endsWith("zarr.json")) continue;
+    const node = JSON.parse(new TextDecoder().decode(bytes));
+    if (
+      node.node_type === "group" && node.attributes &&
+      typeof node.attributes === "object" && "ome" in node.attributes
+    ) {
+      (node.attributes.ome as { version: string }).version = version;
+      store.set(key, new TextEncoder().encode(JSON.stringify(node)));
+      return;
+    }
+  }
+  throw new Error("No root group with an 'ome' attribute found in the store");
+}
+
 Deno.test("v0.6 write produces coordinate systems and sequence transforms", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
@@ -104,7 +125,9 @@ Deno.test("v0.6 write produces coordinate systems and sequence transforms", asyn
     version: string;
     multiscales: Array<Record<string, unknown>>;
   };
-  assertEquals(ome.version, "0.6");
+  // The v0.6 spec is still a draft, so the on-disk version is tagged
+  // `0.6.dev4` even though the requested version is `"0.6"`.
+  assertEquals(ome.version, "0.6.dev4");
 
   const entry = ome.multiscales[0];
   // v0.6 carries axes inside coordinate systems, not at the entry level.
@@ -633,4 +656,78 @@ Deno.test("RFC-9 metadata drops a v0.6-only rotation but keeps a scale", async (
   // The v0.6-only input/output/name fields are stripped from the kept transform.
   assertEquals("input" in kept[0], false);
   assertEquals("output" in kept[0], false);
+});
+
+// --- OME-Zarr v0.6 draft "0.6.dev4" version handling (temporary) ---
+
+// Writing version "0.6" tags the store with the draft "0.6.dev4" on disk while
+// keeping the in-memory metadata version at "0.6".
+Deno.test("v0.6 write tags the store 0.6.dev4 but reads back as 0.6", async () => {
+  const multiscales = await buildMultiscales();
+  const store: MemoryStore = new Map();
+  await toOmeZarr(store, multiscales, { version: "0.6" });
+
+  const ome = readOmeAttributes(store) as { version: string };
+  assertEquals(ome.version, "0.6.dev4");
+
+  const imported = await fromOmeZarr(store);
+  assertEquals(imported.metadata.version, "0.6");
+});
+
+// Round-trip with an explicit requested version "0.6" and validation: the
+// draft "0.6.dev4" on disk must satisfy the requested "0.6" (family match).
+Deno.test("v0.6 round-trip with validate accepts the 0.6.dev4 on-disk tag", async () => {
+  const multiscales = await buildMultiscales();
+  const store: MemoryStore = new Map();
+  await toOmeZarr(store, multiscales, { version: "0.6" });
+
+  const imported = await fromOmeZarr(store, { version: "0.6", validate: true });
+  assertEquals(imported.metadata.version, "0.6");
+  assertEquals(imported.images.length, multiscales.images.length);
+});
+
+// A store tagged with a plain "0.6" (e.g. a stricter writer) still reads as
+// v0.6 -- isV06Version covers the whole family, not just the draft tag.
+Deno.test("reader accepts a plain 0.6 on-disk version tag", async () => {
+  const multiscales = await buildMultiscales();
+  const store: MemoryStore = new Map();
+  await toOmeZarr(store, multiscales, { version: "0.6" });
+  setOmeVersion(store, "0.6");
+
+  const imported = await fromOmeZarr(store, { version: "0.6", validate: true });
+  assertEquals(imported.metadata.version, "0.6");
+  assertEquals(imported.metadata.coordinateSystems![0].name, "intrinsic");
+});
+
+// A future draft tag in the 0.6 family (e.g. "0.6.dev5") is also read as v0.6.
+Deno.test("reader accepts a future 0.6 draft tag", async () => {
+  const multiscales = await buildMultiscales();
+  const store: MemoryStore = new Map();
+  await toOmeZarr(store, multiscales, { version: "0.6" });
+  setOmeVersion(store, "0.6.dev5");
+
+  const imported = await fromOmeZarr(store);
+  assertEquals(imported.metadata.version, "0.6");
+});
+
+// The browser reader follows the same family rule for the draft tag.
+Deno.test("browser reader accepts the 0.6.dev4 on-disk tag", async () => {
+  const multiscales = await buildMultiscales();
+  const store: MemoryStore = new Map();
+  await toOmeZarrBrowser(store, multiscales, { version: "0.6" });
+
+  const ome = readOmeAttributes(store) as { version: string };
+  assertEquals(ome.version, "0.6.dev4");
+
+  const imported = await fromOmeZarrBrowser(store, { version: "0.6" });
+  assertEquals(imported.metadata.version, "0.6");
+  assertEquals(imported.images.length, multiscales.images.length);
+});
+
+// "0.6.dev4" is a recognized, supported version string.
+Deno.test("0.6.dev4 is a supported version", () => {
+  assertEquals(isSupportedVersion("0.6.dev4"), true);
+  assertEquals(isV06Version("0.6.dev4"), true);
+  assertEquals(isV06Version("0.6"), true);
+  assertEquals(isV06Version("0.5"), false);
 });
