@@ -64,3 +64,6 @@ Create an upbeat daily status report for the repo as a GitHub issue.
 1. Gather recent activity from the repository
 2. Study the repository, its issues and its pull requests
 3. Create a new GitHub issue with your findings and insights
+4. If issue creation returns success, treat that as authoritative completion
+5. Do not emit `report_incomplete` only because immediate follow-up
+   issue search/list reads do not show the new issue yet
