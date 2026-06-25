@@ -3,11 +3,11 @@
 ### BREAKING CHANGE
 
 - The `enabled_rfcs` parameter (Python `to_ngff_zarr`/
-`to_ome_zarr`), the `--enable-rfc` CLI flag, the `enabledRfcs` TypeScript write
-option, and the MCP `enable_rfc4`/`enabled_rfcs` fields are removed. RFC-4
-anatomical orientation is written automatically when orientation metadata is
-present; supply it via `NgffImage.axes_orientations`, the new `orientation=`
-argument to `to_multiscales`, or the `--orientation` CLI flag. ([abda351](https://github.com/fideus-labs/ngff-zarr/commit/abda351de31305f87a6119102e27b55e6baaecdb))
+  `to_ome_zarr`), the `--enable-rfc` CLI flag, the `enabledRfcs` TypeScript write
+  option, and the MCP `enable_rfc4`/`enabled_rfcs` fields are removed. RFC-4
+  anatomical orientation is written automatically when orientation metadata is
+  present; supply it via `NgffImage.axes_orientations`, the new `orientation=`
+  argument to `to_multiscales`, or the `--orientation` CLI flag. ([abda351](https://github.com/fideus-labs/ngff-zarr/commit/abda351de31305f87a6119102e27b55e6baaecdb))
 
 ### ♻️ Refactoring
 
