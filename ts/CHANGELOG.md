@@ -1,3 +1,23 @@
+## ts-v0.21.0 (2026-06-25)
+
+### BREAKING CHANGE
+
+- The `enabled_rfcs` parameter (Python `to_ngff_zarr`/
+`to_ome_zarr`), the `--enable-rfc` CLI flag, the `enabledRfcs` TypeScript write
+option, and the MCP `enable_rfc4`/`enabled_rfcs` fields are removed. RFC-4
+anatomical orientation is written automatically when orientation metadata is
+present; supply it via `NgffImage.axes_orientations`, the new `orientation=`
+argument to `to_multiscales`, or the `--orientation` CLI flag. ([abda351](https://github.com/fideus-labs/ngff-zarr/commit/abda351de31305f87a6119102e27b55e6baaecdb))
+
+### ♻️ Refactoring
+
+- **py,ts**: write RFC-4 anatomical orientation automatically, drop enabled-rfcs API ([abda351](https://github.com/fideus-labs/ngff-zarr/commit/abda351de31305f87a6119102e27b55e6baaecdb))
+
+### ✨ Features
+
+- **ts**: add temporary OME-Zarr 0.6.dev4 version support ([9d887f9](https://github.com/fideus-labs/ngff-zarr/commit/9d887f9e222602b38afd4191aac593ee3d21772d))
+- **ts**: add OME-Zarr v0.6 (RFC-5) coordinate transformations support ([859519b](https://github.com/fideus-labs/ngff-zarr/commit/859519b944afd0aa0f2b12f0ac8e2ee4f84ab53f))
+
 ## ts-v0.20.0 (2026-06-18)
 
 ### ✨ Features
