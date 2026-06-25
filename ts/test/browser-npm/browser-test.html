@@ -8,41 +8,41 @@
     <pre id="output">Loading...</pre>
 
     <script type="module">
-      document.getElementById("output").textContent = "Starting test...\n";
+    document.getElementById("output").textContent = "Starting test...\n";
 
-      try {
-        console.log("Attempting to load browser bundle...");
-        const module = await import("./ngff-zarr-browser.bundle.js");
-        console.log("Bundle loaded successfully:", module);
+    try {
+      console.log("Attempting to load browser bundle...");
+      const module = await import("./ngff-zarr-browser.bundle.js");
+      console.log("Bundle loaded successfully:", module);
 
-        document.getElementById("output").textContent +=
-          "Bundle loaded successfully!\n";
-        document.getElementById("output").textContent += "Exports: " +
-          Object.keys(module).slice(0, 10).join(", ") + "...\n";
+      document.getElementById("output").textContent +=
+        "Bundle loaded successfully!\n";
+      document.getElementById("output").textContent += "Exports: " +
+        Object.keys(module).slice(0, 10).join(", ") + "...\n";
 
-        // Test validations
-        if (module.isValidDimension) {
-          const testResult = module.isValidDimension("x");
-          document.getElementById("output").textContent +=
-            'isValidDimension("x"): ' + testResult + "\n";
-        }
-
-        if (module.isValidUnit) {
-          const testResult = module.isValidUnit("micrometer");
-          document.getElementById("output").textContent +=
-            'isValidUnit("micrometer"): ' + testResult + "\n";
-        }
-
-        // Test schema validation
-        if (module.MetadataSchema) {
-          document.getElementById("output").textContent +=
-            "MetadataSchema available: true\n";
-        }
-      } catch (error) {
-        console.error("Error loading bundle:", error);
-        document.getElementById("output").textContent += "Error: " +
-          error.message + "\n";
+      // Test validations
+      if (module.isValidDimension) {
+        const testResult = module.isValidDimension("x");
+        document.getElementById("output").textContent += 'isValidDimension("x"): ' +
+          testResult + "\n";
       }
+
+      if (module.isValidUnit) {
+        const testResult = module.isValidUnit("micrometer");
+        document.getElementById("output").textContent +=
+          'isValidUnit("micrometer"): ' + testResult + "\n";
+      }
+
+      // Test schema validation
+      if (module.MetadataSchema) {
+        document.getElementById("output").textContent +=
+          "MetadataSchema available: true\n";
+      }
+    } catch (error) {
+      console.error("Error loading bundle:", error);
+      document.getElementById("output").textContent += "Error: " +
+        error.message + "\n";
+    }
     </script>
   </body>
 </html>
