@@ -1,3 +1,49 @@
+## py-v0.37.0 (2026-06-25)
+
+### BREAKING CHANGE
+
+- The `enabled_rfcs` parameter (Python `to_ngff_zarr`/
+`to_ome_zarr`), the `--enable-rfc` CLI flag, the `enabledRfcs` TypeScript write
+option, and the MCP `enable_rfc4`/`enabled_rfcs` fields are removed. RFC-4
+anatomical orientation is written automatically when orientation metadata is
+present; supply it via `NgffImage.axes_orientations`, the new `orientation=`
+argument to `to_multiscales`, or the `--orientation` CLI flag. ([abda351](https://github.com/fideus-labs/ngff-zarr/commit/abda351de31305f87a6119102e27b55e6baaecdb))
+
+### ♻️ Refactoring
+
+- **py,ts**: write RFC-4 anatomical orientation automatically, drop enabled-rfcs API ([abda351](https://github.com/fideus-labs/ngff-zarr/commit/abda351de31305f87a6119102e27b55e6baaecdb))
+- update to refactored read/write functions ([39318c0](https://github.com/fideus-labs/ngff-zarr/commit/39318c07cacbba81238174ade43febf1426117f2))
+- Introduce CoordinateSystemIdentifier metadata class ([52df14f](https://github.com/fideus-labs/ngff-zarr/commit/52df14fecb4406a05254dd053f3b11e6039c138d))
+- improve typing of omero parser ([25ef680](https://github.com/fideus-labs/ngff-zarr/commit/25ef68023a16b74ceefc1baff9155d39d1618774))
+- Make rfc4 checks compliant with v0.6 metadata structure ([83d0f52](https://github.com/fideus-labs/ngff-zarr/commit/83d0f52a9480086167264f207a7726f425442120))
+- add metadata reading into class methods ([7f0923c](https://github.com/fideus-labs/ngff-zarr/commit/7f0923c91a6b987297a1964347ea026d54c39579))
+
+### ✨ Features
+
+- 0.6.dev4 on write ([7db2227](https://github.com/fideus-labs/ngff-zarr/commit/7db2227d11b02ced680531fddee4c0bf01876057))
+- allow reading dev4 versions ([50a9434](https://github.com/fideus-labs/ngff-zarr/commit/50a943448196d5d3019ce1675c7f22cb2394b603))
+- pin higher zarr ([4d5269f](https://github.com/fideus-labs/ngff-zarr/commit/4d5269f60128dee0cfdb884607a61d77af73b941))
+- import missing metadata class ([b6bd757](https://github.com/fideus-labs/ngff-zarr/commit/b6bd757190c5cc19011015cddbdb7fc33440a6fb))
+- move up metadata conversion to retain method metadata ([4c0b829](https://github.com/fideus-labs/ngff-zarr/commit/4c0b829e4ea959da4d8ec08ab3a09bf187ca2bc1))
+- introduce convenience method to validate intrinsic coordinate system ([c4347d5](https://github.com/fideus-labs/ngff-zarr/commit/c4347d5de982d73872f6b785b0c9c4e2703cbe9c))
+- update to 0.6-style input output convention ([9446760](https://github.com/fideus-labs/ngff-zarr/commit/9446760f3a12fa74f35c873dba12f927d0262aae))
+- use correct call to class attribute ([7d70b7e](https://github.com/fideus-labs/ngff-zarr/commit/7d70b7e405ede0234f4fe1d5392ae4530bdbcb52))
+- add escape for missing coordinate systems ([ca1d0ae](https://github.com/fideus-labs/ngff-zarr/commit/ca1d0ae2300ed4a192368da7f0c4c095c3017f51))
+- add missing, declared conversion from v06 to v04 ([b37e210](https://github.com/fideus-labs/ngff-zarr/commit/b37e210e676f6300dff3b5338cb16884ffb6f5e3))
+- always treat scale/translation variables as class instances ([f2d9cbd](https://github.com/fideus-labs/ngff-zarr/commit/f2d9cbd010badd8ab058bf4a435186ff20b83d96))
+- update to latest schemas ([bfea702](https://github.com/fideus-labs/ngff-zarr/commit/bfea7027db13ca90f37975c56b969a89c3d054f8))
+- add schemas (preliminary) ([300f389](https://github.com/fideus-labs/ngff-zarr/commit/300f38955510b382a201f93bb1d4e119d676edb9))
+- Add utility parser function for transforms ([eb6915a](https://github.com/fideus-labs/ngff-zarr/commit/eb6915ae8e0df05e0980607afaaa0091999b6567))
+- Support 0.6 reading and writing ([21a54c6](https://github.com/fideus-labs/ngff-zarr/commit/21a54c67150c5ad8ca83163121aeb07eb1429e4a))
+
+### 🐛 Bug Fixes
+
+- **py**: re-open LIF source at compute time to survive closed file handle ([618c838](https://github.com/fideus-labs/ngff-zarr/commit/618c838de1e3bf5dce4c572234dd9325dc9901c7))
+- **py**: map big-endian dtypes to Zarr v3 core dtype ([04890f6](https://github.com/fideus-labs/ngff-zarr/commit/04890f60291212c836063590f04250f101459d5d))
+- **py**: carry metadata extra passthrough through v0.5/v0.6 conversion ([0315ad0](https://github.com/fideus-labs/ngff-zarr/commit/0315ad0a48e2e816985729c9a9efdefac486b3cf))
+- get omero metadata from correct location ([a8bc4f4](https://github.com/fideus-labs/ngff-zarr/commit/a8bc4f401a502c0a43997d7fafae340cd38ad2b4))
+- fix type annotation ([a656eba](https://github.com/fideus-labs/ngff-zarr/commit/a656ebae38fb8de0b15b72a4e8f34d2779179f55))
+
 ## py-v0.36.2 (2026-06-19)
 
 ### 🐛 Bug Fixes
