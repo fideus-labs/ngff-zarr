@@ -13,6 +13,12 @@ bump_message = "chore(ts): bump @fideus-labs/ngff-zarr to version $new_version"
 annotated_tag = true
 gpg_sign = true
 major_version_zero = true
+# Format the generated CHANGELOG.md with `deno fmt` before it is staged and
+# committed. cz writes the changelog, then runs pre_bump_hooks, then stages and
+# commits the changelog + version files, so formatting here lands inside the
+# bump commit and keeps CI's `deno fmt --check` green (avoids a follow-up
+# "fix: format ts CHANGELOG" commit).
+pre_bump_hooks = ["deno fmt CHANGELOG.md"]
 
 [tool.commitizen.customize]
 path = "../.commitizen"
