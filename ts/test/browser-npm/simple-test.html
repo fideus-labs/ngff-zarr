@@ -8,31 +8,31 @@
     <pre id="output">Loading...</pre>
 
     <script type="module">
-      document.getElementById("output").textContent = "Starting test...\n";
+    document.getElementById("output").textContent = "Starting test...\n";
 
-      try {
-        console.log("Attempting to load bundle...");
-        const module = await import("./ngff-zarr.bundle.js");
-        console.log("Bundle loaded successfully:", module);
+    try {
+      console.log("Attempting to load bundle...");
+      const module = await import("./ngff-zarr.bundle.js");
+      console.log("Bundle loaded successfully:", module);
 
-        document.getElementById("output").textContent +=
-          "Bundle loaded successfully!\n";
-        document.getElementById("output").textContent += "Exports: " +
-          Object.keys(module).join(", ") + "\n";
+      document.getElementById("output").textContent +=
+        "Bundle loaded successfully!\n";
+      document.getElementById("output").textContent += "Exports: " +
+        Object.keys(module).join(", ") + "\n";
 
-        // Test a simple validation
-        if (module.isValidDimension) {
-          const testResult = module.isValidDimension("x");
-          document.getElementById("output").textContent +=
-            'isValidDimension("x"): ' + testResult + "\n";
-        }
-      } catch (error) {
-        console.error("Error loading bundle:", error);
-        document.getElementById("output").textContent += "Error: " +
-          error.message + "\n";
-        document.getElementById("output").textContent += "Stack: " +
-          error.stack + "\n";
+      // Test a simple validation
+      if (module.isValidDimension) {
+        const testResult = module.isValidDimension("x");
+        document.getElementById("output").textContent += 'isValidDimension("x"): ' +
+          testResult + "\n";
       }
+    } catch (error) {
+      console.error("Error loading bundle:", error);
+      document.getElementById("output").textContent += "Error: " +
+        error.message + "\n";
+      document.getElementById("output").textContent += "Stack: " +
+        error.stack + "\n";
+    }
     </script>
   </body>
 </html>
