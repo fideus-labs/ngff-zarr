@@ -1,3 +1,9 @@
+## ts-v0.21.1 (2026-06-25)
+
+### 🐛 Bug Fixes
+
+- format ts CHANGELOG ([93ee09f](https://github.com/fideus-labs/ngff-zarr/commit/93ee09f7627fe73d63ee8b0e0a66729b717aaf53))
+
 ## ts-v0.21.0 (2026-06-25)
 
 ### BREAKING CHANGE
