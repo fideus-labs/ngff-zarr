@@ -170,7 +170,7 @@ To read an OME-Zarr file, use [`from_ngff_zarr`], which returns the
 >>> multiscales = nz.from_ngff_zarr('cthead1.ome.zarr')
 ```
 
-OME-Zarr version 0.1 to 0.5 is supported.
+OME-Zarr version 0.1 to 0.6 is supported. Version 0.6 adds RFC-5 coordinate systems and transformations.
 
 ## OME-Zarr Zip (.ozx) files
 

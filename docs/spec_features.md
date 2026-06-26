@@ -16,6 +16,8 @@ supported by `ngff-zarr`.
 - **Metadata**: Rich metadata support, including spatial metadata.
 - **Anatomical Orientation**: Support for anatomical orientation metadata
   (RFC-4).
+- **Coordinate Systems and Transformations**: Support for RFC-5 coordinate
+  systems and transformations in OME-Zarr v0.6.
 - **High Content Screening (HCS)**: Complete support for plate and well data
   structures.
 - **Sharded Zarr**: Support for sharded Zarr stores, allowing for scalable data
@@ -28,10 +30,11 @@ supported by `ngff-zarr`.
 
 ## OME-Zarr Versions
 
-- **OME-Zarr v0.1 to v0.5**: Reads OME-Zarr versions 0.1 to 0.5 into simple
+- **OME-Zarr v0.1 to v0.6**: Reads OME-Zarr versions 0.1 to 0.6 into simple
   Python data classes with Dask arrays.
-- **OME-Zarr v0.4 to v0.5**: Writes OME-Zarr versions 0.4 to 0.5, including
-  support for RFC 4.
+- **OME-Zarr v0.4 to v0.6**: Writes OME-Zarr versions 0.4 to 0.6, including
+  RFC-4 anatomical orientation. v0.6 additionally adds RFC-5 coordinate systems
+  and transformations.
 
 ## High Content Screening (HCS)
 
@@ -59,6 +62,7 @@ implementation details.
   allowing for scalable data management.
 - **RFC-4**: [Anatomical orientation support](./rfc4.md), allowing images to
   include metadata about their anatomical orientation.
+- **RFC-5**: Coordinate systems and transformations for OME-Zarr v0.6.
 - **RFC-9**: [OME-Zarr Zip (.ozx) format support](https://ngff.openmicroscopy.org/rfc/9/index.html),
   enabling single-file distribution of OME-Zarr datasets.
 

@@ -9,7 +9,7 @@ NGFF-Zarr provides a TypeScript implementation for working with OME-Zarr data st
 - 🦕 **Deno-first**: Built for Deno with first-class TypeScript support
 - 📦 **Universal compatibility**: Works in Deno, Node.js, and browsers
 - 🔍 **Type-safe**: Full TypeScript support with Zod schema validation
-- 🗂️ **OME-Zarr support**: Read and write OME-Zarr v0.4 and v0.5
+- 🗂️ **OME-Zarr support**: Read and write OME-Zarr v0.4, v0.5, and v0.6 (v0.6 adds RFC-5 coordinate systems and transformations)
 - 🧪 **Well-tested**: Comprehensive test suite with browser validation
 - 🏗️ **Mirrors Python API**: Familiar interfaces for Python users
 - 📖 **Lazy loading**: Efficient handling of large datasets
@@ -99,9 +99,9 @@ const multiscales = await fromNgffZarr("image.ome.zarr", {
 });
 
 // Specify expected version
-const multiscalesV5 = await fromNgffZarr("image.ome.zarr", {
+const multiscalesV6 = await fromNgffZarr("image.ome.zarr", {
   validate: true,
-  version: "0.5",
+  version: "0.6",
 });
 ```
 
@@ -303,7 +303,7 @@ interface Metadata {
   datasets: Dataset[];          // Scale level paths and transforms
   coordinateTransformations?: CoordinateTransformation[];
   name?: string;
-  version?: "0.4" | "0.5";
+  version?: "0.4" | "0.5" | "0.6";
   type?: string;                // Downsampling method type
   metadata?: Record<string, unknown>;
 }
@@ -332,7 +332,7 @@ async function fromNgffZarr(
   store: string | MemoryStore | FetchStore,
   options?: {
     validate?: boolean;
-    version?: "0.4" | "0.5";
+    version?: "0.4" | "0.5" | "0.6";
   }
 ): Promise<NgffMultiscales>
 ```
@@ -352,7 +352,7 @@ const ms = await fromNgffZarr("data.ome.zarr");
 // With validation
 const validatedMs = await fromNgffZarr("data.ome.zarr", {
   validate: true,
-  version: "0.5",
+  version: "0.6",
 });
 
 // From URL
@@ -368,7 +368,7 @@ async function toNgffZarr(
   store: string,
   multiscales: NgffMultiscales,
   options?: {
-    version?: "0.4" | "0.5";
+    version?: "0.4" | "0.5" | "0.6";
     chunksPerShard?: number | number[] | Record<string, number>;
   }
 ): Promise<void>
@@ -386,7 +386,7 @@ async function toNgffZarr(
 await toNgffZarr("output.ome.zarr", multiscales);
 
 // With version specification
-await toNgffZarr("output.ome.zarr", multiscales, { version: "0.5" });
+await toNgffZarr("output.ome.zarr", multiscales, { version: "0.6" });
 
 // With sharding (v0.5)
 await toNgffZarr("output.ome.zarr", multiscales, {
