@@ -1,3 +1,47 @@
+## ts-v0.22.0 (2026-06-26)
+
+### BREAKING CHANGE
+
+- The `enabled_rfcs` parameter (Python `to_ngff_zarr`/
+  `to_ome_zarr`), the `--enable-rfc` CLI flag, the `enabledRfcs` TypeScript write
+  option, and the MCP `enable_rfc4`/`enabled_rfcs` fields are removed. RFC-4
+  anatomical orientation is written automatically when orientation metadata is
+  present; supply it via `NgffImage.axes_orientations`, the new `orientation=`
+  argument to `to_multiscales`, or the `--orientation` CLI flag. ([abda351](https://github.com/fideus-labs/ngff-zarr/commit/abda351de31305f87a6119102e27b55e6baaecdb))
+
+### ♻️ Refactoring
+
+- **py,ts**: write RFC-4 anatomical orientation automatically, drop enabled-rfcs API ([abda351](https://github.com/fideus-labs/ngff-zarr/commit/abda351de31305f87a6119102e27b55e6baaecdb))
+
+### ✨ Features
+
+- **ts**: add temporary OME-Zarr 0.6.dev4 version support ([9d887f9](https://github.com/fideus-labs/ngff-zarr/commit/9d887f9e222602b38afd4191aac593ee3d21772d))
+- **ts**: add OME-Zarr v0.6 (RFC-5) coordinate transformations support ([859519b](https://github.com/fideus-labs/ngff-zarr/commit/859519b944afd0aa0f2b12f0ac8e2ee4f84ab53f))
+
+### 🐛 Bug Fixes
+
+- **ts**: deno fmt with deno 2.9.0 ([4eeb5b9](https://github.com/fideus-labs/ngff-zarr/commit/4eeb5b926338186036cc7ac62257ef6fe7a624f9))
+- format ts CHANGELOG ([93ee09f](https://github.com/fideus-labs/ngff-zarr/commit/93ee09f7627fe73d63ee8b0e0a66729b717aaf53))
+
+## ts-v0.20.0 (2026-06-18)
+
+### ✨ Features
+
+- **py,ts**: add OME-Zarr v0.5 structural validation and schema support ([598ed91](https://github.com/fideus-labs/ngff-zarr/commit/598ed91e6f3b15533d9a50a59b8cd68b3674e22f))
+- **py,ts**: extend RFC-4 vocabulary with subject-local tissue orientations ([0cc4a91](https://github.com/fideus-labs/ngff-zarr/commit/0cc4a9146fb9113d0a7c289f7787abdd825e362d))
+
+## ts-v0.19.0 (2026-06-04)
+
+### ✨ Features
+
+- **ts**: add OME-Zarr v0.4 structural validation ([7c0e3e2](https://github.com/fideus-labs/ngff-zarr/commit/7c0e3e222f6ceb62e2aa7d0e97ba367be3695da5))
+
+### 🐛 Bug Fixes
+
+- **ci**: remove OTLP import from daily-doc-updater workflow ([45394c8](https://github.com/fideus-labs/ngff-zarr/commit/45394c8ccb09b5ad3687d8dd834c94af45d69469))
+- **ts**: honor enabledRfcs in browser toOmeZarr ([62c1ffc](https://github.com/fideus-labs/ngff-zarr/commit/62c1ffc7fa4b47734f25d2eed740289f24263601))
+- stop pre-commit from mangling gh-aw generated files ([d6f1201](https://github.com/fideus-labs/ngff-zarr/commit/d6f120144884bc6a3089e5286a624ed0316f90ba))
+
 ## ts-v0.21.1 (2026-06-25)
 
 ### 🐛 Bug Fixes
