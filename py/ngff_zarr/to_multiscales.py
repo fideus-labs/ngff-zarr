@@ -44,13 +44,13 @@ from .task_count import task_count
 from .to_ngff_image import to_ngff_image
 from .v06.zarr_metadata import (
     Axis,
+    CoordinateSystem,
+    CoordinateSystemIdentifier,
     Dataset,
     Metadata,
     Scale,
-    Translation,
     TransformSequence,
-    CoordinateSystem,
-    CoordinateSystemIdentifier,
+    Translation,
 )
 
 
@@ -492,6 +492,7 @@ def to_multiscales(
     progress: NgffProgress | NgffProgressCallback | None = None,
     cache: bool | None = None,
     orientation: str | Mapping[str, AnatomicalOrientation] | None = None,
+    axes_types: Mapping[str, str] | None = None,
 ) -> NgffMultiscales:
     """
     Generate multiple resolution scales for the OME-NGFF standard data model.
@@ -524,6 +525,13 @@ def to_multiscales(
         ``axes_orientations`` on the input image. Anatomical orientation is written to the
         output automatically whenever it is present; no separate opt-in is required.
     :type  orientation: str or mapping of str to AnatomicalOrientation, optional
+
+    :param axes_types: Override the axis ``type`` inferred from the dimension name, as a mapping
+        of dimension name to axis type. Useful for OME-Zarr v0.6 displacement and coordinate
+        fields, where the vector-component axis (in the channel position) carries
+        ``"displacement"`` or ``"coordinate"`` instead of ``"channel"``. For example,
+        ``axes_types={"c": "displacement"}`` for a displacement field over a ``yx`` image.
+    :type  axes_types: mapping of str to str, optional
 
     :return: NgffImage for each resolution and NGFF multiscales metadata
     :rtype : NgffMultiscales
@@ -686,7 +694,10 @@ def to_multiscales(
         if axes_orientations and dim in axes_orientations:
             axis_orientation = axes_orientations[dim]
 
-        if dim in {"x", "y", "z"}:
+        override_type = axes_types.get(dim) if axes_types else None
+        if override_type is not None:
+            axis = Axis(name=dim, type=override_type, unit=unit)
+        elif dim in {"x", "y", "z"}:
             axis = Axis(name=dim, type="space", unit=unit, orientation=axis_orientation)
         elif dim == "c":
             axis = Axis(name=dim, type="channel", unit=unit)
@@ -715,10 +726,7 @@ def to_multiscales(
                 translation.append(0.0)
         coordinateTransformations = TransformSequence(
             name=f"scale{index}_to_intrinsic",
-            transformations=[
-                Scale(scale=scale),
-                Translation(translation=translation)
-                ],
+            transformations=[Scale(scale=scale), Translation(translation=translation)],
             input=CoordinateSystemIdentifier(path=path),
             output=CoordinateSystemIdentifier(name="intrinsic"),
         )

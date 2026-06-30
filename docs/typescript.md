@@ -192,6 +192,46 @@ const multiscales = await toMultiscales(image, {
 await toNgffZarr("pyramid.ome.zarr", multiscales);
 ```
 
+### Displacement and coordinate fields (v0.6)
+
+OME-Zarr v0.6 (RFC-5) stores displacement and coordinate fields as ordinary
+multiscale images. The vector-component axis, in the channel position, carries
+`type: "displacement"` (or `type: "coordinate"`) instead of `type: "channel"`.
+Set it with the `axesTypes` option of `toMultiscales`, which maps a dimension
+name to its axis type:
+
+```typescript
+import {
+  createNgffImage,
+  toMultiscales,
+  toNgffZarr,
+} from "@fideus-labs/ngff-zarr";
+
+// A 2-component displacement field over a yx image: the "c" dimension holds the
+// (y, x) displacement vector, one component per output spatial axis.
+const data = new Float32Array(2 * 256 * 256);
+const field = createNgffImage(
+  data.buffer,
+  [2, 256, 256],
+  "float32",
+  ["c", "y", "x"],
+  { c: 1.0, y: 1.0, x: 1.0 },
+  { c: 0.0, y: 0.0, x: 0.0 }
+);
+
+const multiscales = await toMultiscales(field, {
+  axesTypes: { c: "displacement" },
+});
+await toNgffZarr("displacement.ome.zarr", multiscales, { version: "0.6" });
+```
+
+The axis type round-trips through reading and writing.
+
+OME-Zarr v0.6 also models the `displacements` and `coordinates` coordinate
+transformations (the `Displacements` and `Coordinates` types) that reference such
+a field from a registered image. Like the other v0.6 transforms, they round-trip
+through reading and writing.
+
 ## 🌍 Platform Support
 
 ### Deno

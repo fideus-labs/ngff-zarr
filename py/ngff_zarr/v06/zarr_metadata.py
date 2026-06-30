@@ -69,7 +69,31 @@ class Affine(BaseTransform):
     path: str | None = None
     type: str = "affine"
 
-Transform = Union[Identity, Scale, Translation, Rotation, Affine, "TransformSequence"]
+
+@dataclass(kw_only=True)
+class Coordinates(BaseTransform):
+    path: str
+    interpolation: str | None = None
+    type: str = "coordinates"
+
+
+@dataclass(kw_only=True)
+class Displacements(BaseTransform):
+    path: str
+    interpolation: str | None = None
+    type: str = "displacements"
+
+
+Transform = Union[
+    Identity,
+    Scale,
+    Translation,
+    Rotation,
+    Affine,
+    Coordinates,
+    Displacements,
+    "TransformSequence",
+]
 
 @dataclass(kw_only=True)
 class TransformSequence(BaseTransform):
@@ -436,6 +460,10 @@ class Metadata:
                 transformation = Rotation.from_dict(transform)
             elif transform["type"] == "affine":
                 transformation = Affine.from_dict(transform)
+            elif transform["type"] == "coordinates":
+                transformation = Coordinates.from_dict(transform)
+            elif transform["type"] == "displacements":
+                transformation = Displacements.from_dict(transform)
             elif transform["type"] == "sequence":
                 # TODO: Undo nested sequences on import?
                 sub_transforms = cls._parse_transforms(transform["transformations"], coordinateSystems)

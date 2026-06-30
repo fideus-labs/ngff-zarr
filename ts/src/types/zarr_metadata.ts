@@ -92,6 +92,26 @@ export interface Affine {
   name?: string;
 }
 
+/** RFC 5 coordinate-field transformation referencing a coordinate field (v0.6). */
+export interface Coordinates {
+  type: "coordinates";
+  path: string;
+  interpolation?: string;
+  input?: CoordinateSystemIdentifier;
+  output?: CoordinateSystemIdentifier;
+  name?: string;
+}
+
+/** RFC 5 displacement-field transformation referencing a displacement field (v0.6). */
+export interface Displacements {
+  type: "displacements";
+  path: string;
+  interpolation?: string;
+  input?: CoordinateSystemIdentifier;
+  output?: CoordinateSystemIdentifier;
+  name?: string;
+}
+
 /** RFC 5 sequence transformation, chaining sub-transformations (v0.6). */
 export interface TransformSequence {
   transformations: V06Transform[];
@@ -117,6 +137,8 @@ export type V06Transform =
   | Translation
   | Rotation
   | Affine
+  | Coordinates
+  | Displacements
   | TransformSequence;
 
 export interface Dataset {

@@ -22,6 +22,7 @@ import {
 import { getMethodMetadata } from "../utils/method_metadata.ts";
 import type { AnatomicalOrientation } from "../types/rfc4.ts";
 import { orientationFromName } from "../types/rfc4.ts";
+import type { AxesType, SupportedDims } from "../types/units.ts";
 import {
   createCoordinateSystem,
   INTRINSIC_COORDINATE_SYSTEM_NAME,
@@ -42,6 +43,16 @@ export interface ToMultiscalesOptions {
    * written to the output automatically whenever it is present.
    */
   orientation?: string | Record<string, AnatomicalOrientation>;
+
+  /**
+   * Override the axis `type` inferred from each dimension name, as a mapping of
+   * dimension name to axis type. Useful for OME-Zarr v0.6 displacement and
+   * coordinate fields, where the vector-component axis (in the channel
+   * position) carries `"displacement"` or `"coordinate"` instead of
+   * `"channel"` — e.g. `{ c: "displacement" }` for a displacement field over a
+   * `yx` image.
+   */
+  axesTypes?: Record<string, AxesType>;
 
   /**
    * Codec pipeline for intermediate zarr arrays created during
@@ -87,6 +98,7 @@ export async function toMultiscalesCore(
     chunks: _chunks,
     codecs,
     orientation,
+    axesTypes,
   } = options;
 
   // Resolve anatomical orientation (RFC 4). An explicit `orientation` option
@@ -128,6 +140,14 @@ export async function toMultiscalesCore(
 
   // Create axes from image dimensions, including orientation if present
   const axes = image.dims.map((dim) => {
+    const overrideType = axesTypes?.[dim];
+    if (overrideType !== undefined) {
+      return createAxis(
+        dim as SupportedDims,
+        overrideType,
+        image.axesUnits?.[dim],
+      );
+    }
     if (dim === "x" || dim === "y" || dim === "z") {
       const axisOrientation = axesOrientations?.[dim];
       return createAxis(

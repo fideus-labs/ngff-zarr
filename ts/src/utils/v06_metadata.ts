@@ -143,6 +143,13 @@ export function serializeV06Transform(
         out.path = transform.path;
       }
       break;
+    case "coordinates":
+    case "displacements":
+      out.path = transform.path;
+      if (transform.interpolation !== undefined) {
+        out.interpolation = transform.interpolation;
+      }
+      break;
     case "sequence":
       out.transformations = transform.transformations.map(
         serializeV06Transform,
@@ -205,6 +212,21 @@ function parseV06Transform(
         transform.path = entry.path;
       }
       break;
+    case "coordinates":
+    case "displacements": {
+      if (typeof entry.path !== "string") {
+        throw new Error(
+          `Invalid ${type} transform: 'path' must be a string`,
+        );
+      }
+      transform = type === "coordinates"
+        ? { type: "coordinates", path: entry.path }
+        : { type: "displacements", path: entry.path };
+      if (typeof entry.interpolation === "string") {
+        transform.interpolation = entry.interpolation;
+      }
+      break;
+    }
     case "sequence":
       if (!Array.isArray(entry.transformations)) {
         throw new Error(
