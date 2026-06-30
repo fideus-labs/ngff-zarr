@@ -446,6 +446,7 @@ async function toMultiscales(
     scaleFactors?: (number | Record<string, number>)[];
     method?: Methods;
     chunks?: number | number[] | Record<string, number>;
+    axesTypes?: Record<string, string>;
   }
 ): Promise<NgffMultiscales>
 ```
@@ -455,6 +456,8 @@ async function toMultiscales(
 - `options.scaleFactors`: Downsampling factors (default: [2, 4])
 - `options.method`: Downsampling method (default: ITKWASM_GAUSSIAN)
 - `options.chunks`: Chunk sizes for output
+- `options.axesTypes`: Override the inferred axis type per dimension, e.g.
+  `{ c: "displacement" }` for v0.6 displacement/coordinate fields
 
 **Returns:** NgffMultiscales with generated pyramid levels
 

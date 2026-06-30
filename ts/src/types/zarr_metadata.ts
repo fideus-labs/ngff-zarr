@@ -26,6 +26,7 @@ export interface Axis {
   type: AxesType;
   unit: Units | undefined;
   orientation?: AxisOrientation | AnatomicalOrientation | undefined;
+  discrete?: boolean;
 }
 
 /**

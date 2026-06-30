@@ -101,6 +101,17 @@ export async function toMultiscalesCore(
     axesTypes,
   } = options;
 
+  if (axesTypes) {
+    const unknown = Object.keys(axesTypes).filter(
+      (dim) => !image.dims.includes(dim),
+    );
+    if (unknown.length > 0) {
+      throw new Error(
+        `axesTypes refers to unknown dimensions: ${unknown.join(", ")}`,
+      );
+    }
+  }
+
   // Resolve anatomical orientation (RFC 4). An explicit `orientation` option
   // (preset name or mapping) takes precedence over the input image's
   // axesOrientations.
@@ -142,11 +153,16 @@ export async function toMultiscalesCore(
   const axes = image.dims.map((dim) => {
     const overrideType = axesTypes?.[dim];
     if (overrideType !== undefined) {
-      return createAxis(
+      const axis = createAxis(
         dim as SupportedDims,
         overrideType,
         image.axesUnits?.[dim],
+        axesOrientations?.[dim],
       );
+      if (overrideType === "displacement" || overrideType === "coordinate") {
+        axis.discrete = true;
+      }
+      return axis;
     }
     if (dim === "x" || dim === "y" || dim === "z") {
       const axisOrientation = axesOrientations?.[dim];

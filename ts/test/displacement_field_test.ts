@@ -11,7 +11,7 @@
  * TypeScript equivalent of the Python test_displacement_field.py.
  */
 
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import {
   toMultiscales,
   toNgffImage,
@@ -46,6 +46,7 @@ Deno.test("axesTypes sets the displacement axis type", async () => {
   const axes = multiscales.metadata.coordinateSystems![0].axes;
   assertEquals(axes.map((a) => a.name), ["c", "y", "x"]);
   assertEquals(axes.map((a) => a.type), ["displacement", "space", "space"]);
+  assertEquals(axes[0].discrete, true);
 });
 
 Deno.test("axesTypes sets the coordinate axis type", async () => {
@@ -77,6 +78,7 @@ Deno.test("displacement axis type survives a v0.6 round trip", async () => {
   const imported = await fromNgffZarr(store, { version: "0.6" });
   const axes = imported.metadata.coordinateSystems![0].axes;
   assertEquals(axes.map((a) => a.type), ["displacement", "space", "space"]);
+  assertEquals(axes[0].discrete, true);
 });
 
 for (const transformType of ["displacements", "coordinates"] as const) {
@@ -114,6 +116,9 @@ for (const transformType of ["displacements", "coordinates"] as const) {
       const out = imported.metadata.coordinateTransformations!;
       assertEquals(out.length, 1);
       assertEquals(out[0].type, transformType);
+      assertEquals(out[0].name, `to_${transformType}`);
+      assertEquals(out[0].input, { name: intrinsic.name });
+      assertEquals(out[0].output, { name: outputCs.name });
       assertEquals(
         (out[0] as Displacements | Coordinates).path,
         "displacement_field",
@@ -125,3 +130,13 @@ for (const transformType of ["displacements", "coordinates"] as const) {
     },
   );
 }
+
+Deno.test("axesTypes with an unknown dimension throws", async () => {
+  const image = await fieldImage();
+  await assertRejects(() =>
+    toMultiscales(image, {
+      scaleFactors: [],
+      axesTypes: { q: "displacement" },
+    })
+  );
+});

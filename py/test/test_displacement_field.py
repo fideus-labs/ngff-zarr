@@ -46,6 +46,8 @@ def test_axes_types_sets_displacement():
     axes = _axes(multiscales)
     assert [a.name for a in axes] == ["c", "y", "x"]
     assert [a.type for a in axes] == ["displacement", "space", "space"]
+    assert axes[0].discrete is True
+    assert axes[1].discrete is None
 
 
 def test_axes_types_sets_coordinate():
@@ -73,6 +75,7 @@ def test_displacement_field_roundtrip():
 
     axes = imported.metadata.intrinsic_coordinate_system.axes
     assert [a.type for a in axes] == ["displacement", "space", "space"]
+    assert axes[0].discrete is True
 
 
 @requires_zarr_v3
@@ -129,5 +132,16 @@ def test_field_transform_roundtrip(transform_type):
     out = imported.metadata.coordinateTransformations
     assert len(out) == 1
     assert out[0].type == transform_type
+    assert out[0].name == f"to_{transform_type}"
+    assert out[0].input == CoordinateSystemIdentifier(name="intrinsic")
+    assert out[0].output == CoordinateSystemIdentifier(name="output")
     assert out[0].path == "displacement_field"
     assert out[0].interpolation == "linear"
+
+
+def test_axes_types_unknown_dim_raises():
+    """An axes_types entry naming a missing dimension is rejected."""
+    with pytest.raises(ValueError):
+        to_multiscales(
+            _field_image(), scale_factors=[], axes_types={"q": "displacement"}
+        )

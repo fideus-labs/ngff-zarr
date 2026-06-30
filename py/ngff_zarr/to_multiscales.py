@@ -684,6 +684,12 @@ def to_multiscales(
     else:
         axes_orientations = orientation
 
+    if axes_types:
+        unknown = set(axes_types) - set(ngff_image.dims)
+        if unknown:
+            msg = f"axes_types refers to unknown dimensions: {sorted(unknown)}"
+            raise ValueError(msg)
+
     axes = []
     for dim in ngff_image.dims:
         unit = None
@@ -696,7 +702,14 @@ def to_multiscales(
 
         override_type = axes_types.get(dim) if axes_types else None
         if override_type is not None:
-            axis = Axis(name=dim, type=override_type, unit=unit)
+            discrete = override_type in ("displacement", "coordinate") or None
+            axis = Axis(
+                name=dim,
+                type=override_type,
+                unit=unit,
+                orientation=axis_orientation,
+                discrete=discrete,
+            )
         elif dim in {"x", "y", "z"}:
             axis = Axis(name=dim, type="space", unit=unit, orientation=axis_orientation)
         elif dim == "c":
