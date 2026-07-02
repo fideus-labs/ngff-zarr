@@ -4,6 +4,7 @@
 
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import zarr
 from ngff_zarr import (  # type: ignore[import-untyped]
@@ -19,10 +20,15 @@ from ngff_zarr import (  # type: ignore[import-untyped]
 try:
     from ngff_zarr import validate as validate_ngff
 except ImportError:
-    # Fallback validation
-    def validate_ngff(store):
-        # Basic validation - just try to open the store
-        zarr.open(store, mode="r")
+    # Fallback if ngff-zarr schema validation is unavailable (no-op stub whose
+    # signature mirrors ngff_zarr.validate).
+    def validate_ngff(
+        ngff_dict: dict,
+        version: str = "0.4",
+        model: str = "image",
+        strict: bool = False,
+    ) -> Any:
+        pass
 
 
 from .models import (
@@ -352,12 +358,6 @@ async def validate_ome_zarr(store_path: str) -> ValidationResult:
                 elif image.data.size == 0:
                     warnings.append(f"Scale {i} has empty data")
 
-            # Try ngff-zarr validation if available
-            try:
-                validate_ngff(store_path)
-            except Exception as validation_error:
-                warnings.append(f"NGFF validation warning: {str(validation_error)}")
-
             # Determine version
             try:
                 root = zarr.open(store_path, mode="r")
@@ -371,6 +371,15 @@ async def validate_ome_zarr(store_path: str) -> ValidationResult:
                                 version = version_attr
             except Exception:
                 version = "0.4"  # Default assumption
+
+            # Try ngff-zarr schema validation if available. ngff_zarr.validate
+            # expects the parsed NGFF metadata dict, not a store path.
+            try:
+                root = zarr.open(store_path, mode="r")
+                ngff_metadata = dict(root.attrs)
+                validate_ngff(ngff_metadata, version=version or "0.4")
+            except Exception as validation_error:
+                warnings.append(f"NGFF validation warning: {str(validation_error)}")
 
         except Exception as e:
             errors.append(f"Failed to load as NGFF: {str(e)}")

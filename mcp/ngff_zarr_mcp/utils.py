@@ -22,7 +22,7 @@ try:
     )
 except ImportError:
     # Fallback if not available
-    def is_unit_supported(unit):
+    def is_unit_supported(unit: str) -> bool:
         common_units = [
             "meter",
             "millimeter",
