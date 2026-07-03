@@ -1,3 +1,9 @@
+## py-v0.37.1 (2026-07-03)
+
+### 🐛 Bug Fixes
+
+- **py**: add py.typed marker for PEP 561 compliance ([5ccf7da](https://github.com/fideus-labs/ngff-zarr/commit/5ccf7da3eb2634f43554ebdea5b438bea731b0c9))
+
 ## py-v0.37.0 (2026-06-25)
 
 ### BREAKING CHANGE
