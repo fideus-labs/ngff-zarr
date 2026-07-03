@@ -1,3 +1,30 @@
+## mcp-v0.9.0 (2026-07-03)
+
+### BREAKING CHANGE
+
+- The `enabled_rfcs` parameter (Python `to_ngff_zarr`/
+`to_ome_zarr`), the `--enable-rfc` CLI flag, the `enabledRfcs` TypeScript write
+option, and the MCP `enable_rfc4`/`enabled_rfcs` fields are removed. RFC-4
+anatomical orientation is written automatically when orientation metadata is
+present; supply it via `NgffImage.axes_orientations`, the new `orientation=`
+argument to `to_multiscales`, or the `--orientation` CLI flag. ([abda351](https://github.com/fideus-labs/ngff-zarr/commit/abda351de31305f87a6119102e27b55e6baaecdb))
+
+### ♻️ Refactoring
+
+- **py,ts**: write RFC-4 anatomical orientation automatically, drop enabled-rfcs API ([abda351](https://github.com/fideus-labs/ngff-zarr/commit/abda351de31305f87a6119102e27b55e6baaecdb))
+
+### ✨ Features
+
+- **py,ts**: add OME-Zarr v0.5 structural validation and schema support ([598ed91](https://github.com/fideus-labs/ngff-zarr/commit/598ed91e6f3b15533d9a50a59b8cd68b3674e22f))
+- **py,ts**: extend RFC-4 vocabulary with subject-local tissue orientations ([0cc4a91](https://github.com/fideus-labs/ngff-zarr/commit/0cc4a9146fb9113d0a7c289f7787abdd825e362d))
+
+### 🐛 Bug Fixes
+
+- **mcp**: add py.typed marker and fix type errors ([3bb65ec](https://github.com/fideus-labs/ngff-zarr/commit/3bb65ec1f5f95a641866a32d06a0bcc35816eb7d))
+- **mcp**: cover import-untyped in s3fs type-ignore ([278b3e8](https://github.com/fideus-labs/ngff-zarr/commit/278b3e88ecfddf703ad40e6546ef410acceb4fac))
+- **ci**: remove OTLP import from daily-doc-updater workflow ([45394c8](https://github.com/fideus-labs/ngff-zarr/commit/45394c8ccb09b5ad3687d8dd834c94af45d69469))
+- stop pre-commit from mangling gh-aw generated files ([d6f1201](https://github.com/fideus-labs/ngff-zarr/commit/d6f120144884bc6a3089e5286a624ed0316f90ba))
+
 ## mcp-v0.8.0 (2026-04-15)
 
 ### ♻️ Refactoring
