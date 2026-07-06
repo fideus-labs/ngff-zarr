@@ -200,12 +200,30 @@ ngff-zarr = { path = ".", editable = true }
 [tool.pixi.environments]
 default = { solve-group = "default" }
 test = { features = ["test", "dask-image", "itk", "cli", "validate", "tensorstore", "remote"], solve-group = "default" }
+test-py310 = { features = ["test", "dask-image", "itk", "cli", "validate", "tensorstore", "remote", "py310"], solve-group = "py310" }
+test-py311 = { features = ["test", "dask-image", "itk", "cli", "validate", "tensorstore", "remote", "py311"], solve-group = "py311" }
+test-py312 = { features = ["test", "dask-image", "itk", "cli", "validate", "tensorstore", "remote", "py312"], solve-group = "py312" }
+test-py313 = { features = ["test", "dask-image", "itk", "cli", "validate", "tensorstore", "remote", "py313"], solve-group = "py313" }
 lint = { features = ["lint"], no-default-feature = true, solve-group = "default" }
 docs = { features = ["docs"], no-default-feature = true, solve-group = "default" }
 data = { features = ["data"], no-default-feature = true, solve-group = "default" }
 
 [tool.pixi.feature.test.dependencies]
 python = ">=3.10,<3.15.0"
+
+# Per-version Python pins so the pixi CI can exercise every supported
+# interpreter. The unpinned `test` environment tracks the latest version.
+[tool.pixi.feature.py310.dependencies]
+python = "3.10.*"
+
+[tool.pixi.feature.py311.dependencies]
+python = "3.11.*"
+
+[tool.pixi.feature.py312.dependencies]
+python = "3.12.*"
+
+[tool.pixi.feature.py313.dependencies]
+python = "3.13.*"
 
 [tool.pixi.feature.test.tasks]
 test = { cmd = "pytest", description = "Run the test suite" }

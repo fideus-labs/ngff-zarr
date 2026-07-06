@@ -30,7 +30,7 @@ jobs:
           deno-version: v2.x
 
       - name: Download test data
-        run: pixi run download-test-data
+        run: pixi run -e test download-test-data
         working-directory: py
 
       - name: Normalize line endings
