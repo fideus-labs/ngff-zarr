@@ -7,20 +7,33 @@ on:
 
 jobs:
   test:
+    name: ${{ matrix.os }} / ${{ matrix.environment }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       max-parallel: 5
       matrix:
-        os: [ubuntu-24.04, macos-15-intel]
+        # macos-15 is Apple Silicon (arm64); ubuntu-24.04 is x86_64.
+        os: [ubuntu-24.04, macos-15]
+        # One pixi environment per supported Python version. The unpinned
+        # `test` environment tracks the latest (currently 3.14).
+        environment: [test-py310, test-py311, test-py312, test-py313, test]
+        include:
+          # Keep a single Intel macOS smoke test on the latest Python.
+          - os: macos-15-intel
+            environment: test
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11
         with:
-          pixi-version: v0.69.0
+          pixi-version: v0.70.2
           manifest-path: ./py/pyproject.toml
+          environments: ${{ matrix.environment }}
           frozen: true
 
       - name: Run tests
-        run: cd py && pixi run test
+        run: cd py && pixi run -e ${{ matrix.environment }} test

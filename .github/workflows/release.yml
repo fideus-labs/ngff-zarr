@@ -165,7 +165,7 @@ jobs:
           node-version: '22'
 
       - name: Download test data
-        run: pixi run download-test-data
+        run: pixi run -e test download-test-data
         working-directory: py
 
       - name: Build TypeScript packages
