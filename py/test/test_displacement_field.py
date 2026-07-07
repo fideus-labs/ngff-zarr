@@ -5,7 +5,7 @@
 A displacement (or coordinate) field is an ordinary multiscale image whose
 vector-component axis, in the channel position, carries ``type="displacement"``
 (or ``type="coordinate"``) instead of ``type="channel"``. The axis type is set
-with the ``axes_types`` argument of :func:`to_multiscales`.
+with the ``axes_types`` argument of :class:`NgffImage`.
 """
 
 import tempfile
@@ -24,7 +24,7 @@ requires_zarr_v3 = pytest.mark.skipif(
 )
 
 
-def _field_image() -> NgffImage:
+def _field_image(axes_types=None) -> NgffImage:
     """A 2-component displacement field over a ``yx`` image."""
     data = da.zeros((2, 4, 5), dtype=np.float32)
     return NgffImage(
@@ -32,6 +32,7 @@ def _field_image() -> NgffImage:
         dims=("c", "y", "x"),
         scale={"c": 1.0, "y": 1.0, "x": 1.0},
         translation={"c": 0.0, "y": 0.0, "x": 0.0},
+        axes_types=axes_types,
     )
 
 
@@ -40,9 +41,7 @@ def _axes(multiscales):
 
 
 def test_axes_types_sets_displacement():
-    multiscales = to_multiscales(
-        _field_image(), scale_factors=[], axes_types={"c": "displacement"}
-    )
+    multiscales = to_multiscales(_field_image({"c": "displacement"}), scale_factors=[])
     axes = _axes(multiscales)
     assert [a.name for a in axes] == ["c", "y", "x"]
     assert [a.type for a in axes] == ["displacement", "space", "space"]
@@ -51,9 +50,7 @@ def test_axes_types_sets_displacement():
 
 
 def test_axes_types_sets_coordinate():
-    multiscales = to_multiscales(
-        _field_image(), scale_factors=[], axes_types={"c": "coordinate"}
-    )
+    multiscales = to_multiscales(_field_image({"c": "coordinate"}), scale_factors=[])
     assert [a.type for a in _axes(multiscales)] == ["coordinate", "space", "space"]
 
 
@@ -66,9 +63,7 @@ def test_axes_types_default_keeps_channel():
 @requires_zarr_v3
 def test_displacement_field_roundtrip():
     """The displacement axis type survives a v0.6 write/read round trip."""
-    multiscales = to_multiscales(
-        _field_image(), scale_factors=[], axes_types={"c": "displacement"}
-    )
+    multiscales = to_multiscales(_field_image({"c": "displacement"}), scale_factors=[])
     with tempfile.TemporaryDirectory() as tmpdir:
         nz.to_ngff_zarr(tmpdir, multiscales, version="0.6")
         imported = nz.from_ngff_zarr(tmpdir)
@@ -142,6 +137,4 @@ def test_field_transform_roundtrip(transform_type):
 def test_axes_types_unknown_dim_raises():
     """An axes_types entry naming a missing dimension is rejected."""
     with pytest.raises(ValueError):
-        to_multiscales(
-            _field_image(), scale_factors=[], axes_types={"q": "displacement"}
-        )
+        to_multiscales(_field_image({"q": "displacement"}), scale_factors=[])

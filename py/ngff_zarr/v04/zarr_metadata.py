@@ -192,7 +192,6 @@ class Axis:
     type: AxesType
     unit: Units | None = None
     orientation: AnatomicalOrientation | None = None
-    discrete: bool | None = None
 
 
 @dataclass

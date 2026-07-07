@@ -197,8 +197,10 @@ await toNgffZarr("pyramid.ome.zarr", multiscales);
 OME-Zarr v0.6 (RFC-5) stores displacement and coordinate fields as ordinary
 multiscale images. The vector-component axis, in the channel position, carries
 `type: "displacement"` (or `type: "coordinate"`) instead of `type: "channel"`.
-Set it with the `axesTypes` option of `toMultiscales`, which maps a dimension
-name to its axis type:
+Like a channel/component axis it is `discrete` (it indexes vector components
+rather than a continuous coordinate). Set the type with the `axesTypes` option
+of the image (`createNgffImage` / `toNgffImage`), which maps a dimension name to
+its axis type:
 
 ```typescript
 import {
@@ -210,18 +212,18 @@ import {
 // A 2-component displacement field over a yx image: the "c" dimension holds the
 // (y, x) displacement vector, one component per output spatial axis.
 const data = new Float32Array(2 * 256 * 256);
-const field = createNgffImage(
+const field = await createNgffImage(
   data.buffer,
   [2, 256, 256],
   "float32",
   ["c", "y", "x"],
   { c: 1.0, y: 1.0, x: 1.0 },
-  { c: 0.0, y: 0.0, x: 0.0 }
+  { c: 0.0, y: 0.0, x: 0.0 },
+  "displacement_field",
+  { c: "displacement" },
 );
 
-const multiscales = await toMultiscales(field, {
-  axesTypes: { c: "displacement" },
-});
+const multiscales = await toMultiscales(field);
 await toNgffZarr("displacement.ome.zarr", multiscales, { version: "0.6" });
 ```
 
@@ -446,7 +448,6 @@ async function toMultiscales(
     scaleFactors?: (number | Record<string, number>)[];
     method?: Methods;
     chunks?: number | number[] | Record<string, number>;
-    axesTypes?: Record<string, string>;
   }
 ): Promise<NgffMultiscales>
 ```
@@ -456,8 +457,6 @@ async function toMultiscales(
 - `options.scaleFactors`: Downsampling factors (default: [2, 4])
 - `options.method`: Downsampling method (default: ITKWASM_GAUSSIAN)
 - `options.chunks`: Chunk sizes for output
-- `options.axesTypes`: Override the inferred axis type per dimension, e.g.
-  `{ c: "displacement" }` for v0.6 displacement/coordinate fields
 
 **Returns:** NgffMultiscales with generated pyramid levels
 

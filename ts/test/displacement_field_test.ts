@@ -6,7 +6,7 @@
  * A displacement (or coordinate) field is an ordinary multiscale image whose
  * vector-component axis, in the channel position, carries `type: "displacement"`
  * (or `type: "coordinate"`) instead of `type: "channel"`. The axis type is set
- * with the `axesTypes` option of `toMultiscales`.
+ * with the `axesTypes` option of `NgffImage` / `toNgffImage`.
  *
  * TypeScript equivalent of the Python test_displacement_field.py.
  */
@@ -28,21 +28,22 @@ import {
 import type { MemoryStore } from "../src/io/from_ngff_zarr.ts";
 
 /** A 2-component displacement field over a `yx` image. */
-function fieldImage() {
+function fieldImage(axesTypes?: Record<string, string>) {
   const data = new Float32Array(2 * 4 * 5);
   return toNgffImage(data, {
     dims: ["c", "y", "x"],
     shape: [2, 4, 5],
     scale: { c: 1, y: 1, x: 1 },
     translation: { c: 0, y: 0, x: 0 },
+    axesTypes,
   });
 }
 
 Deno.test("axesTypes sets the displacement axis type", async () => {
-  const multiscales = await toMultiscales(await fieldImage(), {
-    scaleFactors: [],
-    axesTypes: { c: "displacement" },
-  });
+  const multiscales = await toMultiscales(
+    await fieldImage({ c: "displacement" }),
+    { scaleFactors: [] },
+  );
   const axes = multiscales.metadata.coordinateSystems![0].axes;
   assertEquals(axes.map((a) => a.name), ["c", "y", "x"]);
   assertEquals(axes.map((a) => a.type), ["displacement", "space", "space"]);
@@ -50,10 +51,10 @@ Deno.test("axesTypes sets the displacement axis type", async () => {
 });
 
 Deno.test("axesTypes sets the coordinate axis type", async () => {
-  const multiscales = await toMultiscales(await fieldImage(), {
-    scaleFactors: [],
-    axesTypes: { c: "coordinate" },
-  });
+  const multiscales = await toMultiscales(
+    await fieldImage({ c: "coordinate" }),
+    { scaleFactors: [] },
+  );
   const axes = multiscales.metadata.coordinateSystems![0].axes;
   assertEquals(axes.map((a) => a.type), ["coordinate", "space", "space"]);
 });
@@ -69,10 +70,10 @@ Deno.test("axesTypes default keeps the channel axis type", async () => {
 });
 
 Deno.test("displacement axis type survives a v0.6 round trip", async () => {
-  const multiscales = await toMultiscales(await fieldImage(), {
-    scaleFactors: [],
-    axesTypes: { c: "displacement" },
-  });
+  const multiscales = await toMultiscales(
+    await fieldImage({ c: "displacement" }),
+    { scaleFactors: [] },
+  );
   const store: MemoryStore = new Map();
   await toNgffZarr(store, multiscales, { version: "0.6" });
   const imported = await fromNgffZarr(store, { version: "0.6" });
@@ -132,11 +133,6 @@ for (const transformType of ["displacements", "coordinates"] as const) {
 }
 
 Deno.test("axesTypes with an unknown dimension throws", async () => {
-  const image = await fieldImage();
-  await assertRejects(() =>
-    toMultiscales(image, {
-      scaleFactors: [],
-      axesTypes: { q: "displacement" },
-    })
-  );
+  const image = await fieldImage({ q: "displacement" });
+  await assertRejects(() => toMultiscales(image, { scaleFactors: [] }));
 });

@@ -45,6 +45,7 @@ export async function createNgffImage(
   scale: Record<string, number>,
   translation: Record<string, number>,
   name = "image",
+  axesTypes?: Record<string, string>,
 ): Promise<NgffImage> {
   const zarrArray = await createTestZarrArray(shape, dtype, shape, name);
 
@@ -55,6 +56,7 @@ export async function createNgffImage(
     translation,
     name,
     axesUnits: undefined,
+    axesTypes,
     computedCallbacks: undefined,
   });
 }

@@ -45,16 +45,6 @@ export interface ToMultiscalesOptions {
   orientation?: string | Record<string, AnatomicalOrientation>;
 
   /**
-   * Override the axis `type` inferred from each dimension name, as a mapping of
-   * dimension name to axis type. Useful for OME-Zarr v0.6 displacement and
-   * coordinate fields, where the vector-component axis (in the channel
-   * position) carries `"displacement"` or `"coordinate"` instead of
-   * `"channel"` — e.g. `{ c: "displacement" }` for a displacement field over a
-   * `yx` image.
-   */
-  axesTypes?: Record<string, AxesType>;
-
-  /**
    * Codec pipeline for intermediate zarr arrays created during
    * downsampling.  When omitted the default blosc+zstd pipeline is
    * used ({@link defaultCodecs}).
@@ -98,9 +88,11 @@ export async function toMultiscalesCore(
     chunks: _chunks,
     codecs,
     orientation,
-    axesTypes,
   } = options;
 
+  // The vector-component axis type (RFC-5 displacement/coordinate fields) is
+  // carried on the input image, mirroring axesUnits / axesOrientations.
+  const axesTypes = image.axesTypes;
   if (axesTypes) {
     const unknown = Object.keys(axesTypes).filter(
       (dim) => !image.dims.includes(dim),
@@ -155,7 +147,7 @@ export async function toMultiscalesCore(
     if (overrideType !== undefined) {
       const axis = createAxis(
         dim as SupportedDims,
-        overrideType,
+        overrideType as AxesType,
         image.axesUnits?.[dim],
         axesOrientations?.[dim],
       );

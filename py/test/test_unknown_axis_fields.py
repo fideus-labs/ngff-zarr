@@ -85,10 +85,10 @@ def test_unknown_axis_fields_are_filtered(caplog, zarr_helpers):
     # Manually modify the metadata to add a non-standard field
     attrs = zarr_helpers["get"](store)
 
-    # Add non-standard fields to the z axis
+    # Add a non-standard "discrete" field to the time axis (like BigStitcher-Spark does)
     for axis in attrs["multiscales"][0]["axes"]:
         if axis["name"] == "z":
-            axis["custom_flag"] = False
+            axis["discrete"] = False
             axis["custom_field"] = "custom_value"
 
     zarr_helpers["set"](store, attrs)
@@ -101,7 +101,7 @@ def test_unknown_axis_fields_are_filtered(caplog, zarr_helpers):
     assert len(caplog.records) > 0
     warning_messages = [record.message for record in caplog.records]
     assert any("Ignoring unknown fields" in msg for msg in warning_messages)
-    assert any("custom_flag" in msg for msg in warning_messages)
+    assert any("discrete" in msg for msg in warning_messages)
     assert any("custom_field" in msg for msg in warning_messages)
 
     # Verify that the data loaded successfully
@@ -112,7 +112,7 @@ def test_unknown_axis_fields_are_filtered(caplog, zarr_helpers):
     axes = multiscales_back.metadata.intrinsic_coordinate_system.axes
     z_axis = next((axis for axis in axes if axis.name == "z"), None)
     assert z_axis is not None
-    assert not hasattr(z_axis, "custom_flag")
+    assert not hasattr(z_axis, "discrete")
     assert not hasattr(z_axis, "custom_field")
 
 
@@ -139,7 +139,7 @@ def test_unknown_fields_multiple_axes(caplog, zarr_helpers):
 
     for axis in attrs["multiscales"][0]["axes"]:
         if axis["name"] == "t":
-            axis["custom_flag"] = True
+            axis["discrete"] = True
         elif axis["name"] == "z":
             axis["continuous"] = True
 
@@ -151,7 +151,7 @@ def test_unknown_fields_multiple_axes(caplog, zarr_helpers):
 
     # Verify warnings for both axes
     warning_messages = [record.message for record in caplog.records]
-    assert any("custom_flag" in msg and "'t'" in msg for msg in warning_messages)
+    assert any("discrete" in msg and "'t'" in msg for msg in warning_messages)
     assert any("continuous" in msg and "'z'" in msg for msg in warning_messages)
 
     # Verify the data loaded successfully
@@ -279,7 +279,7 @@ def test_valid_optional_fields_preserved(zarr_helpers):
 
     for axis in attrs["multiscales"][0]["axes"]:
         if axis["name"] == "z":
-            axis["custom_flag"] = False  # Non-standard field
+            axis["discrete"] = False  # Non-standard field
 
     zarr_helpers["set"](store, attrs)
 
@@ -294,4 +294,4 @@ def test_valid_optional_fields_preserved(zarr_helpers):
     assert z_axis.unit == "micrometer"
 
     # Verify that the non-standard field is not present
-    assert not hasattr(z_axis, "custom_flag")
+    assert not hasattr(z_axis, "discrete")

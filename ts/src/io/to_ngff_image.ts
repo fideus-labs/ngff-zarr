@@ -10,6 +10,7 @@ export interface ToNgffImageOptions {
   translation?: Record<string, number>;
   name?: string;
   shape?: number[]; // Explicit shape for typed arrays
+  axesTypes?: Record<string, string> | undefined;
 }
 
 /**
@@ -29,6 +30,7 @@ export async function toNgffImage(
     translation = {},
     name = "image",
     shape: explicitShape,
+    axesTypes,
   } = options;
 
   // Determine data shape and create typed array
@@ -154,6 +156,7 @@ export async function toNgffImage(
     translation: fullTranslation,
     name,
     axesUnits: undefined,
+    axesTypes,
     computedCallbacks: undefined,
   });
 }

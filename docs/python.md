@@ -166,9 +166,10 @@ scale according the OME-Zarr data model. Note that the correct `scale` and
 OME-Zarr v0.6 (RFC-5) stores displacement and coordinate fields as ordinary
 multiscale images. The only difference from a regular image is that the
 vector-component axis, in the channel position, carries `type="displacement"`
-(or `type="coordinate"`) instead of `type="channel"`. Set it with the
-`axes_types` argument of [`to_multiscales`], which maps a dimension name to its
-axis type:
+(or `type="coordinate"`) instead of `type="channel"`. Like a channel/component
+axis it is `discrete` (it indexes vector components rather than a continuous
+coordinate). Set the type with the `axes_types` argument of `NgffImage`, which
+maps a dimension name to its axis type:
 
 ```python
 import dask.array as da
@@ -183,9 +184,10 @@ field = nz.NgffImage(
     dims=("c", "y", "x"),
     scale={"c": 1.0, "y": 1.0, "x": 1.0},
     translation={"c": 0.0, "y": 0.0, "x": 0.0},
+    axes_types={"c": "displacement"},
 )
 
-multiscales = nz.to_multiscales(field, axes_types={"c": "displacement"})
+multiscales = nz.to_multiscales(field)
 nz.to_ngff_zarr("displacement.ome.zarr", multiscales, version="0.6")
 ```
 
