@@ -22,6 +22,7 @@ import {
 import { getMethodMetadata } from "../utils/method_metadata.ts";
 import type { AnatomicalOrientation } from "../types/rfc4.ts";
 import { orientationFromName } from "../types/rfc4.ts";
+import type { AxesType, SupportedDims } from "../types/units.ts";
 import {
   createCoordinateSystem,
   INTRINSIC_COORDINATE_SYSTEM_NAME,
@@ -89,6 +90,20 @@ export async function toMultiscalesCore(
     orientation,
   } = options;
 
+  // The vector-component axis type (RFC-5 displacement/coordinate fields) is
+  // carried on the input image, mirroring axesUnits / axesOrientations.
+  const axesTypes = image.axesTypes;
+  if (axesTypes) {
+    const unknown = Object.keys(axesTypes).filter(
+      (dim) => !image.dims.includes(dim),
+    );
+    if (unknown.length > 0) {
+      throw new Error(
+        `axesTypes refers to unknown dimensions: ${unknown.join(", ")}`,
+      );
+    }
+  }
+
   // Resolve anatomical orientation (RFC 4). An explicit `orientation` option
   // (preset name or mapping) takes precedence over the input image's
   // axesOrientations.
@@ -128,6 +143,19 @@ export async function toMultiscalesCore(
 
   // Create axes from image dimensions, including orientation if present
   const axes = image.dims.map((dim) => {
+    const overrideType = axesTypes?.[dim];
+    if (overrideType !== undefined) {
+      const axis = createAxis(
+        dim as SupportedDims,
+        overrideType as AxesType,
+        image.axesUnits?.[dim],
+        axesOrientations?.[dim],
+      );
+      if (overrideType === "displacement" || overrideType === "coordinate") {
+        axis.discrete = true;
+      }
+      return axis;
+    }
     if (dim === "x" || dim === "y" || dim === "z") {
       const axisOrientation = axesOrientations?.[dim];
       return createAxis(

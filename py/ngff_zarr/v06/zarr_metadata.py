@@ -1,9 +1,16 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from typing import List, Union, TYPE_CHECKING
+from typing import List, Literal, Union, TYPE_CHECKING
 from dataclasses import dataclass, field
 
-from ..v04.zarr_metadata import Axis, Omero, MethodMetadata
+from ..v04.zarr_metadata import (
+    AxesType as AxesTypeV04,
+    MethodMetadata,
+    Omero,
+    SupportedDims,
+    Units,
+)
+from ..rfc4 import AnatomicalOrientation
 from .._supported_versions import NgffVersion
 from .._zarr_types import StoreLike
 from abc import ABC
@@ -11,6 +18,22 @@ from abc import ABC
 if TYPE_CHECKING:
     from ..v05.zarr_metadata import Metadata as Metadata_v05
     from ..v04.zarr_metadata import Metadata as Metadata_v04
+
+
+# OME-Zarr v0.6 (RFC-5) extends the axis types with the discrete vector-field
+# axes used by displacement and coordinate fields, and adds an optional
+# ``discrete`` flag on the axis.
+AxesType = Union[AxesTypeV04, Literal["displacement"], Literal["coordinate"]]
+
+
+@dataclass
+class Axis:
+    name: SupportedDims
+    type: AxesType
+    unit: Units | None = None
+    orientation: AnatomicalOrientation | None = None
+    discrete: bool | None = None
+
 
 @dataclass
 class CoordinateSystem:
@@ -69,7 +92,31 @@ class Affine(BaseTransform):
     path: str | None = None
     type: str = "affine"
 
-Transform = Union[Identity, Scale, Translation, Rotation, Affine, "TransformSequence"]
+
+@dataclass(kw_only=True)
+class Coordinates(BaseTransform):
+    path: str
+    interpolation: str | None = None
+    type: str = "coordinates"
+
+
+@dataclass(kw_only=True)
+class Displacements(BaseTransform):
+    path: str
+    interpolation: str | None = None
+    type: str = "displacements"
+
+
+Transform = Union[
+    Identity,
+    Scale,
+    Translation,
+    Rotation,
+    Affine,
+    Coordinates,
+    Displacements,
+    "TransformSequence",
+]
 
 @dataclass(kw_only=True)
 class TransformSequence(BaseTransform):
@@ -436,6 +483,10 @@ class Metadata:
                 transformation = Rotation.from_dict(transform)
             elif transform["type"] == "affine":
                 transformation = Affine.from_dict(transform)
+            elif transform["type"] == "coordinates":
+                transformation = Coordinates.from_dict(transform)
+            elif transform["type"] == "displacements":
+                transformation = Displacements.from_dict(transform)
             elif transform["type"] == "sequence":
                 # TODO: Undo nested sequences on import?
                 sub_transforms = cls._parse_transforms(transform["transformations"], coordinateSystems)

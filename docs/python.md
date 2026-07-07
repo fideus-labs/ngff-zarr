@@ -161,6 +161,45 @@ The [`NgffMultiscales`] dataclass stores all the images and their metadata for e
 scale according the OME-Zarr data model. Note that the correct `scale` and
 `translation` for each scale are automatically computed.
 
+## Displacement and coordinate fields (v0.6)
+
+OME-Zarr v0.6 (RFC-5) stores displacement and coordinate fields as ordinary
+multiscale images. The only difference from a regular image is that the
+vector-component axis, in the channel position, carries `type="displacement"`
+(or `type="coordinate"`) instead of `type="channel"`. Like a channel/component
+axis it is `discrete` (it indexes vector components rather than a continuous
+coordinate). Set the type with the `axes_types` argument of `NgffImage`, which
+maps a dimension name to its axis type:
+
+```python
+import dask.array as da
+import numpy as np
+import ngff_zarr as nz
+
+# A 2-component displacement field over a yx image: the "c" dimension holds the
+# (y, x) displacement vector, one component per output spatial axis.
+data = da.from_array(np.zeros((2, 256, 256), dtype=np.float32))
+field = nz.NgffImage(
+    data=data,
+    dims=("c", "y", "x"),
+    scale={"c": 1.0, "y": 1.0, "x": 1.0},
+    translation={"c": 0.0, "y": 0.0, "x": 0.0},
+    axes_types={"c": "displacement"},
+)
+
+multiscales = nz.to_multiscales(field)
+nz.to_ngff_zarr("displacement.ome.zarr", multiscales, version="0.6")
+```
+
+The axis type round-trips through reading and writing. It can also be set after
+the fact by editing the metadata directly, for example
+`multiscales.metadata.intrinsic_coordinate_system.axes[0].type = "displacement"`.
+
+OME-Zarr v0.6 also models the `displacements` and `coordinates` coordinate
+transformations (`ngff_zarr.v06.zarr_metadata.Displacements` and `Coordinates`)
+that reference such a field from a registered image. Like the other v0.6
+transforms, they round-trip through reading and writing.
+
 ## Read an OME-Zarr
 
 To read an OME-Zarr file, use [`from_ngff_zarr`], which returns the

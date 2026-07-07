@@ -32,6 +32,11 @@ export function processAxes(
       result.unit = axis.unit;
     }
 
+    // Include the discrete flag whenever present (RFC-5 vector-field axes)
+    if (axis.discrete !== undefined) {
+      result.discrete = axis.discrete;
+    }
+
     // Include orientation whenever it is present
     if (axis.orientation) {
       result.orientation = {

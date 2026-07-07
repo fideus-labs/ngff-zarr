@@ -14,6 +14,7 @@ export interface NgffImageOptions {
   name: string | undefined;
   axesUnits: Record<string, Units> | undefined;
   axesOrientations?: Record<string, AnatomicalOrientation> | undefined;
+  axesTypes?: Record<string, string> | undefined;
   computedCallbacks: ComputedCallback[] | undefined;
 }
 
@@ -27,6 +28,7 @@ export class NgffImage {
   public readonly axesOrientations:
     | Record<string, AnatomicalOrientation>
     | undefined;
+  public readonly axesTypes: Record<string, string> | undefined;
   public readonly computedCallbacks: ComputedCallback[];
 
   constructor(options: NgffImageOptions) {
@@ -39,6 +41,7 @@ export class NgffImage {
     this.axesOrientations = options.axesOrientations
       ? { ...options.axesOrientations }
       : undefined;
+    this.axesTypes = options.axesTypes ? { ...options.axesTypes } : undefined;
     this.computedCallbacks = [...(options.computedCallbacks ?? [])];
   }
 
@@ -49,6 +52,10 @@ export class NgffImage {
 
     const axesOrientationsStr = this.axesOrientations
       ? JSON.stringify(this.axesOrientations)
+      : "None";
+
+    const axesTypesStr = this.axesTypes
+      ? JSON.stringify(this.axesTypes)
       : "None";
 
     // Create array string representation using zarr.Array properties
@@ -69,6 +76,7 @@ export class NgffImage {
     name='${this.name}',
     axes_units=${axesUnitsStr},
     axes_orientations=${axesOrientationsStr},
+    axes_types=${axesTypesStr},
     computed_callbacks=[${this.computedCallbacks.length} callbacks]
 )`;
   }

@@ -606,6 +606,9 @@ export async function fromZarrAttrsV06(
           ...(axis.orientation !== undefined && axis.orientation !== null
             ? { orientation: axis.orientation as Axis["orientation"] }
             : {}),
+          ...(typeof axis.discrete === "boolean"
+            ? { discrete: axis.discrete }
+            : {}),
         })),
       };
     },

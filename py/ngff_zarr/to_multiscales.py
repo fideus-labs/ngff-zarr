@@ -44,13 +44,13 @@ from .task_count import task_count
 from .to_ngff_image import to_ngff_image
 from .v06.zarr_metadata import (
     Axis,
+    CoordinateSystem,
+    CoordinateSystemIdentifier,
     Dataset,
     Metadata,
     Scale,
-    Translation,
     TransformSequence,
-    CoordinateSystem,
-    CoordinateSystemIdentifier,
+    Translation,
 )
 
 
@@ -676,6 +676,13 @@ def to_multiscales(
     else:
         axes_orientations = orientation
 
+    axes_types = ngff_image.axes_types
+    if axes_types:
+        unknown = set(axes_types) - set(ngff_image.dims)
+        if unknown:
+            msg = f"axes_types refers to unknown dimensions: {sorted(unknown)}"
+            raise ValueError(msg)
+
     axes = []
     for dim in ngff_image.dims:
         unit = None
@@ -686,7 +693,17 @@ def to_multiscales(
         if axes_orientations and dim in axes_orientations:
             axis_orientation = axes_orientations[dim]
 
-        if dim in {"x", "y", "z"}:
+        override_type = axes_types.get(dim) if axes_types else None
+        if override_type is not None:
+            discrete = override_type in ("displacement", "coordinate") or None
+            axis = Axis(
+                name=dim,
+                type=override_type,
+                unit=unit,
+                orientation=axis_orientation,
+                discrete=discrete,
+            )
+        elif dim in {"x", "y", "z"}:
             axis = Axis(name=dim, type="space", unit=unit, orientation=axis_orientation)
         elif dim == "c":
             axis = Axis(name=dim, type="channel", unit=unit)
@@ -715,10 +732,7 @@ def to_multiscales(
                 translation.append(0.0)
         coordinateTransformations = TransformSequence(
             name=f"scale{index}_to_intrinsic",
-            transformations=[
-                Scale(scale=scale),
-                Translation(translation=translation)
-                ],
+            transformations=[Scale(scale=scale), Translation(translation=translation)],
             input=CoordinateSystemIdentifier(path=path),
             output=CoordinateSystemIdentifier(name="intrinsic"),
         )
