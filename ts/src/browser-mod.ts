@@ -48,6 +48,14 @@ export {
   toOmeZarrOzx,
   type ToOmeZarrOzxOptions,
 } from "./io/to_ngff_zarr-browser.ts";
+// upgradeOmeZarr: spec-version upgrade (in-place metadata rewrite or
+// write-to-new-store). In the browser only MemoryStore inputs/outputs are
+// supported; in-place upgrade of a local *path* store is Node/Deno-only.
+export {
+  type UpgradeInput,
+  upgradeOmeZarr,
+  type UpgradeOmeZarrOptions,
+} from "./io/upgrade_ome_zarr-browser.ts";
 // Browser-compatible processing modules
 export * from "./process/to_multiscales-browser.ts";
 export * from "./schemas/methods.ts";

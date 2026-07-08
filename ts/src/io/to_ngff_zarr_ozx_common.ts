@@ -1,16 +1,22 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 /**
- * Shared internal utilities for RFC-9 (.ozx) writing
- * Used by both Node and browser implementations to avoid code duplication
+ * Shared internal utilities for OME-Zarr writing (regular Zarr stores and
+ * RFC-9 .ozx). Used by the Node and browser writers — and the in-place
+ * `upgradeOmeZarr` metadata rewrite — to avoid duplicating the root-attribute
+ * and axis-processing logic.
  */
 
 import * as zarr from "zarrita";
 
 import type { NgffMultiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
-import type { Axis } from "../types/zarr_metadata.ts";
-import { legacyTopLevelTransforms } from "../utils/v06_metadata.ts";
+import type { Axis, MetadataInterface } from "../types/zarr_metadata.ts";
+import {
+  buildV06MultiscalesEntry,
+  legacyTopLevelTransforms,
+} from "../utils/v06_metadata.ts";
+import { V06_ONDISK_VERSION } from "../types/supported_versions.ts";
 import type { MemoryStore } from "./rfc9_zip.ts";
 
 /**
@@ -42,6 +48,70 @@ export function processAxes(
 
     return result;
   });
+}
+
+/**
+ * Build the root-group attributes for an OME-Zarr store at a given spec version
+ * from the version-agnostic in-memory metadata. This is the single source of
+ * truth for the on-disk root shape shared by the Node and browser writers
+ * ({@link toOmeZarr}) and the in-place metadata rewrite in `upgradeOmeZarr`:
+ *
+ * - **0.6 (RFC 5):** coordinate systems + per-dataset `sequence` transforms,
+ *   wrapped under the `ome` namespace and tagged {@link V06_ONDISK_VERSION}.
+ * - **0.5:** axes carried directly on the multiscale entry, wrapped under `ome`.
+ * - **0.4:** axes carried directly on the multiscale entry at the root (no
+ *   `ome` wrapper).
+ *
+ * Richer v0.6-only top-level transforms are reduced to the simple
+ * scale/translation subset for 0.4/0.5 via {@link legacyTopLevelTransforms}.
+ */
+export function buildRootAttributes(
+  metadata: MetadataInterface,
+  version: "0.4" | "0.5" | "0.6",
+): Record<string, unknown> {
+  // Process axes (orientation included when present).
+  const processedAxes = processAxes(metadata.axes);
+
+  if (version === "0.6") {
+    const v06Entry = buildV06MultiscalesEntry(metadata, processedAxes);
+    return {
+      ome: {
+        // The v0.6 spec is still a draft; tag the store with the development
+        // version `0.6.dev4` even though the requested version is `"0.6"`.
+        version: V06_ONDISK_VERSION,
+        multiscales: [v06Entry],
+        ...(metadata.omero && { omero: metadata.omero }),
+      },
+    };
+  }
+
+  // v0.4/v0.5 only support the simple scale/translation subset of top-level
+  // transformations; drop richer v0.6 transforms when downgrading.
+  const legacyTransforms = legacyTopLevelTransforms(
+    metadata.coordinateTransformations,
+  );
+  const multiscalesMetadata = {
+    version,
+    name: metadata.name,
+    axes: processedAxes,
+    datasets: metadata.datasets,
+    ...(legacyTransforms && { coordinateTransformations: legacyTransforms }),
+    ...(metadata.type && { type: metadata.type }),
+    ...(metadata.metadata && { metadata: metadata.metadata }),
+  };
+
+  return version === "0.5"
+    ? {
+      ome: {
+        version,
+        multiscales: [multiscalesMetadata],
+        ...(metadata.omero && { omero: metadata.omero }),
+      },
+    }
+    : {
+      multiscales: [multiscalesMetadata],
+      ...(metadata.omero && { omero: metadata.omero }),
+    };
 }
 
 /**
