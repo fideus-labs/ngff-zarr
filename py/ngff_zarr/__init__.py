@@ -73,6 +73,7 @@ from .tiff_to_ngff_image import (
 from .to_multiscales import to_multiscales
 from .to_ngff_image import to_ngff_image
 from .to_ngff_zarr import ScaleStrategy, to_ngff_zarr, to_ome_zarr
+from .upgrade_ome_zarr import upgrade_ome_zarr
 from .v04.zarr_metadata import (
     AxesType,
     Axis,
@@ -126,6 +127,7 @@ __all__ = [
     "ScaleStrategy",
     "from_ome_zarr",
     "from_ngff_zarr",
+    "upgrade_ome_zarr",
     "detect_cli_io_backend",
     "ConversionBackend",
     "cli_input_to_ngff_image",

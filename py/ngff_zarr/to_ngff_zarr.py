@@ -22,10 +22,8 @@ from dask import __version__ as dask_version
 from itkwasm import array_like_to_numpy_array
 from packaging.version import Version
 
-from ._zarr_kwargs import zarr_kwargs
 from ._supported_versions import NgffVersion
-
-
+from ._zarr_kwargs import zarr_kwargs
 from ._zarr_open_array import open_array
 from ._zarr_types import StoreLike
 from .config import config
@@ -417,7 +415,7 @@ def _validate_ngff_parameters(
     """Validate the parameters for the NGFF Zarr generation."""
     if isinstance(version, str):
         version = NgffVersion(version)
-    
+
     if version not in [NgffVersion.V04, NgffVersion.V05, NgffVersion.V06]:
         raise ValueError(f"Unsupported version: {version}")
 
@@ -460,6 +458,33 @@ def _prepare_metadata(
     return metadata, dimension_names, dimension_names_kwargs
 
 
+def _write_root_ome_attrs(root: zarr.Group, metadata_dict: dict, version: str) -> None:
+    """Serialize the OME-Zarr root-group attributes for ``metadata_dict``.
+
+    Sets ``ome``/``multiscales`` (and hoists ``omero`` to its version-specific
+    location) on an already-open ``zarr.Group``, exactly as the writer does --
+    including mapping the API version ``"0.6"`` to the ``"0.6.dev4"`` string
+    persisted on disk. Shared by :func:`_create_zarr_root` and
+    :func:`ngff_zarr.upgrade_ome_zarr` so both emit byte-identical root
+    metadata. ``metadata_dict`` is mutated in place: its ``omero`` entry is
+    popped so it lives only in its hoisted location, matching historical
+    behavior.
+    """
+    if version != "0.4":
+        # RFC 2, Zarr 3 - omero goes inside ome namespace
+        if version == "0.6":
+            version = "0.6.dev4"
+        ome_dict = {"version": version, "multiscales": [metadata_dict]}
+        if "omero" in metadata_dict:
+            ome_dict["omero"] = metadata_dict.pop("omero")
+        root.attrs["ome"] = ome_dict
+    else:
+        # v0.4 - omero is at root level
+        if "omero" in metadata_dict:
+            root.attrs["omero"] = metadata_dict.pop("omero")
+        root.attrs["multiscales"] = [metadata_dict]
+
+
 def _create_zarr_root(
     store: StoreLike,
     chunk_store: StoreLike | None,
@@ -491,19 +516,7 @@ def _create_zarr_root(
             **format_kwargs,
         )
 
-    if version != "0.4":
-        # RFC 2, Zarr 3 - omero goes inside ome namespace
-        if version == "0.6":
-            version = "0.6.dev4"
-        ome_dict = {"version": version, "multiscales": [metadata_dict]}
-        if "omero" in metadata_dict:
-            ome_dict["omero"] = metadata_dict.pop("omero")
-        root.attrs["ome"] = ome_dict
-    else:
-        # v0.4 - omero is at root level
-        if "omero" in metadata_dict:
-            root.attrs["omero"] = metadata_dict.pop("omero")
-        root.attrs["multiscales"] = [metadata_dict]
+    _write_root_ome_attrs(root, metadata_dict, version)
 
     return root
 
