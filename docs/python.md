@@ -477,6 +477,76 @@ multiscales = from_ngff_zarr('cthead1.ome.zarr')
 to_ngff_zarr('cthead1_zarr2.ome.zarr', multiscales, version='0.4')
 ```
 
+## Upgrade OME-Zarr versions
+
+The conversion above re-reads and re-writes the entire pyramid. When you only
+need to change the *recorded specification version* of an existing store,
+[`upgrade_ome_zarr`] does it directly in one of two modes.
+
+**In-place, metadata-only.** When no `output` is given (or `output` resolves to
+the same store as `input`) and the source and target share the same underlying
+Zarr format -- for example 0.5 to 0.6, both Zarr v3 -- only the root group's
+`zarr.json` metadata is rewritten. **Every array chunk on disk is left
+byte-for-byte untouched**, avoiding the data loss of a naive "read, erase,
+re-write" upgrade. In-place upgrades that cross the Zarr v2/v3 boundary in the
+*upgrade* direction (0.4 to 0.5 or 0.4 to 0.6) are also metadata-only: each
+array's Zarr v3 `zarr.json` is given a `v2` chunk-key encoding so the existing
+chunk binaries resolve unchanged. The obsolete Zarr v2 sidecars (`.zarray`,
+`.zgroup`, `.zattrs`) are then removed, so the upgraded store is a valid Zarr v3
+/ OME-Zarr 0.5 (or 0.6) store *only* -- it is not simultaneously a valid Zarr v2
+/ OME-Zarr 0.4 store; only the chunk data binaries are reused, resolved through
+the `v2` chunk-key encoding. The reverse -- an in-place *downgrade* across that
+boundary (0.5/0.6 to 0.4) -- cannot preserve chunk keys and raises a
+`ValueError`; pass an `output` store instead.
+
+**Write-to-new-store.** When an `output` store distinct from `input` is given,
+the source is read lazily and re-written to `output` at the requested version
+through the standard write pipeline. Every supported transition (0.4, 0.5, 0.6,
+in either direction) works in this mode, and the source store is never erased.
+
+Upgrade a 0.5 store to 0.6 in place, keeping every array chunk:
+
+```python
+import numpy as np
+import ngff_zarr as nz
+
+# Synthesize a tiny store written at OME-Zarr 0.5 (Zarr v3).
+image = nz.to_ngff_image(np.zeros((4, 32, 32), dtype=np.uint8),
+                         dims=['z', 'y', 'x'])
+multiscales = nz.to_multiscales(image, scale_factors=[2])
+nz.to_ome_zarr('image.ome.zarr', multiscales, version='0.5')
+
+# Rewrite only the root metadata to 0.6; array chunks are left untouched.
+nz.upgrade_ome_zarr('image.ome.zarr', version='0.6')
+```
+
+Write an upgraded 0.6 copy from a 0.4 source, leaving the source intact:
+
+```python
+import numpy as np
+import ngff_zarr as nz
+
+# Synthesize a tiny store written at OME-Zarr 0.4 (Zarr v2).
+image = nz.to_ngff_image(np.zeros((4, 32, 32), dtype=np.uint8),
+                         dims=['z', 'y', 'x'])
+multiscales = nz.to_multiscales(image, scale_factors=[2])
+nz.to_ome_zarr('image_v04.ome.zarr', multiscales, version='0.4')
+
+# Write a new 0.6 store; 'image_v04.ome.zarr' is read lazily and never erased.
+nz.upgrade_ome_zarr('image_v04.ome.zarr', 'image_v06.ome.zarr', version='0.6')
+```
+
+Pass `validate=True` to validate the source metadata against the NGFF schema
+while reading, and `overwrite=False` (write-to-new-store only) to refuse to
+overwrite pre-existing data at `output`. A runnable version of both examples,
+which also proves the in-place upgrade leaves the array chunks byte-for-byte
+identical, is in
+[`py/examples/upgrade_ome_zarr_example.py`](https://github.com/fideus-labs/ngff-zarr/blob/main/py/examples/upgrade_ome_zarr_example.py).
+
+Note that `upgrade_ome_zarr` upgrades a single image. To upgrade an HCS plate or
+a bioformats2raw container, point at each contained image by its own path (for
+example `plate.ome.zarr/A/1/0`).
+
 [dataclass]: https://docs.python.org/3/library/dataclasses.html
 [dataclasses]: https://docs.python.org/3/library/dataclasses.html
 [Dask arrays]: https://docs.dask.org/en/stable/array.html
@@ -488,6 +558,7 @@ to_ngff_zarr('cthead1_zarr2.ome.zarr', multiscales, version='0.4')
 [`to_ngff_image`]: ./apidocs/ngff_zarr/ngff_zarr.to_ngff_image.md
 [`to_multiscales`]: ./apidocs/ngff_zarr/ngff_zarr.to_multiscales.md
 [`from_ngff_zarr`]: ./apidocs/ngff_zarr/ngff_zarr.from_ngff_zarr.md
+[`upgrade_ome_zarr`]: ./apidocs/ngff_zarr/ngff_zarr.upgrade_ome_zarr.md
 [`from_hcs_zarr`]: ./apidocs/ngff_zarr/ngff_zarr.hcs.md
 [Sharded Zarr]: https://zarr.dev/zeps/accepted/ZEP0002.html
 [tensorstore]: https://google.github.io/tensorstore/
