@@ -752,6 +752,88 @@ const multiscalesV5 = await fromNgffZarr("data_v05.ome.zarr");
 await toNgffZarr("data_v04.ome.zarr", multiscalesV5, { version: "0.4" });
 ```
 
+### Upgrading OME-Zarr Store Versions
+
+The conversion above re-reads and re-writes the entire pyramid. To change only
+the *recorded specification version* of an existing store, `upgradeOmeZarr()`
+mirrors the Python `upgrade_ome_zarr` and offers the same two modes:
+
+```typescript
+function upgradeOmeZarr(
+  input: string | MemoryStore | FetchStore | Readable,
+  options?: {
+    output?: string | MemoryStore; // FetchStore is read-only, not a destination
+    version?: "0.4" | "0.5" | "0.6"; // default "0.6"
+    validate?: boolean;
+    overwrite?: boolean; // write-to-new-store only; default true
+  },
+): Promise<void>;
+```
+
+**In-place, metadata-only.** When `output` is omitted (or resolves to the same
+store as `input`) and the source and target share the same underlying Zarr
+format -- 0.5 to 0.6, both Zarr v3 -- only the root group's `zarr.json` is
+rewritten and every array chunk in the store is left byte-for-byte untouched,
+avoiding the data loss of a naive "read, erase, re-write" upgrade. An in-place
+upgrade that would cross the Zarr v2/v3 boundary
+(OME-Zarr 0.4 to 0.5/0.6) throws with guidance to pass `output` instead.
+
+```typescript
+import {
+  createAxis,
+  createDataset,
+  createMetadata,
+  createMultiscales,
+  createNgffImage,
+  toOmeZarr,
+  upgradeOmeZarr,
+  type MemoryStore,
+} from "@fideus-labs/ngff-zarr";
+
+// Build a small image and write it to a MemoryStore at version 0.5 (Zarr v3).
+const data = new Uint8Array(4 * 32 * 32);
+const image = await createNgffImage(
+  data.buffer,
+  [4, 32, 32],
+  "uint8",
+  ["z", "y", "x"],
+  { z: 1.0, y: 1.0, x: 1.0 },
+  { z: 0.0, y: 0.0, x: 0.0 },
+);
+const axes = [
+  createAxis("z", "space", "micrometer"),
+  createAxis("y", "space", "micrometer"),
+  createAxis("x", "space", "micrometer"),
+];
+const datasets = [createDataset("0", [1.0, 1.0, 1.0], [0.0, 0.0, 0.0])];
+const multiscales = createMultiscales([image], createMetadata(axes, datasets));
+
+const store: MemoryStore = new Map();
+await toOmeZarr(store, multiscales, { version: "0.5" });
+
+// Upgrade 0.5 -> 0.6 in place: only the root group's metadata is rewritten,
+// leaving every array chunk in the store untouched.
+await upgradeOmeZarr(store, { version: "0.6" });
+```
+
+**Write-to-new-store.** When `output` is a store distinct from `input`, the
+source is read lazily and re-written to `output` at the requested version
+through the standard write pipeline. Every supported transition (0.4, 0.5, 0.6,
+in either direction) works in this mode, and the source store is never mutated.
+
+```typescript
+import { upgradeOmeZarr, type MemoryStore } from "@fideus-labs/ngff-zarr";
+
+// `source` is an existing 0.4 store (e.g. a MemoryStore or FetchStore).
+const target: MemoryStore = new Map();
+await upgradeOmeZarr(source, { output: target, version: "0.6" });
+```
+
+In-place upgrade of a local **path** store is Node/Deno-only -- the browser build
+ships no filesystem store -- while `MemoryStore` inputs work in every
+environment, consistent with the other I/O functions. In the browser, use a
+`MemoryStore` for an in-place upgrade, or pass `output`.
+
 ### High Content Screening (HCS)
 
 Work with plate and well data:
