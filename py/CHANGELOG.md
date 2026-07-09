@@ -1,3 +1,14 @@
+## py-v0.38.0 (2026-07-09)
+
+### ♻️ Refactoring
+
+- **py,ts**: move v0.6 axis types to v06 and set axes_types on NgffImage ([54eaed4](https://github.com/fideus-labs/ngff-zarr/commit/54eaed4d2e4b23de93f68a3c15723fc14893244e))
+
+### ✨ Features
+
+- **py,ts**: carry the v0.6 discrete axis flag and address review feedback ([5203864](https://github.com/fideus-labs/ngff-zarr/commit/5203864efefcd1ba38b42c3e4976c542ae984fcf))
+- **py,ts**: support OME-Zarr v0.6 displacement and coordinate fields ([c181cc1](https://github.com/fideus-labs/ngff-zarr/commit/c181cc189edc142f2add7f0df3a3ad865421f0f8))
+
 ## py-v0.37.1 (2026-07-03)
 
 ### 🐛 Bug Fixes

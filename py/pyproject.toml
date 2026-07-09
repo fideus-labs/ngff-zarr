@@ -269,7 +269,7 @@ matplotlib = ">=3.10.6,<4"
 
 [tool.commitizen]
 name = "cz_ngff_zarr"
-version = "0.37.1"
+version = "0.38.0"
 version_provider = "commitizen"
 tag_format = "py-v$version"
 update_changelog_on_bump = true
