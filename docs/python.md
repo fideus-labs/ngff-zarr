@@ -200,6 +200,10 @@ transformations (`ngff_zarr.v06.zarr_metadata.Displacements` and `Coordinates`)
 that reference such a field from a registered image. Like the other v0.6
 transforms, they round-trip through reading and writing.
 
+See [RFC-5: Coordinate Systems and Transformations](./rfc5.md) for the full
+transformation model, including how to write an image and its transformation
+(an affine, or a displacement/coordinate field) into a single store.
+
 ## Read an OME-Zarr
 
 To read an OME-Zarr file, use [`from_ngff_zarr`], which returns the

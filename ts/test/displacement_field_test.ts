@@ -12,6 +12,7 @@
  */
 
 import { assertEquals, assertRejects } from "@std/assert";
+import * as zarr from "zarrita";
 import {
   toMultiscales,
   toNgffImage,
@@ -128,6 +129,99 @@ for (const transformType of ["displacements", "coordinates"] as const) {
         (out[0] as Displacements | Coordinates).interpolation,
         "linear",
       );
+    },
+  );
+}
+
+for (const transformType of ["displacements", "coordinates"] as const) {
+  Deno.test(
+    `an image and its ${transformType} field share a single store`,
+    async () => {
+      // The field, itself an OME-Zarr image, is written first into a
+      // subgroup; the image is then written at the store root so the
+      // transform `path` resolves within the same store.
+      const axisType = transformType === "displacements"
+        ? "displacement"
+        : "coordinate";
+      const fieldPath = `${transformType}_field`;
+
+      const imageData = new Float32Array(4 * 5);
+      for (let i = 0; i < imageData.length; i++) imageData[i] = i / 10;
+      const image = await toNgffImage(imageData, {
+        dims: ["y", "x"],
+        shape: [4, 5],
+        scale: { y: 1, x: 1 },
+        translation: { y: 0, x: 0 },
+      });
+      const multiscales = await toMultiscales(image, { scaleFactors: [] });
+
+      const fieldData = new Float32Array(2 * 4 * 5);
+      for (let i = 0; i < fieldData.length; i++) fieldData[i] = i / 100;
+      const field = await toNgffImage(fieldData, {
+        dims: ["c", "y", "x"],
+        shape: [2, 4, 5],
+        scale: { c: 1, y: 1, x: 1 },
+        translation: { c: 0, y: 0, x: 0 },
+        axesTypes: { c: axisType },
+      });
+      const fieldMultiscales = await toMultiscales(field, {
+        scaleFactors: [],
+      });
+
+      const intrinsic = multiscales.metadata.coordinateSystems![0];
+      const outputCs = createCoordinateSystem("output", [
+        createAxis("y", "space"),
+        createAxis("x", "space"),
+      ]);
+      const transform = {
+        type: transformType,
+        path: fieldPath,
+        interpolation: "linear",
+        input: { name: intrinsic.name },
+        output: { name: outputCs.name },
+        name: "warp",
+      } as V06Transform;
+      multiscales.metadata.coordinateSystems!.push(outputCs);
+      multiscales.metadata.coordinateTransformations = [transform];
+
+      const tmpDir = await Deno.makeTempDir();
+      try {
+        await toNgffZarr(`${tmpDir}/${fieldPath}`, fieldMultiscales, {
+          version: "0.6",
+        });
+        await toNgffZarr(tmpDir, multiscales, {
+          version: "0.6",
+          overwrite: false,
+        });
+
+        const imported = await fromNgffZarr(tmpDir, { version: "0.6" });
+        const transforms = imported.metadata.coordinateTransformations!;
+        assertEquals(transforms.length, 1);
+        assertEquals(transforms[0].type, transformType);
+        const importedPath =
+          (transforms[0] as Displacements | Coordinates).path;
+        assertEquals(importedPath, fieldPath);
+
+        const importedImage = await zarr.get(imported.images[0].data);
+        assertEquals(importedImage.data as Float32Array, imageData);
+
+        const importedField = await fromNgffZarr(`${tmpDir}/${importedPath}`, {
+          version: "0.6",
+        });
+        const fieldAxes = importedField.metadata.coordinateSystems![0].axes;
+        assertEquals(fieldAxes.map((a) => a.type), [
+          axisType,
+          "space",
+          "space",
+        ]);
+        assertEquals(fieldAxes[0].discrete, true);
+        const importedFieldChunk = await zarr.get(
+          importedField.images[0].data,
+        );
+        assertEquals(importedFieldChunk.data as Float32Array, fieldData);
+      } finally {
+        await Deno.remove(tmpDir, { recursive: true });
+      }
     },
   );
 }

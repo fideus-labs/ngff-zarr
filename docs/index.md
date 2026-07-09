@@ -32,6 +32,7 @@ A lean and kind
 - [Sharded Zarr] stores
 - Optional writing via zarr-python 2, zarr-python 3, [tensorstore] or zarrita (TypeScript)
 - [Anatomical orientation metadata](./rfc4.md) (RFC-4)
+- [Coordinate systems and transformations](./rfc5.md) (RFC-5)
 - **OME-Zarr Zip (.ozx) file support** for single-file OME-Zarr datasets (RFC-9)
 - **High Content Screening (HCS) support** for plate and well data
 - **TIFF/OME-TIFF support** with automatic metadata extraction and multi-series conversion
@@ -47,6 +48,7 @@ python.md
 typescript.md
 cli.md
 mcp.md
+rfc5.md
 hcs.md
 tiff.md
 lif.md

@@ -234,6 +234,10 @@ transformations (the `Displacements` and `Coordinates` types) that reference suc
 a field from a registered image. Like the other v0.6 transforms, they round-trip
 through reading and writing.
 
+See [RFC-5: Coordinate Systems and Transformations](./rfc5.md) for the full
+transformation model, including how to write an image and its transformation
+(an affine, or a displacement/coordinate field) into a single store.
+
 ## 🌍 Platform Support
 
 ### Deno

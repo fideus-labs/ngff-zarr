@@ -121,8 +121,9 @@ export async function toNgffImage(
     codecs: defaultCodecs("float32"),
   });
 
-  // Write data to zarr array
-  await zarrSet(zarrArray, [], {
+  // Write data to zarr array; a null selection targets the full array (an
+  // empty selection list writes nothing).
+  await zarrSet(zarrArray, null, {
     data: typedData as Float32Array,
     shape,
     stride: calculateStride(shape),

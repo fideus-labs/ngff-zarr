@@ -115,3 +115,47 @@ def test_transform_serialization(transform):
         assert imported_transforms[0].type == transform.type
         assert imported_transforms[0].input == CoordinateSystemIdentifier(name=input_cs.name)
         assert imported_transforms[0].output == CoordinateSystemIdentifier(name=output_cs.name)
+
+
+@requires_zarr_v3
+def test_affine_image_single_store_roundtrip():
+    """An image and its affine transform live in one store; values round-trip.
+
+    The affine parameters are inline metadata, so a single ``to_ngff_zarr``
+    call writes both the image pixel data and the transformation.
+    """
+    array = rng.random(size=(8, 8, 8), dtype=np.float32)
+    input_image = nz.to_ngff_image(
+        array,
+        dims=["z", "y", "x"],
+        scale={"z": 1.0, "y": 1.0, "x": 1.0},
+        )
+    multiscales = nz.to_multiscales(input_image, scale_factors=[])
+
+    output_cs = CoordinateSystem(
+        name="output",
+        axes=[
+            Axis(name="z", type="space"),
+            Axis(name="y", type="space"),
+            Axis(name="x", type="space"),
+        ]
+    )
+    transform = affine_transform()
+    input_cs = multiscales.metadata.intrinsic_coordinate_system
+    transform.input = CoordinateSystemIdentifier(name=input_cs.name)
+    transform.output = CoordinateSystemIdentifier(name=output_cs.name)
+    transform.name = "to_output"
+
+    multiscales.metadata.coordinateSystems.append(output_cs)
+    multiscales.metadata.coordinateTransformations = [transform]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        nz.to_ngff_zarr(tmpdir, multiscales, version="0.6")
+
+        imported = nz.from_ngff_zarr(tmpdir)
+        np.testing.assert_array_equal(np.asarray(imported.images[0].data), array)
+
+        imported_transforms = imported.metadata.coordinateTransformations
+        assert len(imported_transforms) == 1
+        assert imported_transforms[0].type == "affine"
+        assert imported_transforms[0].affine == affine_transform().affine
