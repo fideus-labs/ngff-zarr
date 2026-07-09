@@ -1,3 +1,24 @@
+## ts-v0.23.0 (2026-07-09)
+
+### ♻️ Refactoring
+
+- **py,ts**: move v0.6 axis types to v06 and set axes_types on NgffImage ([54eaed4](https://github.com/fideus-labs/ngff-zarr/commit/54eaed4d2e4b23de93f68a3c15723fc14893244e))
+
+### ✨ Features
+
+- **py,ts**: carry the v0.6 discrete axis flag and address review feedback ([5203864](https://github.com/fideus-labs/ngff-zarr/commit/5203864efefcd1ba38b42c3e4976c542ae984fcf))
+- **py,ts**: support OME-Zarr v0.6 displacement and coordinate fields ([c181cc1](https://github.com/fideus-labs/ngff-zarr/commit/c181cc189edc142f2add7f0df3a3ad865421f0f8))
+
+### 🐛 Bug Fixes
+
+- **ts**: deno fmt with deno 2.9.0 ([4eeb5b9](https://github.com/fideus-labs/ngff-zarr/commit/4eeb5b926338186036cc7ac62257ef6fe7a624f9))
+
+## ts-v0.21.1 (2026-06-25)
+
+### 🐛 Bug Fixes
+
+- format ts CHANGELOG ([93ee09f](https://github.com/fideus-labs/ngff-zarr/commit/93ee09f7627fe73d63ee8b0e0a66729b717aaf53))
+
 ## ts-v0.22.0 (2026-06-26)
 
 ### BREAKING CHANGE
