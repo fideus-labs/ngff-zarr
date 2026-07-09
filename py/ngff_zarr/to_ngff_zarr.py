@@ -1251,12 +1251,12 @@ def _compute_plane_regions(
                     min((slab_index + 1) * z_chunks, arr.shape[z_index]),
                 )
                 region[y_index] = slice(
-                    plane_index * y_chunks,
-                    min((plane_index + 1) * y_chunks, arr.shape[y_index]),
+                    plane_index * plane_slices,
+                    min((plane_index + 1) * plane_slices, arr.shape[y_index]),
                 )
                 region[x_index] = slice(
-                    strip_index * x_chunks,
-                    min((strip_index + 1) * x_chunks, arr.shape[x_index]),
+                    strip_index * strip_slices,
+                    min((strip_index + 1) * strip_slices, arr.shape[x_index]),
                 )
                 plane_regions.append(tuple(region))
     else:
@@ -1268,8 +1268,8 @@ def _compute_plane_regions(
                 min((slab_index + 1) * z_chunks, arr.shape[z_index]),
             )
             region[y_index] = slice(
-                plane_index * y_chunks,
-                min((plane_index + 1) * y_chunks, arr.shape[y_index]),
+                plane_index * plane_slices,
+                min((plane_index + 1) * plane_slices, arr.shape[y_index]),
             )
             plane_regions.append(tuple(region))
 
