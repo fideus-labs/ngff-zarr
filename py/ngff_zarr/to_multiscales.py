@@ -91,45 +91,16 @@ def _ngff_image_scale_factors(ngff_image, min_length, out_chunks):
     return scale_factors
 
 
-def _find_optimal_chunk_size(first_chunk, dim_size, min_divisor=16):
-    """Find a chunk size that divides evenly into dim_size and is ideally divisible by min_divisor.
+def _find_optimal_chunk_size(first_chunk, dim_size):
+    """Target the requested chunk size, clamped to the axis length.
 
-    The returned chunk size will:
-    1. Divide evenly into dim_size (required for safe region writes)
-    2. Be as close as possible to first_chunk
-    3. Preferably be divisible by min_divisor for performance
+    Zarr v3 permits a partial final chunk, so the cache chunk size need not
+    divide the dimension evenly (region slabs are chunk-aligned and the final
+    slab is truncated to the axis, so a partial final chunk is safe). Do not
+    snap to an axis divisor: for dimensions with large prime factors the
+    nearest divisor collapses to a tiny chunk (e.g. 320095 = 5 * 64019 -> 5).
     """
-    # If dimension is very small, just use it directly
-    if dim_size <= min_divisor:
-        return dim_size
-
-    # Start with the target chunk size
-    target = first_chunk
-
-    # First try to find a divisor of dim_size that's divisible by min_divisor
-    # and close to our target
-    best_chunk = dim_size  # Fallback: use full dimension
-    best_distance = abs(dim_size - target)
-
-    # Check all divisors of dim_size
-    for i in range(1, int(np.sqrt(dim_size)) + 1):
-        if dim_size % i == 0:
-            # i and dim_size//i are both divisors
-            for candidate in [i, dim_size // i]:
-                distance = abs(candidate - target)
-                # Prefer divisors that are multiples of min_divisor
-                is_multiple = candidate % min_divisor == 0
-
-                # Update if closer to target, with preference for multiples of min_divisor
-                if distance < best_distance or (
-                    distance == best_distance
-                    and is_multiple
-                    and best_chunk % min_divisor != 0
-                ):
-                    best_chunk = candidate
-                    best_distance = distance
-
-    return best_chunk
+    return max(1, min(int(first_chunk), int(dim_size)))
 
 
 def _large_image_serialization(

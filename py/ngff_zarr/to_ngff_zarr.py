@@ -844,48 +844,34 @@ def _handle_large_array_writing(
         else:
             shrink_factors.append(1)
 
-    # Ensure chunks are compatible with Dask's to_zarr when writing with regions.
-    # The Zarr chunk size must divide evenly into the dimension size to avoid
-    # PerformanceWarning and potential data loss during region writes.
-    def _find_optimal_chunk_size(first_chunk, dim_size, min_divisor=16):
-        """Find a chunk size that divides evenly into dim_size and is ideally divisible by min_divisor.
+    # Region writes and shard/array chunk sizes do not need to divide the
+    # dimension evenly: Zarr v3 permits a partial final chunk. Region slabs are
+    # chunk-aligned and the final slab is truncated to the axis, so a partial
+    # final chunk is safe.
+    def _find_optimal_chunk_size(first_chunk, dim_size):
+        """Target the requested chunk size, clamped to the axis length.
 
-        The returned chunk size will:
-        1. Divide evenly into dim_size (required for safe region writes)
-        2. Be as close as possible to first_chunk
-        3. Preferably be divisible by min_divisor for performance
+        Never snap to an axis divisor: for dimensions with large prime factors
+        (e.g. 320095 = 5 * 64019) the nearest divisor collapses to a tiny chunk
+        (5 px), causing extreme chunk-count and storage inflation.
         """
-        # If dimension is very small, just use it directly
-        if dim_size <= min_divisor:
-            return dim_size
+        return max(1, min(int(first_chunk), int(dim_size)))
 
-        # Start with the target chunk size
-        target = first_chunk
+    def _inner_chunk_for_shard(first_chunk, shard_size):
+        """Inner (sub-shard) chunk that divides the shard exactly.
 
-        # First try to find a divisor of dim_size that's divisible by min_divisor
-        # and close to our target
-        best_chunk = dim_size  # Fallback: use full dimension
-        best_distance = abs(dim_size - target)
-
-        # Check all divisors of dim_size
-        for i in range(1, int(np.sqrt(dim_size)) + 1):
-            if dim_size % i == 0:
-                # i and dim_size//i are both divisors
-                for candidate in [i, dim_size // i]:
-                    distance = abs(candidate - target)
-                    # Prefer divisors that are multiples of min_divisor
-                    is_multiple = candidate % min_divisor == 0
-
-                    # Update if closer to target, with preference for multiples of min_divisor
-                    if distance < best_distance or (
-                        distance == best_distance
-                        and is_multiple
-                        and best_chunk % min_divisor != 0
-                    ):
-                        best_chunk = candidate
-                        best_distance = distance
-
-        return best_chunk
+        Zarr's sharding codec requires the shard chunk_shape to be divisible by
+        the inner chunk_shape. Pick the largest inner chunk <= the target that
+        divides the shard; fall back to the whole shard (never a degenerate
+        1-px chunk) when no such divisor exists (e.g. a prime shard size).
+        """
+        target = max(1, min(int(first_chunk), int(shard_size)))
+        if shard_size % target == 0:
+            return target
+        for candidate in range(target, 1, -1):
+            if shard_size % candidate == 0:
+                return candidate
+        return int(shard_size)
 
     # If sharding is enabled, configure it properly
     chunk_kwargs = {}
@@ -919,14 +905,14 @@ def _handle_large_array_writing(
                     adjusted_internal_chunks.append(internal_dim)
                 else:
                     # Find closest divisor
-                    best_divisor = _find_optimal_chunk_size(internal_dim, shard_dim)
+                    best_divisor = _inner_chunk_for_shard(internal_dim, shard_dim)
                     adjusted_internal_chunks.append(best_divisor)
             internal_chunk_shape = tuple(adjusted_internal_chunks)
         else:
             # No internal chunks specified, use defaults based on array chunks
             internal_chunk_shape = tuple(
                 [
-                    _find_optimal_chunk_size(c[0], s)
+                    _inner_chunk_for_shard(c[0], s)
                     for c, s in zip(arr.chunks, optimized_shard_shape)
                 ]
             )
