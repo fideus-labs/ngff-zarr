@@ -1,11 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-import tempfile
-
 import dask.array as da
 import ngff_zarr as nz
 import numpy as np
 import pytest
+import zarr
+from packaging import version
+
+zarr_version = version.parse(zarr.__version__)
+
+# OME-Zarr v0.5 (sharding) requires zarr-python >= 3.0.0b1
+pytestmark = pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b1"), reason="zarr version < 3.0.0b1"
+)
 
 
 @pytest.mark.parametrize(
@@ -15,7 +22,7 @@ import pytest
         (("t", "c", "z", "y", "x"), (1, 1, 40, 160, 320), 16, 2_000_000),
     ],
 )
-def test_large_array_region_write_covers_whole_array(dims, shape, chunks, mt):
+def test_large_array_region_write_covers_whole_array(dims, shape, chunks, mt, tmp_path):
     """The large-array (memory_target) write path must write the whole array.
 
     Regression for silent data loss: _compute_plane_regions counted planes and
@@ -30,7 +37,7 @@ def test_large_array_region_write_covers_whole_array(dims, shape, chunks, mt):
     old = nz.config.memory_target
     nz.config.memory_target = mt
     try:
-        store = tempfile.mkdtemp(suffix=".ome.zarr")
+        store = tmp_path / "test.ome.zarr"
         nz.to_ngff_zarr(store, ms, version="0.5", chunks_per_shard=2)
     finally:
         nz.config.memory_target = old
