@@ -196,7 +196,10 @@ for (const transformType of ["displacements", "coordinates"] as const) {
           overwrite: false,
         });
 
-        const imported = await fromOmeZarr(tmpDir, { version: "0.6" });
+        const imported = await fromOmeZarr(tmpDir, {
+          version: "0.6",
+          validate: true,
+        });
         const transforms = imported.metadata.coordinateTransformations!;
         assertEquals(transforms.length, 1);
         assertEquals(transforms[0].type, transformType);
@@ -209,6 +212,7 @@ for (const transformType of ["displacements", "coordinates"] as const) {
 
         const importedField = await fromOmeZarr(`${tmpDir}/${importedPath}`, {
           version: "0.6",
+          validate: true,
         });
         const fieldAxes = importedField.metadata.coordinateSystems![0].axes;
         assertEquals(fieldAxes.map((a) => a.type), [
