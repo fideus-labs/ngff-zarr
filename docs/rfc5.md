@@ -55,7 +55,7 @@ field = nz.NgffImage(
 )
 
 multiscales = nz.to_multiscales(field, scale_factors=[])
-nz.to_ngff_zarr("displacement.ome.zarr", multiscales, version="0.6")
+nz.to_ome_zarr("displacement.ome.zarr", multiscales, version="0.6")
 ```
 
 The axis type round-trips through reading and writing. It can also be set after
@@ -83,7 +83,7 @@ a dataset (`path=`). `Displacements`/`Coordinates` additionally carry a `path`
 pointing at the field array within the store.
 
 Inline transforms (affine, rotation, scale, ...) are stored directly in the
-multiscales metadata, so a single `to_ngff_zarr` call writes both the image
+multiscales metadata, so a single `to_ome_zarr` call writes both the image
 pixel data and the transformation:
 
 ```python
@@ -120,7 +120,7 @@ affine = Affine(
 multiscales.metadata.coordinateSystems.append(output_cs)
 multiscales.metadata.coordinateTransformations = [affine]
 
-nz.to_ngff_zarr("affine.ome.zarr", multiscales, version="0.6")
+nz.to_ome_zarr("affine.ome.zarr", multiscales, version="0.6")
 ```
 
 ## Write an image and its transformation into one store
@@ -180,18 +180,18 @@ multiscales.metadata.coordinateSystems.append(output_cs)
 multiscales.metadata.coordinateTransformations = [transform]
 
 # Write the field subgroup first, then the image at the store root.
-nz.to_ngff_zarr(f"{store}/{field_path}", field_multiscales, version="0.6")
-nz.to_ngff_zarr(store, multiscales, version="0.6", overwrite=False)
+nz.to_ome_zarr(f"{store}/{field_path}", field_multiscales, version="0.6")
+nz.to_ome_zarr(store, multiscales, version="0.6", overwrite=False)
 ```
 
 Reading back resolves both the image and the field from the one store:
 
 ```python
-imported = nz.from_ngff_zarr(store)
+imported = nz.from_ome_zarr(store)
 transform = imported.metadata.coordinateTransformations[0]
 assert transform.path == field_path
 
-field = nz.from_ngff_zarr(f"{store}/{transform.path}")
+field = nz.from_ome_zarr(f"{store}/{transform.path}")
 axes = field.metadata.intrinsic_coordinate_system.axes
 assert [a.type for a in axes] == ["displacement", "space", "space"]
 ```
@@ -210,10 +210,10 @@ axis types are set with the `axesTypes` option, and the same field-first,
 import {
   createAxis,
   createCoordinateSystem,
-  fromNgffZarr,
+  fromOmeZarr,
   toMultiscales,
   toNgffImage,
-  toNgffZarr,
+  toOmeZarr,
   type V06Transform,
 } from "@fideus-labs/ngff-zarr";
 
@@ -249,12 +249,12 @@ multiscales.metadata.coordinateTransformations = [{
 } as V06Transform];
 
 // Write the field subgroup first, then the image at the store root.
-await toNgffZarr(`${store}/${fieldPath}`, fieldMultiscales, { version: "0.6" });
-await toNgffZarr(store, multiscales, { version: "0.6", overwrite: false });
+await toOmeZarr(`${store}/${fieldPath}`, fieldMultiscales, { version: "0.6" });
+await toOmeZarr(store, multiscales, { version: "0.6", overwrite: false });
 
-const imported = await fromNgffZarr(store, { version: "0.6" });
+const imported = await fromOmeZarr(store, { version: "0.6" });
 const transform = imported.metadata.coordinateTransformations![0];
-const field2 = await fromNgffZarr(`${store}/${(transform as { path: string }).path}`, {
+const field2 = await fromOmeZarr(`${store}/${(transform as { path: string }).path}`, {
   version: "0.6",
 });
 ```

@@ -188,7 +188,7 @@ field = nz.NgffImage(
 )
 
 multiscales = nz.to_multiscales(field)
-nz.to_ngff_zarr("displacement.ome.zarr", multiscales, version="0.6")
+nz.to_ome_zarr("displacement.ome.zarr", multiscales, version="0.6")
 ```
 
 The axis type round-trips through reading and writing. It can also be set after
