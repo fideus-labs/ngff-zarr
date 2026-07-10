@@ -23,7 +23,9 @@ import {
   createCoordinateSystem,
   type Displacements,
   fromNgffZarr,
+  fromOmeZarr,
   toNgffZarr,
+  toOmeZarr,
   type V06Transform,
 } from "../src/mod.ts";
 import type { MemoryStore } from "../src/io/from_ngff_zarr.ts";
@@ -186,15 +188,15 @@ for (const transformType of ["displacements", "coordinates"] as const) {
 
       const tmpDir = await Deno.makeTempDir();
       try {
-        await toNgffZarr(`${tmpDir}/${fieldPath}`, fieldMultiscales, {
+        await toOmeZarr(`${tmpDir}/${fieldPath}`, fieldMultiscales, {
           version: "0.6",
         });
-        await toNgffZarr(tmpDir, multiscales, {
+        await toOmeZarr(tmpDir, multiscales, {
           version: "0.6",
           overwrite: false,
         });
 
-        const imported = await fromNgffZarr(tmpDir, { version: "0.6" });
+        const imported = await fromOmeZarr(tmpDir, { version: "0.6" });
         const transforms = imported.metadata.coordinateTransformations!;
         assertEquals(transforms.length, 1);
         assertEquals(transforms[0].type, transformType);
@@ -205,7 +207,7 @@ for (const transformType of ["displacements", "coordinates"] as const) {
         const importedImage = await zarr.get(imported.images[0].data);
         assertEquals(importedImage.data as Float32Array, imageData);
 
-        const importedField = await fromNgffZarr(`${tmpDir}/${importedPath}`, {
+        const importedField = await fromOmeZarr(`${tmpDir}/${importedPath}`, {
           version: "0.6",
         });
         const fieldAxes = importedField.metadata.coordinateSystems![0].axes;

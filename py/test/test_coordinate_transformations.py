@@ -121,7 +121,7 @@ def test_transform_serialization(transform):
 def test_affine_image_single_store_roundtrip():
     """An image and its affine transform live in one store; values round-trip.
 
-    The affine parameters are inline metadata, so a single ``to_ngff_zarr``
+    The affine parameters are inline metadata, so a single ``to_ome_zarr``
     call writes both the image pixel data and the transformation.
     """
     array = rng.random(size=(8, 8, 8), dtype=np.float32)
@@ -150,9 +150,9 @@ def test_affine_image_single_store_roundtrip():
     multiscales.metadata.coordinateTransformations = [transform]
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        nz.to_ngff_zarr(tmpdir, multiscales, version="0.6")
+        nz.to_ome_zarr(tmpdir, multiscales, version="0.6")
 
-        imported = nz.from_ngff_zarr(tmpdir)
+        imported = nz.from_ome_zarr(tmpdir)
         np.testing.assert_array_equal(np.asarray(imported.images[0].data), array)
 
         imported_transforms = imported.metadata.coordinateTransformations

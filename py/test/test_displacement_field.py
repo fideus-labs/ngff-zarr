@@ -194,17 +194,17 @@ def test_image_and_field_in_single_store(transform_type):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         store = f"{tmpdir}/image.ome.zarr"
-        nz.to_ngff_zarr(f"{store}/{field_path}", field_multiscales, version="0.6")
-        nz.to_ngff_zarr(store, multiscales, version="0.6", overwrite=False)
+        nz.to_ome_zarr(f"{store}/{field_path}", field_multiscales, version="0.6")
+        nz.to_ome_zarr(store, multiscales, version="0.6", overwrite=False)
 
-        imported = nz.from_ngff_zarr(store)
+        imported = nz.from_ome_zarr(store)
         np.testing.assert_array_equal(np.asarray(imported.images[0].data), image_data)
         transforms = imported.metadata.coordinateTransformations
         assert len(transforms) == 1
         assert transforms[0].type == transform_type
         assert transforms[0].path == field_path
 
-        imported_field = nz.from_ngff_zarr(f"{store}/{transforms[0].path}")
+        imported_field = nz.from_ome_zarr(f"{store}/{transforms[0].path}")
         axes = imported_field.metadata.intrinsic_coordinate_system.axes
         assert [a.type for a in axes] == [axis_type, "space", "space"]
         assert axes[0].discrete is True
