@@ -291,7 +291,12 @@ jobs:
         if: steps.identify.outputs.project == 'ts'
         working-directory: ts/npm
         run: |
-          npm install -g npm@latest
+          # Pin npm rather than tracking @latest: OIDC Trusted Publishing needs
+          # npm >= 11.5.1 (Node 22 only bundles npm 10.x), but npm 12.0.0 shipped
+          # a broken bundle that dropped the `sigstore` module and broke
+          # `--provenance` (npm/cli#9722, fixed in 12.0.1). Bump this pin
+          # deliberately after verifying a release is good.
+          npm install -g npm@12.0.1
           npm publish --provenance --access public
 
       # --- TypeScript Package Publishing (JSR - OIDC) ---
