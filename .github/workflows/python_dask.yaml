@@ -12,7 +12,7 @@ jobs:
         include:
           - python-version: "3.12"
             zarr-version: ">=3.0.0"
-            dask-version: "==2025.11.0"
+            dask-version: "==2026.1.2"
     steps:
       - uses: actions/checkout@v4
 

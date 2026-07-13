@@ -30,7 +30,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "dask[array]!=2025.12.0,!=2026.1.0,!=2026.1.1",
+  "dask[array]>=2026.1.2",
   "importlib_resources",
   "itkwasm >= 1.0b183",
   "itkwasm-downsample >= 1.8.0",
