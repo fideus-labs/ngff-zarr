@@ -134,6 +134,85 @@ def test_field_transform_roundtrip(transform_type):
     assert out[0].interpolation == "linear"
 
 
+@requires_zarr_v3
+@pytest.mark.parametrize("transform_type", ["displacements", "coordinates"])
+def test_image_and_field_in_single_store(transform_type):
+    """An image and the field its transform references share one store.
+
+    The field, itself an OME-Zarr image, is written first into a subgroup.
+    The image is then written at the store root with ``overwrite=False`` so
+    the final metadata consolidation covers both groups. The transform
+    ``path`` then resolves to the field within the same store.
+
+    The store root uses a ``.ome.zarr`` suffix so reading the field through
+    ``store.ome.zarr/<path>`` goes via the HCS-style sub-path split, which
+    exercises the v0.6 reader resolving dataset arrays against the sub-path.
+    """
+    from ngff_zarr.v06.zarr_metadata import (
+        Axis,
+        Coordinates,
+        CoordinateSystem,
+        CoordinateSystemIdentifier,
+        Displacements,
+    )
+
+    rng = np.random.default_rng(20260707)
+    image_data = rng.random((4, 5), dtype=np.float32)
+    image = NgffImage(
+        data=da.from_array(image_data, chunks=(4, 5)),
+        dims=("y", "x"),
+        scale={"y": 1.0, "x": 1.0},
+        translation={"y": 0.0, "x": 0.0},
+    )
+    multiscales = to_multiscales(image, scale_factors=[])
+
+    axis_type = "displacement" if transform_type == "displacements" else "coordinate"
+    field_data = rng.random((2, 4, 5), dtype=np.float32)
+    field = NgffImage(
+        data=da.from_array(field_data, chunks=(2, 4, 5)),
+        dims=("c", "y", "x"),
+        scale={"c": 1.0, "y": 1.0, "x": 1.0},
+        translation={"c": 0.0, "y": 0.0, "x": 0.0},
+        axes_types={"c": axis_type},
+    )
+    field_multiscales = to_multiscales(field, scale_factors=[])
+
+    field_path = f"{transform_type}_field"
+    cls = Displacements if transform_type == "displacements" else Coordinates
+    transform = cls(path=field_path, interpolation="linear")
+    output_cs = CoordinateSystem(
+        name="output",
+        axes=[Axis(name="y", type="space"), Axis(name="x", type="space")],
+    )
+    transform.input = CoordinateSystemIdentifier(
+        name=multiscales.metadata.intrinsic_coordinate_system.name
+    )
+    transform.output = CoordinateSystemIdentifier(name=output_cs.name)
+    transform.name = "warp"
+    multiscales.metadata.coordinateSystems.append(output_cs)
+    multiscales.metadata.coordinateTransformations = [transform]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = f"{tmpdir}/image.ome.zarr"
+        nz.to_ome_zarr(f"{store}/{field_path}", field_multiscales, version="0.6")
+        nz.to_ome_zarr(store, multiscales, version="0.6", overwrite=False)
+
+        imported = nz.from_ome_zarr(store)
+        np.testing.assert_array_equal(np.asarray(imported.images[0].data), image_data)
+        transforms = imported.metadata.coordinateTransformations
+        assert len(transforms) == 1
+        assert transforms[0].type == transform_type
+        assert transforms[0].path == field_path
+
+        imported_field = nz.from_ome_zarr(f"{store}/{transforms[0].path}")
+        axes = imported_field.metadata.intrinsic_coordinate_system.axes
+        assert [a.type for a in axes] == [axis_type, "space", "space"]
+        assert axes[0].discrete is True
+        np.testing.assert_array_equal(
+            np.asarray(imported_field.images[0].data), field_data
+        )
+
+
 def test_axes_types_unknown_dim_raises():
     """An axes_types entry naming a missing dimension is rejected."""
     with pytest.raises(ValueError):

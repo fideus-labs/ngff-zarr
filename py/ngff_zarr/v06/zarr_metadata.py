@@ -16,6 +16,7 @@ from .._zarr_types import StoreLike
 from abc import ABC
 
 if TYPE_CHECKING:
+    from ..ngff_image import NgffImage
     from ..v05.zarr_metadata import Metadata as Metadata_v05
     from ..v04.zarr_metadata import Metadata as Metadata_v04
 
@@ -333,8 +334,16 @@ class Metadata:
         root_attrs: dict,
         store: StoreLike,
         validate: bool = False,
+        subpath: str | None = None,
         ) -> tuple["Metadata", list["NgffImage"]]:
-        """Create Metadata instance from ome-zarr metadata dictionary."""
+        """Create Metadata instance from ome-zarr metadata dictionary.
+
+        When the multiscales group is nested inside the store (e.g. a
+        displacement field written next to its image), ``subpath`` locates the
+        group so dataset arrays resolve against the right prefix. Dataset
+        paths in the returned metadata stay relative to the group.
+        """
+        import posixpath
         import sys
         import dask.array
         from ..validate import validate as validate_ngff
@@ -382,7 +391,10 @@ class Metadata:
         images = []
         datasets = []
         for index, dataset in enumerate(root_attrs["datasets"]):
-            data = dask.array.from_zarr(store, component=dataset["path"])
+            dataset_path = dataset["path"]
+            if subpath:
+                dataset_path = posixpath.join(subpath, dataset_path)
+            data = dask.array.from_zarr(store, component=dataset_path)
             # Convert endianness to native if needed
             if (sys.byteorder == "little" and data.dtype.byteorder == ">") or (
                 sys.byteorder == "big" and data.dtype.byteorder == "<"

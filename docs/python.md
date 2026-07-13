@@ -188,7 +188,7 @@ field = nz.NgffImage(
 )
 
 multiscales = nz.to_multiscales(field)
-nz.to_ngff_zarr("displacement.ome.zarr", multiscales, version="0.6")
+nz.to_ome_zarr("displacement.ome.zarr", multiscales, version="0.6")
 ```
 
 The axis type round-trips through reading and writing. It can also be set after
@@ -199,6 +199,10 @@ OME-Zarr v0.6 also models the `displacements` and `coordinates` coordinate
 transformations (`ngff_zarr.v06.zarr_metadata.Displacements` and `Coordinates`)
 that reference such a field from a registered image. Like the other v0.6
 transforms, they round-trip through reading and writing.
+
+See [RFC-5: Coordinate Systems and Transformations](./rfc5.md) for the full
+transformation model, including how to write an image and its transformation
+(an affine, or a displacement/coordinate field) into a single store.
 
 ## Read an OME-Zarr
 
