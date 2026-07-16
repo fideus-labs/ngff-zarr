@@ -862,16 +862,22 @@ def _handle_large_array_writing(
 
         Zarr's sharding codec requires the shard chunk_shape to be divisible by
         the inner chunk_shape. Pick the largest inner chunk <= the target that
-        divides the shard; fall back to the whole shard (never a degenerate
-        1-px chunk) when no such divisor exists (e.g. a prime shard size).
+        divides the shard, but only accept divisors at or above a small floor.
+        A shard that factors as e.g. 2*prime has divisors {2, prime, 2*prime},
+        so taking the tiny divisor would recreate the collapse this clamp is
+        meant to prevent. Fall back to the whole shard (a single inner chunk,
+        never a degenerate 1- or 2-px chunk) when no divisor at or above the
+        floor exists (e.g. a prime or 2*prime shard size).
         """
-        target = max(1, min(int(first_chunk), int(shard_size)))
+        shard_size = int(shard_size)
+        target = max(1, min(int(first_chunk), shard_size))
         if shard_size % target == 0:
             return target
-        for candidate in range(target, 1, -1):
+        min_inner = min(target, 16)
+        for candidate in range(target, min_inner - 1, -1):
             if shard_size % candidate == 0:
                 return candidate
-        return int(shard_size)
+        return shard_size
 
     # If sharding is enabled, configure it properly
     chunk_kwargs = {}

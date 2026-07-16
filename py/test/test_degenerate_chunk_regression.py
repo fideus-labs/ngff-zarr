@@ -52,6 +52,36 @@ def test_large_path_does_not_collapse_prime_axis(y, x, tmp_path):
     assert min(shard[-2:]) >= 8, f"degenerate shard {shard}"
 
 
+@pytest.mark.parametrize(
+    # each dim = 2 * prime, whose only divisor at or below the inner target is 2
+    "y, x",  # 2*31, 2*37 ; 2*23, 2*29
+    [(62, 74), (46, 58)],
+)
+def test_large_path_does_not_collapse_2x_prime_shard(y, x, tmp_path):
+    """A shard that clamps to 2*prime must floor the inner chunk and use the
+    whole shard instead of the tiny divisor 2 (regression: the inner-chunk
+    helper accepted 2 when the shard's only sub-target divisors were 1 and 2)."""
+    rng = np.random.default_rng(0)
+    data = rng.integers(0, 255, size=(1, 3, y, x), dtype=np.uint8)
+    arr = da.from_array(data, chunks=(1, 1, y, x))
+    image = nz.to_ngff_image(arr, dims=("t", "c", "y", "x"))
+    ms = nz.to_multiscales(image, scale_factors=[1], chunks=8)
+
+    old_target = nz.config.memory_target
+    nz.config.memory_target = 1  # force the large-array path
+    try:
+        store = tmp_path / "test.ome.zarr"
+        nz.to_ngff_zarr(store, ms, version="0.5", chunks_per_shard=16)
+    finally:
+        nz.config.memory_target = old_target
+
+    inner = _read_scale0_meta(store)["codecs"][0]["configuration"]["chunk_shape"]
+    assert min(inner[-2:]) >= 8, f"degenerate inner chunk {inner}"
+
+    back = np.asarray(nz.from_ngff_zarr(store).images[0].data)
+    assert np.array_equal(back, data)
+
+
 def test_large_path_partial_final_shard_reads_back(tmp_path):
     """A partial final shard on a prime axis reads back identical to the input."""
     rng = np.random.default_rng(0)
@@ -118,7 +148,10 @@ def test_large_path_multiscale_reads_back(dims, shape, chunks, mt, tmp_path):
     arr = da.from_array(data, chunks=chunks)
     image = nz.to_ngff_image(arr, dims=dims)
     ms = nz.to_multiscales(image, scale_factors=[2, 4], chunks=chunks)
-    level_shapes = [tuple(img.data.shape) for img in ms.images]
+    # Materialise every level before the write so each one can be byte-compared
+    # after read-back. Checking shape alone would let a corrupted lower scale
+    # pass as long as it stayed readable.
+    expected_levels = [np.asarray(img.data) for img in ms.images]
 
     old_target = nz.config.memory_target
     nz.config.memory_target = mt
@@ -129,10 +162,9 @@ def test_large_path_multiscale_reads_back(dims, shape, chunks, mt, tmp_path):
         nz.config.memory_target = old_target
 
     back = nz.from_ngff_zarr(store)
-    # Full-resolution data must survive the region write byte for byte.
-    assert np.array_equal(np.asarray(back.images[0].data), data)
-    # Every pyramid level must be present and fully readable (no truncation).
-    assert len(back.images) == len(level_shapes)
-    for i, expected_shape in enumerate(level_shapes):
-        assert tuple(back.images[i].data.shape) == expected_shape
-        np.asarray(back.images[i].data)
+    assert len(back.images) == len(expected_levels)
+    # Every pyramid level, not just full resolution, must read back byte-identical.
+    for i, expected in enumerate(expected_levels):
+        actual = np.asarray(back.images[i].data)
+        assert actual.shape == expected.shape, f"level {i} shape {actual.shape}"
+        assert np.array_equal(actual, expected), f"level {i} data differs"
