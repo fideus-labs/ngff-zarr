@@ -50,8 +50,6 @@ cli.md
 mcp.md
 rfc5.md
 hcs.md
-tiff.md
-lif.md
 spec_features.md
 itk.md
 methods.md
