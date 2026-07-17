@@ -1,3 +1,6 @@
+---
+orphan: true
+---
 <!-- SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC -->
 <!-- SPDX-License-Identifier: MIT -->
 # TIFF and OME-TIFF Support

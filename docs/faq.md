@@ -127,6 +127,17 @@ In addition to specification of credentials explicitly,
 The same patterns work for other cloud providers (GCS, Azure) by using their
 respective fsspec implementations (e.g., `gcsfs`, `adlfs`).
 
+## File Formats
+
+### Where can I find documentation for specific file formats like TIFF or LIF?
+
+ngff-zarr converts most bioimaging formats to OME-Zarr. Detailed, format-specific
+guides are available for:
+
+- [TIFF and OME-TIFF Support](./tiff.md) — automatic metadata extraction and
+  multi-series conversion
+- [Leica Image Format (LIF) Support](./lif.md) — Leica microscopy data
+
 ## Troubleshooting
 
 ### I'm getting "Invalid argument", "Invalid page offset", or `OSError` errors when converting TIFF/SVS files
