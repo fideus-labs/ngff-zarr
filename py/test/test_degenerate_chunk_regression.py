@@ -19,8 +19,9 @@ pytestmark = pytest.mark.skipif(
 
 
 def _read_scale0_meta(store):
-    path = glob.glob(f"{store}/scale0/*/zarr.json")[0]
-    with open(path) as f:
+    matches = glob.glob(f"{store}/scale0/*/zarr.json")
+    assert len(matches) == 1, f"expected exactly one scale0 array, found {matches}"
+    with open(matches[0]) as f:
         return json.load(f)
 
 

@@ -171,11 +171,11 @@ def _large_image_serialization(
         path = f"{base_path}/slabs"
         slabs = data.rechunk(rechunks)
 
-        # For spatial dimensions, ensure Zarr chunk sizes are divisors of
-        # the dimension sizes so older dask versions (e.g. 2025.11.0) can
-        # write safely with regions.  For non-spatial dims (t, c), use the
-        # slab chunk directly to keep channels / timepoints together and
-        # avoid dask rechunking (gh-issue-487).
+        # For spatial dimensions, clamp the Zarr chunk size to the axis length.
+        # Zarr v3 allows a partial final chunk, so the region write stays safe
+        # without snapping to a divisor.  For non-spatial dims (t, c), use the
+        # slab chunk directly to keep channels / timepoints together and avoid
+        # dask rechunking (gh-issue-487).
         chunks = tuple(
             _find_optimal_chunk_size(c[0], data.shape[i])
             if dim in _spatial_dims
