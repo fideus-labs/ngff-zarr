@@ -1,3 +1,19 @@
+## py-v0.39.0 (2026-07-17)
+
+### ♻️ Refactoring
+
+- **py**: enumerate shard divisors in O(sqrt) and refresh clamp comments ([431aa04](https://github.com/fideus-labs/ngff-zarr/commit/431aa0474fc9559c7da552e9bcfb233bf96cf669))
+
+### ✨ Features
+
+- **py,ts**: write an image and its transformation into one store ([be3f6cd](https://github.com/fideus-labs/ngff-zarr/commit/be3f6cd54d622559fac1049e0c8ea6194e7c1ef4))
+
+### 🐛 Bug Fixes
+
+- **py**: floor sharded inner chunk to avoid 2*prime collapse ([3bf12dd](https://github.com/fideus-labs/ngff-zarr/commit/3bf12dd3996e67104013099f6cf2a608596a4e61))
+- **py**: clamp chunk/shard sizes to the axis instead of snapping to a divisor ([7cab47b](https://github.com/fideus-labs/ngff-zarr/commit/7cab47b0509e08737704f996266a52d1f654ac46))
+- **py**: step region writes by the band width so the whole array is written ([9ccf5c8](https://github.com/fideus-labs/ngff-zarr/commit/9ccf5c84460a76fda149f3bda61d9e8a7b940752))
+
 ## py-v0.38.0 (2026-07-09)
 
 ### ♻️ Refactoring
