@@ -844,61 +844,61 @@ def _handle_large_array_writing(
         else:
             shrink_factors.append(1)
 
-    # Ensure chunks are compatible with Dask's to_zarr when writing with regions.
-    # The Zarr chunk size must divide evenly into the dimension size to avoid
-    # PerformanceWarning and potential data loss during region writes.
-    def _find_optimal_chunk_size(first_chunk, dim_size, min_divisor=16):
-        """Find a chunk size that divides evenly into dim_size and is ideally divisible by min_divisor.
+    # Region writes and shard/array chunk sizes do not need to divide the
+    # dimension evenly: Zarr v3 permits a partial final chunk. Region slabs are
+    # chunk-aligned and the final slab is truncated to the axis, so a partial
+    # final chunk is safe.
+    def _find_optimal_chunk_size(first_chunk, dim_size):
+        """Target the requested chunk size, clamped to the axis length.
 
-        The returned chunk size will:
-        1. Divide evenly into dim_size (required for safe region writes)
-        2. Be as close as possible to first_chunk
-        3. Preferably be divisible by min_divisor for performance
+        Never snap to an axis divisor: for dimensions with large prime factors
+        (e.g. 320095 = 5 * 64019) the nearest divisor collapses to a tiny chunk
+        (5 px), causing extreme chunk-count and storage inflation.
         """
-        # If dimension is very small, just use it directly
-        if dim_size <= min_divisor:
-            return dim_size
+        return max(1, min(int(first_chunk), int(dim_size)))
 
-        # Start with the target chunk size
-        target = first_chunk
+    def _inner_chunk_for_shard(first_chunk, shard_size):
+        """Inner (sub-shard) chunk that divides the shard exactly.
 
-        # First try to find a divisor of dim_size that's divisible by min_divisor
-        # and close to our target
-        best_chunk = dim_size  # Fallback: use full dimension
-        best_distance = abs(dim_size - target)
+        Zarr's sharding codec requires the shard chunk_shape to be divisible by
+        the inner chunk_shape. Return the largest shard divisor <= the target
+        that is at or above a small floor, so an awkwardly factored shard (e.g.
+        2*prime, with divisors {2, prime, 2*prime}) does not collapse to a tiny
+        inner chunk and recreate the very collapse this clamp prevents. When no
+        divisor at or above the floor exists (a prime or 2*prime shard), fall
+        back to the whole shard as a single inner chunk. A unit-length shard (a
+        t or z dim of size 1) returns 1, which is that whole shard rather than a
+        degenerate sub-chunk.
 
-        # Check all divisors of dim_size
-        for i in range(1, int(np.sqrt(dim_size)) + 1):
-            if dim_size % i == 0:
-                # i and dim_size//i are both divisors
-                for candidate in [i, dim_size // i]:
-                    distance = abs(candidate - target)
-                    # Prefer divisors that are multiples of min_divisor
-                    is_multiple = candidate % min_divisor == 0
-
-                    # Update if closer to target, with preference for multiples of min_divisor
-                    if distance < best_distance or (
-                        distance == best_distance
-                        and is_multiple
-                        and best_chunk % min_divisor != 0
-                    ):
-                        best_chunk = candidate
-                        best_distance = distance
-
-        return best_chunk
+        Divisors are enumerated in O(sqrt(shard_size)) rather than scanned
+        linearly from the target.
+        """
+        shard_size = int(shard_size)
+        target = max(1, min(int(first_chunk), shard_size))
+        min_inner = min(target, 16)
+        best = 0
+        divisor = 1
+        while divisor * divisor <= shard_size:
+            if shard_size % divisor == 0:
+                for candidate in (divisor, shard_size // divisor):
+                    if min_inner <= candidate <= target and candidate > best:
+                        best = candidate
+            divisor += 1
+        return best or shard_size
 
     # If sharding is enabled, configure it properly
     chunk_kwargs = {}
     codecs_kwargs = {}
 
     if sharding_kwargs and "_shard_shape" in sharding_kwargs:
-        # For Zarr v3 with sharding, we need to ensure the shard shape divides evenly
+        # For Zarr v3 with sharding, clamp the shard shape to the axis length
         shard_shape = sharding_kwargs.pop("_shard_shape")
         internal_chunk_shape = sharding_kwargs.get(
             "chunk_shape"
         )  # This is the inner chunk shape
 
-        # Apply _find_optimal_chunk_size to the shard shape to ensure it divides evenly
+        # Clamp each shard dim to its axis; Zarr v3 permits a partial final shard,
+        # and the inner chunk is chosen to divide the clamped shard below.
         optimized_shard_shape = tuple(
             [
                 _find_optimal_chunk_size(s, arr.shape[i])
@@ -919,14 +919,14 @@ def _handle_large_array_writing(
                     adjusted_internal_chunks.append(internal_dim)
                 else:
                     # Find closest divisor
-                    best_divisor = _find_optimal_chunk_size(internal_dim, shard_dim)
+                    best_divisor = _inner_chunk_for_shard(internal_dim, shard_dim)
                     adjusted_internal_chunks.append(best_divisor)
             internal_chunk_shape = tuple(adjusted_internal_chunks)
         else:
             # No internal chunks specified, use defaults based on array chunks
             internal_chunk_shape = tuple(
                 [
-                    _find_optimal_chunk_size(c[0], s)
+                    _inner_chunk_for_shard(c[0], s)
                     for c, s in zip(arr.chunks, optimized_shard_shape)
                 ]
             )
