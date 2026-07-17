@@ -1,6 +1,6 @@
 <!-- SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC -->
 <!-- SPDX-License-Identifier: MIT -->
-# RFC-5: Coordinate Systems and Transformations
+# 🧭 RFC-5: Coordinate Systems and Transformations
 
 [RFC-5] extends OME-NGFF with named **coordinate systems** and a richer set of
 **coordinate transformations** — identity, scale, translation, rotation,
