@@ -1,3 +1,9 @@
+## ts-v0.24.0 (2026-07-17)
+
+### ✨ Features
+
+- **py,ts**: write an image and its transformation into one store ([be3f6cd](https://github.com/fideus-labs/ngff-zarr/commit/be3f6cd54d622559fac1049e0c8ea6194e7c1ef4))
+
 ## ts-v0.23.0 (2026-07-09)
 
 ### ♻️ Refactoring
