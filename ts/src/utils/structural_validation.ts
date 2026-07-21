@@ -66,6 +66,10 @@ export const SpecRule = {
   AxisOrientationConsistentType: "axis-orientation-consistent-type",
   /** If any spatial axis declares an orientation, all spatial axes do. */
   AxisOrientationCompleteness: "axis-orientation-completeness",
+  /** Orientation is declared only on spatial axes (never time/channel). */
+  AxisOrientationOnNonSpace: "axis-orientation-on-non-space",
+  /** At most one direction per anatomical axis (antonyms are exclusive). */
+  AxisOrientationUniqueAxis: "axis-orientation-unique-axis",
   /** A v0.5 entry implies a Zarr v3 store: a leaked `zarr_format` must be 3. */
   ZarrFormat: "zarr-format",
   /** A v0.5 entry must not retain a group-level `ome`/`multiscales` wrapper. */
@@ -588,9 +592,12 @@ function axisToValidationRecord(axis: Axis): Record<string, unknown> {
  *
  * @param metadata - The parsed multiscales metadata to validate.
  * @throws {ValidationError} With {@link SpecRule.AxisOrientationConsistentType}
- * when the spatial axes' orientations do not all share one `type`, or
+ * when the spatial axes' orientations do not all share one `type`,
  * {@link SpecRule.AxisOrientationCompleteness} when orientation is defined for
- * some but not all spatial axes; location `multiscales[0].axes`. The original
+ * some but not all spatial axes, {@link SpecRule.AxisOrientationOnNonSpace} when
+ * orientation is declared on a non-spatial axis, or
+ * {@link SpecRule.AxisOrientationUniqueAxis} when two spatial axes describe the
+ * same anatomical axis; location `multiscales[0].axes`. The original
  * RFC 4 message text is preserved. Any other failure from
  * {@link validateRfc4Orientation} -- e.g. an orientation value outside the
  * RFC 4 vocabulary, a schema-level concern with no dedicated structural rule
@@ -598,24 +605,36 @@ function axisToValidationRecord(axis: Axis): Record<string, unknown> {
  */
 export function validateAxisOrientation(metadata: Metadata): void {
   const axesRecords = metadata.axes.map(axisToValidationRecord);
-  if (!hasRfc4OrientationMetadata(axesRecords)) {
+  // A stray orientation on a non-spatial axis carries no spatial-axis
+  // orientation, so hasRfc4OrientationMetadata alone would skip it; check for any
+  // declared orientation so the non-space rule is reachable.
+  const nonSpaceOrientation = axesRecords.some(
+    (axisRecord) =>
+      typeof axisRecord === "object" &&
+      axisRecord !== null &&
+      axisRecord.type !== "space" &&
+      "orientation" in axisRecord,
+  );
+  if (!hasRfc4OrientationMetadata(axesRecords) && !nonSpaceOrientation) {
     return;
   }
   try {
     validateRfc4Orientation(axesRecords);
   } catch (error) {
-    // validateRfc4Orientation throws exactly two messages this rule maps: a
-    // spatial-orientation "same type" mismatch and the all-or-none completeness
-    // failure. An out-of-vocabulary orientation value -- a schema-level concern
-    // with no dedicated structural rule -- carries neither marker and so
-    // propagates unchanged, matching the package's Python implementation.
+    // validateRfc4Orientation throws four messages this rule maps: a
+    // spatial-orientation "same type" mismatch, the all-or-none completeness
+    // failure, orientation on "non-space axes", and two axes on the "same
+    // anatomical axis". An out-of-vocabulary orientation value -- a schema-level
+    // concern with no dedicated structural rule -- carries none of these markers
+    // and so propagates unchanged, matching the package's Python implementation.
     //
-    // The "same type" / "all spatial axes" substrings below are a load-bearing
-    // contract with validateRfc4Orientation's message text: an unrecognized
-    // error falls through to the final `throw` and surfaces as a plain Error
-    // rather than a ValidationError. The message-stability test in
-    // structural_validation_orientation_test.ts pins both markers so editing
-    // that wording fails CI loudly instead of silently breaking this mapping.
+    // The marker substrings below ("same type", "all spatial axes", "non-space
+    // axes", "same anatomical axis") are a load-bearing contract with
+    // validateRfc4Orientation's message text: an unrecognized error falls
+    // through to the final `throw` and surfaces as a plain Error rather than a
+    // ValidationError. The message-stability test in
+    // structural_validation_orientation_test.ts pins the markers so editing that
+    // wording fails CI loudly instead of silently breaking this mapping.
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes("same type")) {
       throw new ValidationError(
@@ -627,6 +646,20 @@ export function validateAxisOrientation(metadata: Metadata): void {
     if (message.includes("all spatial axes")) {
       throw new ValidationError(
         SpecRule.AxisOrientationCompleteness,
+        message,
+        "multiscales[0].axes",
+      );
+    }
+    if (message.includes("non-space axes")) {
+      throw new ValidationError(
+        SpecRule.AxisOrientationOnNonSpace,
+        message,
+        "multiscales[0].axes",
+      );
+    }
+    if (message.includes("same anatomical axis")) {
+      throw new ValidationError(
+        SpecRule.AxisOrientationUniqueAxis,
         message,
         "multiscales[0].axes",
       );

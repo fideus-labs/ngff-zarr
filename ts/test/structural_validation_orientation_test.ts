@@ -195,5 +195,65 @@ Deno.test(
       Error,
       "all spatial axes",
     );
+
+    // Orientation on a non-spatial axis -> the on-non-space marker.
+    assertThrows(
+      () =>
+        validateRfc4Orientation([
+          {
+            name: "t",
+            type: "time",
+            orientation: { type: "anatomical", value: "inferior-to-superior" },
+          },
+        ]),
+      Error,
+      "non-space axes",
+    );
+
+    // Two spatial axes on one anatomical axis -> the unique-axis marker.
+    assertThrows(
+      () =>
+        validateRfc4Orientation([
+          {
+            name: "y",
+            type: "space",
+            orientation: { type: "anatomical", value: "left-to-right" },
+          },
+          {
+            name: "x",
+            type: "space",
+            orientation: { type: "anatomical", value: "right-to-left" },
+          },
+        ]),
+      Error,
+      "same anatomical axis",
+    );
+  },
+);
+
+Deno.test(
+  "validateRfc4Orientation - same-name spatial entries still collide",
+  () => {
+    // Malformed metadata can repeat an axis name. A name-keyed map would
+    // overwrite the first entry and let the opposing pair slip through, so the
+    // check keeps every [name, value] entry. Mirrors the Python
+    // test_validate_rfc4_orientation_duplicate_anatomical_axis_same_name.
+    assertThrows(
+      () =>
+        validateRfc4Orientation([
+          {
+            name: "x",
+            type: "space",
+            orientation: { type: "anatomical", value: "left-to-right" },
+          },
+          {
+            name: "x",
+            type: "space",
+            orientation: { type: "anatomical", value: "right-to-left" },
+          },
+        ]),
+      Error,
+      "same anatomical axis",
+    );
   },
 );

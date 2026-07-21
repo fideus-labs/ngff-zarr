@@ -133,16 +133,57 @@ def test_axis_orientation_incomplete():
     )
 
 
+def test_axis_orientation_on_non_space_axis():
+    # Orientation is (illegally) declared on the non-spatial "t" axis. The
+    # spatial axes carry it too, so the RFC 4 check is actually reached.
+    metadata = _metadata_with_axes(
+        [
+            Axis(
+                name="t",
+                type="time",
+                orientation=_orientation_dict("inferior-to-superior"),
+            ),
+            Axis(name="z", type="space", orientation=_orientation_dict(_LPS_VALUES[0])),
+            Axis(name="y", type="space", orientation=_orientation_dict(_LPS_VALUES[1])),
+            Axis(name="x", type="space", orientation=_orientation_dict(_LPS_VALUES[2])),
+        ]
+    )
+    with pytest.raises(ValidationError) as exc_info:
+        validate_axis_orientation(metadata)
+    assert exc_info.value.rule == SpecRule.AXIS_ORIENTATION_ON_NON_SPACE
+    assert exc_info.value.location == "multiscales[0].axes"
+
+
+def test_axis_orientation_duplicate_anatomical_axis():
+    # "z" and "x" both lie on the left-right anatomical axis (mutually exclusive).
+    metadata = _metadata_with_axes(
+        [
+            Axis(
+                name="z", type="space", orientation=_orientation_dict("left-to-right")
+            ),
+            Axis(name="y", type="space", orientation=_orientation_dict(_LPS_VALUES[1])),
+            Axis(
+                name="x", type="space", orientation=_orientation_dict("right-to-left")
+            ),
+        ]
+    )
+    with pytest.raises(ValidationError) as exc_info:
+        validate_axis_orientation(metadata)
+    assert exc_info.value.rule == SpecRule.AXIS_ORIENTATION_UNIQUE_AXIS
+    assert exc_info.value.location == "multiscales[0].axes"
+
+
 def test_rfc4_orientation_messages_carry_mapping_markers():
     """Pin the substrings :func:`validate_axis_orientation` maps onto rules.
 
-    The wrapper distinguishes the two RFC 4 orientation failures by searching
+    The wrapper distinguishes the RFC 4 orientation failures by searching
     :func:`~ngff_zarr.rfc4_validation.validate_rfc4_orientation`'s message text
-    for ``"same type"`` and ``"all spatial axes"``. Those markers are a
-    load-bearing contract: if the wording is edited away, the wrapper silently
-    falls through to a bare ``ValueError`` instead of raising the mapped
-    :class:`ValidationError`. Asserting the markers here makes such an edit fail
-    CI loudly at the source rather than silently break the mapping.
+    for ``"same type"``, ``"all spatial axes"``, ``"non-space axes"`` and
+    ``"same anatomical axis"``. Those markers are a load-bearing contract: if the
+    wording is edited away, the wrapper silently falls through to a bare
+    ``ValueError`` instead of raising the mapped :class:`ValidationError`.
+    Asserting the markers here makes such an edit fail CI loudly at the source
+    rather than silently break the mapping.
     """
     from ngff_zarr.rfc4_validation import validate_rfc4_orientation
 
@@ -179,5 +220,37 @@ def test_rfc4_orientation_messages_carry_mapping_markers():
                     },
                 },
                 {"name": "x", "type": "space"},
+            ]
+        )
+
+    # Orientation on a non-spatial axis -> the on-non-space marker.
+    with pytest.raises(ValueError, match="non-space axes"):
+        validate_rfc4_orientation(
+            [
+                {
+                    "name": "t",
+                    "type": "time",
+                    "orientation": {
+                        "type": "anatomical",
+                        "value": "inferior-to-superior",
+                    },
+                },
+            ]
+        )
+
+    # Two spatial axes on one anatomical axis -> the unique-axis marker.
+    with pytest.raises(ValueError, match="same anatomical axis"):
+        validate_rfc4_orientation(
+            [
+                {
+                    "name": "y",
+                    "type": "space",
+                    "orientation": {"type": "anatomical", "value": "left-to-right"},
+                },
+                {
+                    "name": "x",
+                    "type": "space",
+                    "orientation": {"type": "anatomical", "value": "right-to-left"},
+                },
             ]
         )

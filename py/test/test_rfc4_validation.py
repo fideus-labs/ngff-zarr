@@ -239,6 +239,131 @@ def test_validate_rfc4_orientation_invalid_value():
         validate_rfc4_orientation(axes_invalid)
 
 
+def test_validate_rfc4_orientation_on_non_space_axis():
+    """RFC 4 orientation is rejected on a non-spatial (time/channel) axis."""
+    pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
+
+    axes_bad = [
+        {
+            "name": "t",
+            "type": "time",
+            "unit": "second",
+            "orientation": {"type": "anatomical", "value": "inferior-to-superior"},
+        },
+        {
+            "name": "z",
+            "type": "space",
+            "unit": "micrometer",
+            "orientation": {"type": "anatomical", "value": "inferior-to-superior"},
+        },
+        {
+            "name": "y",
+            "type": "space",
+            "unit": "micrometer",
+            "orientation": {"type": "anatomical", "value": "anterior-to-posterior"},
+        },
+        {
+            "name": "x",
+            "type": "space",
+            "unit": "micrometer",
+            "orientation": {"type": "anatomical", "value": "right-to-left"},
+        },
+    ]
+
+    with pytest.raises(ValueError, match="non-space axes"):
+        validate_rfc4_orientation(axes_bad)
+
+
+def test_validate_rfc4_orientation_on_non_space_axis_empty_dict():
+    """An empty orientation object on a non-spatial axis is still rejected.
+
+    The presence of the ``orientation`` key -- not a truthy value -- is what
+    RFC 4 forbids on a non-spatial axis, so ``{}`` must not slip through."""
+    pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
+
+    axes_bad = [
+        {"name": "t", "type": "time", "unit": "second", "orientation": {}},
+        {
+            "name": "z",
+            "type": "space",
+            "unit": "micrometer",
+            "orientation": {"type": "anatomical", "value": "inferior-to-superior"},
+        },
+        {
+            "name": "y",
+            "type": "space",
+            "unit": "micrometer",
+            "orientation": {"type": "anatomical", "value": "anterior-to-posterior"},
+        },
+        {
+            "name": "x",
+            "type": "space",
+            "unit": "micrometer",
+            "orientation": {"type": "anatomical", "value": "right-to-left"},
+        },
+    ]
+
+    with pytest.raises(ValueError, match="non-space axes"):
+        validate_rfc4_orientation(axes_bad)
+
+
+def test_validate_rfc4_orientation_duplicate_anatomical_axis():
+    """Two spatial axes describing the same anatomical axis are rejected."""
+    pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
+
+    # z and x both lie on the left-right axis (mutually exclusive antonyms).
+    axes_dup = [
+        {
+            "name": "z",
+            "type": "space",
+            "unit": "micrometer",
+            "orientation": {"type": "anatomical", "value": "left-to-right"},
+        },
+        {
+            "name": "y",
+            "type": "space",
+            "unit": "micrometer",
+            "orientation": {"type": "anatomical", "value": "anterior-to-posterior"},
+        },
+        {
+            "name": "x",
+            "type": "space",
+            "unit": "micrometer",
+            "orientation": {"type": "anatomical", "value": "right-to-left"},
+        },
+    ]
+
+    with pytest.raises(ValueError, match="same anatomical axis"):
+        validate_rfc4_orientation(axes_dup)
+
+
+def test_validate_rfc4_orientation_duplicate_anatomical_axis_same_name():
+    """Two spatial entries that reuse one axis name still collide.
+
+    Malformed metadata can repeat a name. A name-keyed map would overwrite the
+    first entry and let the pair slip through, so the check keeps every entry.
+    """
+    pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
+
+    axes_dup = [
+        {
+            "name": "x",
+            "type": "space",
+            "unit": "micrometer",
+            "orientation": {"type": "anatomical", "value": "left-to-right"},
+        },
+        {
+            "name": "x",
+            "type": "space",
+            "unit": "micrometer",
+            "orientation": {"type": "anatomical", "value": "right-to-left"},
+        },
+    ]
+
+    with pytest.raises(ValueError, match="same anatomical axis"):
+        validate_rfc4_orientation(axes_dup)
+
+
 def test_from_ngff_zarr_with_rfc4_validation():
     """Test from_ngff_zarr with RFC 4 validation enabled."""
     pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
