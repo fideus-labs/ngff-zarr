@@ -39,6 +39,13 @@ jobs:
       - name: Open pull request
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
+          # A PR opened with the default GITHUB_TOKEN cannot trigger other
+          # workflows, so prek.yml would not validate the autoupdate PR. Set
+          # PREK_AUTOUPDATE_TOKEN (a least-privileged PAT or GitHub App token
+          # with contents:write + pull-requests:write) to have CI run on the
+          # PR. When it is unset this falls back to GITHUB_TOKEN and the PR
+          # checks must be triggered manually.
+          token: ${{ secrets.PREK_AUTOUPDATE_TOKEN || secrets.GITHUB_TOKEN }}
           commit-message: "chore: update prek hooks"
           title: "chore: update prek hooks"
           body: |
