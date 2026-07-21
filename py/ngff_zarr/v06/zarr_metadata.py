@@ -1,24 +1,26 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from typing import List, Literal, Union, TYPE_CHECKING
+from abc import ABC
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Literal, Union
 
+from .._supported_versions import NgffVersion
+from .._zarr_types import StoreLike
+from ..rfc4 import AnatomicalOrientation
 from ..v04.zarr_metadata import (
     AxesType as AxesTypeV04,
+)
+from ..v04.zarr_metadata import (
     MethodMetadata,
     Omero,
     SupportedDims,
     Units,
 )
-from ..rfc4 import AnatomicalOrientation
-from .._supported_versions import NgffVersion
-from .._zarr_types import StoreLike
-from abc import ABC
 
 if TYPE_CHECKING:
     from ..ngff_image import NgffImage
-    from ..v05.zarr_metadata import Metadata as Metadata_v05
     from ..v04.zarr_metadata import Metadata as Metadata_v04
+    from ..v05.zarr_metadata import Metadata as Metadata_v05
 
 
 # OME-Zarr v0.6 (RFC-5) extends the axis types with the discrete vector-field
@@ -39,21 +41,24 @@ class Axis:
 @dataclass
 class CoordinateSystem:
     name: str
-    axes: List[Axis]
+    axes: list[Axis]
+
 
 @dataclass
 class CoordinateSystemIdentifier:
     """
     CoordinateSystemIdentifier field used in transformations metadata.
-     
+
     There, the input/output fields of transformations must be an object with
     'path' and 'name' fields.
     """
+
     path: str | None = None
     name: str | None = None
 
+
 @dataclass(kw_only=True)
-class BaseTransform(ABC):
+class BaseTransform(ABC):  # noqa: B024
     input: CoordinateSystemIdentifier | None = None
     output: CoordinateSystemIdentifier | None = None
     name: str | None = None
@@ -61,35 +66,41 @@ class BaseTransform(ABC):
 
     def to_dict(self) -> dict:
         from dataclasses import asdict
+
         return asdict(self)
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> "BaseTransform":
         return cls(**data)
+
 
 @dataclass(kw_only=True)
 class Identity(BaseTransform):
     type: str = "identity"
 
+
 @dataclass(kw_only=True)
 class Scale(BaseTransform):
-    scale: List[float]
+    scale: list[float]
     type: str = "scale"
+
 
 @dataclass(kw_only=True)
 class Translation(BaseTransform):
-    translation: List[float]
+    translation: list[float]
     type: str = "translation"
+
 
 @dataclass(kw_only=True)
 class Rotation(BaseTransform):
-    rotation: List[List[float]]
+    rotation: list[list[float]]
     path: str | None = None
     type: str = "rotation"
 
+
 @dataclass(kw_only=True)
 class Affine(BaseTransform):
-    affine: List[List[float]]
+    affine: list[list[float]]
     path: str | None = None
     type: str = "affine"
 
@@ -119,11 +130,13 @@ Transform = Union[
     "TransformSequence",
 ]
 
+
 @dataclass(kw_only=True)
 class TransformSequence(BaseTransform):
-    transformations: List[Transform]
+    transformations: list[Transform]
     name: str | None = "transformSequence"
     type: str = "sequence"
+
 
 @dataclass
 class Dataset:
@@ -138,14 +151,16 @@ class Dataset:
         - single scale
         - sequence of scale and translation
     """
+
     path: str
-    coordinateTransformations: List[Transform]
+    coordinateTransformations: list[Transform]
+
 
 @dataclass
 class Metadata:
-    coordinateSystems: List[CoordinateSystem]
-    datasets: List[Dataset]
-    coordinateTransformations: List[Transform] | None = None
+    coordinateSystems: list[CoordinateSystem]
+    datasets: list[Dataset]
+    coordinateTransformations: list[Transform] | None = None
     omero: Omero | None = None
     name: str = "image"
     type: str | None = None
@@ -161,7 +176,7 @@ class Metadata:
         We use the post-init to do some on-the-fly validation
         that is not covered by the json schemas well.
         """
-        
+
         _ = self.intrinsic_coordinate_system
 
     @property
@@ -170,7 +185,7 @@ class Metadata:
 
         if output_cs[0] is None:
             raise ValueError(
-                "No output coordinate system found in dataset coordinate transformations. " 
+                "No output coordinate system found in dataset coordinate transformations. "
             )
 
         # raise an error if these aren't all the same
@@ -180,42 +195,46 @@ class Metadata:
                 f" coordinate transformations for multiscales: {output_cs}. "
                 "This is out of spec for this ome-zarr 0.6."
             )
-        
+
         # find the cs in the list of coordinate systems with the same name as the output
         return next(cs for cs in self.coordinateSystems if cs.name == output_cs[0].name)
 
-    def to_version(self, version: Union[str, NgffVersion]) -> Union["Metadata", "Metadata_v05", "Metadata_v04"]:
+    def to_version(
+        self, version: Union[str, NgffVersion]
+    ) -> Union["Metadata", "Metadata_v05", "Metadata_v04"]:
         if isinstance(version, str):
             # raise error for invalid version string
             version = NgffVersion(version)
 
         if version == NgffVersion.V04:
             return self._to_v05()._to_v04()
-        elif version == NgffVersion.V05:
+        if version == NgffVersion.V05:
             return self._to_v05()
-        elif version == NgffVersion.V06:
+        if version == NgffVersion.V06:
             return self
-        else:
-            raise ValueError(f"Unsupported version conversion: 0.6 -> {version}")
-        
+        raise ValueError(f"Unsupported version conversion: 0.6 -> {version}")
+
     @classmethod
-    def from_version(cls, metadata: Union["Metadata", "Metadata_v05", "Metadata_v04"]) -> "Metadata":
-        from ..v05.zarr_metadata import Metadata as Metadata_v05
+    def from_version(
+        cls, metadata: Union["Metadata", "Metadata_v05", "Metadata_v04"]
+    ) -> "Metadata":
         from ..v04.zarr_metadata import Metadata as Metadata_v04
+        from ..v05.zarr_metadata import Metadata as Metadata_v05
 
         if isinstance(metadata, Metadata_v05):
             return cls._from_v05(metadata)
-        elif isinstance(metadata, Metadata_v04):
+        if isinstance(metadata, Metadata_v04):
             metadata_v05 = Metadata_v05._from_v04(metadata)
             return cls._from_v05(metadata_v05)
-        else:
-            raise ValueError(f"Unsupported metadata type ({type(metadata)}) for conversion to v0.6")
-        
+        raise ValueError(
+            f"Unsupported metadata type ({type(metadata)}) for conversion to v0.6"
+        )
+
     def _to_v05(self) -> "Metadata_v05":
-        from ..v05.zarr_metadata import Metadata as Metadata_v05
-        from ..v05.zarr_metadata import Dataset as Dataset_v05
         from ..v04.zarr_metadata import Scale as Scale_v05
         from ..v04.zarr_metadata import Translation as Translation_v05
+        from ..v05.zarr_metadata import Dataset as Dataset_v05
+        from ..v05.zarr_metadata import Metadata as Metadata_v05
 
         datasets = []
         for idx, ds in enumerate(self.datasets):
@@ -226,7 +245,11 @@ class Metadata:
 
             # set reasonable defaults
             spatial_dims = ("x", "y", "z")
-            scale = Scale(scale=[2.0**idx if d in spatial_dims else 1.0 for d in self.dimension_names])
+            scale = Scale(
+                scale=[
+                    2.0**idx if d in spatial_dims else 1.0 for d in self.dimension_names
+                ]
+            )
             translation = Translation(translation=[0.0 for d in self.dimension_names])
             outputs = []
 
@@ -245,7 +268,9 @@ class Metadata:
                     translation = transform
                 elif isinstance(transform, Identity):
                     scale = Scale(scale=[1.0 for d in self.dimension_names])
-                    translation = Translation(translation=[0.0 for d in self.dimension_names])
+                    translation = Translation(
+                        translation=[0.0 for d in self.dimension_names]
+                    )
 
                 outputs.append(transform.output)
 
@@ -261,12 +286,14 @@ class Metadata:
             translation = Translation_v05(translation=translation.translation)
             coordinateTransformations = [scale, translation]
 
-            cs = [cs for cs in self.coordinateSystems if cs.name == output.name][0]
+            cs = next(cs for cs in self.coordinateSystems if cs.name == output.name)
 
-            datasets.append(Dataset_v05(
-                path=path,
-                coordinateTransformations=coordinateTransformations,
-            ))
+            datasets.append(
+                Dataset_v05(
+                    path=path,
+                    coordinateTransformations=coordinateTransformations,
+                )
+            )
 
         metadata = Metadata_v05(
             axes=cs.axes,
@@ -279,16 +306,14 @@ class Metadata:
         )
 
         return metadata
-    
+
     @classmethod
     def _from_v05(cls, metadata_v05: "Metadata_v05") -> "Metadata":
         from ..v04.zarr_metadata import Scale as Scale_v05
         from ..v04.zarr_metadata import Translation as Translation_v05
+
         coordinate_systems = [
-            CoordinateSystem(
-                name="intrinsic",
-                axes=metadata_v05.axes
-            )
+            CoordinateSystem(name="intrinsic", axes=metadata_v05.axes)
         ]
 
         datasets = []
@@ -305,10 +330,11 @@ class Metadata:
             sequence = TransformSequence(
                 transformations=[
                     Scale(scale=scale),
-                    Translation(translation=translation)],
+                    Translation(translation=translation),
+                ],
                 input=CoordinateSystemIdentifier(path=ds.path),
                 name=f"scale{index}_to_intrinsic",
-                output=CoordinateSystemIdentifier(name=coordinate_systems[0].name)
+                output=CoordinateSystemIdentifier(name=coordinate_systems[0].name),
             )
 
             datasets.append(
@@ -327,7 +353,7 @@ class Metadata:
         )
 
         return metadata
-    
+
     @classmethod
     def _from_zarr_attrs(
         cls,
@@ -335,7 +361,7 @@ class Metadata:
         store: StoreLike,
         validate: bool = False,
         subpath: str | None = None,
-        ) -> tuple["Metadata", list["NgffImage"]]:
+    ) -> tuple["Metadata", list["NgffImage"]]:
         """Create Metadata instance from ome-zarr metadata dictionary.
 
         When the multiscales group is nested inside the store (e.g. a
@@ -345,48 +371,55 @@ class Metadata:
         """
         import posixpath
         import sys
+
         import dask.array
-        from ..validate import validate as validate_ngff
-        from ..parse_metadata import _parse_omero
-        from ..rfc4_validation import validate_rfc4_orientation, has_rfc4_orientation_metadata
+
         from ..ngff_image import NgffImage
+        from ..parse_metadata import _parse_omero
+        from ..rfc4_validation import (
+            has_rfc4_orientation_metadata,
+            validate_rfc4_orientation,
+        )
+        from ..validate import validate as validate_ngff
 
         # make sure root_attrs['ome]['multiscales'] exists
         if "ome" not in root_attrs or "multiscales" not in root_attrs["ome"]:
-            raise ValueError("Invalid OME-Zarr metadata: missing 'ome' or 'multiscales' field.")
+            raise ValueError(
+                "Invalid OME-Zarr metadata: missing 'ome' or 'multiscales' field."
+            )
 
         if validate:
-            validate_ngff(root_attrs, version=root_attrs['ome']['multiscales'][0].get("version", "0.6"))
+            validate_ngff(
+                root_attrs,
+                version=root_attrs["ome"]["multiscales"][0].get("version", "0.6"),
+            )
 
             # RFC 4 validation for anatomical orientation
-            if "axes" in root_attrs['ome']['multiscales'][0] and isinstance(root_attrs['ome']['multiscales'][0]["axes"], list):
+            if "axes" in root_attrs["ome"]["multiscales"][0] and isinstance(
+                root_attrs["ome"]["multiscales"][0]["axes"], list
+            ):
                 # Type cast each axis item to dict for validation
                 axes_dicts = []
-                for axis in root_attrs['ome']['multiscales'][0]["axes"]:
+                for axis in root_attrs["ome"]["multiscales"][0]["axes"]:
                     if isinstance(axis, dict):
                         axes_dicts.append(axis)
                 if axes_dicts and has_rfc4_orientation_metadata(axes_dicts):
                     validate_rfc4_orientation(axes_dicts)
 
         omero = _parse_omero(root_attrs.get("ome", {}).get("omero"))
-        root_attrs = root_attrs['ome']['multiscales'][0]
-        
+        root_attrs = root_attrs["ome"]["multiscales"][0]
+
         coordinate_systems = []
         for cs in root_attrs.get("coordinateSystems", []):
-            axes = [Axis(**axis) for axis in cs["axes"]]        
-            
-            coordinate_systems.append(
-                CoordinateSystem(
-                    name=cs["name"],
-                    axes=axes
-                )
-            )
+            axes = [Axis(**axis) for axis in cs["axes"]]
+
+            coordinate_systems.append(CoordinateSystem(name=cs["name"], axes=axes))
 
         if not coordinate_systems:
-             raise ValueError(
-                 "Invalid OME-Zarr v0.6 metadata: "
-                 " missing 'coordinateSystems' in multiscales metadata."
-                 )
+            raise ValueError(
+                "Invalid OME-Zarr v0.6 metadata: "
+                " missing 'coordinateSystems' in multiscales metadata."
+            )
 
         images = []
         datasets = []
@@ -401,12 +434,11 @@ class Metadata:
             ):
                 data = data.astype(data.dtype.newbyteorder())
 
-
             # parse dataset coordinate transformations if present
             dims = [ax.name for ax in coordinate_systems[0].axes]
             scale = Scale(scale=[1.0 for d in dims])
             translation = Translation(translation=[0.0 for d in dims])
-            coordinateTransformations: List[Transform] = [
+            coordinateTransformations: list[Transform] = [
                 TransformSequence(
                     transformations=[scale, translation],
                     input=CoordinateSystemIdentifier(path=dataset["path"]),
@@ -416,10 +448,9 @@ class Metadata:
             ]
             if "coordinateTransformations" in dataset:
                 coordinateTransformations = cls._parse_transforms(
-                    dataset["coordinateTransformations"],
-                    coordinate_systems
-                    )
-                
+                    dataset["coordinateTransformations"], coordinate_systems
+                )
+
                 # extract scale and translation for ngff_image convenience
                 for transform in coordinateTransformations:
                     if isinstance(transform, TransformSequence):
@@ -439,13 +470,15 @@ class Metadata:
                         translation = Translation(translation=[0.0 for d in dims])
                     else:
                         raise ValueError(
-                            "Unsupported transform type: " \
+                            "Unsupported transform type: "
                             f"{transform.type} in dataset {dataset['path']}"
-                            )
-                
-            cs_intrinsic = [
-                cs for cs in coordinate_systems if cs.name == coordinateTransformations[0].output.name
-                ][0]
+                        )
+
+            cs_intrinsic = next(
+                cs
+                for cs in coordinate_systems
+                if cs.name == coordinateTransformations[0].output.name
+            )
 
             datasets.append(
                 Dataset(
@@ -460,13 +493,15 @@ class Metadata:
                 scale=dict(zip(dims, scale.scale)),
                 translation=dict(zip(dims, translation.translation)),
                 name=root_attrs.get("name", "image"),
-                axes_units=dict(zip(dims, [ax.unit for ax in cs_intrinsic.axes]))
-                )
+                axes_units=dict(zip(dims, [ax.unit for ax in cs_intrinsic.axes])),
+            )
             images.append(ngff_image)
 
         additionalTransformations = root_attrs.get("coordinateTransformations", None)
         if additionalTransformations is not None:
-            additionalTransformations = cls._parse_transforms(additionalTransformations, coordinate_systems)
+            additionalTransformations = cls._parse_transforms(
+                additionalTransformations, coordinate_systems
+            )
 
         metadata = cls(
             coordinateSystems=coordinate_systems,
@@ -479,7 +514,9 @@ class Metadata:
         return metadata, images
 
     @classmethod
-    def _parse_transforms(cls, transforms: List[dict], coordinateSystems: List[CoordinateSystem]) -> List[Transform]:
+    def _parse_transforms(
+        cls, transforms: list[dict], coordinateSystems: list[CoordinateSystem]
+    ) -> list[Transform]:
         """
         Parse a list of possibly nested transformation dictionaries into Transform instances.
         """
@@ -501,13 +538,13 @@ class Metadata:
                 transformation = Displacements.from_dict(transform)
             elif transform["type"] == "sequence":
                 # TODO: Undo nested sequences on import?
-                sub_transforms = cls._parse_transforms(transform["transformations"], coordinateSystems)
-                transformation = TransformSequence(
-                    transformations=sub_transforms
+                sub_transforms = cls._parse_transforms(
+                    transform["transformations"], coordinateSystems
                 )
+                transformation = TransformSequence(transformations=sub_transforms)
             else:
                 raise ValueError(f"Unsupported transform type: {transform['type']}")
-            
+
             # resolve input/output to CoordinateSystem instances if matching name found
             # because coordinate system may not exist for multiscale transforms
             # where input is a dataset path
@@ -534,7 +571,7 @@ class Metadata:
             transformation.input = input
             transformation.output = output
             parsed_transforms.append(transformation)
-        
+
         return parsed_transforms
 
     @property

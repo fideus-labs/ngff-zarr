@@ -22,10 +22,8 @@ from dask import __version__ as dask_version
 from itkwasm import array_like_to_numpy_array
 from packaging.version import Version
 
-from ._zarr_kwargs import zarr_kwargs
 from ._supported_versions import NgffVersion
-
-
+from ._zarr_kwargs import zarr_kwargs
 from ._zarr_open_array import open_array
 from ._zarr_types import StoreLike
 from .config import config
@@ -417,7 +415,7 @@ def _validate_ngff_parameters(
     """Validate the parameters for the NGFF Zarr generation."""
     if isinstance(version, str):
         version = NgffVersion(version)
-    
+
     if version not in [NgffVersion.V04, NgffVersion.V05, NgffVersion.V06]:
         raise ValueError(f"Unsupported version: {version}")
 

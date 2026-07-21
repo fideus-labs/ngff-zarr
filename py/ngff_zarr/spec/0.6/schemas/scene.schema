@@ -46,7 +46,7 @@
                   "description": "Constrained input/output for coordinate transformations in scene metadata"
                 }
               ]
-                
+
             },
             "arrayCoordinateSystem": {
               "type": "object",

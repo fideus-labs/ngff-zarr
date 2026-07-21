@@ -354,7 +354,8 @@ def from_ome_zarr(
             root_attrs, store, validate=False, subpath=subpath
         )
         method, method_type, method_metadata = _extract_method_metadata(
-            root_attrs['ome']['multiscales'][0])
+            root_attrs["ome"]["multiscales"][0]
+        )
 
     elif version == "0.5":
         from .v05.zarr_metadata import Metadata

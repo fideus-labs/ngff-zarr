@@ -41,5 +41,5 @@ SUPPORTED_VERSIONS = (
     NgffVersion.V04,
     NgffVersion.V05,
     NgffVersion.V06,
-    NgffVersion.V06dev4
+    NgffVersion.V06dev4,
 )
