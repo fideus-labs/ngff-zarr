@@ -46,8 +46,8 @@ jobs:
           # PR. When it is unset this falls back to GITHUB_TOKEN and the PR
           # checks must be triggered manually.
           token: ${{ secrets.PREK_AUTOUPDATE_TOKEN || secrets.GITHUB_TOKEN }}
-          commit-message: "chore: update prek hooks"
-          title: "chore: update prek hooks"
+          commit-message: "chore(ci): update prek hooks"
+          title: "chore(ci): update prek hooks"
           body: |
             Automated update of hook revisions via `prek update`.
           branch: prek/autoupdate
