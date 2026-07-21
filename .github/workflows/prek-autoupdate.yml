@@ -1,7 +1,7 @@
 name: prek autoupdate
 
 # Replaces the monthly hook update that pre-commit.ci previously performed via
-# the `ci:` block in .pre-commit-config.yaml. Runs `prek auto-update` and opens
+# the `ci:` block in .pre-commit-config.yaml. Runs `prek update` and opens
 # a pull request with any bumped hook revisions.
 
 on:
@@ -31,7 +31,7 @@ jobs:
           install-only: true
 
       - name: Update hook revisions
-        run: prek auto-update
+        run: prek update
 
       - name: Open pull request
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
@@ -39,7 +39,7 @@ jobs:
           commit-message: "chore: update prek hooks"
           title: "chore: update prek hooks"
           body: |
-            Automated update of hook revisions via `prek auto-update`.
+            Automated update of hook revisions via `prek update`.
           branch: prek/autoupdate
           delete-branch: true
           labels: dependencies
