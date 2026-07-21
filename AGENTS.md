@@ -174,8 +174,10 @@ replacement for pre-commit) to run the hooks declared in
 cd py && pixi run prek-install
 ```
 
-`prek install` reads `default_install_hook_types` from
-`.pre-commit-config.yaml`, so it installs shims for:
+The task runs `prek install --overwrite` so any existing shims (e.g. left
+over from a previous `pre-commit install`) are replaced. `prek install` reads
+`default_install_hook_types` from `.pre-commit-config.yaml`, so it installs
+shims for:
 - **commit-msg**: Validates commit message format
 - **pre-commit**: Standard linting and formatting checks
 

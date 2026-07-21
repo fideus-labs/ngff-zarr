@@ -238,7 +238,7 @@ pip = "*"
 cz-ngff-zarr = { path = "../.commitizen", editable = true }
 
 [tool.pixi.feature.lint.tasks]
-prek-install = { cmd = "prek install", description = "Install prek git hooks (uses default_install_hook_types from .pre-commit-config.yaml)" }
+prek-install = { cmd = "prek install --overwrite", description = "Install prek git hooks, replacing any existing shims (uses default_install_hook_types from .pre-commit-config.yaml)" }
 prek-run = { cmd = "prek run --all-files", description = "Run prek hooks on all repository files" }
 lint = { depends-on = ["prek-run"], description = "Run linters" }
 commit = { cmd = "cz c", description = "Interactive commit helper" }
