@@ -27,7 +27,9 @@ class Metadata:
     #: the field; a read-side validation aid that is never serialized.
     extra: dict = field(default_factory=dict)
 
-    def to_version(self, version: str | NgffVersion) -> "Metadata":
+    def to_version(
+        self, version: str | NgffVersion
+    ) -> Union["Metadata", "Metadata_v04", "Metadata_v06"]:
         """Convert metadata to specified NGFF version."""
         if isinstance(version, str):
             version = NgffVersion(version)
