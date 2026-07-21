@@ -24,4 +24,8 @@ jobs:
       # Runs `prek run --all-files` against .pre-commit-config.yaml. Only
       # pre-commit-stage hooks execute here; the commit-msg (commitizen) hook
       # is validated on commit, not in this all-files run.
+      # prek-version is pinned to match the version resolved in py/pixi.lock so
+      # CI cannot drift onto an untested `latest` release.
       - uses: j178/prek-action@5337cb91e0fa35a7ff31b9ca345126d8bbbcdf16 # v2.0.6
+        with:
+          prek-version: "0.4.10"
