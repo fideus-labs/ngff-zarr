@@ -43,11 +43,11 @@ The central workflow follows this pattern across all implementations:
 ```bash
 pixi run --as-is test                    # Run pytest test suite
 pixi run --as-is pytest path/to/test.py::test_name  # Single test
-pixi run --as-is lint                    # Pre-commit hooks (ruff)
+pixi run --as-is lint                    # Run prek hooks (ruff, etc.)
 pixi run --as-is format                  # Format code
 ```
 
-> **Note:** The `lint` task runs all pre-commit hooks including `ruff format`.
+> **Note:** The `lint` task runs all prek hooks including `ruff format`.
 > Always run `lint` before committing to catch both linting and formatting issues.
 
 ### MCP Server (mcp/)
@@ -73,7 +73,8 @@ cd ts && pixi run --as-is check         # Type checking
 ## Commit Message Format & Version Management
 
 This repository follows [Conventional Commits](https://www.conventionalcommits.org/)
-specification. All commit messages are validated by Commitizen pre-commit hooks.
+specification. All commit messages are validated by Commitizen hooks (run via
+prek).
 
 ### Commit Message Format
 
@@ -163,18 +164,19 @@ All changelog entries include clickable GitHub commit links with short hashes:
 The filtering is implemented via a custom Commitizen plugin in `.commitizen/cz_ngff_zarr.py`.
 To modify filtering logic, edit the `_should_include_for_*` methods in that file.
 
-### Pre-commit Hook Installation
+### Git Hook Installation
 
-The pre-commit hooks are now configured to validate commit messages and branch
-names. Install them with:
+This project uses [prek](https://prek.j178.dev/) (a fast, Rust-based drop-in
+replacement for pre-commit) to run the hooks declared in
+`.pre-commit-config.yaml`. Install the Git shims with:
 
 ```bash
-cd py && pixi run pre-commit-install
+cd py && pixi run prek-install
 ```
 
-This will install hooks for:
+`prek install` reads `default_install_hook_types` from
+`.pre-commit-config.yaml`, so it installs shims for:
 - **commit-msg**: Validates commit message format
-- **pre-push**: Validates branch naming (if configured)
 - **pre-commit**: Standard linting and formatting checks
 
 ## Python Code Style Guidelines
@@ -190,7 +192,7 @@ This will install hooks for:
 ## Python Formatting Requirements (CRITICAL for AI Agents)
 
 All Python code MUST pass `ruff format` and `ruff check` before committing.
-The pre-commit hooks enforce this automatically for local commits, but AI
+The prek hooks enforce this automatically for local commits, but AI
 coding agents that commit via GitHub (Copilot, etc.) bypass these hooks. This
 causes a ping-pong cycle where human maintainers must repeatedly reformat
 AI-written code.
@@ -198,7 +200,7 @@ AI-written code.
 **Before committing any Python changes, always run:**
 
 ```bash
-pixi run --as-is lint      # from py/ directory — runs all pre-commit hooks
+pixi run --as-is lint      # from py/ directory — runs all prek hooks
 ```
 
 Run it until it passes cleanly with no file modifications. If it modifies

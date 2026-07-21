@@ -21,7 +21,7 @@ First install [pixi]. Then, install project dependencies:
 
 ```shell
 pixi install -a
-pixi run pre-commit-install
+pixi run prek-install
 ```
 
 ## Run the test suite
