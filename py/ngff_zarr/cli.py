@@ -469,6 +469,19 @@ def _ngff_image_to_multiscales(
 
 
 def main():
+    # RFC 4 conformance mode: `ngff-zarr conformance <input>` prints one canonical
+    # JSON verdict per input, for a tool-agnostic conformance driver to diff.
+    if len(sys.argv) >= 2 and sys.argv[1] == "conformance":
+        import json
+
+        from .rfc4_conformance import conformance_report
+
+        if len(sys.argv) != 3:
+            print("usage: ngff-zarr conformance <input>", file=sys.stderr)
+            raise SystemExit(2)
+        print(json.dumps(conformance_report(sys.argv[2]), indent=2))
+        return
+
     parser = argparse.ArgumentParser(
         description="Convert datasets to and from the OME-Zarr Next Generation File Format.",
         formatter_class=RichHelpFormatter,
