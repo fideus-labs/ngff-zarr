@@ -52,6 +52,12 @@ violation, in canonical spec-MUST order.
 #   axis-orientation-completeness
 #       if any spatial axis has orientation, all spatial axes do
 #       e.g. multiscales[0].axes
+#   axis-orientation-on-non-space
+#       orientation is declared only on spatial axes (never time/channel)
+#       e.g. multiscales[0].axes
+#   axis-orientation-unique-axis
+#       at most one direction per anatomical axis (antonyms are exclusive)
+#       e.g. multiscales[0].axes
 #   zarr-format
 #       a v0.5 entry implies a Zarr v3 store (a leaked zarr_format must be 3)
 #       e.g. multiscales[0]
@@ -93,6 +99,8 @@ class SpecRule(str, Enum):
     OMERO_CHANNEL_COLOR_FORMAT = "omero-channel-color-format"
     AXIS_ORIENTATION_CONSISTENT_TYPE = "axis-orientation-consistent-type"
     AXIS_ORIENTATION_COMPLETENESS = "axis-orientation-completeness"
+    AXIS_ORIENTATION_ON_NON_SPACE = "axis-orientation-on-non-space"
+    AXIS_ORIENTATION_UNIQUE_AXIS = "axis-orientation-unique-axis"
     ZARR_FORMAT = "zarr-format"
     OME_NAMESPACE = "ome-namespace"
     PLATE_ROW_INDEX_CONSISTENCY = "plate-row-index-consistency"
@@ -530,10 +538,13 @@ def validate_axis_orientation(metadata: Metadata) -> None:
     ------
     ValidationError
         With :attr:`SpecRule.AXIS_ORIENTATION_CONSISTENT_TYPE` when the spatial
-        axes' orientations do not all share one ``type``, or
+        axes' orientations do not all share one ``type``,
         :attr:`SpecRule.AXIS_ORIENTATION_COMPLETENESS` when orientation is defined
-        for some but not all spatial axes; location ``multiscales[0].axes``. The
-        original RFC 4 message text is preserved.
+        for some but not all spatial axes,
+        :attr:`SpecRule.AXIS_ORIENTATION_ON_NON_SPACE` when orientation is declared
+        on a non-spatial axis, or :attr:`SpecRule.AXIS_ORIENTATION_UNIQUE_AXIS`
+        when two spatial axes describe the same anatomical axis; location
+        ``multiscales[0].axes``. The original RFC 4 message text is preserved.
     jsonschema.exceptions.ValidationError
         Propagated unchanged when an orientation value is outside the RFC 4
         vocabulary -- a schema-level concern with no dedicated structural rule.
@@ -544,25 +555,36 @@ def validate_axis_orientation(metadata: Metadata) -> None:
     )
 
     axes_dicts = [_axis_to_validation_dict(axis) for axis in metadata.axes]
-    if not has_rfc4_orientation_metadata(axes_dicts):
+    # A stray orientation on a non-spatial axis carries no spatial-axis
+    # orientation, so has_rfc4_orientation_metadata alone would skip it; check for
+    # any declared orientation so the non-space rule is reachable.
+    non_space_orientation = any(
+        isinstance(axis_dict, dict)
+        and axis_dict.get("type") != "space"
+        and "orientation" in axis_dict
+        for axis_dict in axes_dicts
+    )
+    if not has_rfc4_orientation_metadata(axes_dicts) and not non_space_orientation:
         return
     try:
         validate_rfc4_orientation(axes_dicts)
     except ValueError as exc:
-        # validate_rfc4_orientation raises exactly two ValueErrors: a spatial
-        # orientation "same type" mismatch and the all-or-none completeness
-        # failure. jsonschema's ValidationError (raised for an out-of-vocabulary
+        # validate_rfc4_orientation raises four mappable ValueErrors: a spatial
+        # orientation "same type" mismatch, the all-or-none completeness failure,
+        # orientation on "non-space axes", and two axes on the "same anatomical
+        # axis". jsonschema's ValidationError (raised for an out-of-vocabulary
         # orientation value) is not a ValueError, so it -- like ImportError when
         # jsonschema is absent -- propagates untouched; no structural rule covers
         # those schema-level concerns.
         #
-        # The "same type" / "all spatial axes" substrings below are a
-        # load-bearing contract with validate_rfc4_orientation's message text:
-        # an unrecognized ValueError falls through to the bare ``raise`` and is
-        # surfaced as a plain ValueError rather than a ValidationError. The
-        # message-stability test test_rfc4_orientation_messages_carry_mapping_markers
-        # pins both markers so editing that wording fails CI loudly instead of
-        # silently breaking this mapping.
+        # The marker substrings below ("same type", "all spatial axes",
+        # "non-space axes", "same anatomical axis") are a load-bearing contract
+        # with validate_rfc4_orientation's message text: an unrecognized
+        # ValueError falls through to the bare ``raise`` and is surfaced as a
+        # plain ValueError rather than a ValidationError. The message-stability
+        # test test_rfc4_orientation_messages_carry_mapping_markers pins the
+        # markers so editing that wording fails CI loudly instead of silently
+        # breaking this mapping.
         message = str(exc)
         if "same type" in message:
             raise ValidationError(
@@ -573,6 +595,18 @@ def validate_axis_orientation(metadata: Metadata) -> None:
         if "all spatial axes" in message:
             raise ValidationError(
                 SpecRule.AXIS_ORIENTATION_COMPLETENESS,
+                message,
+                "multiscales[0].axes",
+            ) from exc
+        if "non-space axes" in message:
+            raise ValidationError(
+                SpecRule.AXIS_ORIENTATION_ON_NON_SPACE,
+                message,
+                "multiscales[0].axes",
+            ) from exc
+        if "same anatomical axis" in message:
+            raise ValidationError(
+                SpecRule.AXIS_ORIENTATION_UNIQUE_AXIS,
                 message,
                 "multiscales[0].axes",
             ) from exc

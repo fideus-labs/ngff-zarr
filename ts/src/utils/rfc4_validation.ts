@@ -38,6 +38,38 @@ const VALID_ORIENTATION_VALUES = new Set([
 ]);
 
 /**
+ * Each RFC 4 value maps to a stable key for the anatomical axis it lies on, so
+ * the two antonyms of a pair (e.g. "left-to-right" / "right-to-left") collapse to
+ * one key. Used to enforce "one direction per anatomical axis" (mutual exclusion).
+ */
+const ANATOMICAL_AXIS_OF: Record<string, string> = {
+  "left-to-right": "left-right",
+  "right-to-left": "left-right",
+  "anterior-to-posterior": "anterior-posterior",
+  "posterior-to-anterior": "anterior-posterior",
+  "inferior-to-superior": "inferior-superior",
+  "superior-to-inferior": "inferior-superior",
+  "dorsal-to-ventral": "dorsal-ventral",
+  "ventral-to-dorsal": "dorsal-ventral",
+  "dorsal-to-palmar": "dorsal-palmar",
+  "palmar-to-dorsal": "dorsal-palmar",
+  "dorsal-to-plantar": "dorsal-plantar",
+  "plantar-to-dorsal": "dorsal-plantar",
+  "rostral-to-caudal": "rostral-caudal",
+  "caudal-to-rostral": "rostral-caudal",
+  "cranial-to-caudal": "cranial-caudal",
+  "caudal-to-cranial": "cranial-caudal",
+  "proximal-to-distal": "proximal-distal",
+  "distal-to-proximal": "proximal-distal",
+  "superficial-to-deep": "superficial-deep",
+  "deep-to-superficial": "superficial-deep",
+  "apical-to-basal": "apical-basal",
+  "basal-to-apical": "apical-basal",
+  "apex-to-base": "apex-base",
+  "base-to-apex": "apex-base",
+};
+
+/**
  * Check if the axes contain RFC 4 anatomical orientation metadata.
  *
  * @param axes - List of axis metadata objects
@@ -79,12 +111,12 @@ function isNonEmptyOrientation(orientation: unknown): boolean {
 /**
  * Validate RFC 4 anatomical orientation metadata.
  *
- * The two inconsistency errors carry stable marker substrings -- `same type`
- * for a mixed-`type` failure and `all spatial axes` for the all-or-none
- * completeness failure -- that `validateAxisOrientation` reads to map each
- * failure onto its `SpecRule`. These markers are a load-bearing contract
- * pinned by a message-stability test (see
- * `structural_validation_orientation_test.ts`) so the mapping cannot silently
+ * The errors carry stable marker substrings -- `same type` (mixed `type`),
+ * `all spatial axes` (all-or-none completeness), `non-space axes` (orientation on
+ * a non-spatial axis) and `same anatomical axis` (two axes on one antonym pair) --
+ * that `validateAxisOrientation` reads to map each failure onto its `SpecRule`.
+ * These markers are a load-bearing contract pinned by a message-stability test
+ * (see `structural_validation_orientation_test.ts`) so the mapping cannot silently
  * break if the wording is later edited.
  *
  * @param axes - List of axis metadata dictionaries to validate
@@ -97,6 +129,7 @@ export function validateRfc4Orientation(
   let orientationType: string | null = null;
   const spatialAxesWithOrientation: string[] = [];
   const spatialAxesWithoutOrientation: string[] = [];
+  const spatialOrientationValues: Array<[string, string]> = [];
 
   for (const axis of axes) {
     if (typeof axis === "object" && axis !== null && axis.type === "space") {
@@ -133,6 +166,7 @@ export function validateRfc4Orientation(
                 }`,
             );
           }
+          spatialOrientationValues.push([axisName, orientationValue]);
         }
       } else {
         spatialAxesWithoutOrientation.push(axisName);
@@ -140,8 +174,10 @@ export function validateRfc4Orientation(
     }
   }
 
-  // RFC 4 requirement: if orientation is defined for one spatial axis,
-  // it must be defined for all spatial axes
+  // RFC 4 requirement: if orientation is defined for one spatial axis, it must
+  // be defined for all spatial axes. Checked before the rules below to keep the
+  // canonical SpecRule precedence (completeness is declared before the non-space
+  // and unique-axis rules).
   if (hasOrientation && spatialAxesWithoutOrientation.length > 0) {
     throw new Error(
       `RFC 4 requires that if orientation is defined for one spatial axis, ` +
@@ -151,5 +187,42 @@ export function validateRfc4Orientation(
         `axes without orientation: ` +
         `${formatNameList(spatialAxesWithoutOrientation)}`,
     );
+  }
+
+  // RFC 4 requirement: orientation is only allowed on spatial axes. (Checked
+  // over all axes, independently of hasOrientation, so a stray orientation on a
+  // time/channel axis is caught even when no spatial axis carries one.)
+  const nonSpaceWithOrientation: string[] = [];
+  for (const axis of axes) {
+    if (
+      typeof axis === "object" &&
+      axis !== null &&
+      axis.type !== "space" &&
+      "orientation" in axis
+    ) {
+      nonSpaceWithOrientation.push(String(axis.name));
+    }
+  }
+  if (nonSpaceWithOrientation.length > 0) {
+    throw new Error(
+      `RFC 4 orientation is only allowed on spatial axes; found orientation ` +
+        `on non-space axes: ${formatNameList(nonSpaceWithOrientation)}`,
+    );
+  }
+
+  // RFC 4 requirement: at most one direction per anatomical axis -- the two
+  // antonyms of a pair are mutually exclusive across the spatial axes. An ordered
+  // list of [name, value] entries (not a name-keyed map) keeps every entry, so a
+  // repeated axis name cannot mask a collision.
+  const anatomicalAxisSeen: Record<string, string> = {};
+  for (const [name, value] of spatialOrientationValues) {
+    const axisKey = ANATOMICAL_AXIS_OF[value];
+    if (axisKey in anatomicalAxisSeen) {
+      throw new Error(
+        `Axes '${anatomicalAxisSeen[axisKey]}' and '${name}' describe the ` +
+          `same anatomical axis; RFC 4 allows only one direction per axis.`,
+      );
+    }
+    anatomicalAxisSeen[axisKey] = name;
   }
 }

@@ -53,6 +53,8 @@ CANONICAL_SPEC_RULE_IDS = [
     "omero-channel-color-format",
     "axis-orientation-consistent-type",
     "axis-orientation-completeness",
+    "axis-orientation-on-non-space",
+    "axis-orientation-unique-axis",
     "zarr-format",
     "ome-namespace",
     "plate-row-index-consistency",
