@@ -17,13 +17,13 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.mark.parametrize(
-        "input_version, output_version",
-        [
-            ("0.4", "0.5"),
-            ("0.5", "0.4"),
-            ("0.5", "0.6"),
-            ("0.6", "0.5"),
-        ],
+    "input_version, output_version",
+    [
+        ("0.4", "0.5"),
+        ("0.5", "0.4"),
+        ("0.5", "0.6"),
+        ("0.6", "0.5"),
+    ],
 )
 def test_conversion(input_version, output_version):
     test_store = Path(__file__).parent / "data" / "input" / "v04" / "6001240.zarr"

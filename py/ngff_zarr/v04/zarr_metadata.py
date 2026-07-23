@@ -341,8 +341,9 @@ class Metadata:
     #: a validation aid only and is never serialized back to the store.
     extra: dict = field(default_factory=dict)
 
-
-    def to_version(self, version: Union[str, NgffVersion]) -> Union["Metadata", "Metadata_v05", "Metadata_v06"]:
+    def to_version(
+        self, version: Union[str, NgffVersion]
+    ) -> Union["Metadata", "Metadata_v05", "Metadata_v06"]:
         if isinstance(version, str):
             # raise error for invalid version string
             version = NgffVersion(version)
@@ -351,13 +352,14 @@ class Metadata:
             return self
         if version == NgffVersion.V05:
             return self._to_v05()
-        elif version == NgffVersion.V06:
+        if version == NgffVersion.V06:
             return self._to_v05()._to_v06()
-        else:
-            raise ValueError(f"Unsupported version conversion: 0.4 -> {version}")
+        raise ValueError(f"Unsupported version conversion: 0.4 -> {version}")
 
     @classmethod
-    def from_version(cls, metadata: Union["Metadata", "Metadata_v05", "Metadata_v06"]) -> "Metadata":
+    def from_version(
+        cls, metadata: Union["Metadata", "Metadata_v05", "Metadata_v06"]
+    ) -> "Metadata":
         from ..v05.zarr_metadata import Metadata as Metadata_v05
         from ..v06.zarr_metadata import Metadata as Metadata_v06
 
@@ -383,7 +385,7 @@ class Metadata:
 
     @classmethod
     def _from_v05(cls, metadata_v05: "Metadata_v05") -> "Metadata":
-        
+
         metadata = cls(
             axes=metadata_v05.axes,
             datasets=metadata_v05.datasets,

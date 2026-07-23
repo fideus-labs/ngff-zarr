@@ -1,12 +1,13 @@
+# Hook configuration for prek (https://prek.j178.dev/), a drop-in, Rust-based
+# pre-commit replacement. The .pre-commit-config.yaml filename is kept for
+# compatibility; prek reads it unchanged. CI runs these hooks via the prek
+# GitHub Action (.github/workflows/prek.yml), and .github/workflows/
+# prek-autoupdate.yml keeps hook revisions current.
 exclude: (^.pixi/|.snap|pixi.lock)
 
 default_install_hook_types:
   - pre-commit
   - commit-msg
-
-ci:
-  autoupdate_commit_msg: "ENH: update pre-commit hooks"
-  autofix_commit_msg: "STYLE: pre-commit fixes"
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks

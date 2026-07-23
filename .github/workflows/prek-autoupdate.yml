@@ -1,0 +1,55 @@
+name: prek autoupdate
+
+# Replaces the monthly hook update that pre-commit.ci previously performed via
+# the `ci:` block in .pre-commit-config.yaml. Runs `prek update` and opens
+# a pull request with any bumped hook revisions.
+
+on:
+  schedule:
+    - cron: "0 4 1 * *" # 04:00 UTC on the 1st of each month
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: prek-autoupdate
+  cancel-in-progress: false
+
+jobs:
+  autoupdate:
+    name: Update prek hooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # Pin prek to the version resolved in py/pixi.lock; this workflow holds
+      # write permissions, so avoid installing an unpinned `latest` binary.
+      - uses: j178/prek-action@5337cb91e0fa35a7ff31b9ca345126d8bbbcdf16 # v2.0.6
+        with:
+          prek-version: "0.4.10"
+          install-only: true
+
+      - name: Update hook revisions
+        run: prek update
+
+      - name: Open pull request
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          # A PR opened with the default GITHUB_TOKEN cannot trigger other
+          # workflows, so prek.yml would not validate the autoupdate PR. Set
+          # PREK_AUTOUPDATE_TOKEN (a least-privileged PAT or GitHub App token
+          # with contents:write + pull-requests:write) to have CI run on the
+          # PR. When it is unset this falls back to GITHUB_TOKEN and the PR
+          # checks must be triggered manually.
+          token: ${{ secrets.PREK_AUTOUPDATE_TOKEN || secrets.GITHUB_TOKEN }}
+          commit-message: "chore(ci): update prek hooks"
+          title: "chore(ci): update prek hooks"
+          body: |
+            Automated update of hook revisions via `prek update`.
+          branch: prek/autoupdate
+          delete-branch: true
+          labels: dependencies

@@ -230,7 +230,7 @@ test = { cmd = "pytest", description = "Run the test suite" }
 download-test-data = "pytest -k test_from_ngff_zarr --maxfail=1 -v"
 
 [tool.pixi.feature.lint.dependencies]
-pre-commit = "*"
+prek = "*"
 commitizen = "*"
 pip = "*"
 
@@ -238,9 +238,9 @@ pip = "*"
 cz-ngff-zarr = { path = "../.commitizen", editable = true }
 
 [tool.pixi.feature.lint.tasks]
-pre-commit-install = { cmd = "pre-commit install --hook-type pre-commit --hook-type commit-msg", description = "Install pre-commit hooks" }
-pre-commit-run = { cmd = "pre-commit run --all", description = "Run pre-commit hooks on all repository files" }
-lint = { depends-on = ["pre-commit-run"], description = "Run linters" }
+prek-install = { cmd = "prek install --overwrite", description = "Install prek git hooks, replacing any existing shims (uses default_install_hook_types from .pre-commit-config.yaml)" }
+prek-run = { cmd = "prek run --all-files", description = "Run prek hooks on all repository files" }
+lint = { depends-on = ["prek-run"], description = "Run linters" }
 commit = { cmd = "cz c", description = "Interactive commit helper" }
 version-check = { cmd = "cz version -p", description = "Check current package version" }
 bump = { cmd = "cz bump", description = "Bump Python package version" }

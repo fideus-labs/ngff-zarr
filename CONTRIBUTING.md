@@ -20,9 +20,9 @@ Install [pixi](https://pixi.sh) for environment management.
 ### ⚙️ Setup
 
 1. Fork and clone the repository
-2. Install pre-commit hooks:
+2. Install the Git hooks (managed by [prek](https://prek.j178.dev/)):
    ```bash
-   cd py && pixi run pre-commit-install
+   cd py && pixi run prek-install
    ```
 
 ## 🔄 Contributing Workflow
@@ -50,7 +50,7 @@ We use the standard GitHub pull request workflow:
 ## 📝 Commit Messages
 
 We follow the [Conventional Commits](https://www.conventionalcommits.org/)
-standard. All commit messages are validated by pre-commit hooks using Commitizen.
+standard. All commit messages are validated by Commitizen hooks (run via prek).
 
 ### 📐 Format
 
@@ -113,9 +113,9 @@ cd ts && pixi run version-check   # Shows TypeScript package version
 cd mcp && pixi run version-check  # Shows MCP package version
 ```
 
-### 🛡️ Pre-commit Validation
+### 🛡️ Commit Message Validation
 
-The pre-commit hooks will automatically validate your commit messages. If a
+The Git hooks will automatically validate your commit messages. If a
 commit message doesn't follow the Conventional Commits format, the commit will
 be rejected with helpful error messages.
 
