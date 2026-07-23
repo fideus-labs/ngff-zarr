@@ -33,6 +33,7 @@ A lean and kind
 - Zarr I/O backed by [zarrista] / Rust [zarrs] (Python) or zarrita
   (TypeScript) -- no zarr-python dependency; outputs stay readable by
   zarr-python 2 and 3
+- [Arbitrary axis dimensions, names, types, and ordering](./rfc3.md) (RFC-3)
 - [Anatomical orientation metadata](./rfc4.md) (RFC-4)
 - [Coordinate systems and transformations](./rfc5.md) (RFC-5)
 - **OME-Zarr Zip (.ozx) file support** for single-file OME-Zarr datasets (RFC-9)
@@ -50,6 +51,7 @@ python.md
 typescript.md
 cli.md
 mcp.md
+rfc3.md
 rfc4.md
 rfc5.md
 hcs.md
