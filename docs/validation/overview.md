@@ -23,8 +23,10 @@ validation: where schema validation answers "is this shaped like OME-Zarr?",
 structural validation answers "does this obey the spec's structural
 invariants?" — axis counts and ordering, coordinate-transformation arity,
 finest-to-coarsest dataset ordering, OMERO channel color format, RFC 4
-anatomical orientation, and HCS plate/well consistency. Most rules enforce v0.4
-MUSTs; two additional rules (`zarr-format`, `ome-namespace`) enforce the v0.5
+anatomical orientation checks, and HCS plate/well consistency. Most rules
+enforce v0.4 MUSTs; four RFC 4 orientation rules cover shared type,
+completeness, non-space-axis rejection, and unique anatomical axes, while two
+additional rules (`zarr-format`, `ome-namespace`) enforce the v0.5
 `ome`-namespace and Zarr v3 store conventions and fire only for v0.5 metadata.
 
 The rules operate on the already-parsed metadata object (the `Metadata`,
@@ -61,6 +63,8 @@ conditional constraints that span multiple nodes:
   `plate.rows`, a derived lookup across objects.
 - **Conditional** — `well-acquisition-missing` only applies when the plate
   declares more than one acquisition.
+- **RFC 4 orientation** — shared type, completeness, non-space-axis rejection,
+  and unique anatomical axes.
 - **Store-format / namespacing** — `zarr-format` and `ome-namespace` enforce
   v0.5 conventions (a Zarr v3 store, and metadata wrapped under the top-level
   `ome` namespace rather than duplicated into each multiscale entry) that the
@@ -96,8 +100,8 @@ structural validation. The rules validate metadata only.
 
 Structural validation is dispatched through three fail-fast entry points:
 
-- **Image / multiscales** (including OMERO color and RFC 4 orientation) —
-  `validate_structural` (Python) / `validateStructural` (TypeScript).
+- **Image / multiscales** (including OMERO color and RFC 4 orientation
+  checks) — `validate_structural` (Python) / `validateStructural` (TypeScript).
 - **HCS plate** — `validate_plate` / `validatePlate`.
 - **HCS well** — `validate_well` / `validateWell` (validated in the context of
   its parent plate, whose acquisition declarations govern the well rules).

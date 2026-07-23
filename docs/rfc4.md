@@ -108,6 +108,20 @@ ngff_image = ngff_zarr.itk_image_to_ngff_image(
 )
 ```
 
+## Structural Validation
+
+RFC-4 orientation metadata is validated as part of structural validation. The
+following rule identifiers cover malformed orientation metadata:
+
+- `axis-orientation-consistent-type`
+- `axis-orientation-completeness`
+- `axis-orientation-on-non-space`
+- `axis-orientation-unique-axis`
+
+These rules reject mixed orientation `type` values, missing orientations on
+some spatial axes, orientations declared on non-spatial axes, and multiple
+spatial axes that resolve to the same anatomical axis.
+
 ## Anatomical Orientation Values
 
 [RFC-4] supports the following anatomical orientation values:

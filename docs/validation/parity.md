@@ -59,15 +59,18 @@ The canonical `SpecRule` set, in evaluation order:
 7. `omero-channel-color-format`
 8. `axis-orientation-consistent-type`
 9. `axis-orientation-completeness`
-10. `zarr-format`
-11. `ome-namespace`
-12. `plate-row-index-consistency`
-13. `well-acquisition-missing`
+10. `axis-orientation-on-non-space`
+11. `axis-orientation-unique-axis`
+12. `zarr-format`
+13. `ome-namespace`
+14. `plate-row-index-consistency`
+15. `well-acquisition-missing`
 
-Entries 10–11 are the v0.5 namespacing rules; they fire only for v0.5 metadata
-and are inert for v0.4. Each suite pins this list as a `CANONICAL_SPEC_RULE_IDS`
-literal — byte-identical between the two languages so the tests are
-line-for-line comparable.
+Entries 12–13 are the v0.5 namespacing rules; they fire only for v0.5 metadata
+and are inert for v0.4. Entries 14–15 are the HCS plate/well rules, which are
+dispatched by separate orchestrators. Each suite pins this list as a
+`CANONICAL_SPEC_RULE_IDS` literal — byte-identical between the two languages so
+the tests are line-for-line comparable.
 
 ## The parity tests
 
