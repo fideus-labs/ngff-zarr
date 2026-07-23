@@ -468,8 +468,9 @@ def _ngff_image_to_multiscales(
     )
 
 
-def main():
+def _convert_main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
+        prog="ngff-zarr",
         description="Convert datasets to and from the OME-Zarr Next Generation File Format.",
         formatter_class=RichHelpFormatter,
     )
@@ -643,7 +644,7 @@ def main():
         default=None,
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     _REMOTE_SCHEMES = ("s3://", "gs://", "az://", "azure://", "http://", "https://")
 
@@ -1191,6 +1192,127 @@ def main():
                 multiscales,
                 chunks_per_shard=chunks_per_shard,
             )
+
+
+def _upgrade_main(argv: list[str] | None = None) -> None:
+    """Handle the ``ngff-zarr upgrade`` subcommand.
+
+    Upgrades an OME-Zarr store to a different specification version. With no
+    ``--output`` the upgrade is in-place and metadata-only -- every array chunk
+    on disk is left untouched. With an ``--output`` an upgraded copy is written
+    to a new store through the standard write pipeline, leaving the source
+    intact.
+    """
+    parser = argparse.ArgumentParser(
+        prog="ngff-zarr upgrade",
+        description=(
+            "Upgrade an OME-Zarr store to a different specification version. "
+            "Omit --output for an in-place, metadata-only upgrade (array chunks "
+            "are left untouched); pass --output to write an upgraded copy to a "
+            "new store, leaving the source intact."
+        ),
+        formatter_class=RichHelpFormatter,
+    )
+    parser.add_argument(
+        "input",
+        help="Path or URL to the source OME-Zarr store.",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        help="Destination store. If omitted, the store is upgraded in place "
+        "(metadata-only; array chunks are left untouched).",
+    )
+    parser.add_argument(
+        "--to",
+        "--version",
+        dest="version",
+        choices=["0.4", "0.5", "0.6"],
+        default="0.6",
+        help="Target OME-Zarr version (default: 0.6).",
+    )
+    parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="Validate the source metadata against the NGFF schema on read.",
+    )
+    parser.add_argument(
+        "--overwrite",
+        dest="overwrite",
+        action="store_true",
+        help="When writing to a new --output store, overwrite existing data (default).",
+    )
+    parser.add_argument(
+        "--no-overwrite",
+        dest="overwrite",
+        action="store_false",
+        help="When writing to a new --output store, do not overwrite existing data.",
+    )
+    parser.set_defaults(overwrite=True)
+
+    args = parser.parse_args(argv)
+
+    from .upgrade_ome_zarr import (
+        _read_source_version,
+        _stores_are_same,
+        upgrade_ome_zarr,
+    )
+
+    console = _build_console()
+
+    # Detect the on-disk source version for an informative summary. A detection
+    # failure here is non-fatal: upgrade_ome_zarr re-reads the store below and
+    # will surface a precise error, rendered friendlily, if the input is bad.
+    try:
+        source_version = _read_source_version(args.input, None)
+    except Exception:
+        source_version = None
+
+    in_place = _stores_are_same(args.input, args.output)
+    mode = "in-place metadata-only upgrade" if in_place else "write to a new store"
+
+    if source_version is not None:
+        console.print(f"[cyan]Detected source OME-Zarr version:[/] {source_version}")
+    console.print(f"[cyan]Target OME-Zarr version:[/] {args.version}")
+    console.print(f"[cyan]Mode:[/] {mode}")
+    if not in_place:
+        console.print(f"[cyan]Output store:[/] {args.output}")
+
+    try:
+        upgrade_ome_zarr(
+            args.input,
+            args.output,
+            version=args.version,
+            validate=args.validate,
+            overwrite=args.overwrite,
+        )
+    except (ValueError, NotImplementedError) as exc:
+        console.print(f"[red]✗ Upgrade failed:[/] {exc}")
+        sys.exit(1)
+
+    if in_place:
+        console.print(
+            f"[green]✓ Upgraded [/]{args.input}[green] in place to "
+            f"OME-Zarr {args.version} (array chunks left untouched).[/]"
+        )
+    else:
+        console.print(
+            f"[green]✓ Wrote upgraded OME-Zarr {args.version} store to [/]{args.output}"
+        )
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Entry point for the ``ngff-zarr`` command.
+
+    Dispatches to the ``upgrade`` subcommand when the first token is
+    ``"upgrade"``; otherwise runs the flat conversion command unchanged so
+    existing invocations behave exactly as before.
+    """
+    if argv is None:
+        argv = sys.argv[1:]
+    if argv and argv[0] == "upgrade":
+        return _upgrade_main(argv[1:])
+    return _convert_main(argv)
 
 
 if __name__ == "__main__":

@@ -173,6 +173,43 @@ Provide the full path: 'plate.ome.zarr/A/1/0', 'plate.ome.zarr/A/2/0', ...
 
 For more details on HCS support, see [HCS Support](./hcs.md).
 
+### Upgrade an OME-Zarr store to a new version
+
+The `ngff-zarr upgrade` subcommand changes the OME-Zarr specification version
+recorded in an existing store. It has two modes.
+
+Omitting `-o`/`--output` performs an **in-place, metadata-only** upgrade: only
+the store's group metadata is rewritten and every array chunk on disk is left
+untouched.
+
+```shell
+ngff-zarr upgrade path/to/image.zarr --to 0.6
+```
+
+Passing `-o`/`--output` writes an **upgraded copy** to a new store through the
+standard write pipeline, leaving the source store intact. This is the mode to
+use for a transition across the Zarr v2/v3 boundary that the in-place mode
+cannot do safely (for example a 0.5/0.6 downgrade back to 0.4).
+
+```shell
+ngff-zarr upgrade src.zarr -o dst.zarr --to 0.5
+```
+
+The target version is selected with `--to` (alias `--version`), one of `0.4`,
+`0.5`, or `0.6` (default `0.6`). Add `--validate` to validate the source
+metadata against the NGFF schema while reading. For the write-to-new-store mode,
+`--overwrite` (the default) replaces any pre-existing data at the output store,
+while `--no-overwrite` refuses to; both flags are ignored for an in-place
+upgrade, which never overwrites array data.
+
+```shell
+# Validate the source, and refuse to overwrite an existing destination store.
+ngff-zarr upgrade src.zarr -o dst.zarr --to 0.6 --validate --no-overwrite
+```
+
+The command prints the detected source version, the target version, and which
+mode it ran. `ngff-zarr upgrade --help` lists every option.
+
 ### More options
 
 ```shell

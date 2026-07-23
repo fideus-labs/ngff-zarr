@@ -8,16 +8,11 @@ import type { ZarrCodec } from "../utils/codecs.ts";
 import { defaultCodecs } from "../utils/codecs.ts";
 import { createWriteQueue, zarrGet, zarrSet } from "../utils/worker_pool.ts";
 import type { MemoryStore } from "./from_ngff_zarr.ts";
-import { V06_ONDISK_VERSION } from "../types/supported_versions.ts";
 import { isOzxPath, memoryStoreToZip } from "./rfc9_zip.ts";
 import {
-  processAxes,
+  buildRootAttributes,
   writeNgffMultiscalesToMemoryStore,
 } from "./to_ngff_zarr_ozx_common.ts";
-import {
-  buildV06MultiscalesEntry,
-  legacyTopLevelTransforms,
-} from "../utils/v06_metadata.ts";
 
 export interface ToOmeZarrOptions {
   overwrite?: boolean;
@@ -157,70 +152,10 @@ export async function toOmeZarr(
     // Create root location and group with zarrita v0.5.2 API
     const root = zarr.root(_resolvedStore as MemoryStore);
 
-    // Process axes (orientation included when present)
-    const processedAxes = processAxes(multiscales.metadata.axes);
-
-    // Create the root group with OME-Zarr metadata.
-    // - v0.6 (RFC 5): coordinate systems + per-dataset sequence transforms,
-    //   wrapped under the "ome" property.
-    // - v0.5: axes carried directly, wrapped under "ome".
-    // - v0.4: axes carried directly, placed at the root.
-    let attributes: Record<string, unknown>;
-    if (_version === "0.6") {
-      const v06Entry = buildV06MultiscalesEntry(
-        multiscales.metadata,
-        processedAxes,
-      );
-      attributes = {
-        ome: {
-          // The v0.6 spec is still a draft; tag the store with the development
-          // version `0.6.dev4` even though the requested version is `"0.6"`.
-          version: V06_ONDISK_VERSION,
-          multiscales: [v06Entry],
-          ...(multiscales.metadata.omero && {
-            omero: multiscales.metadata.omero,
-          }),
-        },
-      };
-    } else {
-      // v0.4/v0.5 only support the simple scale/translation subset of top-level
-      // transformations; drop richer v0.6 transforms when downgrading.
-      const legacyTransforms = legacyTopLevelTransforms(
-        multiscales.metadata.coordinateTransformations,
-      );
-      const multiscalesMetadata = {
-        version: _version,
-        name: multiscales.metadata.name,
-        axes: processedAxes,
-        datasets: multiscales.metadata.datasets,
-        ...(legacyTransforms && {
-          coordinateTransformations: legacyTransforms,
-        }),
-        ...(multiscales.metadata.type && {
-          type: multiscales.metadata.type,
-        }),
-        ...(multiscales.metadata.metadata && {
-          metadata: multiscales.metadata.metadata,
-        }),
-      };
-
-      attributes = _version === "0.5"
-        ? {
-          ome: {
-            version: _version,
-            multiscales: [multiscalesMetadata],
-            ...(multiscales.metadata.omero && {
-              omero: multiscales.metadata.omero,
-            }),
-          },
-        }
-        : {
-          multiscales: [multiscalesMetadata],
-          ...(multiscales.metadata.omero && {
-            omero: multiscales.metadata.omero,
-          }),
-        };
-    }
+    // Build the version-specific root-group metadata (v0.6 RFC-5 coordinate
+    // systems, v0.5 `ome`-wrapped axes, or bare v0.4 multiscales). Shared with
+    // the browser writer and the in-place `upgradeOmeZarr` rewrite.
+    const attributes = buildRootAttributes(multiscales.metadata, _version);
 
     const rootGroup = await zarr.create(root, { attributes });
 

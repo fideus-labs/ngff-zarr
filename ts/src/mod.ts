@@ -18,6 +18,15 @@ export {
   readOzxVersion,
 } from "./io/rfc9_zip.ts";
 export * from "./io/to_ngff_zarr.ts";
+// upgradeOmeZarr: spec-version upgrade (in-place metadata rewrite or
+// write-to-new-store). In-place upgrade of a local *path* store is Node/Deno-
+// only (needs a filesystem store); MemoryStore/FetchStore inputs work
+// everywhere, consistent with the other I/O functions.
+export {
+  type UpgradeInput,
+  upgradeOmeZarr,
+  type UpgradeOmeZarrOptions,
+} from "./io/upgrade_ome_zarr.ts";
 export * from "./process/to_multiscales-node.ts";
 export * from "./schemas/methods.ts";
 export * from "./schemas/multiscales.ts";
