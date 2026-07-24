@@ -1,3 +1,14 @@
+## ts-v0.25.0 (2026-07-24)
+
+### ✨ Features
+
+- **ts**: add upgradeOmeZarr() for spec-version parity with Python ([db1ee96](https://github.com/fideus-labs/ngff-zarr/commit/db1ee96b40ce3142a20af930c5409f1ca86ff1de))
+
+### 🐛 Bug Fixes
+
+- **ci**: use supported 'prek update' in autoupdate workflow ([8f2ee83](https://github.com/fideus-labs/ngff-zarr/commit/8f2ee83af4af48f096fc0272abdeb303646c3768))
+- reject RFC 4 orientation on non-spatial axes and duplicate anatomical axes ([45de14c](https://github.com/fideus-labs/ngff-zarr/commit/45de14c0ed62a0f0d68d56790f1a71482cb9c221))
+
 ## ts-v0.24.0 (2026-07-17)
 
 ### ✨ Features
