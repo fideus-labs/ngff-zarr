@@ -57,14 +57,15 @@ The canonical `SpecRule` set, in evaluation order:
 5. `global-coord-transform-after-per-level`
 6. `dataset-order-highest-to-lowest`
 7. `omero-channel-color-format`
-8. `axis-orientation-consistent-type`
-9. `axis-orientation-completeness`
-10. `zarr-format`
-11. `ome-namespace`
-12. `plate-row-index-consistency`
-13. `well-acquisition-missing`
+8. `axis-orientation-anatomical-type`
+9. `axis-orientation-on-non-space`
+10. `axis-orientation-unique-axis`
+11. `zarr-format`
+12. `ome-namespace`
+13. `plate-row-index-consistency`
+14. `well-acquisition-missing`
 
-Entries 10–11 are the v0.5 namespacing rules; they fire only for v0.5 metadata
+Entries 11–12 are the v0.5 namespacing rules; they fire only for v0.5 metadata
 and are inert for v0.4. Each suite pins this list as a `CANONICAL_SPEC_RULE_IDS`
 literal — byte-identical between the two languages so the tests are
 line-for-line comparable.

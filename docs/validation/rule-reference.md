@@ -43,12 +43,13 @@ the `SpecRule` enum declares them and the orchestrators evaluate them.
 | 5  | `global-coord-transform-after-per-level` | images/multiscales | Exactly one `scale` per dataset, and a `translation` must follow — not precede — its `scale`. | v0.4: each dataset defines exactly one scale; a translation follows its scale. | `multiscales[0].datasets[1].coordinateTransformations` |
 | 6  | `dataset-order-highest-to-lowest` | images/multiscales | Datasets ordered finest → coarsest; the spatial scale must not decrease as the level index rises. | v0.4: multiscale datasets ordered from highest to lowest resolution. | `multiscales[0].datasets[2]` |
 | 7  | `omero-channel-color-format` | OMERO | Each OMERO channel `color` is exactly six hexadecimal digits (RGB). | v0.4: OMERO channel color is 6 hex digits. | `multiscales[0].omero.channels[0].color` |
-| 8  | `axis-orientation-consistent-type` | RFC 4 orientation | All spatial-axis anatomical orientations share one `type`. | RFC 4: all spatial-axis orientations share one type. | `multiscales[0].axes` |
-| 9  | `axis-orientation-completeness` | RFC 4 orientation | If any spatial axis declares an orientation, all spatial axes must. | RFC 4: orientation is all-or-none across spatial axes. | `multiscales[0].axes` |
-| 10 | `zarr-format` | images/multiscales (v0.5) | A v0.5 entry implies a Zarr v3 store; a `zarr_format` value that leaked into the entry must be exactly `3`. Inert for v0.4. | v0.5: metadata is backed by a Zarr v3 store (`zarr_format == 3`). | `multiscales[0]` |
-| 11 | `ome-namespace` | images/multiscales (v0.5) | A v0.5 entry must not retain a group-level `ome` or `multiscales` wrapper key — the `ome` namespace wraps the group attributes, not each entry. Inert for v0.4. | v0.5: multiscales live under the top-level `ome` namespace, with `version` hoisted to `ome.version`. | `multiscales[0]` |
-| 12 | `plate-row-index-consistency` | HCS plate | Each well's `path` is `<row>/<column>`, naming declared row/column entries, with `rowIndex`/`columnIndex` equal to those entries' positions. | v0.4: well `rowIndex`/`columnIndex` match the named row/column positions in `plate.rows`/`plate.columns`. | `plate.wells[3]` |
-| 13 | `well-acquisition-missing` | HCS well | When the plate declares more than one acquisition, every well image references one via `acquisition`. | v0.4: with multiple acquisitions, each well image references an acquisition. | `well.images[0].acquisition` |
+| 8  | `axis-orientation-anatomical-type` | RFC 4 orientation | Every declared spatial-axis `orientation` has `type` `anatomical`. | RFC 4: an orientation's `type` is `anatomical`. | `multiscales[0].axes` |
+| 9  | `axis-orientation-on-non-space` | RFC 4 orientation | An `orientation` is declared only on `space` axes, never on a non-spatial axis. | RFC 4: orientation applies to spatial axes only. | `multiscales[0].axes[0]` |
+| 10 | `axis-orientation-unique-axis` | RFC 4 orientation | No two spatial axes declare orientations describing the same anatomical axis. | RFC 4: each spatial axis describes a distinct anatomical axis. | `multiscales[0].axes` |
+| 11 | `zarr-format` | images/multiscales (v0.5) | A v0.5 entry implies a Zarr v3 store; a `zarr_format` value that leaked into the entry must be exactly `3`. Inert for v0.4. | v0.5: metadata is backed by a Zarr v3 store (`zarr_format == 3`). | `multiscales[0]` |
+| 12 | `ome-namespace` | images/multiscales (v0.5) | A v0.5 entry must not retain a group-level `ome` or `multiscales` wrapper key — the `ome` namespace wraps the group attributes, not each entry. Inert for v0.4. | v0.5: multiscales live under the top-level `ome` namespace, with `version` hoisted to `ome.version`. | `multiscales[0]` |
+| 13 | `plate-row-index-consistency` | HCS plate | Each well's `path` is `<row>/<column>`, naming declared row/column entries, with `rowIndex`/`columnIndex` equal to those entries' positions. | v0.4: well `rowIndex`/`columnIndex` match the named row/column positions in `plate.rows`/`plate.columns`. | `plate.wells[3]` |
+| 14 | `well-acquisition-missing` | HCS well | When the plate declares more than one acquisition, every well image references one via `acquisition`. | v0.4: with multiple acquisitions, each well image references an acquisition. | `well.images[0].acquisition` |
 
 ## Evaluation order and orchestrators
 
@@ -56,21 +57,24 @@ The rules are evaluated fail-fast: the first violation raises a
 `ValidationError` and later rules do not run. Three orchestrators dispatch the
 rules:
 
-- **`validate_structural` / `validateStructural`** evaluates rules **1–11** (the
+- **`validate_structural` / `validateStructural`** evaluates rules **1–12** (the
   image/multiscales rules, including the OMERO color check, the RFC 4
   orientation checks, and the two v0.5 namespacing rules). Rules 3 and 5 each
   have two internal enforcement points that share a single identifier — axis
   class-ordering then spatial-name ordering for `axis-order`; per-dataset
   scale-count then transform-ordering for
-  `global-coord-transform-after-per-level`. The v0.5 namespacing rules (10 and
-  11) run last and are inert for v0.4 input, so for a v0.4 metadata the observed
-  evaluation order is a 10-step sequence over identifiers 1–9.
-- **`validate_plate` / `validatePlate`** evaluates rule **12**
+  `global-coord-transform-after-per-level`. The v0.5 namespacing rules (11 and
+  12) run last and are inert for v0.4 input. The orientation rules
+  `axis-orientation-on-non-space` (9) and `axis-orientation-unique-axis` (10)
+  fire only for specific orientation shapes, so the linear fail-fast cascade for
+  a v0.4 metadata is a 10-step sequence ending at
+  `axis-orientation-anatomical-type` (identifiers 1–8).
+- **`validate_plate` / `validatePlate`** evaluates rule **13**
   (`plate-row-index-consistency`).
-- **`validate_well` / `validateWell`** evaluates rule **13**
+- **`validate_well` / `validateWell`** evaluates rule **14**
   (`well-acquisition-missing`), in the context of its parent plate.
 
-The two HCS rules (12 and 13) are deliberately absent from the image
+The two HCS rules (13 and 14) are deliberately absent from the image
 orchestrator's order; they operate on separate metadata objects. The exact
 fail-fast sequence is locked by the parity tests described in [[parity]].
 
@@ -80,8 +84,8 @@ fail-fast sequence is locked by the parity tests described in [[parity]].
   `scale-length-mismatch`, `global-coord-transform-after-per-level`,
   `dataset-order-highest-to-lowest`.
 - **OMERO** — `omero-channel-color-format`.
-- **RFC 4 orientation** — `axis-orientation-consistent-type`,
-  `axis-orientation-completeness`.
+- **RFC 4 orientation** — `axis-orientation-anatomical-type`,
+  `axis-orientation-on-non-space`, `axis-orientation-unique-axis`.
 - **v0.5 namespacing** — `zarr-format`, `ome-namespace` (inert for v0.4).
 - **HCS plate / well** — `plate-row-index-consistency`,
   `well-acquisition-missing`.
