@@ -1,3 +1,17 @@
+## py-v0.40.0 (2026-07-24)
+
+### ✨ Features
+
+- **py**: add ngff-zarr upgrade CLI subcommand ([0a426f9](https://github.com/fideus-labs/ngff-zarr/commit/0a426f9256e925f62274aab3f50b208ac3b59abd))
+- **py**: add upgrade_ome_zarr() OME-Zarr spec-version upgrade ([c3bb7ed](https://github.com/fideus-labs/ngff-zarr/commit/c3bb7ed9efc2550597f474f7d8178306663043c2))
+
+### 🐛 Bug Fixes
+
+- **py**: correct v0.5 to_version return type to cross-version union ([dae2de5](https://github.com/fideus-labs/ngff-zarr/commit/dae2de50e101b6e8d267eb0dc5e73c187af980cf))
+- **py**: install prek hooks with --overwrite ([af76338](https://github.com/fideus-labs/ngff-zarr/commit/af763383b461d0f969ef727388b0c9e7183a34ef))
+- **ci**: use supported 'prek update' in autoupdate workflow ([8f2ee83](https://github.com/fideus-labs/ngff-zarr/commit/8f2ee83af4af48f096fc0272abdeb303646c3768))
+- reject RFC 4 orientation on non-spatial axes and duplicate anatomical axes ([45de14c](https://github.com/fideus-labs/ngff-zarr/commit/45de14c0ed62a0f0d68d56790f1a71482cb9c221))
+
 ## py-v0.39.0 (2026-07-17)
 
 ### ♻️ Refactoring
