@@ -158,7 +158,8 @@ Deno.test("validateRfc4Orientation - mixed axis types (time/channel) pass", () =
   validateRfc4Orientation(axesMixed);
 });
 
-Deno.test("validateRfc4Orientation - throws on incomplete orientation", () => {
+Deno.test("validateRfc4Orientation - accepts partial orientation", () => {
+  // RFC 4 makes orientation optional per spatial axis: no all-or-none rule.
   const axesIncomplete = [
     {
       name: "x",
@@ -180,14 +181,38 @@ Deno.test("validateRfc4Orientation - throws on incomplete orientation", () => {
     },
   ];
 
+  validateRfc4Orientation(axesIncomplete);
+});
+
+Deno.test("validateRfc4Orientation - rejects a non-object orientation", () => {
+  // Only an absent field, null and an empty object are undefined. Any other
+  // non-null value is a malformed use of orientation and must fail: on a spatial
+  // axis via the type check, on a non-spatial axis via the spatial-only rule.
+  // Mirrors the Python test_validate_rfc4_orientation_non_object_is_rejected.
   assertThrows(
-    () => validateRfc4Orientation(axesIncomplete),
+    () =>
+      validateRfc4Orientation([
+        { name: "x", type: "space", orientation: "nope" },
+      ]),
     Error,
-    "RFC 4 requires that if orientation is defined",
+    "must be anatomical",
+  );
+  assertThrows(
+    () =>
+      validateRfc4Orientation([
+        { name: "t", type: "time", orientation: "nope" },
+        {
+          name: "x",
+          type: "space",
+          orientation: { type: "anatomical", value: "right-to-left" },
+        },
+      ]),
+    Error,
+    "non-space axes",
   );
 });
 
-Deno.test("validateRfc4Orientation - throws on inconsistent orientation types", () => {
+Deno.test("validateRfc4Orientation - throws on a non-anatomical type", () => {
   const axesInconsistent = [
     {
       name: "x",
@@ -212,7 +237,7 @@ Deno.test("validateRfc4Orientation - throws on inconsistent orientation types", 
   assertThrows(
     () => validateRfc4Orientation(axesInconsistent),
     Error,
-    "All spatial axis orientations must have the same type",
+    "must be anatomical",
   );
 });
 
@@ -335,7 +360,8 @@ Deno.test("fromNgffZarr with invalid RFC-4 orientation - throws error", async ()
         name: "z",
         type: "space",
         unit: "micrometer",
-        // Missing orientation - this should cause validation to fail
+        // Out-of-vocabulary value - this should cause validation to fail
+        orientation: { type: "anatomical", value: "not-a-direction" },
       },
     ],
     datasets: [
@@ -350,16 +376,14 @@ Deno.test("fromNgffZarr with invalid RFC-4 orientation - throws error", async ()
 
   const store = await createTestStore(multiscalesMetadata);
 
-  // Should fail with incomplete orientation
+  // Should fail on the out-of-vocabulary orientation value
   let errorThrown = false;
   try {
     await fromNgffZarr(store, { validate: true });
   } catch (error) {
     errorThrown = true;
     assertEquals(
-      (error as Error).message.includes(
-        "RFC 4 requires that if orientation is defined",
-      ),
+      (error as Error).message.includes("Invalid orientation value"),
       true,
     );
   }

@@ -12,7 +12,7 @@
  *
  * Mirrors Python's `str(list_of_str)` / f-string rendering: bracketed,
  * single-quoted elements, comma-space separated. Both the structural
- * spatial-axis-order message and the RFC 4 axis-orientation-completeness
+ * spatial-axis-order message and the RFC 4 axis-orientation-on-non-space
  * message interpolate this verbatim, so the two ports stay byte-for-byte
  * identical. Axis names reaching these rules are single-quote-free, so the
  * plain single-quoted element form is exact.

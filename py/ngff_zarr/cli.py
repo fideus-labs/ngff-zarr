@@ -1301,17 +1301,38 @@ def _upgrade_main(argv: list[str] | None = None) -> None:
         )
 
 
+def _conformance_main(argv: list[str] | None = None) -> None:
+    """Handle the ``ngff-zarr conformance`` subcommand.
+
+    Prints one canonical JSON RFC 4 verdict (rfc4_valid, axes, violations,
+    warnings) per input, for a tool-agnostic conformance driver to diff against
+    its manifest.
+    """
+    import json
+
+    from .rfc4_conformance import conformance_report
+
+    if argv is None:
+        argv = sys.argv[1:]
+    if len(argv) != 1:
+        print("usage: ngff-zarr conformance <input>", file=sys.stderr)
+        raise SystemExit(2)
+    print(json.dumps(conformance_report(argv[0]), indent=2))
+
+
 def main(argv: list[str] | None = None) -> None:
     """Entry point for the ``ngff-zarr`` command.
 
-    Dispatches to the ``upgrade`` subcommand when the first token is
-    ``"upgrade"``; otherwise runs the flat conversion command unchanged so
+    Dispatches to the ``upgrade`` or ``conformance`` subcommand when the first
+    token matches; otherwise runs the flat conversion command unchanged so
     existing invocations behave exactly as before.
     """
     if argv is None:
         argv = sys.argv[1:]
     if argv and argv[0] == "upgrade":
         return _upgrade_main(argv[1:])
+    if argv and argv[0] == "conformance":
+        return _conformance_main(argv[1:])
     return _convert_main(argv)
 
 

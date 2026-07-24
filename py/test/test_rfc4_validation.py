@@ -149,9 +149,15 @@ def test_validate_rfc4_orientation_mixed_types():
     validate_rfc4_orientation(axes_mixed)
 
 
-def test_validate_rfc4_orientation_incomplete():
-    """Test RFC 4 validation fails when orientation is incomplete."""
-    # Missing orientation for one spatial axis
+def test_validate_rfc4_orientation_partial_is_valid():
+    """RFC 4 makes orientation optional per spatial axis, so partial is valid.
+
+    The specification states no all-or-none completeness requirement: an image may
+    orient only some of its spatial axes and leave the rest undefined.
+    """
+    pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
+
+    # Orientation is defined for two spatial axes and left undefined on the third.
     axes_incomplete = [
         {
             "name": "x",
@@ -173,15 +179,15 @@ def test_validate_rfc4_orientation_incomplete():
         },
     ]
 
-    with pytest.raises(
-        ValueError, match="RFC 4 requires that if orientation is defined"
-    ):
-        validate_rfc4_orientation(axes_incomplete)
+    # Should not raise: an unoriented spatial axis is simply undefined.
+    validate_rfc4_orientation(axes_incomplete)
 
 
-def test_validate_rfc4_orientation_inconsistent_types():
-    """Test RFC 4 validation fails with inconsistent orientation types."""
-    # Different orientation types
+def test_validate_rfc4_orientation_non_anatomical_type():
+    """RFC 4 defines a single orientation type, so any other type is rejected."""
+    pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
+
+    # The "y" axis declares a type the RFC 4 vocabulary does not define.
     axes_inconsistent = [
         {
             "name": "x",
@@ -203,10 +209,44 @@ def test_validate_rfc4_orientation_inconsistent_types():
         },
     ]
 
-    with pytest.raises(
-        ValueError, match="All spatial axis orientations must have the same type"
-    ):
+    with pytest.raises(ValueError, match="must be anatomical"):
         validate_rfc4_orientation(axes_inconsistent)
+
+
+def test_validate_rfc4_orientation_non_object_is_rejected():
+    """A non-object orientation is malformed, not undefined.
+
+    Only an absent field, ``null`` and an empty object are undefined. Any other
+    non-null value (string, list, number) is a real -- but malformed -- use of
+    orientation and must fail: on a spatial axis via the type check, on a
+    non-spatial axis via the spatial-only rule.
+    """
+    pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
+
+    with pytest.raises(ValueError, match="must be anatomical"):
+        validate_rfc4_orientation(
+            [
+                {
+                    "name": "x",
+                    "type": "space",
+                    "unit": "micrometer",
+                    "orientation": "nope",
+                }
+            ]
+        )
+
+    with pytest.raises(ValueError, match="non-space axes"):
+        validate_rfc4_orientation(
+            [
+                {"name": "t", "type": "time", "orientation": "nope"},
+                {
+                    "name": "x",
+                    "type": "space",
+                    "unit": "micrometer",
+                    "orientation": {"type": "anatomical", "value": "right-to-left"},
+                },
+            ]
+        )
 
 
 def test_validate_rfc4_orientation_invalid_value():
@@ -274,11 +314,12 @@ def test_validate_rfc4_orientation_on_non_space_axis():
         validate_rfc4_orientation(axes_bad)
 
 
-def test_validate_rfc4_orientation_on_non_space_axis_empty_dict():
-    """An empty orientation object on a non-spatial axis is still rejected.
+def test_validate_rfc4_orientation_empty_dict_on_non_space_is_undefined():
+    """An empty orientation object on a non-spatial axis is not a violation.
 
-    The presence of the ``orientation`` key -- not a truthy value -- is what
-    RFC 4 forbids on a non-spatial axis, so ``{}`` must not slip through."""
+    RFC 4 treats an absent orientation and an explicit ``null`` as equivalent --
+    the orientation is simply undefined -- so an empty object is likewise not a
+    use of orientation on that axis."""
     pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
 
     axes_bad = [
@@ -303,8 +344,8 @@ def test_validate_rfc4_orientation_on_non_space_axis_empty_dict():
         },
     ]
 
-    with pytest.raises(ValueError, match="non-space axes"):
-        validate_rfc4_orientation(axes_bad)
+    # Should not raise: an empty orientation is undefined, not a use of it.
+    validate_rfc4_orientation(axes_bad)
 
 
 def test_validate_rfc4_orientation_duplicate_anatomical_axis():
@@ -456,7 +497,8 @@ def test_from_ngff_zarr_with_rfc4_validation_invalid():
                 "name": "z",
                 "type": "space",
                 "unit": "micrometer",
-                # Missing orientation - this should cause validation to fail
+                # Out-of-vocabulary value - this should cause validation to fail
+                "orientation": {"type": "anatomical", "value": "not-a-direction"},
             },
         ],
         "datasets": [
@@ -471,10 +513,8 @@ def test_from_ngff_zarr_with_rfc4_validation_invalid():
 
     root.attrs["multiscales"] = [multiscales_metadata]
 
-    # Should fail with incomplete orientation
-    with pytest.raises(
-        ValueError, match="RFC 4 requires that if orientation is defined"
-    ):
+    # Should fail on the out-of-vocabulary orientation value
+    with pytest.raises(ValidationError, match="Invalid orientation value"):
         from_ngff_zarr(store, validate=True)
 
 

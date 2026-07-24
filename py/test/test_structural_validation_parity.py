@@ -51,8 +51,7 @@ CANONICAL_SPEC_RULE_IDS = [
     "global-coord-transform-after-per-level",
     "dataset-order-highest-to-lowest",
     "omero-channel-color-format",
-    "axis-orientation-consistent-type",
-    "axis-orientation-completeness",
+    "axis-orientation-anatomical-type",
     "axis-orientation-on-non-space",
     "axis-orientation-unique-axis",
     "zarr-format",
@@ -82,7 +81,7 @@ EXPECTED_EVALUATION_ORDER = [
     SpecRule.GLOBAL_COORD_TRANSFORM_AFTER_PER_LEVEL,  # transform order
     SpecRule.DATASET_ORDER_HIGHEST_TO_LOWEST,
     SpecRule.OMERO_CHANNEL_COLOR_FORMAT,
-    SpecRule.AXIS_ORIENTATION_CONSISTENT_TYPE,
+    SpecRule.AXIS_ORIENTATION_ANATOMICAL_TYPE,
 ]
 
 
@@ -108,8 +107,8 @@ def _valid_axes_with_inconsistent_orientation() -> list[Axis]:
 
     Every axis rule passes (channel-then-space class order, ``(z, y, x)``
     spatial suffix, count 4), but the ``y`` axis declares orientation type
-    ``"other"`` while ``z`` and ``x`` declare ``"anatomical"`` -- tripping
-    :attr:`SpecRule.AXIS_ORIENTATION_CONSISTENT_TYPE`, the last orchestrator
+    ``"other"`` -- a type RFC 4 does not define -- tripping
+    :attr:`SpecRule.AXIS_ORIENTATION_ANATOMICAL_TYPE`, the last orchestrator
     rule, when every earlier rule is satisfied.
     """
     return [
