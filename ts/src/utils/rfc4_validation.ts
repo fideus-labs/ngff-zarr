@@ -111,13 +111,18 @@ function isNonEmptyOrientation(orientation: unknown): boolean {
 /**
  * Validate RFC 4 anatomical orientation metadata.
  *
- * The errors carry stable marker substrings -- `same type` (mixed `type`),
- * `all spatial axes` (all-or-none completeness), `non-space axes` (orientation on
- * a non-spatial axis) and `same anatomical axis` (two axes on one antonym pair) --
- * that `validateAxisOrientation` reads to map each failure onto its `SpecRule`.
- * These markers are a load-bearing contract pinned by a message-stability test
- * (see `structural_validation_orientation_test.ts`) so the mapping cannot silently
- * break if the wording is later edited.
+ * The errors carry stable marker substrings -- `must be anatomical` (a `type`
+ * other than the single value the vocabulary defines), `non-space axes`
+ * (orientation on a non-spatial axis) and `same anatomical axis` (two axes on one
+ * antonym pair) -- that `validateAxisOrientation` reads to map each failure onto
+ * its `SpecRule`. These markers are a load-bearing contract pinned by a
+ * message-stability test (see `structural_validation_orientation_test.ts`) so the
+ * mapping cannot silently break if the wording is later edited.
+ *
+ * RFC 4 makes `orientation` optional per spatial axis: an image may orient only
+ * some of its spatial axes, and an absent orientation is equivalent to an explicit
+ * `null` (the axis orientation is undefined). No all-or-none completeness rule is
+ * enforced.
  *
  * @param axes - List of axis metadata dictionaries to validate
  * @throws Error if the orientation metadata is invalid or inconsistent
@@ -125,80 +130,58 @@ function isNonEmptyOrientation(orientation: unknown): boolean {
 export function validateRfc4Orientation(
   axes: Array<Record<string, unknown>>,
 ): void {
-  let hasOrientation = false;
-  let orientationType: string | null = null;
-  const spatialAxesWithOrientation: string[] = [];
-  const spatialAxesWithoutOrientation: string[] = [];
   const spatialOrientationValues: Array<[string, string]> = [];
 
   for (const axis of axes) {
     if (typeof axis === "object" && axis !== null && axis.type === "space") {
       const axisName = String(axis.name ?? "unknown");
 
-      if ("orientation" in axis && axis.orientation !== null) {
-        hasOrientation = true;
-        spatialAxesWithOrientation.push(axisName);
-
+      // RFC 4: an absent orientation and an explicit null (or empty object) are
+      // equivalent -- the axis orientation is simply undefined -- so only a real,
+      // non-empty orientation object is validated here. Orientation is optional
+      // per spatial axis, so a partially oriented image is valid.
+      if (isNonEmptyOrientation(axis.orientation)) {
         const orientation = axis.orientation as Record<string, unknown>;
 
-        // Check that all orientations have the same type
-        const currentType = orientation.type as string | undefined;
-        if (orientationType === null) {
-          orientationType = currentType ?? null;
-        } else if (currentType !== orientationType) {
+        // RFC 4: the orientation type is restricted to the single value the
+        // controlled vocabulary defines, "anatomical".
+        const orientationType = orientation.type as string | undefined;
+        if (orientationType !== "anatomical") {
           throw new Error(
-            `All spatial axis orientations must have the same type. ` +
-              `Found types: ${orientationType} and ${currentType}`,
+            `RFC 4 orientation type must be anatomical; axis ` +
+              `'${axisName}' has type '${orientationType}'.`,
           );
         }
 
-        // Validate the orientation value using the schema
+        // RFC 4 requires a value, drawn from the controlled vocabulary.
         const orientationValue = orientation.value as string | undefined;
-        if (orientationValue !== undefined) {
-          const result = AnatomicalOrientationValuesSchema.safeParse(
-            orientationValue,
+        if (
+          orientationValue === undefined ||
+          !AnatomicalOrientationValuesSchema.safeParse(orientationValue).success
+        ) {
+          throw new Error(
+            `Invalid orientation value '${orientationValue}' for axis '${axisName}'. ` +
+              `Valid values are: ${
+                [...VALID_ORIENTATION_VALUES].sort().join(", ")
+              }`,
           );
-          if (!result.success) {
-            throw new Error(
-              `Invalid orientation value '${orientationValue}' for axis '${axisName}'. ` +
-                `Valid values are: ${
-                  [...VALID_ORIENTATION_VALUES].sort().join(", ")
-                }`,
-            );
-          }
-          spatialOrientationValues.push([axisName, orientationValue]);
         }
-      } else {
-        spatialAxesWithoutOrientation.push(axisName);
+        spatialOrientationValues.push([axisName, orientationValue]);
       }
     }
   }
 
-  // RFC 4 requirement: if orientation is defined for one spatial axis, it must
-  // be defined for all spatial axes. Checked before the rules below to keep the
-  // canonical SpecRule precedence (completeness is declared before the non-space
-  // and unique-axis rules).
-  if (hasOrientation && spatialAxesWithoutOrientation.length > 0) {
-    throw new Error(
-      `RFC 4 requires that if orientation is defined for one spatial axis, ` +
-        `it must be defined for all spatial axes. ` +
-        `Axes with orientation: ` +
-        `${formatNameList(spatialAxesWithOrientation)}, ` +
-        `axes without orientation: ` +
-        `${formatNameList(spatialAxesWithoutOrientation)}`,
-    );
-  }
-
-  // RFC 4 requirement: orientation is only allowed on spatial axes. (Checked
-  // over all axes, independently of hasOrientation, so a stray orientation on a
-  // time/channel axis is caught even when no spatial axis carries one.)
+  // RFC 4 requirement: orientation is only allowed on spatial axes. Only a real
+  // (non-empty) orientation object counts as "used"; a null or empty orientation
+  // is undefined, so it is not a violation on a non-spatial axis. Checked over all
+  // axes so a stray orientation is caught even when no spatial axis carries one.
   const nonSpaceWithOrientation: string[] = [];
   for (const axis of axes) {
     if (
       typeof axis === "object" &&
       axis !== null &&
       axis.type !== "space" &&
-      "orientation" in axis
+      isNonEmptyOrientation(axis.orientation)
     ) {
       nonSpaceWithOrientation.push(String(axis.name));
     }

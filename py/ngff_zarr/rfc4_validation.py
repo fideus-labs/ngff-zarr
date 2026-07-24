@@ -70,16 +70,23 @@ def validate_rfc4_orientation(axes: list[dict[str, Any]]) -> None:
     jsonschema.ValidationError
         If the orientation metadata is invalid
     ValueError
-        If orientation is inconsistently or illegally defined. The messages carry
-        stable marker substrings -- ``"same type"`` (mixed ``type``),
-        ``"all spatial axes"`` (all-or-none completeness), ``"non-space axes"``
-        (orientation on a non-spatial axis) and ``"same anatomical axis"`` (two
-        axes on one antonym pair) -- that
+        If orientation is illegally defined. The messages carry stable marker
+        substrings -- ``"must be anatomical"`` (``type`` other than the single
+        value the vocabulary defines), ``"non-space axes"`` (orientation on a
+        non-spatial axis) and ``"same anatomical axis"`` (two axes on one antonym
+        pair) -- that
         :func:`ngff_zarr.structural_validation.validate_axis_orientation` reads
         to map each failure onto its :class:`SpecRule`. These markers are a
         load-bearing contract pinned by a message-stability test
         (``test_rfc4_orientation_messages_carry_mapping_markers``) so the
         mapping cannot silently break if the wording is later edited.
+
+    Notes
+    -----
+    RFC 4 makes ``orientation`` optional per spatial axis: an image may orient
+    only some of its spatial axes, and an absent orientation is equivalent to an
+    explicit ``null`` (the axis orientation is undefined). No all-or-none
+    completeness rule is enforced.
     """
     try:
         from jsonschema import Draft202012Validator
@@ -90,11 +97,9 @@ def validate_rfc4_orientation(axes: list[dict[str, Any]]) -> None:
             "install the ngff-zarr[validate] extra"
         )
 
-    # Check if any spatial axes have orientation defined
+    # RFC 4: orientation is optional per spatial axis. Collect the (name, value)
+    # of every spatial axis that carries a real orientation object.
     has_orientation = False
-    orientation_type = None
-    spatial_axes_with_orientation = []
-    spatial_axes_without_orientation = []
     spatial_orientation_values: list[tuple[str, str]] = []
 
     # Valid anatomical orientation values (from the schema)
@@ -127,53 +132,51 @@ def validate_rfc4_orientation(axes: list[dict[str, Any]]) -> None:
 
     for axis in axes:
         if isinstance(axis, dict) and axis.get("type") == "space":
-            if "orientation" in axis:
-                has_orientation = True
-                spatial_axes_with_orientation.append(axis["name"])
+            orientation = axis.get("orientation")
+            # RFC 4: an absent orientation, an explicit null, and an empty object
+            # are equivalent -- the axis orientation is undefined. Orientation is
+            # optional per spatial axis, so a partially oriented image is valid.
+            # Any other value is a real orientation to validate; a non-dict value
+            # is malformed and is left for the JSON Schema check below to reject.
+            if orientation is None or orientation == {}:
+                continue
+            has_orientation = True
 
-                # Check that all orientations have the same type
-                if orientation_type is None:
-                    orientation_type = axis["orientation"].get("type")
-                elif axis["orientation"].get("type") != orientation_type:
-                    raise ValueError(
-                        f"All spatial axis orientations must have the same type. "
-                        f"Found types: {orientation_type} and {axis['orientation'].get('type')}"
-                    )
+            # RFC 4: the orientation type is restricted to the single value the
+            # controlled vocabulary defines, "anatomical". A non-object orientation
+            # cannot carry that type, so it fails the same check.
+            orientation_type = (
+                orientation.get("type") if isinstance(orientation, dict) else None
+            )
+            if orientation_type != "anatomical":
+                raise ValueError(
+                    f"RFC 4 orientation type must be anatomical; axis "
+                    f"'{axis['name']}' has type '{orientation_type}'."
+                )
 
-                # Check that the orientation value is valid
-                orientation_value = axis["orientation"].get("value")
-                if orientation_value not in valid_orientation_values:
-                    from jsonschema import ValidationError
+            # Check that the orientation value is in the controlled vocabulary
+            orientation_value = orientation.get("value")
+            if orientation_value not in valid_orientation_values:
+                from jsonschema import ValidationError
 
-                    raise ValidationError(
-                        f"Invalid orientation value '{orientation_value}' for axis '{axis['name']}'. "
-                        f"Valid values are: {sorted(valid_orientation_values)}"
-                    )
-                spatial_orientation_values.append((axis["name"], orientation_value))
-            else:
-                spatial_axes_without_orientation.append(axis["name"])
+                raise ValidationError(
+                    f"Invalid orientation value '{orientation_value}' for axis '{axis['name']}'. "
+                    f"Valid values are: {sorted(valid_orientation_values)}"
+                )
+            spatial_orientation_values.append((axis["name"], orientation_value))
 
-    # RFC 4 requirement: if orientation is defined for one spatial axis, it must
-    # be defined for all spatial axes. Checked before the rules below to keep the
-    # canonical SpecRule precedence (completeness is declared before the non-space
-    # and unique-axis rules).
-    if has_orientation and spatial_axes_without_orientation:
-        raise ValueError(
-            f"RFC 4 requires that if orientation is defined for one spatial axis, "
-            f"it must be defined for all spatial axes. "
-            f"Axes with orientation: {spatial_axes_with_orientation}, "
-            f"axes without orientation: {spatial_axes_without_orientation}"
-        )
-
-    # RFC 4 requirement: orientation is only allowed on spatial axes. (Checked
-    # over all axes, independently of has_orientation, so a stray orientation on
-    # a time/channel axis is caught even when no spatial axis carries one.)
+    # RFC 4 requirement: orientation is only allowed on spatial axes. Only a real
+    # orientation counts as "used"; a null or empty orientation is undefined, so
+    # it is not a violation on a non-spatial axis. Any other non-null value is a
+    # use of orientation. Checked over all axes so a stray orientation is caught
+    # even when no spatial axis carries one.
     non_space_with_orientation = [
         axis["name"]
         for axis in axes
         if isinstance(axis, dict)
         and axis.get("type") != "space"
-        and "orientation" in axis
+        and axis.get("orientation") is not None
+        and axis.get("orientation") != {}
     ]
     if non_space_with_orientation:
         raise ValueError(

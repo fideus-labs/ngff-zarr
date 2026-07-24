@@ -46,11 +46,8 @@ violation, in canonical spec-MUST order.
 #   omero-channel-color-format
 #       each OMERO channel color is exactly 6 hex digits
 #       e.g. multiscales[0].omero.channels[0].color
-#   axis-orientation-consistent-type
-#       all spatial-axis RFC 4 orientations share one type
-#       e.g. multiscales[0].axes
-#   axis-orientation-completeness
-#       if any spatial axis has orientation, all spatial axes do
+#   axis-orientation-anatomical-type
+#       each RFC 4 orientation type is "anatomical" (the only value defined)
 #       e.g. multiscales[0].axes
 #   axis-orientation-on-non-space
 #       orientation is declared only on spatial axes (never time/channel)
@@ -97,8 +94,7 @@ class SpecRule(str, Enum):
     GLOBAL_COORD_TRANSFORM_AFTER_PER_LEVEL = "global-coord-transform-after-per-level"
     DATASET_ORDER_HIGHEST_TO_LOWEST = "dataset-order-highest-to-lowest"
     OMERO_CHANNEL_COLOR_FORMAT = "omero-channel-color-format"
-    AXIS_ORIENTATION_CONSISTENT_TYPE = "axis-orientation-consistent-type"
-    AXIS_ORIENTATION_COMPLETENESS = "axis-orientation-completeness"
+    AXIS_ORIENTATION_ANATOMICAL_TYPE = "axis-orientation-anatomical-type"
     AXIS_ORIENTATION_ON_NON_SPACE = "axis-orientation-on-non-space"
     AXIS_ORIENTATION_UNIQUE_AXIS = "axis-orientation-unique-axis"
     ZARR_FORMAT = "zarr-format"
@@ -506,6 +502,11 @@ def _axis_to_validation_dict(axis: Axis) -> dict[str, Any]:
     orientation = axis.orientation
     if orientation is not None:
         if isinstance(orientation, dict):
+            # An empty orientation object is undefined under RFC 4, exactly like
+            # an absent one, so it must not be rendered as a populated
+            # {type, value} dict -- that would read back as a real orientation.
+            if not orientation:
+                return axis_dict
             orientation_type = orientation.get("type")
             orientation_value = orientation.get("value")
         else:
@@ -537,10 +538,8 @@ def validate_axis_orientation(metadata: Metadata) -> None:
     Raises
     ------
     ValidationError
-        With :attr:`SpecRule.AXIS_ORIENTATION_CONSISTENT_TYPE` when the spatial
-        axes' orientations do not all share one ``type``,
-        :attr:`SpecRule.AXIS_ORIENTATION_COMPLETENESS` when orientation is defined
-        for some but not all spatial axes,
+        With :attr:`SpecRule.AXIS_ORIENTATION_ANATOMICAL_TYPE` when an orientation
+        ``type`` is not ``"anatomical"``,
         :attr:`SpecRule.AXIS_ORIENTATION_ON_NON_SPACE` when orientation is declared
         on a non-spatial axis, or :attr:`SpecRule.AXIS_ORIENTATION_UNIQUE_AXIS`
         when two spatial axes describe the same anatomical axis; location
@@ -557,11 +556,13 @@ def validate_axis_orientation(metadata: Metadata) -> None:
     axes_dicts = [_axis_to_validation_dict(axis) for axis in metadata.axes]
     # A stray orientation on a non-spatial axis carries no spatial-axis
     # orientation, so has_rfc4_orientation_metadata alone would skip it; check for
-    # any declared orientation so the non-space rule is reachable.
+    # any real (non-empty) orientation so the non-space rule is reachable. A null
+    # or empty orientation is undefined under RFC 4 and so is not a violation.
     non_space_orientation = any(
         isinstance(axis_dict, dict)
         and axis_dict.get("type") != "space"
-        and "orientation" in axis_dict
+        and isinstance(axis_dict.get("orientation"), dict)
+        and axis_dict.get("orientation")
         for axis_dict in axes_dicts
     )
     if not has_rfc4_orientation_metadata(axes_dicts) and not non_space_orientation:
@@ -569,16 +570,16 @@ def validate_axis_orientation(metadata: Metadata) -> None:
     try:
         validate_rfc4_orientation(axes_dicts)
     except ValueError as exc:
-        # validate_rfc4_orientation raises four mappable ValueErrors: a spatial
-        # orientation "same type" mismatch, the all-or-none completeness failure,
-        # orientation on "non-space axes", and two axes on the "same anatomical
-        # axis". jsonschema's ValidationError (raised for an out-of-vocabulary
-        # orientation value) is not a ValueError, so it -- like ImportError when
-        # jsonschema is absent -- propagates untouched; no structural rule covers
-        # those schema-level concerns.
+        # validate_rfc4_orientation raises three mappable ValueErrors: an
+        # orientation type that is not "anatomical", orientation on "non-space
+        # axes", and two axes on the "same anatomical axis". jsonschema's
+        # ValidationError (raised for an out-of-vocabulary orientation value) is
+        # not a ValueError, so it -- like ImportError when jsonschema is absent --
+        # propagates untouched; no structural rule covers those schema-level
+        # concerns.
         #
-        # The marker substrings below ("same type", "all spatial axes",
-        # "non-space axes", "same anatomical axis") are a load-bearing contract
+        # The marker substrings below ("must be anatomical", "non-space axes",
+        # "same anatomical axis") are a load-bearing contract
         # with validate_rfc4_orientation's message text: an unrecognized
         # ValueError falls through to the bare ``raise`` and is surfaced as a
         # plain ValueError rather than a ValidationError. The message-stability
@@ -586,15 +587,9 @@ def validate_axis_orientation(metadata: Metadata) -> None:
         # markers so editing that wording fails CI loudly instead of silently
         # breaking this mapping.
         message = str(exc)
-        if "same type" in message:
+        if "must be anatomical" in message:
             raise ValidationError(
-                SpecRule.AXIS_ORIENTATION_CONSISTENT_TYPE,
-                message,
-                "multiscales[0].axes",
-            ) from exc
-        if "all spatial axes" in message:
-            raise ValidationError(
-                SpecRule.AXIS_ORIENTATION_COMPLETENESS,
+                SpecRule.AXIS_ORIENTATION_ANATOMICAL_TYPE,
                 message,
                 "multiscales[0].axes",
             ) from exc

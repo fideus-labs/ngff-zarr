@@ -245,7 +245,7 @@ Deno.test("validateRfc4Orientation - invalid orientation value", () => {
   );
 });
 
-Deno.test("validateRfc4Orientation - inconsistent orientation types", () => {
+Deno.test("validateRfc4Orientation - non-anatomical orientation type", () => {
   const axes = [
     {
       name: "z",
@@ -261,7 +261,7 @@ Deno.test("validateRfc4Orientation - inconsistent orientation types", () => {
   assertThrows(
     () => validateRfc4Orientation(axes),
     Error,
-    "All spatial axis orientations must have the same type",
+    "must be anatomical",
   );
 });
 
@@ -279,9 +279,6 @@ Deno.test("validateRfc4Orientation - partial orientation definition", () => {
       orientation: { type: "anatomical", value: "right-to-left" },
     },
   ];
-  assertThrows(
-    () => validateRfc4Orientation(axes),
-    Error,
-    "RFC 4 requires that if orientation is defined for one spatial axis",
-  );
+  // RFC 4 makes orientation optional per spatial axis, so this is valid.
+  validateRfc4Orientation(axes);
 });

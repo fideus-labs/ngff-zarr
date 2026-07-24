@@ -12,9 +12,10 @@
  * - a fully specified, consistent orientation passes for both the serialized
  *   `{ type, value }` form (the image read path) and the
  *   {@link AnatomicalOrientationValues} enum form (the write path);
- * - mixed orientation `type` -> {@link SpecRule.AxisOrientationConsistentType};
- * - orientation on some but not all spatial axes ->
- *   {@link SpecRule.AxisOrientationCompleteness}.
+ * - a non-anatomical orientation `type` ->
+ *   {@link SpecRule.AxisOrientationAnatomicalType};
+ * - orientation on only some spatial axes -> accepted (RFC 4 makes orientation
+ *   optional per axis).
  *
  * Each failing case asserts the expected {@link SpecRule} and the
  * `multiscales[0].axes` location. The identifiers and location strings are kept
@@ -113,8 +114,8 @@ Deno.test("validateAxisOrientation - accepts a consistent orientation", () => {
   );
 });
 
-Deno.test("validateAxisOrientation - rejects inconsistent orientation types", () => {
-  // The "y" axis declares a different orientation type than its siblings.
+Deno.test("validateAxisOrientation - rejects a non-anatomical type", () => {
+  // The "y" axis declares a type RFC 4 does not define.
   const metadata = metadataWithOrientations([
     { type: "anatomical", value: LPS_VALUES[0] },
     { type: "other", value: LPS_VALUES[1] },
@@ -122,47 +123,63 @@ Deno.test("validateAxisOrientation - rejects inconsistent orientation types", ()
   ]);
   assertRuleViolation(
     () => validateAxisOrientation(metadata),
-    SpecRule.AxisOrientationConsistentType,
+    SpecRule.AxisOrientationAnatomicalType,
     "multiscales[0].axes",
   );
 });
 
-Deno.test("validateAxisOrientation - rejects incomplete orientation", () => {
-  // Orientation is defined for "z" and "y" but missing on "x".
+Deno.test("validateAxisOrientation - an empty orientation object is undefined", () => {
+  // Guards the Axis-to-record rendering: emitting `{}` as a populated
+  // { type, value } object would read back as a real orientation and trip the
+  // non-space or anatomical-type rule.
+  const empty = {} as Axis["orientation"];
+
+  // On a spatial axis: that axis is simply left undefined.
+  validateAxisOrientation(
+    metadataWithOrientations([empty, undefined, undefined]),
+  );
+
+  // On a non-spatial axis: not a use of orientation, so not a violation.
+  const metadata: Metadata = {
+    axes: [
+      { name: "t", type: "time", unit: undefined, orientation: empty },
+      { name: "y", type: "space", unit: undefined },
+      { name: "x", type: "space", unit: undefined },
+    ],
+    datasets: [
+      { path: "0", coordinateTransformations: [createScale([1.0, 1.0, 1.0])] },
+    ],
+    coordinateTransformations: undefined,
+    omero: undefined,
+    name: "image",
+    version: "0.4",
+  };
+  validateAxisOrientation(metadata);
+});
+
+Deno.test("validateAxisOrientation - accepts partial orientation", () => {
+  // Orientation is defined for "z" and "y" and left undefined on "x". RFC 4
+  // makes orientation optional per spatial axis, so this is not a violation.
   const metadata = metadataWithOrientations([
     { type: "anatomical", value: LPS_VALUES[0] },
     { type: "anatomical", value: LPS_VALUES[1] },
     undefined,
   ]);
-  const error = assertThrows(
-    () => validateAxisOrientation(metadata),
-    ValidationError,
-  );
-  assertEquals(error.rule, SpecRule.AxisOrientationCompleteness);
-  assertEquals(error.location, "multiscales[0].axes");
-  // The axis-name lists render Python-style (`['z', 'y']`) so the surfaced
-  // RFC 4 message is byte-for-byte identical to the Python port (locks parity).
-  assertEquals(
-    error.message,
-    "Spec rule [axis-orientation-completeness] violated: RFC 4 requires " +
-      "that if orientation is defined for one spatial axis, it must be " +
-      "defined for all spatial axes. Axes with orientation: ['z', 'y'], " +
-      "axes without orientation: ['x']",
-  );
+  validateAxisOrientation(metadata);
 });
 
 Deno.test(
   "validateRfc4Orientation - messages carry the SpecRule mapping markers",
   () => {
-    // validateAxisOrientation distinguishes the two RFC 4 orientation failures
-    // by searching this function's message text for "same type" and "all
-    // spatial axes". Those markers are a load-bearing contract: editing the
-    // wording away makes the wrapper silently rethrow a plain Error instead of
-    // the mapped ValidationError. Asserting them here fails loudly at the
-    // source. Mirrors the Python
+    // validateAxisOrientation distinguishes the RFC 4 orientation failures by
+    // searching this function's message text for "must be anatomical",
+    // "non-space axes" and "same anatomical axis". Those markers are a
+    // load-bearing contract: editing the wording away makes the wrapper silently
+    // rethrow a plain Error instead of the mapped ValidationError. Asserting them
+    // here fails loudly at the source. Mirrors the Python
     // test_rfc4_orientation_messages_carry_mapping_markers.
 
-    // Mixed orientation type -> the marker the consistent-type rule maps.
+    // A non-anatomical orientation type -> the marker the type rule maps.
     assertThrows(
       () =>
         validateRfc4Orientation([
@@ -178,22 +195,7 @@ Deno.test(
           },
         ]),
       Error,
-      "same type",
-    );
-
-    // Orientation on some but not all spatial axes -> the completeness marker.
-    assertThrows(
-      () =>
-        validateRfc4Orientation([
-          {
-            name: "y",
-            type: "space",
-            orientation: { type: "anatomical", value: "anterior-to-posterior" },
-          },
-          { name: "x", type: "space" },
-        ]),
-      Error,
-      "all spatial axes",
+      "must be anatomical",
     );
 
     // Orientation on a non-spatial axis -> the on-non-space marker.

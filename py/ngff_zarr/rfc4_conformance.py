@@ -9,9 +9,13 @@ implementation follows RFC 4:
     {"input": ..., "format": "ome-zarr", "rfc4_valid": bool,
      "axes": {name: value}, "violations": [code, ...], "warnings": [code, ...]}
 
-It reuses :func:`~ngff_zarr.rfc4_validation.validate_rfc4_orientation` (no rule is
-reimplemented) and reads the *raw* axes, so malformed metadata is still
-classifiable -- the high-level reader would reject it before it could be reported.
+It reads the *raw* axes, so malformed metadata is still classifiable -- the
+high-level reader would reject it before it could be reported. Findings are
+reported with the conformance contract's code names: RFC 4 defines no error codes,
+and the package's own :class:`~ngff_zarr.structural_validation.SpecRule`
+identifiers are a different vocabulary, so the classification here is deliberately
+expressed in the contract's terms while applying the same RFC 4 rules as
+:func:`~ngff_zarr.rfc4_validation.validate_rfc4_orientation`.
 """
 
 from __future__ import annotations
@@ -21,7 +25,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from .rfc4_validation import validate_rfc4_orientation
+from .rfc4_validation import _ANATOMICAL_AXIS_OF
 
 # Metadata files that may hold the multiscales, most specific first.
 _METADATA_NAMES = ("zarr.json", ".zattrs")
@@ -99,20 +103,60 @@ def _read_axes(path: str) -> list[dict[str, Any]]:
     raise _UnreadableInput("input-not-ome-zarr", f"{path} has no zarr.json or .zattrs")
 
 
-def _violation_code(exc: ValueError) -> str:
-    """Map a ``validate_rfc4_orientation`` ValueError onto its SpecRule code.
+def _classify(axes: list[dict[str, Any]]) -> tuple[list[str], list[str]]:
+    """Classify RFC 4 findings using the conformance contract's code vocabulary.
 
-    Uses the same stable message markers the structural validator relies on."""
-    message = str(exc)
-    if "non-space axes" in message:
-        return "axis-orientation-on-non-space"
-    if "same anatomical axis" in message:
-        return "axis-orientation-unique-axis"
-    if "same type" in message:
-        return "axis-orientation-consistent-type"
-    if "all spatial axes" in message:
-        return "axis-orientation-completeness"
-    return "orientation-invalid"
+    RFC 4 defines no error codes, so the names below belong to the conformance
+    contract rather than to the specification. The rules applied are the RFC's:
+
+    - ``orientation`` MUST only be used on spatial axes;
+    - an ``orientation`` object MUST carry a ``type`` (only ``"anatomical"`` is
+      defined) and a ``value`` drawn from the controlled vocabulary;
+    - a set of axes MUST only carry one direction of each antonym pair.
+
+    Orientation is optional per spatial axis, and an absent orientation is
+    equivalent to an explicit ``null`` -- neither is a violation -- but a writer
+    SHOULD omit the field rather than serialize ``null``, which is reported as a
+    warning. A code may repeat, once per offending axis.
+    """
+    violations: list[str] = []
+    warnings: list[str] = []
+    seen_anatomical_axis: dict[str, str] = {}
+
+    for axis in axes:
+        if not isinstance(axis, dict):
+            continue
+        orientation = axis.get("orientation")
+
+        # An explicit null is equivalent to an absent field (undefined), but
+        # RFC 4 says writers SHOULD omit it instead.
+        if "orientation" in axis and orientation is None:
+            warnings.append("null-orientation")
+            continue
+        if not isinstance(orientation, dict) or not orientation:
+            continue
+
+        if axis.get("type") != "space":
+            violations.append("orientation-on-non-space")
+            continue
+        if orientation.get("type") != "anatomical":
+            violations.append("bad-type")
+            continue
+        value = orientation.get("value")
+        if value is None:
+            violations.append("missing-value")
+            continue
+        if value not in _ANATOMICAL_AXIS_OF:
+            violations.append("bad-value")
+            continue
+
+        axis_key = _ANATOMICAL_AXIS_OF[value]
+        if axis_key in seen_anatomical_axis:
+            violations.append("duplicate-anatomical-axis")
+        else:
+            seen_anatomical_axis[axis_key] = str(axis.get("name"))
+
+    return violations, warnings
 
 
 def conformance_report(path: str) -> dict[str, Any]:
@@ -134,8 +178,8 @@ def conformance_report(path: str) -> dict[str, Any]:
         }
 
     # Built defensively from the raw axes: a malformed axis (missing name,
-    # non-dict orientation) is skipped here rather than crashing the verdict --
-    # validate_rfc4_orientation below still reports it as a violation.
+    # non-dict orientation) is skipped in this display map rather than crashing
+    # the verdict; _classify below still reports any rule it violates.
     orientations = {
         axis["name"]: axis["orientation"]["value"]
         for axis in axes
@@ -145,13 +189,7 @@ def conformance_report(path: str) -> dict[str, Any]:
         and axis["orientation"].get("value")
     }
 
-    violations: list[str] = []
-    try:
-        validate_rfc4_orientation(axes)
-    except ValueError as exc:
-        violations.append(_violation_code(exc))
-    except Exception:
-        violations.append("orientation-schema-invalid")
+    violations, warnings = _classify(axes)
 
     return {
         "input": path,
@@ -159,5 +197,5 @@ def conformance_report(path: str) -> dict[str, Any]:
         "rfc4_valid": not violations,
         "axes": orientations,
         "violations": violations,
-        "warnings": [],
+        "warnings": warnings,
     }

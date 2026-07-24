@@ -14,9 +14,10 @@ Coverage:
 * a fully specified, consistent orientation passes for *both* stored shapes -- a
   raw ``dict`` (image read path) and an
   :class:`~ngff_zarr.rfc4.AnatomicalOrientation` dataclass (write path);
-* mixed orientation ``type`` -> :attr:`SpecRule.AXIS_ORIENTATION_CONSISTENT_TYPE`;
-* orientation on some but not all spatial axes ->
-  :attr:`SpecRule.AXIS_ORIENTATION_COMPLETENESS`.
+* a non-anatomical orientation ``type`` ->
+  :attr:`SpecRule.AXIS_ORIENTATION_ANATOMICAL_TYPE`;
+* orientation on only some spatial axes -> accepted (RFC 4 makes orientation
+  optional per axis).
 
 Each failing case asserts the expected :class:`SpecRule` and the
 ``multiscales[0].axes`` location.
@@ -92,7 +93,7 @@ def test_axis_orientation_valid_consistent(shape):
     validate_axis_orientation(metadata)
 
 
-def test_axis_orientation_inconsistent_type():
+def test_axis_orientation_non_anatomical_type():
     # The "y" axis declares a different orientation type than its siblings.
     metadata = _metadata_with_axes(
         [
@@ -107,12 +108,41 @@ def test_axis_orientation_inconsistent_type():
     )
     with pytest.raises(ValidationError) as exc_info:
         validate_axis_orientation(metadata)
-    assert exc_info.value.rule == SpecRule.AXIS_ORIENTATION_CONSISTENT_TYPE
+    assert exc_info.value.rule == SpecRule.AXIS_ORIENTATION_ANATOMICAL_TYPE
     assert exc_info.value.location == "multiscales[0].axes"
 
 
-def test_axis_orientation_incomplete():
-    # Orientation is defined for "z" and "y" but missing on "x".
+def test_axis_orientation_empty_object_is_undefined():
+    """An empty ``orientation`` object is undefined, whatever the axis type.
+
+    Guards the Axis-to-dict rendering: emitting ``{}`` as a populated
+    ``{"type": None, "value": None}`` dict would read back as a real orientation
+    and trip the non-space or anatomical-type rule.
+    """
+    # On a non-spatial axis: not a use of orientation, so not a violation.
+    validate_axis_orientation(
+        _metadata_with_axes(
+            [
+                Axis(name="t", type="time", orientation={}),
+                Axis(name="y", type="space"),
+                Axis(name="x", type="space"),
+            ]
+        )
+    )
+    # On a spatial axis: that axis is simply left undefined.
+    validate_axis_orientation(
+        _metadata_with_axes(
+            [
+                Axis(name="y", type="space", orientation={}),
+                Axis(name="x", type="space"),
+            ]
+        )
+    )
+
+
+def test_axis_orientation_partial_is_accepted():
+    # Orientation is defined for "z" and "y" and left undefined on "x". RFC 4
+    # makes orientation optional per spatial axis, so this is not a violation.
     metadata = _metadata_with_axes(
         [
             Axis(name="z", type="space", orientation=_orientation_dict(_LPS_VALUES[0])),
@@ -120,17 +150,7 @@ def test_axis_orientation_incomplete():
             Axis(name="x", type="space"),
         ]
     )
-    with pytest.raises(ValidationError) as exc_info:
-        validate_axis_orientation(metadata)
-    assert exc_info.value.rule == SpecRule.AXIS_ORIENTATION_COMPLETENESS
-    assert exc_info.value.location == "multiscales[0].axes"
-    # Axis-name lists render Python-style (`['z', 'y']`); the TypeScript port
-    # matches this byte-for-byte via its formatNameList() helper (locks parity).
-    assert exc_info.value.message == (
-        "RFC 4 requires that if orientation is defined for one spatial axis, "
-        "it must be defined for all spatial axes. "
-        "Axes with orientation: ['z', 'y'], axes without orientation: ['x']"
-    )
+    validate_axis_orientation(metadata)
 
 
 def test_axis_orientation_on_non_space_axis():
@@ -178,7 +198,7 @@ def test_rfc4_orientation_messages_carry_mapping_markers():
 
     The wrapper distinguishes the RFC 4 orientation failures by searching
     :func:`~ngff_zarr.rfc4_validation.validate_rfc4_orientation`'s message text
-    for ``"same type"``, ``"all spatial axes"``, ``"non-space axes"`` and
+    for ``"must be anatomical"``, ``"non-space axes"`` and
     ``"same anatomical axis"``. Those markers are a load-bearing contract: if the
     wording is edited away, the wrapper silently falls through to a bare
     ``ValueError`` instead of raising the mapped :class:`ValidationError`.
@@ -187,8 +207,8 @@ def test_rfc4_orientation_messages_carry_mapping_markers():
     """
     from ngff_zarr.rfc4_validation import validate_rfc4_orientation
 
-    # Mixed orientation type -> the marker the consistent-type rule maps.
-    with pytest.raises(ValueError, match="same type"):
+    # A non-anatomical orientation type -> the marker the type rule maps.
+    with pytest.raises(ValueError, match="must be anatomical"):
         validate_rfc4_orientation(
             [
                 {
@@ -204,22 +224,6 @@ def test_rfc4_orientation_messages_carry_mapping_markers():
                     "type": "space",
                     "orientation": {"type": "other", "value": "right-to-left"},
                 },
-            ]
-        )
-
-    # Orientation on some but not all spatial axes -> the completeness marker.
-    with pytest.raises(ValueError, match="all spatial axes"):
-        validate_rfc4_orientation(
-            [
-                {
-                    "name": "y",
-                    "type": "space",
-                    "orientation": {
-                        "type": "anatomical",
-                        "value": "anterior-to-posterior",
-                    },
-                },
-                {"name": "x", "type": "space"},
             ]
         )
 

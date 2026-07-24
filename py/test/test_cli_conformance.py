@@ -86,7 +86,7 @@ def test_conformance_report_orientation_on_non_space(tmp_path):
     )
     report = conformance_report(path)
     assert report["rfc4_valid"] is False
-    assert "axis-orientation-on-non-space" in report["violations"]
+    assert "orientation-on-non-space" in report["violations"]
 
 
 def test_conformance_report_duplicate_anatomical_axis(tmp_path):
@@ -100,7 +100,7 @@ def test_conformance_report_duplicate_anatomical_axis(tmp_path):
     )
     report = conformance_report(path)
     assert report["rfc4_valid"] is False
-    assert "axis-orientation-unique-axis" in report["violations"]
+    assert "duplicate-anatomical-axis" in report["violations"]
 
 
 def test_conformance_report_out_of_vocabulary(tmp_path):
@@ -114,7 +114,7 @@ def test_conformance_report_out_of_vocabulary(tmp_path):
     )
     report = conformance_report(path)
     assert report["rfc4_valid"] is False
-    assert report["violations"] == ["orientation-schema-invalid"]
+    assert report["violations"] == ["bad-value"]
 
 
 def test_conformance_report_reads_v2_zattrs(tmp_path):
@@ -196,12 +196,81 @@ def test_conformance_report_axis_missing_name_does_not_crash(tmp_path):
     (tmp_path / "zarr.json").write_text(json.dumps(metadata))
     report = conformance_report(str(tmp_path))
     assert report["format"] == "ome-zarr"
-    assert report["rfc4_valid"] is False
-    # The unnamed axis is dropped from the display map but is still surfaced as a
-    # violation by validate_rfc4_orientation, classified per the conformance
-    # contract as a schema-level failure.
+    # A missing axis name is an OME-Zarr concern, not an RFC 4 orientation rule,
+    # so the verdict is still emitted: the unnamed axis is simply dropped from the
+    # display map rather than crashing the command.
     assert report["axes"] == {}
-    assert report["violations"] == ["orientation-schema-invalid"]
+    assert report["rfc4_valid"] is True
+    assert report["violations"] == []
+
+
+def test_conformance_report_partial_orientation_is_valid(tmp_path):
+    """RFC 4 makes orientation optional per spatial axis, so partial is valid."""
+    path = _write_zarr(
+        tmp_path,
+        [
+            _space("z", "distal-to-proximal"),
+            _space("y", "dorsal-to-plantar"),
+            {"name": "x", "type": "space"},
+        ],
+    )
+    report = conformance_report(path)
+    assert report["rfc4_valid"] is True
+    assert report["violations"] == []
+    assert report["axes"] == {"z": "distal-to-proximal", "y": "dorsal-to-plantar"}
+
+
+def test_conformance_report_null_orientation_is_valid_with_warning(tmp_path):
+    """An explicit null equals an absent field; writers SHOULD omit it instead."""
+    path = _write_zarr(
+        tmp_path,
+        [
+            {"name": "z", "type": "space", "orientation": None},
+            _space("y", "anterior-to-posterior"),
+            _space("x", "right-to-left"),
+        ],
+    )
+    report = conformance_report(path)
+    assert report["rfc4_valid"] is True
+    assert report["violations"] == []
+    assert report["warnings"] == ["null-orientation"]
+
+
+def test_conformance_report_bad_type(tmp_path):
+    """RFC 4 defines a single orientation type, "anatomical"."""
+    path = _write_zarr(
+        tmp_path,
+        [
+            {
+                "name": "z",
+                "type": "space",
+                "orientation": {
+                    "type": "geographical",
+                    "value": "inferior-to-superior",
+                },
+            },
+            _space("y", "anterior-to-posterior"),
+            _space("x", "right-to-left"),
+        ],
+    )
+    report = conformance_report(path)
+    assert report["rfc4_valid"] is False
+    assert report["violations"] == ["bad-type"]
+
+
+def test_conformance_report_missing_value(tmp_path):
+    """An orientation object MUST carry a value."""
+    path = _write_zarr(
+        tmp_path,
+        [
+            {"name": "z", "type": "space", "orientation": {"type": "anatomical"}},
+            _space("y", "anterior-to-posterior"),
+            _space("x", "right-to-left"),
+        ],
+    )
+    report = conformance_report(path)
+    assert report["rfc4_valid"] is False
+    assert report["violations"] == ["missing-value"]
 
 
 def test_conformance_cli_prints_json(tmp_path, monkeypatch, capsys):

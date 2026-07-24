@@ -67,8 +67,7 @@ const CANONICAL_SPEC_RULE_IDS: string[] = [
   "global-coord-transform-after-per-level",
   "dataset-order-highest-to-lowest",
   "omero-channel-color-format",
-  "axis-orientation-consistent-type",
-  "axis-orientation-completeness",
+  "axis-orientation-anatomical-type",
   "axis-orientation-on-non-space",
   "axis-orientation-unique-axis",
   "zarr-format",
@@ -98,7 +97,7 @@ const EXPECTED_EVALUATION_ORDER: SpecRule[] = [
   SpecRule.GlobalCoordTransformAfterPerLevel, // transform order
   SpecRule.DatasetOrderHighestToLowest,
   SpecRule.OmeroChannelColorFormat,
-  SpecRule.AxisOrientationConsistentType,
+  SpecRule.AxisOrientationAnatomicalType,
 ];
 
 /** Build a single-channel OMERO block with the given channel `color`. */
@@ -124,7 +123,7 @@ function orientation(type: string, value: string): AxisOrientation {
  * Every axis rule passes (channel-then-space class order, `(z, y, x)` spatial
  * suffix, count 4), but the `y` axis declares orientation type `"other"` while
  * `z` and `x` declare `"anatomical"` -- tripping
- * {@link SpecRule.AxisOrientationConsistentType}, the last orchestrator rule,
+ * {@link SpecRule.AxisOrientationAnatomicalType}, the last orchestrator rule,
  * once every earlier rule is satisfied.
  */
 function validAxesWithInconsistentOrientation(): Axis[] {
