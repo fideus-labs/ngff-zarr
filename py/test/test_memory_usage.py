@@ -39,3 +39,19 @@ def test_memory_usage():
     assert usage == 64
     usage = memory_usage(image, {"z"})
     assert usage == 32
+
+
+def test_memory_usage_multi_byte_dtype():
+    """The itemsize counts once, not once per dimension.
+
+    The uint8 case above cannot see the difference: an itemsize of 1 is unchanged by being multiplied
+    in repeatedly. Any wider dtype can, and by a lot -- a 4-D float32 array is overstated 64-fold if
+    the itemsize enters the product on every axis.
+    """
+    arr = dask.array.zeros((3, 4, 5, 6), dtype=np.float32, chunks=(3, 2, 5, 6))
+    image = to_ngff_image(arr, dims=("c", "z", "y", "x"))
+
+    assert arr.nbytes == 3 * 4 * 5 * 6 * 4
+    assert memory_usage(image) == arr.nbytes
+    # One constrained dimension: that axis contributes its chunk rather than its full extent.
+    assert memory_usage(image, {"z"}) == 3 * 2 * 5 * 6 * 4
