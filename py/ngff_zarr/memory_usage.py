@@ -17,7 +17,7 @@ def memory_usage(image: NgffImage, constrained_dims: set[str] | None = None) -> 
         constrained_dims = set()
     for dim in range(arr.ndim):
         if dims[dim] in constrained_dims:
-            partition_size *= block[dim] * arr.itemsize
+            partition_size *= block[dim]
         else:
-            partition_size *= shape[dim] * arr.itemsize
-    return partition_size
+            partition_size *= shape[dim]
+    return partition_size * arr.itemsize
