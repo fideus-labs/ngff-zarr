@@ -124,7 +124,9 @@ ngff-zarr --dims "z" "y" "x" --scale x 1.4 y 1.4 z 2.5 --translation x 6.24 y 36
 ### Limit memory consumption
 
 Limit memory consumption by passing a rough memory limit in human-readable
-units, e.g. _8GB_ with the `--memory-target` option.
+units, e.g. _8GB_ with the `--memory-target` option. The estimate accounts for
+the array dtype itemsize once, so wider dtypes such as `float32` and `float64`
+are no longer overstated per dimension.
 
 ```shell
 ngff-zarr --memory-target 50M -i ./LIDCFull.vtk -o ./LIDCFull.ome.zarr
