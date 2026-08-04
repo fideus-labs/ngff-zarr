@@ -3,7 +3,7 @@ orphan: true
 ---
 <!-- SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC -->
 <!-- SPDX-License-Identifier: MIT -->
-# TIFF and OME-TIFF Support
+# 🖼️ TIFF and OME-TIFF Support
 
 NGFF-Zarr provides comprehensive support for converting TIFF and OME-TIFF files
 to OME-Zarr. When reading OME-TIFF files, physical size metadata is automatically

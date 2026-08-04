@@ -3,7 +3,7 @@ orphan: true
 ---
 <!-- SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC -->
 <!-- SPDX-License-Identifier: MIT -->
-# Leica Image Format (LIF) Support
+# 🔬 Leica Image Format (LIF) Support
 
 NGFF-Zarr provides comprehensive support for converting Leica Image Format (LIF)
 files to OME-Zarr. LIF is a proprietary format used by Leica microscopy systems
