@@ -210,6 +210,36 @@ ngff-zarr upgrade src.zarr -o dst.zarr --to 0.6 --validate --no-overwrite
 The command prints the detected source version, the target version, and which
 mode it ran. `ngff-zarr upgrade --help` lists every option.
 
+### Check RFC-4 anatomical orientation conformance
+
+The `ngff-zarr conformance` subcommand reads one store and prints a single JSON
+verdict on its [RFC-4](./rfc4.md) anatomical orientation metadata:
+
+```shell
+ngff-zarr conformance path/to/image.ome.zarr
+```
+
+```json
+{
+  "input": "path/to/image.ome.zarr",
+  "format": "ome-zarr",
+  "rfc4_valid": true,
+  "axes": {
+    "z": "inferior-to-superior",
+    "y": "anterior-to-posterior",
+    "x": "right-to-left"
+  },
+  "violations": [],
+  "warnings": []
+}
+```
+
+Directory stores and `.zip` archives are both accepted. The output is the
+canonical contract used by the
+[RFC-4 conformance suite](https://github.com/fideus-labs/ome-zarr-rfc4-validation),
+so the suite's driver can be pointed straight at this command. The
+[RFC-4 documentation](./rfc4.md) lists the violation and warning codes.
+
 ### More options
 
 ```shell

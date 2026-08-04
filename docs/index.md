@@ -48,6 +48,7 @@ python.md
 typescript.md
 cli.md
 mcp.md
+rfc4.md
 rfc5.md
 hcs.md
 spec_features.md
