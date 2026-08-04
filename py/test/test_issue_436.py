@@ -149,8 +149,7 @@ def test_multiseries_tiff_to_ozx_creates_requested_file():
     root = zarr.open_group(store, mode="r")
     scale0 = root["scale0"]
     arr = scale0[next(iter(scale0.keys()))]
-    assert arr.shape[1] == base.shape[0]
-    assert arr.shape[2] == base.shape[1]
+    assert arr.shape == (base.shape[2], base.shape[0], base.shape[1])
     # Real pixel data, not an all-zero / blank array.
     assert int(np.asarray(arr[:]).max()) > 0
 
