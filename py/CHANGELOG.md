@@ -1,3 +1,169 @@
+## py-v0.41.0 (2026-08-04)
+
+### ✨ Features
+
+- **py**: add `ngff-zarr conformance` RFC 4 verdict subcommand ([7830d24](https://github.com/fideus-labs/ngff-zarr/commit/7830d244f907cf7de9308127f2be85bec27d774f))
+- **py**: add ngff-zarr upgrade CLI subcommand ([0a426f9](https://github.com/fideus-labs/ngff-zarr/commit/0a426f9256e925f62274aab3f50b208ac3b59abd))
+- **py**: add upgrade_ome_zarr() OME-Zarr spec-version upgrade ([c3bb7ed](https://github.com/fideus-labs/ngff-zarr/commit/c3bb7ed9efc2550597f474f7d8178306663043c2))
+
+### 🐛 Bug Fixes
+
+- **py**: count itemsize once in memory_usage, not once per dimension ([6b7fba7](https://github.com/fideus-labs/ngff-zarr/commit/6b7fba750867505fcf8ec8aab46a27da002fe6d1))
+- RFC 4 orientation is optional per axis, null equals absent, type must be anatomical ([f4bf3dc](https://github.com/fideus-labs/ngff-zarr/commit/f4bf3dcb4446678e17135a95305b379c3fb9fe0a))
+- **py**: correct v0.5 to_version return type to cross-version union ([dae2de5](https://github.com/fideus-labs/ngff-zarr/commit/dae2de50e101b6e8d267eb0dc5e73c187af980cf))
+- **py**: install prek hooks with --overwrite ([af76338](https://github.com/fideus-labs/ngff-zarr/commit/af763383b461d0f969ef727388b0c9e7183a34ef))
+- **ci**: use supported 'prek update' in autoupdate workflow ([8f2ee83](https://github.com/fideus-labs/ngff-zarr/commit/8f2ee83af4af48f096fc0272abdeb303646c3768))
+- reject RFC 4 orientation on non-spatial axes and duplicate anatomical axes ([45de14c](https://github.com/fideus-labs/ngff-zarr/commit/45de14c0ed62a0f0d68d56790f1a71482cb9c221))
+
+## py-v0.39.0 (2026-07-17)
+
+### ♻️ Refactoring
+
+- **py**: enumerate shard divisors in O(sqrt) and refresh clamp comments ([431aa04](https://github.com/fideus-labs/ngff-zarr/commit/431aa0474fc9559c7da552e9bcfb233bf96cf669))
+
+### ✨ Features
+
+- **py,ts**: write an image and its transformation into one store ([be3f6cd](https://github.com/fideus-labs/ngff-zarr/commit/be3f6cd54d622559fac1049e0c8ea6194e7c1ef4))
+
+### 🐛 Bug Fixes
+
+- **py**: floor sharded inner chunk to avoid 2*prime collapse ([3bf12dd](https://github.com/fideus-labs/ngff-zarr/commit/3bf12dd3996e67104013099f6cf2a608596a4e61))
+- **py**: clamp chunk/shard sizes to the axis instead of snapping to a divisor ([7cab47b](https://github.com/fideus-labs/ngff-zarr/commit/7cab47b0509e08737704f996266a52d1f654ac46))
+- **py**: step region writes by the band width so the whole array is written ([9ccf5c8](https://github.com/fideus-labs/ngff-zarr/commit/9ccf5c84460a76fda149f3bda61d9e8a7b940752))
+
+## py-v0.38.0 (2026-07-09)
+
+### ♻️ Refactoring
+
+- **py,ts**: move v0.6 axis types to v06 and set axes_types on NgffImage ([54eaed4](https://github.com/fideus-labs/ngff-zarr/commit/54eaed4d2e4b23de93f68a3c15723fc14893244e))
+
+### ✨ Features
+
+- **py,ts**: carry the v0.6 discrete axis flag and address review feedback ([5203864](https://github.com/fideus-labs/ngff-zarr/commit/5203864efefcd1ba38b42c3e4976c542ae984fcf))
+- **py,ts**: support OME-Zarr v0.6 displacement and coordinate fields ([c181cc1](https://github.com/fideus-labs/ngff-zarr/commit/c181cc189edc142f2add7f0df3a3ad865421f0f8))
+
+## py-v0.37.1 (2026-07-03)
+
+### 🐛 Bug Fixes
+
+- **py**: add py.typed marker for PEP 561 compliance ([5ccf7da](https://github.com/fideus-labs/ngff-zarr/commit/5ccf7da3eb2634f43554ebdea5b438bea731b0c9))
+
+## py-v0.37.0 (2026-06-25)
+
+### BREAKING CHANGE
+
+- The `enabled_rfcs` parameter (Python `to_ngff_zarr`/
+`to_ome_zarr`), the `--enable-rfc` CLI flag, the `enabledRfcs` TypeScript write
+option, and the MCP `enable_rfc4`/`enabled_rfcs` fields are removed. RFC-4
+anatomical orientation is written automatically when orientation metadata is
+present; supply it via `NgffImage.axes_orientations`, the new `orientation=`
+argument to `to_multiscales`, or the `--orientation` CLI flag. ([abda351](https://github.com/fideus-labs/ngff-zarr/commit/abda351de31305f87a6119102e27b55e6baaecdb))
+
+### ♻️ Refactoring
+
+- **py,ts**: write RFC-4 anatomical orientation automatically, drop enabled-rfcs API ([abda351](https://github.com/fideus-labs/ngff-zarr/commit/abda351de31305f87a6119102e27b55e6baaecdb))
+- update to refactored read/write functions ([39318c0](https://github.com/fideus-labs/ngff-zarr/commit/39318c07cacbba81238174ade43febf1426117f2))
+- Introduce CoordinateSystemIdentifier metadata class ([52df14f](https://github.com/fideus-labs/ngff-zarr/commit/52df14fecb4406a05254dd053f3b11e6039c138d))
+- improve typing of omero parser ([25ef680](https://github.com/fideus-labs/ngff-zarr/commit/25ef68023a16b74ceefc1baff9155d39d1618774))
+- Make rfc4 checks compliant with v0.6 metadata structure ([83d0f52](https://github.com/fideus-labs/ngff-zarr/commit/83d0f52a9480086167264f207a7726f425442120))
+- add metadata reading into class methods ([7f0923c](https://github.com/fideus-labs/ngff-zarr/commit/7f0923c91a6b987297a1964347ea026d54c39579))
+
+### ✨ Features
+
+- 0.6.dev4 on write ([7db2227](https://github.com/fideus-labs/ngff-zarr/commit/7db2227d11b02ced680531fddee4c0bf01876057))
+- allow reading dev4 versions ([50a9434](https://github.com/fideus-labs/ngff-zarr/commit/50a943448196d5d3019ce1675c7f22cb2394b603))
+- pin higher zarr ([4d5269f](https://github.com/fideus-labs/ngff-zarr/commit/4d5269f60128dee0cfdb884607a61d77af73b941))
+- import missing metadata class ([b6bd757](https://github.com/fideus-labs/ngff-zarr/commit/b6bd757190c5cc19011015cddbdb7fc33440a6fb))
+- move up metadata conversion to retain method metadata ([4c0b829](https://github.com/fideus-labs/ngff-zarr/commit/4c0b829e4ea959da4d8ec08ab3a09bf187ca2bc1))
+- introduce convenience method to validate intrinsic coordinate system ([c4347d5](https://github.com/fideus-labs/ngff-zarr/commit/c4347d5de982d73872f6b785b0c9c4e2703cbe9c))
+- update to 0.6-style input output convention ([9446760](https://github.com/fideus-labs/ngff-zarr/commit/9446760f3a12fa74f35c873dba12f927d0262aae))
+- use correct call to class attribute ([7d70b7e](https://github.com/fideus-labs/ngff-zarr/commit/7d70b7e405ede0234f4fe1d5392ae4530bdbcb52))
+- add escape for missing coordinate systems ([ca1d0ae](https://github.com/fideus-labs/ngff-zarr/commit/ca1d0ae2300ed4a192368da7f0c4c095c3017f51))
+- add missing, declared conversion from v06 to v04 ([b37e210](https://github.com/fideus-labs/ngff-zarr/commit/b37e210e676f6300dff3b5338cb16884ffb6f5e3))
+- always treat scale/translation variables as class instances ([f2d9cbd](https://github.com/fideus-labs/ngff-zarr/commit/f2d9cbd010badd8ab058bf4a435186ff20b83d96))
+- update to latest schemas ([bfea702](https://github.com/fideus-labs/ngff-zarr/commit/bfea7027db13ca90f37975c56b969a89c3d054f8))
+- add schemas (preliminary) ([300f389](https://github.com/fideus-labs/ngff-zarr/commit/300f38955510b382a201f93bb1d4e119d676edb9))
+- Add utility parser function for transforms ([eb6915a](https://github.com/fideus-labs/ngff-zarr/commit/eb6915ae8e0df05e0980607afaaa0091999b6567))
+- Support 0.6 reading and writing ([21a54c6](https://github.com/fideus-labs/ngff-zarr/commit/21a54c67150c5ad8ca83163121aeb07eb1429e4a))
+
+### 🐛 Bug Fixes
+
+- **py**: re-open LIF source at compute time to survive closed file handle ([618c838](https://github.com/fideus-labs/ngff-zarr/commit/618c838de1e3bf5dce4c572234dd9325dc9901c7))
+- **py**: map big-endian dtypes to Zarr v3 core dtype ([04890f6](https://github.com/fideus-labs/ngff-zarr/commit/04890f60291212c836063590f04250f101459d5d))
+- **py**: carry metadata extra passthrough through v0.5/v0.6 conversion ([0315ad0](https://github.com/fideus-labs/ngff-zarr/commit/0315ad0a48e2e816985729c9a9efdefac486b3cf))
+- get omero metadata from correct location ([a8bc4f4](https://github.com/fideus-labs/ngff-zarr/commit/a8bc4f401a502c0a43997d7fafae340cd38ad2b4))
+- fix type annotation ([a656eba](https://github.com/fideus-labs/ngff-zarr/commit/a656ebae38fb8de0b15b72a4e8f34d2779179f55))
+
+## py-v0.36.2 (2026-06-19)
+
+### 🐛 Bug Fixes
+
+- use >= in to_multiscales loop to handle exact chunk-size multiples ([53d6f08](https://github.com/fideus-labs/ngff-zarr/commit/53d6f088584ff8c4cf7d161cce03272d2ff6bcc6))
+
+## py-v0.36.1 (2026-06-18)
+
+### 🐛 Bug Fixes
+
+- **py**: support reading remote OME-Zarr out of the box via a [remote] extra ([35cbd65](https://github.com/fideus-labs/ngff-zarr/commit/35cbd658c69c96e73a4f6e58f462ee711583b484))
+
+## py-v0.36.0 (2026-06-18)
+
+### ✨ Features
+
+- **py,ts**: add OME-Zarr v0.5 structural validation and schema support ([598ed91](https://github.com/fideus-labs/ngff-zarr/commit/598ed91e6f3b15533d9a50a59b8cd68b3674e22f))
+- **py,ts**: extend RFC-4 vocabulary with subject-local tissue orientations ([0cc4a91](https://github.com/fideus-labs/ngff-zarr/commit/0cc4a9146fb9113d0a7c289f7787abdd825e362d))
+
+## py-v0.35.1 (2026-06-11)
+
+### 🐛 Bug Fixes
+
+- **py**: give actionable errors for corrupt TIFF/SVS conversions ([5797e3b](https://github.com/fideus-labs/ngff-zarr/commit/5797e3b4ec81595950a80df8b178a39c6ce4bc7a))
+
+## py-v0.35.0 (2026-06-04)
+
+### ♻️ Refactoring
+
+- **py**: cull all None metadata fields recursively ([159add6](https://github.com/fideus-labs/ngff-zarr/commit/159add6ae428634cacce8ba13d5a06104c048cd1))
+
+### ✨ Features
+
+- **py**: add OME-Zarr v0.4 structural validation ([d6de82b](https://github.com/fideus-labs/ngff-zarr/commit/d6de82b25ea5207c6b3e201013914a2d6062f5e3))
+
+### 🐛 Bug Fixes
+
+- **py**: degrade gracefully when stdout cannot be reconfigured ([89bfcb2](https://github.com/fideus-labs/ngff-zarr/commit/89bfcb2a8ef39176927d0912c5778e77b56cf8d5))
+- **py**: prevent CLI crash on legacy Windows terminal encodings ([b842050](https://github.com/fideus-labs/ngff-zarr/commit/b842050fc127c9dbbcf635a58445538bf840e845))
+- **ci**: remove OTLP import from daily-doc-updater workflow ([45394c8](https://github.com/fideus-labs/ngff-zarr/commit/45394c8ccb09b5ad3687d8dd834c94af45d69469))
+- **py**: create requested .ozx for multi-series TIFFs, warn on truncated reads ([25cc73a](https://github.com/fideus-labs/ngff-zarr/commit/25cc73a5153f9974ba43e69c52e20342481bcd33))
+- **py**: strip deprecated nthreads/blocksize from blosc codec config when reading zarr v3 files ([572c19a](https://github.com/fideus-labs/ngff-zarr/commit/572c19a6fda86382a6bb7ae3c1b6da9950115033))
+- **test**: handle pre-existing file cleanup in overwrite directory test fixture ([53fc468](https://github.com/fideus-labs/ngff-zarr/commit/53fc468500228501450283689c1874ce6178d688))
+- **py**: handle pre-existing directory at .ozx destination on Windows ([8c85fe4](https://github.com/fideus-labs/ngff-zarr/commit/8c85fe40610491038807609391225034c045e3da))
+
+## py-v0.34.2 (2026-05-28)
+
+### 🐛 Bug Fixes
+
+- stop pre-commit from mangling gh-aw generated files ([d6f1201](https://github.com/fideus-labs/ngff-zarr/commit/d6f120144884bc6a3089e5286a624ed0316f90ba))
+
+## py-v0.34.1 (2026-05-27)
+
+### 🐛 Bug Fixes
+
+- **from-ome-zarr**: better error routing ([095ce7c](https://github.com/fideus-labs/ngff-zarr/commit/095ce7c1e7cacae75727c11bd27e3d187218cc45))
+- **py**: add helpful error messages for GroupNotFoundError in from_ngff_zarr ([89552ac](https://github.com/fideus-labs/ngff-zarr/commit/89552ac488588c94ab5cabfde07b852b85705748))
+- **py**: use arr.chunksize for v0.5 chunks forwarding ([9dcdf07](https://github.com/fideus-labs/ngff-zarr/commit/9dcdf076012b907bbbceb576cd81f5e546f8c5a9))
+- **py**: resolve data loss and chunks regressions from issue #488 ([c93fe01](https://github.com/fideus-labs/ngff-zarr/commit/c93fe012b8451e1409aa679376419f456ea04416))
+- **py**: apply _find_optimal_chunk_size to spatial dims only in z-slabs path ([0fbdb0c](https://github.com/fideus-labs/ngff-zarr/commit/0fbdb0c3f8bbe7af2efe09614595e66246fecdd0))
+- **py**: remove dask.array.optimize to prevent chunk structure fusion ([ab3bbfd](https://github.com/fideus-labs/ngff-zarr/commit/ab3bbfd50ba88493a68028329906d45ed96c93a3))
+- **py**: align 2D strip and 1D segment cache chunks with region write boundaries ([f398ce3](https://github.com/fideus-labs/ngff-zarr/commit/f398ce35e8c501baac3aac5d1d2b8ad42507d65f))
+- **py**: align cache zarr chunks with dask data chunks to prevent PerformanceWarning ([8b2fdd6](https://github.com/fideus-labs/ngff-zarr/commit/8b2fdd62db316fa815f92da37a670c0f663e70a5))
+- **py**: prevent zarr_kwargs mutation across scale loop iterations in _handle_large_array_writing ([f1f88d7](https://github.com/fideus-labs/ngff-zarr/commit/f1f88d752fdb54f767a60bfc7548cf396c0fb7b7))
+- **py**: remove retry_if_failed from pooch downloader ([2f9bda2](https://github.com/fideus-labs/ngff-zarr/commit/2f9bda2f909740e77a2be5707b4f8726d4beee64))
+- **py**: add retry with longer timeout to test data download ([8d9b490](https://github.com/fideus-labs/ngff-zarr/commit/8d9b49031eb9d65f5fdd46b56313889c19330375))
+- **py**: use create_array for zarr v3 compatibility in rfc4 validation tests ([6b9c45f](https://github.com/fideus-labs/ngff-zarr/commit/6b9c45fb4e0210a247e1d1a781343182204e71f3))
+- **ci**: lower imagecodecs lower bound for Python 3.10 support ([74765a8](https://github.com/fideus-labs/ngff-zarr/commit/74765a8c10e27ddce7ed3c0ebc8e15b01501a9aa))
+- **ci**: pin imagecodecs to v2026.3.6 to prevent macOS Intel build failure ([3452bea](https://github.com/fideus-labs/ngff-zarr/commit/3452bea724b4c5089985143e17dc1ae410dbbc80))
+
 ## py-v0.40.0 (2026-07-24)
 
 ### ✨ Features
