@@ -1,6 +1,6 @@
 <!-- SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC -->
 <!-- SPDX-License-Identifier: MIT -->
-# RFC-4: Anatomical Orientation Support
+# 🧠 RFC-4: Anatomical Orientation Support
 
 [RFC-4] adds support for anatomical orientation metadata to OME-NGFF axes,
 enabling precise description of spatial axis directions in biological and
@@ -257,7 +257,7 @@ ngff_image = nz.NgffImage(
     dims=("z", "y", "x"),
     scale={"x": 1.0, "y": 1.0, "z": 1.0},
     translation={"x": 0.0, "y": 0.0, "z": 0.0},
-    axes_orientations=ngff_zarr.RAS
+    axes_orientations=nz.RAS
 )
 
 # Convert to multiscales and write -- orientation is written automatically
@@ -355,6 +355,116 @@ metadata include an `orientation` field:
 }
 ```
 
+## Validation and Conformance
+
+### What RFC-4 requires
+
+Beyond the vocabulary above, [RFC-4] constrains where and how orientation is
+declared:
+
+- `orientation` is used **only** on spatial axes (`type: "space"`), never on a
+  time or channel axis.
+- An orientation object carries a `type` -- `"anatomical"` is the only defined
+  value -- and a `value` drawn from the 24-term vocabulary.
+- A set of axes carries **one direction of each antonym pair**: an image cannot
+  declare both `left-to-right` and `right-to-left`.
+- Orientation is optional per axis. An absent field and an explicit `null` mean
+  the same thing, but writers SHOULD omit the field rather than serialize
+  `null`.
+
+Three of these are enforced by `validate_structural()` as the rules
+`axis-orientation-anatomical-type`, `axis-orientation-on-non-space` and
+`axis-orientation-unique-axis`, raising a `ValidationError` that names the
+offending rule and axis:
+
+```python
+from ngff_zarr import from_ngff_zarr, validate_structural, ValidationError
+
+multiscales = from_ngff_zarr("image.ome.zarr")
+try:
+    # The structural rules read the flat v0.4 axis list, so convert first when
+    # the store was read into a newer data model.
+    validate_structural(multiscales.metadata.to_version("0.4"))
+except ValidationError as exc:
+    print(exc.rule.value, exc.message)
+    # axis-orientation-unique-axis Axes 'z' and 'y' describe the same
+    # anatomical axis; RFC 4 allows only one direction per axis.
+```
+
+### The `conformance` subcommand
+
+`ngff-zarr conformance` prints a single JSON verdict for one store, in the
+canonical format a tool-agnostic conformance driver diffs against its manifest:
+
+```bash
+ngff-zarr conformance brain_icbm_ras.ome.zarr
+```
+
+```json
+{
+  "input": "brain_icbm_ras.ome.zarr",
+  "format": "ome-zarr",
+  "rfc4_valid": true,
+  "axes": {
+    "z": "inferior-to-superior",
+    "y": "anterior-to-posterior",
+    "x": "right-to-left"
+  },
+  "violations": [],
+  "warnings": []
+}
+```
+
+`axes` maps each axis that declares an orientation value to that value;
+unannotated axes are omitted. `rfc4_valid` is false whenever `violations` is
+non-empty. The axes are read raw, so malformed metadata is still classified
+rather than rejected before it can be reported, and a code repeats once per
+offending axis:
+
+| Code | Condition |
+|---|---|
+| `orientation-on-non-space` | orientation declared on a non-spatial axis |
+| `bad-type` | `orientation.type` is not `"anatomical"` |
+| `missing-value` | orientation object without a `value` |
+| `bad-value` | `value` outside the 24-term vocabulary |
+| `duplicate-anatomical-axis` | two axes describing the same anatomical axis |
+| `null-orientation` *(warning)* | `orientation: null` -- writers SHOULD omit it |
+| `input-unreadable` | the store or its metadata is not readable JSON |
+| `input-not-ome-zarr` | `multiscales[0].axes` is missing or malformed |
+
+The last two are read failures rather than RFC-4 findings: `input-unreadable`
+covers an unreadable archive or invalid JSON, `input-not-ome-zarr` a store whose
+metadata carries no usable `multiscales[0].axes`. Either one is reported as a
+violation with `"rfc4_valid": false` and an empty `axes` object, so an input
+that could not be read is never mistaken for a conformant one.
+
+## RFC-4 Conformance and Validation Data
+
+A reference validator, tool-agnostic conformance suite, sample datasets,
+and viewer screenshots are available at:
+
+<https://github.com/fideus-labs/ome-zarr-rfc4-validation>
+
+The corpus spans OME-Zarr alongside source formats that carry orientation in
+their own headers -- DICOM, NIfTI, NRRD, MINC, Analyze, Bruker ParaVision, FDF
+and whole-slide imaging -- exercises the full 24-term vocabulary, and
+includes must-reject cases for each rule above. Its driver runs any tool that
+speaks the canonical contract, so the subcommand above can be checked against
+the whole suite:
+
+```bash
+python conformance/run_conformance.py \
+    --data-dir hf-data \
+    --tool "ngff-zarr conformance {input}"
+```
+
+The sample data lives in a separate
+[Hugging Face repo](https://huggingface.co/fideus-labs/ome-zarr-rfc4-data),
+mirrored to a public S3 bucket that needs no credentials. The screenshots show
+the same files opened in 3D Slicer, ITK-SNAP, NiiVue and napari -- useful for
+seeing which viewers act on the `orientation` field and which only display axis
+names.
+
 ## RFC-4 Functions
 
 ### Core Functions
@@ -402,6 +512,8 @@ unaffected.
 4. **Document orientation assumptions** in your analysis pipelines when working
    with oriented data
 5. **Validate orientations** match your expectations, especially when combining
-   data from different sources
+   data from different sources -- `ngff-zarr conformance <store>` reports the
+   per-axis verdict, and `validate_structural()` enforces the orientation rules
+   as part of structural validation
 
 [RFC-4]: https://ngff.openmicroscopy.org/rfc/4/index.html
