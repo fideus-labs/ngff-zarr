@@ -60,6 +60,8 @@ MANIFEST: list[dict[str, Any]] = [
         "version": "0.5+rfc3",
         "axes": [{"name": "t", "type": "time", "unit": "seconds"}],
         "ndim": 1,
+        # scipy.datasets.electrocardiogram: 5 minutes sampled at 360 Hz.
+        "shape": (108000,),
         "rfc3_reason": "1-D data was disallowed before RFC-3 (min 2 axes).",
     },
     {
@@ -72,6 +74,8 @@ MANIFEST: list[dict[str, Any]] = [
             {"name": "y", "type": "space"},
         ],
         "ndim": 3,
+        # imageio's 512x512 RGB astronaut, transposed (y, x, c) -> (x, c, y).
+        "shape": (512, 3, 512),
         "rfc3_reason": "channel-before-space ordering was required before RFC-3.",
     },
     {
@@ -80,6 +84,8 @@ MANIFEST: list[dict[str, Any]] = [
         "version": "0.5+rfc3",
         "axes": [{"name": n} for n in "abcdef"],
         "ndim": 6,
+        # A zero border around an 8^6 linear ramp, 16 samples per axis.
+        "shape": (16,) * 6,
         "rfc3_reason": "max 5 axes, and only one untyped axis, before RFC-3.",
     },
 ]
@@ -127,6 +133,11 @@ def _check_read_result(multiscales, expected: dict) -> dict[str, Any]:
         classification = MALFORMED_DATA
     if image.data.ndim != expected["ndim"]:
         problems.append(f"ndim {image.data.ndim} != expected {expected['ndim']}")
+        classification = MALFORMED_DATA
+    if tuple(image.data.shape) != tuple(expected["shape"]):
+        problems.append(
+            f"shape {tuple(image.data.shape)} != expected {tuple(expected['shape'])}"
+        )
         classification = MALFORMED_DATA
 
     try:
@@ -292,6 +303,7 @@ def run_case(data_dir: Path, case: dict) -> dict[str, Any]:
 
 
 def run_data_dir(data_dir: Path) -> list[dict[str, Any]]:
+    """Run every manifest case against ``data_dir``; return one report each."""
     return [run_case(data_dir, case) for case in MANIFEST]
 
 
@@ -320,6 +332,12 @@ def _print(report: dict[str, Any]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI entry point: print per-case reports and the summary line.
+
+    ``--data-dir`` (default: ``$RFC3_DATA_DIR``) locates the generated
+    datasets and ``--json`` also writes the reports to a file. Returns exit
+    status 0 iff every manifest case passes; a skipped dataset is not a pass.
+    """
     parser = argparse.ArgumentParser(description="RFC-3 conformance driver.")
     parser.add_argument(
         "--data-dir",
