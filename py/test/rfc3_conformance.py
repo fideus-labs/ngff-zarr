@@ -50,9 +50,16 @@ RFC3_METADATA = "rfc3-metadata"
 MALFORMED_DATA = "malformed-data"
 STORAGE = "storage"
 
+#: Revision of clbarnes/ome-zarr-rfc3-data whose generated output the manifest
+#: below describes (axes, shapes, dtypes). The data is regenerated, not
+#: versioned; against another revision a shape or axis mismatch may be an
+#: upstream change rather than malformed data.
+RFC3_DATA_REVISION = "503323514c4c"
+
 # Authored ground truth for the datasets produced by clbarnes/ome-zarr-rfc3-data
-# (main.py). ``axes`` is the exact declared axis list, in order; a missing
-# ``type`` key is preserved because it is the RFC-3 point under test.
+# (main.py, at RFC3_DATA_REVISION). ``axes`` is the exact declared axis list,
+# in order; a missing ``type`` key is preserved because it is the RFC-3 point
+# under test.
 MANIFEST: list[dict[str, Any]] = [
     {
         "id": "ecg_1d",
@@ -98,6 +105,11 @@ def _read_group_attrs(path: Path) -> tuple[dict, int | None]:
         doc = json.loads(zarr_json.read_text())
         attrs = doc.get("attributes", doc)
         return attrs.get("ome", attrs), 3
+    zmetadata = path / ".zmetadata"  # Zarr v2, consolidated (authoritative)
+    if zmetadata.is_file():
+        doc = json.loads(zmetadata.read_text())
+        attrs = doc.get("metadata", {}).get(".zattrs", {})
+        return attrs.get("ome", attrs), 2
     zattrs = path / ".zattrs"  # Zarr v2
     if zattrs.is_file():
         attrs = json.loads(zattrs.read_text())
@@ -181,6 +193,14 @@ def _check_read_result(multiscales, expected: dict) -> dict[str, Any]:
     return result
 
 
+def _retag_attrs_version(doc: dict, version: str) -> None:
+    """Rewrite the OME-Zarr version inside a group-attributes dict, in place."""
+    if isinstance(doc.get("ome"), dict):  # v0.5 namespace on a v2 store
+        doc["ome"]["version"] = version
+    for multiscale in doc.get("multiscales", []):  # v0.4 per-entry version
+        multiscale["version"] = version
+
+
 def _patch_group_version(root: Path, version: str) -> None:
     """Rewrite the OME-Zarr version in a store's group metadata (v2 or v3)."""
     zarr_json = root / "zarr.json"  # Zarr v3
@@ -192,11 +212,15 @@ def _patch_group_version(root: Path, version: str) -> None:
     zattrs = root / ".zattrs"  # Zarr v2
     if zattrs.is_file():
         doc = json.loads(zattrs.read_text())
-        if isinstance(doc.get("ome"), dict):  # v0.5 namespace on a v2 store
-            doc["ome"]["version"] = version
-        for multiscale in doc.get("multiscales", []):  # v0.4 per-entry version
-            multiscale["version"] = version
+        _retag_attrs_version(doc, version)
         zattrs.write_text(json.dumps(doc))
+    zmetadata = root / ".zmetadata"  # consolidated copy of the v2 attributes
+    if zmetadata.is_file():
+        doc = json.loads(zmetadata.read_text())
+        attrs = doc.get("metadata", {}).get(".zattrs")
+        if isinstance(attrs, dict):
+            _retag_attrs_version(attrs, version)
+            zmetadata.write_text(json.dumps(doc))
 
 
 #: The version an RFC-3 dataset declares. 6-D axes are conformant at 1.0-DEV
@@ -228,9 +252,11 @@ def _version_normalized(
             if axis_problems:
                 out["problems"] = list(axis_problems) + out.get("problems", [])
                 out["classification"] = out.get("classification") or MALFORMED_DATA
+            out["status"] = "fail" if out["problems"] else "pass"
         except Exception as exc:
             out["read"] = f"fail: {type(exc).__name__}: {exc}"
             out["classification"] = _classify_read_failure(str(exc))
+            out["status"] = "fail"
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return out
@@ -351,7 +377,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("provide --data-dir or set RFC3_DATA_DIR")
 
     reports = run_data_dir(args.data_dir)
-    print(f"RFC-3 conformance driver -- {len(reports)} cases\n" + "=" * 72)
+    print(
+        f"RFC-3 conformance driver -- {len(reports)} cases "
+        f"(manifest @ ome-zarr-rfc3-data {RFC3_DATA_REVISION})\n" + "=" * 72
+    )
     for report in reports:
         _print(report)
     passed = sum(1 for r in reports if r.get("status") == "pass")

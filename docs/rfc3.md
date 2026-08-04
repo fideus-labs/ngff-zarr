@@ -107,10 +107,10 @@ validator; an opt-in driver, `py/test/rfc3_conformance.py`, checks these dataset
 against an authored manifest (`--data-dir`; never run by the default test suite,
 never downloads).
 
-Its axes read correctly -- `ecg_1d` (1-D), `astronaut_xcy` (non-TCZYX order), and
-`ramp_6d` (6-D, type-less axes) all read at full dimensionality, validate, and
-preserve axis order. The remaining discrepancy is the **version string**: the
-reference data declares `0.5+rfc3`, which no specification defines and which
+On a copy retagged `1.0-DEV`, `ecg_1d` (1-D), `astronaut_xcy` (non-TCZYX
+order), and `ramp_6d` (6-D, type-less axes) all read at full dimensionality,
+validate, and preserve axis order. The raw datasets do not read at all: they
+declare `0.5+rfc3`, a **version string** no specification defines and which
 ngff-zarr rejects.
 
 The driver reports a separate pass over a copy retagged `1.0-DEV`. At `1.0-DEV`
