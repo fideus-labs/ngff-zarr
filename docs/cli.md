@@ -234,8 +234,8 @@ ngff-zarr conformance path/to/image.ome.zarr
 }
 ```
 
-Directory stores and `.zip` archives are both accepted. The output is the
-canonical contract used by the
+Directory stores and `.zip` archives are both accepted; `.ozx` archives are not
+supported by this subcommand. The output is the canonical contract used by the
 [RFC-4 conformance suite](https://github.com/fideus-labs/ome-zarr-rfc4-validation),
 so the suite's driver can be pointed straight at this command. The
 [RFC-4 documentation](./rfc4.md) lists the violation and warning codes.

@@ -429,11 +429,14 @@ offending axis:
 | `bad-value` | `value` outside the 24-term vocabulary |
 | `duplicate-anatomical-axis` | two axes describing the same anatomical axis |
 | `null-orientation` *(warning)* | `orientation: null` -- writers SHOULD omit it |
-| `input-unreadable` | the input could not be read as JSON metadata |
-| `input-not-ome-zarr` | no `multiscales[0].axes` was found |
+| `input-unreadable` | the store or its metadata is not readable JSON |
+| `input-not-ome-zarr` | `multiscales[0].axes` is missing or malformed |
 
-An unreadable or non-OME-Zarr input reports the read-failure code as a
-violation, never `"rfc4_valid": true` with empty axes.
+The last two are read failures rather than RFC-4 findings: `input-unreadable`
+covers an unreadable archive or invalid JSON, `input-not-ome-zarr` a store whose
+metadata carries no usable `multiscales[0].axes`. Either one is reported as a
+violation with `"rfc4_valid": false` and an empty `axes` object, so an input
+that could not be read is never mistaken for a conformant one.
 
 ## RFC-4 Conformance and Validation Data
 
