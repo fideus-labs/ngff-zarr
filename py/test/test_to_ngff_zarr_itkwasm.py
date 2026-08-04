@@ -46,10 +46,10 @@ def test_downsample_zycx():
     multiscales = to_multiscales(image, scale_factors=[2, 4], chunks=32)
     store = MemoryStore()
     to_ngff_zarr(store, multiscales)
-    assert multiscales.images[0].dims[0] == "z"
-    assert multiscales.images[0].dims[2] == "c"
-    assert multiscales.images[1].data.shape[0] == 16
-    assert multiscales.images[1].data.shape[2] == 2
+    assert multiscales.images[0].dims[0] == "c"
+    assert multiscales.images[0].dims[1] == "z"
+    assert multiscales.images[1].data.shape[0] == 2
+    assert multiscales.images[1].data.shape[1] == 16
 
 
 def test_downsample_cxyz():
@@ -85,11 +85,11 @@ def test_downsample_tzycx():
     store = MemoryStore()
     to_ngff_zarr(store, multiscales)
     assert multiscales.images[0].dims[0] == "t"
-    assert multiscales.images[0].dims[1] == "z"
-    assert multiscales.images[0].dims[3] == "c"
+    assert multiscales.images[0].dims[1] == "c"
+    assert multiscales.images[0].dims[2] == "z"
     assert multiscales.images[1].data.shape[0] == 2
-    assert multiscales.images[1].data.shape[1] == 16
-    assert multiscales.images[1].data.shape[3] == 2
+    assert multiscales.images[1].data.shape[1] == 2
+    assert multiscales.images[1].data.shape[2] == 16
 
 
 def test_downsample_tcxyz():
@@ -280,12 +280,13 @@ def test_itkwasm_gaussian_many_channels():
     )
 
     assert len(multiscales.images) == 2
-    # Verify channels are preserved
-    assert multiscales.images[1].data.shape[-1] == 16
+    # Channels lead in the spec axis order (c, z, y, x) and are preserved
+    assert multiscales.images[1].dims == ("c", "z", "y", "x")
+    assert multiscales.images[1].data.shape[0] == 16  # c
     # Verify spatial dimensions are downsampled
-    assert multiscales.images[1].data.shape[0] == 4  # z
-    assert multiscales.images[1].data.shape[1] == 16  # y
-    assert multiscales.images[1].data.shape[2] == 16  # x
+    assert multiscales.images[1].data.shape[1] == 4  # z
+    assert multiscales.images[1].data.shape[2] == 16  # y
+    assert multiscales.images[1].data.shape[3] == 16  # x
 
 
 def test_itkwasm_gaussian_few_channels():
@@ -299,12 +300,13 @@ def test_itkwasm_gaussian_few_channels():
     )
 
     assert len(multiscales.images) == 2
-    # Verify channels are preserved
-    assert multiscales.images[1].data.shape[-1] == 3
+    # Channels lead in the spec axis order (c, z, y, x) and are preserved
+    assert multiscales.images[1].dims == ("c", "z", "y", "x")
+    assert multiscales.images[1].data.shape[0] == 3  # c
     # Verify spatial dimensions are downsampled
-    assert multiscales.images[1].data.shape[0] == 4  # z
-    assert multiscales.images[1].data.shape[1] == 16  # y
-    assert multiscales.images[1].data.shape[2] == 16  # x
+    assert multiscales.images[1].data.shape[1] == 4  # z
+    assert multiscales.images[1].data.shape[2] == 16  # y
+    assert multiscales.images[1].data.shape[3] == 16  # x
 
 
 def test_itkwasm_bin_shrink_many_channels():
@@ -322,9 +324,10 @@ def test_itkwasm_bin_shrink_many_channels():
     )
 
     assert len(multiscales.images) == 2
-    # Verify channels are preserved
-    assert multiscales.images[1].data.shape[-1] == 12
+    # Channels lead in the spec axis order (c, z, y, x) and are preserved
+    assert multiscales.images[1].dims == ("c", "z", "y", "x")
+    assert multiscales.images[1].data.shape[0] == 12  # c
     # Verify spatial dimensions are downsampled
-    assert multiscales.images[1].data.shape[0] == 4  # z
-    assert multiscales.images[1].data.shape[1] == 16  # y
-    assert multiscales.images[1].data.shape[2] == 16  # x
+    assert multiscales.images[1].data.shape[1] == 4  # z
+    assert multiscales.images[1].data.shape[2] == 16  # y
+    assert multiscales.images[1].data.shape[3] == 16  # x

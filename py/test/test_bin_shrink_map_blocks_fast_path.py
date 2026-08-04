@@ -142,7 +142,9 @@ class TestItkwasmBinShrinkFastPath:
             image, scale_factors=[2], method=Methods.ITKWASM_BIN_SHRINK
         )
         assert len(multiscales.images) == 2
-        assert multiscales.images[1].data.shape == (8, 16, 16, 3)
+        # Channels lead in the spec axis order (c, z, y, x)
+        assert multiscales.images[1].dims == ("c", "z", "y", "x")
+        assert multiscales.images[1].data.shape == (3, 8, 16, 16)
 
         store = MemoryStore()
         to_ngff_zarr(store, multiscales)
@@ -157,12 +159,13 @@ class TestItkwasmBinShrinkFastPath:
             image, scale_factors=[2], method=Methods.ITKWASM_BIN_SHRINK
         )
         assert len(multiscales.images) == 2
-        # Verify channels are preserved
-        assert multiscales.images[1].data.shape[-1] == 12
+        # Channels lead in the spec axis order (c, z, y, x) and are preserved
+        assert multiscales.images[1].dims == ("c", "z", "y", "x")
+        assert multiscales.images[1].data.shape[0] == 12  # c
         # Verify spatial dimensions are downsampled
-        assert multiscales.images[1].data.shape[0] == 4  # z
-        assert multiscales.images[1].data.shape[1] == 16  # y
-        assert multiscales.images[1].data.shape[2] == 16  # x
+        assert multiscales.images[1].data.shape[1] == 4  # z
+        assert multiscales.images[1].data.shape[2] == 16  # y
+        assert multiscales.images[1].data.shape[3] == 16  # x
 
     def test_dict_scale_factors(self):
         """Dict-based scale factors on the fast path."""
