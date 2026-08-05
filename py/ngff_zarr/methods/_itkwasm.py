@@ -75,7 +75,10 @@ def _itkwasm_blur_and_downsample(
         msg = f"Unknown smoothing method: {smoothing}"
         raise ValueError(msg)
 
-    data = downsampled.data
+    # Accelerator backends such as cuCIM may return a CuPy array.  The dask
+    # graph built by this module is NumPy-backed, so normalize the block before
+    # NumPy operations and dask block assembly consume it.
+    data = itkwasm.array_like_to_numpy_array(downsampled.data)
     if needs_float_workaround:
         if np.issubdtype(original_dtype, np.unsignedinteger):
             data = np.clip(np.rint(data), 0, np.iinfo(original_dtype).max)
@@ -105,7 +108,7 @@ def _itkwasm_chunk_bin_shrink(
         return None
 
     downsampled = downsample_bin_shrink(image, shrink_factors=shrink_factors)
-    return downsampled.data
+    return itkwasm.array_like_to_numpy_array(downsampled.data)
 
 
 def _itkwasm_chunk_bin_shrink_nd(
