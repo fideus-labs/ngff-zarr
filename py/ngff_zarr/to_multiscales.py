@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 import atexit
+import copy
 import shutil
 import signal
 import threading
@@ -499,7 +500,13 @@ def to_multiscales(
     :return: NgffImage for each resolution and NGFF multiscales metadata
     :rtype : NgffMultiscales
     """
-    ngff_image = data if isinstance(data, NgffImage) else to_ngff_image(data)
+    # Shallow copy, with its own computed_callbacks: the rechunk and dask
+    # conversion below must not reach the caller's image (gh-issue-627).
+    if isinstance(data, NgffImage):
+        ngff_image = copy.copy(data)
+        ngff_image.computed_callbacks = list(data.computed_callbacks)
+    else:
+        ngff_image = to_ngff_image(data)
 
     # IPFS and visualization friendly default chunks
     default_chunk_size = 128 if "z" in ngff_image.dims else 256

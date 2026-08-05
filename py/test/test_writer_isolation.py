@@ -1,0 +1,102 @@
+# SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+# SPDX-License-Identifier: MIT
+"""ngff-zarr should not inherit backend defaults, nor leak into its caller.
+
+The baseline comparison works on decompressed values, so neither of these
+shows up there. They need their own tests.
+"""
+
+import json
+import tempfile
+from pathlib import Path
+
+import numpy as np
+import pytest
+import zarr
+from ngff_zarr import config, to_multiscales, to_ngff_image, to_ngff_zarr
+from packaging import version
+
+zarr_version = version.parse(zarr.__version__)
+
+pytestmark = pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b1"), reason="zarr version < 3.0.0b1"
+)
+
+
+def _multiscales(shape=(128, 256, 256), dtype=np.uint16):
+    image = to_ngff_image(np.zeros(shape, dtype=dtype), dims=("z", "y", "x"))
+    return to_multiscales(image, [2])
+
+
+def _scale0_metadata(store_path):
+    return json.loads((Path(store_path) / "scale0" / "image" / "zarr.json").read_text())
+
+
+def test_tensorstore_matches_zarr_python_by_default():
+    """Left unset, TensorStore applies its own defaults: sharded, uncompressed."""
+    pytest.importorskip("tensorstore")
+    ms = _multiscales()
+
+    written = {}
+    for use_tensorstore in (False, True):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            to_ngff_zarr(tmpdir, ms, version="0.5", use_tensorstore=use_tensorstore)
+            meta = _scale0_metadata(tmpdir)
+            written[use_tensorstore] = (
+                meta["chunk_grid"]["configuration"]["chunk_shape"],
+                [codec["name"] for codec in meta["codecs"]],
+            )
+
+    assert written[True] == written[False], (
+        f"backends disagree: zarr-python wrote {written[False]}, "
+        f"tensorstore wrote {written[True]}"
+    )
+    assert "sharding_indexed" not in written[True][1], (
+        "sharding was never requested via chunks_per_shard"
+    )
+
+
+def test_tensorstore_honours_requested_compressor():
+    """A supplied codec must not be silently replaced by the default."""
+    pytest.importorskip("tensorstore")
+    ms = _multiscales()
+    compressors = zarr.codecs.BloscCodec(
+        cname="zlib", clevel=5, shuffle=zarr.codecs.BloscShuffle.shuffle
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        to_ngff_zarr(
+            tmpdir, ms, version="0.5", use_tensorstore=True, compressors=compressors
+        )
+        names = [codec["name"] for codec in _scale0_metadata(tmpdir)["codecs"]]
+
+    assert "blosc" in names, f"requested blosc, TensorStore wrote {names}"
+
+
+def test_to_multiscales_leaves_its_input_alone():
+    """Callers reuse images across calls; results must not depend on history."""
+    image = to_ngff_image(np.zeros((512, 512), dtype=np.uint8), dims=("y", "x"))
+    data_before = image.data
+    callbacks_before = list(image.computed_callbacks)
+
+    to_multiscales(image, [2, 4], chunks=(64, 64))
+
+    assert image.data is data_before, "to_multiscales replaced the caller's data"
+    assert image.computed_callbacks == callbacks_before, (
+        "to_multiscales appended to the caller's computed_callbacks"
+    )
+
+
+def test_to_multiscales_does_not_leak_cache_cleanup():
+    """The large-image path registers a cleanup callback; keep it local."""
+    original_target = config.memory_target
+    config.memory_target = int(1e5)
+    try:
+        image = to_ngff_image(np.zeros((512, 512), dtype=np.uint8), dims=("y", "x"))
+        before = len(image.computed_callbacks)
+        to_multiscales(image, [2])
+        assert len(image.computed_callbacks) == before, (
+            "cache cleanup piled up on the caller's image"
+        )
+    finally:
+        config.memory_target = original_target

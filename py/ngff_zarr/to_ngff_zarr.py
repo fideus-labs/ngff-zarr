@@ -269,6 +269,24 @@ def _write_with_tensorstore(
                 if compressor is None:
                     return None
 
+                # Native Zarr v3 codecs carry no codec_id but serialise into
+                # exactly the form TensorStore expects.
+                if hasattr(compressor, "to_dict") and not hasattr(
+                    compressor, "codec_id"
+                ):
+                    codec = compressor.to_dict()
+                    # zarr-python resolves blosc's typesize from the dtype.
+                    config = codec.get("configuration")
+                    if (
+                        codec.get("name") == "blosc"
+                        and isinstance(config, dict)
+                        and config.get("typesize") in (None, 1)
+                    ):
+                        config = dict(config)
+                        config["typesize"] = array.dtype.itemsize
+                        codec = {**codec, "configuration": config}
+                    return codec
+
                 if hasattr(compressor, "codec_id"):
                     # numcodecs compressor object
                     codec_id = compressor.codec_id
@@ -305,33 +323,33 @@ def _write_with_tensorstore(
                     return compressor
                 return None
 
+            # Mirror the zarr-python codec chain. Left unset, TensorStore
+            # applies its own defaults: sharded and uncompressed.
+            bytes_codec = {"name": "bytes", "configuration": {"endian": "little"}}
+            default_compression = {
+                "name": "zstd",
+                "configuration": {"level": 0, "checksum": False},
+            }
+            compression_codec = (
+                create_compression_codec(compressor) if compressor is not None else None
+            )
+            inner_codecs = [bytes_codec, compression_codec or default_compression]
+
             # Add sharding codec with inner codecs if needed
             if internal_chunk_shape:
-                sharding_config = {"chunk_shape": internal_chunk_shape}
-
-                # If compression is specified, add it as inner codec for sharding
-                if compressor is not None:
-                    compression_codec = create_compression_codec(compressor)
-                    if compression_codec:
-                        # For sharding, compression goes in the inner codecs
-                        sharding_config["codecs"] = [compression_codec]
-
                 codecs.append(
                     {
                         "name": "sharding_indexed",
-                        "configuration": sharding_config,
+                        "configuration": {
+                            "chunk_shape": internal_chunk_shape,
+                            "codecs": inner_codecs,
+                        },
                     }
                 )
             else:
-                # No sharding, add compression codec directly if specified
-                if compressor is not None:
-                    compression_codec = create_compression_codec(compressor)
-                    if compression_codec:
-                        codecs.append(compression_codec)
+                codecs.extend(inner_codecs)
 
-            # Set codecs if any were added
-            if codecs:
-                spec["metadata"]["codecs"] = codecs
+            spec["metadata"]["codecs"] = codecs
     else:
         raise ValueError(f"Unsupported zarr format: {zarr_format}")
 
@@ -567,6 +585,16 @@ def _configure_sharding(
     return sharding_kwargs, internal_chunk_shape, arr
 
 
+def _is_bytes_codec(codec) -> bool:
+    """Is this the zarr v3 array-to-bytes codec rather than a compressor?"""
+    name = getattr(codec, "name", None)
+    if name is None and hasattr(codec, "to_dict"):
+        name = codec.to_dict().get("name")
+    if name is None and isinstance(codec, dict):
+        name = codec.get("name")
+    return name == "bytes"
+
+
 def _write_array_with_tensorstore(
     store_path: str,
     path: str,
@@ -584,6 +612,17 @@ def _write_array_with_tensorstore(
     """Write an array using the TensorStore backend."""
     # Extract compressor and other conflicting parameters from kwargs to avoid conflicts
     compressor = kwargs.pop("compressor", None)
+    # The public API takes ``compressors`` (plural); without this a supplied
+    # codec is dropped and TensorStore silently writes its default.
+    compressors = kwargs.pop("compressors", None)
+    if compressor is None and compressors is not None:
+        if isinstance(compressors, (list, tuple)):
+            compressor = next(
+                (c for c in compressors if not _is_bytes_codec(c)),
+                None,
+            )
+        else:
+            compressor = compressors
     kwargs.pop("chunks", None)  # Remove chunks from kwargs since it's a positional arg
 
     scale_path = f"{store_path}/{path}"
