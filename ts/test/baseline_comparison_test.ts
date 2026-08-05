@@ -113,10 +113,11 @@ function compareImages(
   let diffSum = 0;
   let firstDiffIndex = -1;
   for (let i = 0; i < testData.length; i++) {
-    const diff = (testData[i] as number) - (baselineData[i] as number);
-    if (diff !== 0) {
+    // Compare raw values (works for bigint arrays too); Number() only for
+    // the diagnostics.
+    if (testData[i] !== baselineData[i]) {
       diffCount++;
-      diffSum += diff;
+      diffSum += Number(testData[i]) - Number(baselineData[i]);
       if (firstDiffIndex < 0) firstDiffIndex = i;
     }
   }

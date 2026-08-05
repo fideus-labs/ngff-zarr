@@ -290,7 +290,7 @@ export function isIntegerComponentType(
   componentType: unknown,
 ): componentType is IntegerComponentType {
   return typeof componentType === "string" &&
-    componentType in INTEGER_COMPONENT_RANGES;
+    Object.hasOwn(INTEGER_COMPONENT_RANGES, componentType);
 }
 
 /**
