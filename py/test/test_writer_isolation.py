@@ -57,21 +57,24 @@ def test_tensorstore_matches_zarr_python_by_default():
 
 
 @pytest.mark.parametrize(
-    "compressors",
-    [
-        zarr.codecs.BloscCodec(
-            cname="zlib", clevel=5, shuffle=zarr.codecs.BloscShuffle.shuffle
-        ),
-        # No shuffle/typesize given: zarr-python evolves them from the dtype,
-        # and the TensorStore path must land on the same configuration.
-        zarr.codecs.BloscCodec(cname="zlib", clevel=5),
-    ],
+    # No shuffle/typesize given: zarr-python evolves them from the dtype,
+    # and the TensorStore path must land on the same configuration.
+    "explicit_shuffle",
+    [True, False],
     ids=["explicit-shuffle", "evolved-from-dtype"],
 )
-def test_tensorstore_honours_requested_compressor(compressors):
+def test_tensorstore_honours_requested_compressor(explicit_shuffle):
     """A supplied codec must reach the store with the same configuration
     zarr-python would write, not just the same name."""
     pytest.importorskip("tensorstore")
+    # Import from the submodule: recent zarr no longer re-exports the codec
+    # classes from zarr.codecs.
+    from zarr.codecs.blosc import BloscCodec, BloscShuffle
+
+    kwargs = {"cname": "zlib", "clevel": 5}
+    if explicit_shuffle:
+        kwargs["shuffle"] = BloscShuffle.shuffle
+    compressors = BloscCodec(**kwargs)
     ms = _multiscales()
 
     written = {}

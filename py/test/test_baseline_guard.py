@@ -29,6 +29,7 @@ def test_store_equals_requires_identical_key_sets():
     """An empty baseline, or an extra key on either side, must not pass."""
     import zarr
     from ngff_zarr import to_ngff_zarr
+    from packaging import version
     from zarr.storage import MemoryStore
 
     multiscales = _tiny_multiscales()
@@ -45,7 +46,13 @@ def test_store_equals_requires_identical_key_sets():
         "two identical writes should compare equal"
     )
 
-    zarr.create(shape=(1,), store=test_store, path="extra", zarr_format=2)
+    # zarr 2 has no zarr_format kwarg and writes format 2 anyway.
+    extra_kwargs = (
+        {"zarr_format": 2}
+        if version.parse(zarr.__version__) >= version.parse("3.0.0b1")
+        else {}
+    )
+    zarr.create(shape=(1,), store=test_store, path="extra", **extra_kwargs)
     assert not store_equals(populated, test_store), (
         "an extra array in the test store went unnoticed"
     )
