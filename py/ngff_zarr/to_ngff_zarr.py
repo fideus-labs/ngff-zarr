@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+import copy
 import sys
 import tempfile
 import warnings
@@ -1336,15 +1337,17 @@ def _prepare_next_scale(
     store: StoreLike,
     path: str,
     progress: NgffProgress | NgffProgressCallback | None,
-    scale_strategy: ScaleStrategy = "pad",
+    scale_strategy: ScaleStrategy = "exact",
 ) -> object | None:
     """Prepare the next scale for processing if needed.
 
     :param scale_strategy: Strategy for handling non-power-of-2 scale factors.
-        "pad" (default) always uses incremental downsampling from the previous level,
-        which may produce slightly different sizes due to floor-division rounding.
-        "exact" uses pre-computed images from the initial to_multiscales() call when
-        incremental downsampling cannot achieve the exact target size.
+        "exact" (default) uses pre-computed images from the initial
+        to_multiscales() call when incremental downsampling cannot achieve the
+        exact target size, so the written arrays match the coordinate metadata.
+        "pad" always downsamples incrementally from the previous level, which
+        can miss the target sizes; the datasets metadata still describes the
+        exact targets, so the store then misdescribes its own geometry.
     """
     # No next scale if we're at the last one
     if index >= nscales - 1:
@@ -1447,7 +1450,7 @@ def to_ome_zarr(
     chunk_store: StoreLike | None = None,
     progress: NgffProgress | NgffProgressCallback | None = None,
     chunks_per_shard: int | tuple[int, ...] | dict[str, int] | None = None,
-    scale_strategy: ScaleStrategy = "pad",
+    scale_strategy: ScaleStrategy = "exact",
     **kwargs,
 ) -> None:
     """
@@ -1481,11 +1484,13 @@ def to_ome_zarr(
 
 
     :param scale_strategy: Strategy for handling non-power-of-2 scale factors during
-        multiscale writing. "pad" (default) always uses incremental downsampling from
-        the previous level, which is memory-efficient but may produce slightly different
-        sizes due to floor-division rounding. "exact" uses pre-computed images from
-        the initial to_multiscales() call when incremental downsampling cannot achieve
-        the exact target size (original_size // scale_factor).
+        multiscale writing. "exact" (default) uses pre-computed images from the
+        initial to_multiscales() call when incremental downsampling cannot achieve
+        the exact target size (original_size // scale_factor), so the written
+        arrays match the coordinate metadata. "pad" always downsamples
+        incrementally from the previous level, which is memory-efficient but can
+        miss the target sizes; the datasets metadata still describes the exact
+        targets, so the store then misdescribes its own geometry.
     :type  scale_strategy: "pad" or "exact", optional
 
     :param **kwargs: Passed to the zarr.create_array() or zarr.creation.create() function, e.g., compression options.
@@ -1598,12 +1603,20 @@ def _to_ngff_zarr_impl(
     chunk_store: StoreLike | None = None,
     progress: NgffProgress | NgffProgressCallback | None = None,
     chunks_per_shard: int | tuple[int, ...] | dict[str, int] | None = None,
-    scale_strategy: ScaleStrategy = "pad",
+    scale_strategy: ScaleStrategy = "exact",
     **kwargs,
 ) -> None:
     """
     Internal implementation of to_ngff_zarr without .ozx handling.
     """
+    # Shallow copy, with per-image computed_callbacks: the write loop swaps
+    # image data for on-disk views and regenerates scales, and none of that
+    # may reach the caller's multiscales (gh-issue-627).
+    multiscales = copy.copy(multiscales)
+    multiscales.images = [copy.copy(image) for image in multiscales.images]
+    for image in multiscales.images:
+        image.computed_callbacks = list(image.computed_callbacks)
+
     # Setup and validation
     store_path = str(store) if isinstance(store, (str, Path)) else None
 

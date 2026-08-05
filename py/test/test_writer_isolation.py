@@ -100,3 +100,25 @@ def test_to_multiscales_does_not_leak_cache_cleanup():
         )
     finally:
         config.memory_target = original_target
+
+
+def test_to_ngff_zarr_leaves_multiscales_alone():
+    """The write loop swaps data for on-disk views and regenerates scales;
+    none of that may reach the caller's multiscales."""
+    image = to_ngff_image(
+        np.zeros((120, 120), dtype=np.uint8), dims=("y", "x"), scale={"y": 1, "x": 1}
+    )
+    ms = to_multiscales(image, [2, 3, 4])
+    data_before = [img.data for img in ms.images]
+    shapes_before = [img.data.shape for img in ms.images]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        to_ngff_zarr(tmpdir, ms, version="0.5")
+
+    for i, img in enumerate(ms.images):
+        assert img.data is data_before[i], (
+            f"to_ngff_zarr replaced the caller's data at scale {i}"
+        )
+        assert img.data.shape == shapes_before[i], (
+            f"to_ngff_zarr reshaped the caller's scale {i}"
+        )
