@@ -69,6 +69,10 @@ def _numcodecs_to_zarr_v3_codec(compressor):
 
     codec_id = getattr(compressor, "codec_id", None)
     if codec_id is None:
+        # Already a native Zarr v3 codec: pass it through unchanged. The
+        # sharding path otherwise swaps it for the zstd default.
+        if hasattr(compressor, "to_dict"):
+            return compressor
         return None
 
     try:
@@ -276,15 +280,26 @@ def _write_with_tensorstore(
                     compressor, "codec_id"
                 ):
                     codec = compressor.to_dict()
-                    # zarr-python resolves blosc's typesize from the dtype.
+                    # zarr-python records constructor-defaulted blosc attrs in
+                    # _tunable_attrs and evolves them from the dtype at write
+                    # time; mirror that so both backends land on the same
+                    # configuration. Explicitly chosen values are kept.
                     config = codec.get("configuration")
-                    if (
-                        codec.get("name") == "blosc"
-                        and isinstance(config, dict)
-                        and config.get("typesize") in (None, 1)
-                    ):
+                    if codec.get("name") == "blosc" and isinstance(config, dict):
                         config = dict(config)
-                        config["typesize"] = array.dtype.itemsize
+                        itemsize = array.dtype.itemsize
+                        tunable = getattr(compressor, "_tunable_attrs", None)
+                        if tunable is None:
+                            # Fallback for zarr without _tunable_attrs.
+                            if config.get("typesize") in (None, 1):
+                                config["typesize"] = itemsize
+                        else:
+                            if "typesize" in tunable:
+                                config["typesize"] = itemsize
+                            if "shuffle" in tunable:
+                                config["shuffle"] = (
+                                    "bitshuffle" if itemsize == 1 else "shuffle"
+                                )
                         codec = {**codec, "configuration": config}
                     return codec
 
@@ -588,6 +603,8 @@ def _configure_sharding(
 
 def _is_bytes_codec(codec) -> bool:
     """Is this the zarr v3 array-to-bytes codec rather than a compressor?"""
+    if isinstance(codec, str):
+        return codec == "bytes"
     name = getattr(codec, "name", None)
     if name is None and hasattr(codec, "to_dict"):
         name = codec.to_dict().get("name")

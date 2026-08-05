@@ -56,21 +56,44 @@ def test_tensorstore_matches_zarr_python_by_default():
     )
 
 
-def test_tensorstore_honours_requested_compressor():
-    """A supplied codec must not be silently replaced by the default."""
+@pytest.mark.parametrize(
+    "compressors",
+    [
+        zarr.codecs.BloscCodec(
+            cname="zlib", clevel=5, shuffle=zarr.codecs.BloscShuffle.shuffle
+        ),
+        # No shuffle/typesize given: zarr-python evolves them from the dtype,
+        # and the TensorStore path must land on the same configuration.
+        zarr.codecs.BloscCodec(cname="zlib", clevel=5),
+    ],
+    ids=["explicit-shuffle", "evolved-from-dtype"],
+)
+def test_tensorstore_honours_requested_compressor(compressors):
+    """A supplied codec must reach the store with the same configuration
+    zarr-python would write, not just the same name."""
     pytest.importorskip("tensorstore")
     ms = _multiscales()
-    compressors = zarr.codecs.BloscCodec(
-        cname="zlib", clevel=5, shuffle=zarr.codecs.BloscShuffle.shuffle
+
+    written = {}
+    for use_tensorstore in (False, True):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            to_ngff_zarr(
+                tmpdir,
+                ms,
+                version="0.5",
+                use_tensorstore=use_tensorstore,
+                compressors=compressors,
+            )
+            codecs = _scale0_metadata(tmpdir)["codecs"]
+            written[use_tensorstore] = next(
+                (codec for codec in codecs if codec["name"] == "blosc"), None
+            )
+
+    assert written[False] is not None, "zarr-python did not write blosc"
+    assert written[True] == written[False], (
+        f"backends disagree: zarr-python wrote {written[False]}, "
+        f"tensorstore wrote {written[True]}"
     )
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        to_ngff_zarr(
-            tmpdir, ms, version="0.5", use_tensorstore=True, compressors=compressors
-        )
-        names = [codec["name"] for codec in _scale0_metadata(tmpdir)["codecs"]]
-
-    assert "blosc" in names, f"requested blosc, TensorStore wrote {names}"
 
 
 def test_to_multiscales_leaves_its_input_alone():
