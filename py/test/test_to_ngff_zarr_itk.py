@@ -1,8 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+import platform
+
+import pytest
 from ngff_zarr import Methods, to_multiscales, to_ngff_image
 
 from ._data import verify_against_baseline
+
+_on_x86 = platform.machine().lower() in ("x86_64", "amd64")
 
 
 def test_bin_shrink_isotropic_scale_factors(input_images):
@@ -54,6 +59,11 @@ def test_bin_shrink_tzyxc():
         pass
 
 
+@pytest.mark.skipif(
+    not _on_x86,
+    reason="baselines are generated on x86_64; native ITK Gaussian "
+    "floating point differs on other architectures",
+)
 def test_gaussian_isotropic_scale_factors(input_images):
     dataset_name = "cthead1"
     image = input_images[dataset_name]
