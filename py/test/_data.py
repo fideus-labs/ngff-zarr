@@ -164,58 +164,134 @@ def store_contents(store, keys):
     return contents
 
 
+_METADATA_SUFFIXES = (".zarray", ".zattrs", ".zgroup", ".zmetadata", "zarr.json")
+
+
+def _is_metadata_key(key):
+    return key.endswith(_METADATA_SUFFIXES)
+
+
+def _drop_codecs(node):
+    """Drop the codec in use, which zarr picks and changes between releases.
+
+    zstd until 3.2, blosc/lz4 from 3.3. ngff-zarr does not choose it, so
+    comparing it compares zarr rather than this library.
+    """
+    if isinstance(node, list):
+        return [_drop_codecs(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    return {
+        key: _drop_codecs(value)
+        for key, value in node.items()
+        if key not in ("compressor", "compressors", "codecs")
+    }
+
+
+def _array_paths(keys, contents):
+    """Group paths that hold an array, for both zarr formats."""
+    paths = set()
+    for key in keys:
+        if key.endswith(".zarray"):
+            paths.add(key[: -len("/.zarray")] if "/" in key else "")
+        elif key.endswith("zarr.json"):
+            try:
+                meta = json.loads(contents[key].decode("utf-8"))
+            except (KeyError, UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if meta.get("node_type") == "array":
+                paths.add(key[: -len("/zarr.json")] if "/" in key else "")
+    return paths
+
+
+def _arrays_equal(baseline_store, test_store, path):
+    """Compare decompressed values, so the codec in use does not matter."""
+    import numpy as np
+
+    kwargs = {"mode": "r"}
+    if path:
+        kwargs["path"] = path
+    baseline = zarr.open_array(store=baseline_store, **kwargs)
+    test = zarr.open_array(store=test_store, **kwargs)
+
+    if baseline.shape != test.shape:
+        sys.stderr.write(f"shape differs at {path or '/'}: ")
+        sys.stderr.write(f"{baseline.shape} != {test.shape}\n")
+        return False
+    if baseline.dtype != test.dtype:
+        sys.stderr.write(f"dtype differs at {path or '/'}: ")
+        sys.stderr.write(f"{baseline.dtype} != {test.dtype}\n")
+        return False
+    if not np.array_equal(np.asarray(baseline[...]), np.asarray(test[...])):
+        sys.stderr.write(f"values differ at {path or '/'}\n")
+        return False
+    return True
+
+
 def store_equals(baseline_store, test_store):
+    """Compare two stores by value rather than by stored bytes.
+
+    Chunks are compressed, so identical data encoded by different codecs, or
+    by different releases of the same codec, yields different bytes. Compare
+    decompressed arrays, and parse the metadata rather than diffing its bytes.
+    """
     baseline_keys = store_keys(baseline_store)
     test_keys = store_keys(test_store)
-    json_keys = {".zmetadata", ".zattrs", ".zgroup", "zarr.json"}
     baseline_contents = store_contents(baseline_store, baseline_keys)
     test_contents = store_contents(test_store, test_keys)
 
-    for k in baseline_keys:
-        if k in json_keys:
-            baseline_metadata = json.loads(baseline_contents[k].decode("utf-8"))
-            test_metadata = json.loads(test_contents[k].decode("utf-8"))
+    for k in sorted(baseline_keys):
+        if k not in test_keys:
+            sys.stderr.write(f"baseline key {k} not in test keys\n")
+            sys.stderr.write(f"test keys: {sorted(test_keys)}\n")
+            return False
+        if not _is_metadata_key(k):
+            continue
 
-            diff = DeepDiff(baseline_metadata, test_metadata, ignore_order=True)
-            if diff:
-                sys.stderr.write("Metadata in {k} files do not match\n")
-                sys.stderr.write(f"Differences: {diff}\n")
-                return False
-        else:
-            if k not in test_keys:
-                sys.stderr.write(f"baseline key {k} not in test keys\n")
-                sys.stderr.write(f"test keys: {test_keys}\n")
-                return False
-            if (
-                baseline_contents.get(k) != test_contents.get(k)
-                and ".zattrs" not in k
-                and ".zgroup" not in k
-                and "zarr.json" not in k
-            ):
-                sys.stderr.write(f"test value != baseline value for key {k}\n")
-                sys.stderr.write(f"baseline: {baseline_contents[k]}, \n")
-                sys.stderr.write(f"test: {test_contents[k]}, \n")
-                return False
+        baseline_metadata = _drop_codecs(
+            json.loads(baseline_contents[k].decode("utf-8"))
+        )
+        test_metadata = _drop_codecs(
+            json.loads(test_contents[k].decode("utf-8"))
+        )
+        diff = DeepDiff(baseline_metadata, test_metadata, ignore_order=True)
+        if diff:
+            sys.stderr.write(f"Metadata in {k} does not match\n")
+            sys.stderr.write(f"Differences: {diff}\n")
+            return False
+
+    for path in sorted(_array_paths(baseline_keys, baseline_contents)):
+        if not _arrays_equal(baseline_store, test_store, path):
+            return False
     return True
 
 
 def verify_against_baseline(dataset_name, baseline_name, multiscales, version="0.4"):
+    baseline_path = (
+        test_data_dir
+        / f"baseline/zarr{zarr_version_major}/v{version}/{dataset_name}/{baseline_name}"
+    )
+
+    # store_equals walks the baseline's keys, so an absent one compares equal
+    # to anything. Skip instead: a missing baseline is a gap, not a pass.
+    if not baseline_path.is_dir():
+        pytest.skip(
+            f"No baseline at {baseline_path.relative_to(test_data_dir)} "
+            f"(zarr {zarr.__version__}); nothing to compare against."
+        )
+
     try:
         from zarr.storage import DirectoryStore
 
-        baseline_store = DirectoryStore(
-            test_data_dir / f"baseline/v{version}/{dataset_name}/{baseline_name}",
-            **zarr_kwargs,
-        )
+        baseline_store = DirectoryStore(baseline_path, **zarr_kwargs)
     except ImportError:
         from zarr.storage import LocalStore
 
-        baseline_store = LocalStore(
-            test_data_dir / f"baseline/v{version}/{dataset_name}/{baseline_name}"
-        )
+        baseline_store = LocalStore(baseline_path)
 
     test_store = MemoryStore()
     to_ngff_zarr(test_store, multiscales, version=version)
+
     assert store_equals(baseline_store, test_store)
 
 
