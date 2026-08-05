@@ -255,6 +255,109 @@ export function getItkComponentType(
 }
 
 /**
+ * Integer component types eligible for the Gaussian float32 workaround
+ */
+export type IntegerComponentType =
+  | "uint8"
+  | "int8"
+  | "uint16"
+  | "int16"
+  | "uint32"
+  | "int32";
+
+const INTEGER_COMPONENT_RANGES: Record<
+  IntegerComponentType,
+  [number, number]
+> = {
+  uint8: [0, 255],
+  int8: [-128, 127],
+  uint16: [0, 65535],
+  int16: [-32768, 32767],
+  uint32: [0, 4294967295],
+  int32: [-2147483648, 2147483647],
+};
+
+const INTEGER_TYPED_ARRAY_CTORS = {
+  uint8: Uint8Array,
+  int8: Int8Array,
+  uint16: Uint16Array,
+  int16: Int16Array,
+  uint32: Uint32Array,
+  int32: Int32Array,
+} as const;
+
+export function isIntegerComponentType(
+  componentType: unknown,
+): componentType is IntegerComponentType {
+  return typeof componentType === "string" &&
+    componentType in INTEGER_COMPONENT_RANGES;
+}
+
+/**
+ * Round half to even, matching NumPy's rint used by the Python port.
+ */
+export function rintHalfToEven(value: number): number {
+  const floor = Math.floor(value);
+  const frac = value - floor;
+  if (frac < 0.5) return floor;
+  if (frac > 0.5) return floor + 1;
+  return floor % 2 === 0 ? floor : floor + 1;
+}
+
+/**
+ * Cast an ITK-Wasm image to float32.
+ *
+ * itkwasm-downsample's Gaussian filter performs internal arithmetic that
+ * loses precision on integer inputs (e.g. a uint16 input of 1 produces 0).
+ * The Python port casts integer inputs to float32 before the Gaussian
+ * downsample, then rounds and casts back; this helper and
+ * castImageToIntegerType mirror that so both ports produce identical
+ * pixel values.
+ */
+export function castImageToFloat32(image: Image): Image {
+  if (image.data === null) {
+    throw new Error("Image data is null");
+  }
+  return {
+    ...image,
+    imageType: { ...image.imageType, componentType: "float32" },
+    data: new Float32Array(image.data as ArrayLike<number>),
+  };
+}
+
+/**
+ * Round a float image back to the given integer type, clamping to the
+ * type's range. Matches np.clip(np.rint(data), min, max) in the Python
+ * port's float workaround.
+ */
+export function castImageToIntegerType(
+  image: Image,
+  componentType: IntegerComponentType,
+): Image {
+  const src = image.data;
+  if (src === null) {
+    throw new Error("Image data is null");
+  }
+  const [min, max] = INTEGER_COMPONENT_RANGES[componentType];
+  const ctor = INTEGER_TYPED_ARRAY_CTORS[componentType];
+  const out = new ctor(src.length);
+  for (let i = 0; i < src.length; i++) {
+    let value = rintHalfToEven(src[i] as number);
+    if (value < min) {
+      value = min;
+    } else if (value > max) {
+      value = max;
+    }
+    out[i] = value;
+  }
+  return {
+    ...image,
+    imageType: { ...image.imageType, componentType },
+    data: out,
+  };
+}
+
+/**
  * Create identity matrix for ITK direction
  */
 export function createIdentityMatrix(dimension: number): Float64Array {
