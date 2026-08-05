@@ -13,14 +13,14 @@ jobs:
       fail-fast: false
       max-parallel: 5
       matrix:
-        # macos-15 is Apple Silicon (arm64); ubuntu-24.04 is x86_64.
-        os: [ubuntu-24.04, macos-15]
+        # macos-26 is Apple Silicon (arm64); ubuntu-24.04 is x86_64.
+        os: [ubuntu-24.04, macos-26]
         # One pixi environment per supported Python version. The unpinned
         # `test` environment tracks the latest (currently 3.14).
         environment: [test-py310, test-py311, test-py312, test-py313, test]
         include:
           # Keep a single Intel macOS smoke test on the latest Python.
-          - os: macos-15-intel
+          - os: macos-26-intel
             environment: test
 
     steps:
