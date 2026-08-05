@@ -25,15 +25,27 @@ def test_missing_baseline_skips_rather_than_passes():
     )
 
 
-def test_empty_baseline_would_compare_equal_to_anything():
-    """Why the guard is needed: store_equals cannot detect an empty baseline."""
+def test_store_equals_requires_identical_key_sets():
+    """An empty baseline, or an extra key on either side, must not pass."""
+    import zarr
     from ngff_zarr import to_ngff_zarr
     from zarr.storage import MemoryStore
 
+    multiscales = _tiny_multiscales()
     populated = MemoryStore()
-    to_ngff_zarr(populated, _tiny_multiscales(), version="0.4")
+    to_ngff_zarr(populated, multiscales, version="0.4")
 
-    assert store_equals(MemoryStore(), populated), (
-        "store_equals is expected to report an empty baseline as equal; "
-        "the guard in verify_against_baseline is what makes that safe"
+    assert not store_equals(MemoryStore(), populated), (
+        "an empty baseline compared equal to a populated store"
+    )
+
+    test_store = MemoryStore()
+    to_ngff_zarr(test_store, multiscales, version="0.4")
+    assert store_equals(populated, test_store), (
+        "two identical writes should compare equal"
+    )
+
+    zarr.create(shape=(1,), store=test_store, path="extra", zarr_format=2)
+    assert not store_equals(populated, test_store), (
+        "an extra array in the test store went unnoticed"
     )

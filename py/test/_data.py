@@ -237,14 +237,22 @@ def store_equals(baseline_store, test_store):
     """
     baseline_keys = store_keys(baseline_store)
     test_keys = store_keys(test_store)
+
+    # Key sets must match in both directions: a missing key hides data, an
+    # extra one is data the baseline never blessed.
+    if baseline_keys != test_keys:
+        missing = sorted(baseline_keys - test_keys)
+        extra = sorted(test_keys - baseline_keys)
+        if missing:
+            sys.stderr.write(f"baseline keys not in test store: {missing}\n")
+        if extra:
+            sys.stderr.write(f"test keys not in baseline: {extra}\n")
+        return False
+
     baseline_contents = store_contents(baseline_store, baseline_keys)
     test_contents = store_contents(test_store, test_keys)
 
     for k in sorted(baseline_keys):
-        if k not in test_keys:
-            sys.stderr.write(f"baseline key {k} not in test keys\n")
-            sys.stderr.write(f"test keys: {sorted(test_keys)}\n")
-            return False
         if not _is_metadata_key(k):
             continue
 
@@ -286,6 +294,14 @@ def verify_against_baseline(dataset_name, baseline_name, multiscales, version="0
         from zarr.storage import LocalStore
 
         baseline_store = LocalStore(baseline_path)
+
+    # A directory that exists but holds no arrays (a truncated extraction,
+    # say) would also compare vacuously. Demand at least one array.
+    baseline_keys = store_keys(baseline_store)
+    assert _array_paths(baseline_keys, store_contents(baseline_store, baseline_keys)), (
+        f"baseline at {baseline_path.relative_to(test_data_dir)} holds no arrays; "
+        "the comparison would pass vacuously"
+    )
 
     test_store = MemoryStore()
     to_ngff_zarr(test_store, multiscales, version=version)
