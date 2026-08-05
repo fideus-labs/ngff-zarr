@@ -17,7 +17,7 @@ from packaging import version
 from zarr.storage import MemoryStore
 
 test_data_ipfs_cid = "bafybeifqibhcomn4u42aqrgvttyfteysbspvzez5sbezcqj5yylzzafpma"
-test_data_sha256 = "323a8f030980171c20dc064cd977d831cfd7402bd9b7ffa7c1d6d6750ea8fe99"
+test_data_sha256 = "1d20212ef13a92f2d604de8bc9d8c0bf9a4d391fdc2dd765fa20ddaf627fd544"
 
 test_dir = Path(__file__).resolve().parent
 extract_dir = "data"
@@ -95,7 +95,7 @@ def input_images():
     pooch.retrieve(
         fname="data.tar.gz",
         path=test_dir,
-        url="https://github.com/fideus-labs/ngff-zarr/releases/download/testing-data/ngff-zarr-testing-data-v0.20.1.tar.gz",
+        url="https://github.com/fideus-labs/ngff-zarr/releases/download/testing-data/ngff-zarr-testing-data-v0.21.0.tar.gz",
         # url=f"https://itk.mypinata.cloud/ipfs/{test_data_ipfs_cid}",
         # url=f"https://{test_data_ipfs_cid}.ipfs.w3s.link/ipfs/{test_data_ipfs_cid}/data.tar.gz",
         known_hash=f"sha256:{test_data_sha256}",
@@ -251,9 +251,7 @@ def store_equals(baseline_store, test_store):
         baseline_metadata = _drop_codecs(
             json.loads(baseline_contents[k].decode("utf-8"))
         )
-        test_metadata = _drop_codecs(
-            json.loads(test_contents[k].decode("utf-8"))
-        )
+        test_metadata = _drop_codecs(json.loads(test_contents[k].decode("utf-8")))
         diff = DeepDiff(baseline_metadata, test_metadata, ignore_order=True)
         if diff:
             sys.stderr.write(f"Metadata in {k} does not match\n")
