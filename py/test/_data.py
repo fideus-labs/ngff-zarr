@@ -17,7 +17,7 @@ from packaging import version
 from zarr.storage import MemoryStore
 
 test_data_ipfs_cid = "bafybeifqibhcomn4u42aqrgvttyfteysbspvzez5sbezcqj5yylzzafpma"
-test_data_sha256 = "1d20212ef13a92f2d604de8bc9d8c0bf9a4d391fdc2dd765fa20ddaf627fd544"
+test_data_sha256 = "e24fc764f562b68724665a9d36fafb64661b9cb433653d12597dd66ed9f28439"
 
 test_dir = Path(__file__).resolve().parent
 extract_dir = "data"
