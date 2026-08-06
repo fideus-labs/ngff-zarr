@@ -24,6 +24,10 @@ from .hcs import (
     write_hcs_well_image,
 )
 from .itk_image_to_ngff_image import itk_image_to_ngff_image
+from .itk_transform_resample_bounding_box import (
+    ResampleBoundingBox,
+    itk_transform_resample_bounding_box,
+)
 from .lif_to_ngff_image import (
     has_mosaic_dimension,
     lif_file_to_ngff_images,
@@ -118,6 +122,9 @@ __all__ = [
     "nibabel_image_to_ngff_image",
     "extract_omero_metadata_from_nibabel",
     "ngff_image_to_itk_image",
+    # Out-of-core resampling
+    "itk_transform_resample_bounding_box",
+    "ResampleBoundingBox",
     "memory_usage",
     "task_count",
     "to_multiscales",
