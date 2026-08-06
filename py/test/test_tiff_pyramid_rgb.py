@@ -77,17 +77,17 @@ def test_pyramidal_rgb_tiff_channel_consistency():
         f"Expected 3 pyramid levels, got {len(result.images)}"
     )
 
-    # Verify all levels have consistent dimensions
+    # Verify all levels are normalized to the spec axis order (c, y, x)
     for i, img in enumerate(result.images):
         assert img.dims == (
+            "c",
             "y",
             "x",
-            "c",
-        ), f"Level {i} should have dims ('y', 'x', 'c'), got {img.dims}"
+        ), f"Level {i} should have dims ('c', 'y', 'x'), got {img.dims}"
 
         # Check shape consistency
         expected_size = 256 // (2**i)  # 256, 128, 64
-        expected_shape = (expected_size, expected_size, 3)
+        expected_shape = (3, expected_size, expected_size)
         assert img.data.shape == expected_shape, (
             f"Level {i} should have shape {expected_shape}, got {img.data.shape}"
         )
@@ -95,12 +95,12 @@ def test_pyramidal_rgb_tiff_channel_consistency():
     # Verify data can be computed without errors
     for i, img in enumerate(result.images):
         # Compute a small slice to ensure lazy loading works
-        slice_data = img.data[:4, :4, :].compute()
+        slice_data = img.data[:, :4, :4].compute()
         assert slice_data.shape == (
-            4,
-            4,
             3,
-        ), f"Level {i} slice should have shape (4, 4, 3), got {slice_data.shape}"
+            4,
+            4,
+        ), f"Level {i} slice should have shape (3, 4, 4), got {slice_data.shape}"
         assert slice_data.dtype == np.uint8, (
             f"Level {i} should preserve uint8 dtype, got {slice_data.dtype}"
         )

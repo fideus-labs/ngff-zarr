@@ -71,10 +71,12 @@ class TestInputAlignedChunks:
         image = to_ngff_image(arr, dims=("z", "y", "x", "c"))
         multiscales = to_multiscales(image, scale_factors=[])
 
-        out_data = multiscales.images[0].data
-        c_idx = list(image.dims).index("c")
-        y_idx = list(image.dims).index("y")
-        x_idx = list(image.dims).index("x")
+        # Output dims are normalized to the spec axis order (c, z, y, x)
+        out_image = multiscales.images[0]
+        out_data = out_image.data
+        c_idx = list(out_image.dims).index("c")
+        y_idx = list(out_image.dims).index("y")
+        x_idx = list(out_image.dims).index("x")
         # Channels should stay together
         assert out_data.chunksize[c_idx] == 3
         # Spatial should stay >= 512
@@ -164,9 +166,10 @@ class TestChannelPreservation:
         image = to_ngff_image(arr, dims=("y", "x", "c"))
         multiscales = to_multiscales(image, scale_factors=[])
 
-        out_data = multiscales.images[0].data
-        c_idx = list(image.dims).index("c")
-        assert out_data.chunksize[c_idx] == 3
+        # Output dims are normalized to the spec axis order (c, y, x)
+        out_image = multiscales.images[0]
+        c_idx = list(out_image.dims).index("c")
+        assert out_image.data.chunksize[c_idx] == 3
 
     def test_multichannel_kept_together(self):
         """Multi-channel data (e.g. 16 channels) should keep channel chunks."""
@@ -174,9 +177,10 @@ class TestChannelPreservation:
         image = to_ngff_image(arr, dims=("y", "x", "c"))
         multiscales = to_multiscales(image, scale_factors=[])
 
-        out_data = multiscales.images[0].data
-        c_idx = list(image.dims).index("c")
-        assert out_data.chunksize[c_idx] == 16
+        # Output dims are normalized to the spec axis order (c, y, x)
+        out_image = multiscales.images[0]
+        c_idx = list(out_image.dims).index("c")
+        assert out_image.data.chunksize[c_idx] == 16
 
 
 class TestCaching2DStrips:
