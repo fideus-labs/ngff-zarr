@@ -5,6 +5,7 @@ export { config, setWorkerPoolSize } from "./config.ts";
 export * from "./io/from_ngff_zarr.ts";
 export * from "./io/hcs.ts";
 export * from "./io/itk_image_to_ngff_image.ts";
+export * from "./io/itk_transform_resample_bounding_box.ts";
 export * from "./io/ngff_image_to_itk_image.ts";
 export type { MemoryStoreToZipOptions } from "./io/rfc9_zip.ts";
 // RFC-9 exports

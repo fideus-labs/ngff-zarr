@@ -23,6 +23,11 @@ export {
   itkImageToNgffImage,
   type ItkImageToNgffImageOptions,
 } from "./io/itk_image_to_ngff_image.ts";
+export { itkTransformResampleBoundingBox } from "./io/itk_transform_resample_bounding_box-browser.ts";
+export {
+  type ItkTransformResampleBoundingBoxOptions,
+  ResampleBoundingBox,
+} from "./io/itk_transform_resample_bounding_box-shared.ts";
 export {
   dataTypeToComponentType,
   ngffImageToItkImage,
