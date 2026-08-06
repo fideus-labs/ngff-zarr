@@ -29,6 +29,10 @@ from .itk_transform_resample_bounding_box import (
     ResampleBoundingBox,
     itk_transform_resample_bounding_box,
 )
+from .itk_transform_to_ngff_transform import (
+    itk_transform_to_ngff_matrix,
+    itk_transform_to_ngff_transform,
+)
 from .lif_to_ngff_image import (
     has_mosaic_dimension,
     lif_file_to_ngff_images,
@@ -40,6 +44,10 @@ from .methods import Methods
 from .multiscales import Multiscales, NgffMultiscales
 from .ngff_image import NgffImage
 from .ngff_image_to_itk_image import ngff_image_to_itk_image
+from .ngff_transform_to_itk_transform import (
+    ngff_transform_to_itk_matrix,
+    ngff_transform_to_itk_transform,
+)
 from .nibabel_image_to_ngff_image import (
     extract_omero_metadata_from_nibabel,
     nibabel_image_to_ngff_image,
@@ -124,6 +132,11 @@ __all__ = [
     "nibabel_image_to_ngff_image",
     "extract_omero_metadata_from_nibabel",
     "ngff_image_to_itk_image",
+    # RFC 5 - Coordinate transformations and ITK
+    "ngff_transform_to_itk_matrix",
+    "ngff_transform_to_itk_transform",
+    "itk_transform_to_ngff_matrix",
+    "itk_transform_to_ngff_transform",
     # Out-of-core resampling
     "itk_transform_resample",
     "itk_transform_resample_bounding_box",

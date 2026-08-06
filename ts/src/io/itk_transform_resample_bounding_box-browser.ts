@@ -6,6 +6,7 @@
 import { resampleBoundingBox } from "@itk-wasm/downsample";
 import type { TransformList } from "itk-wasm";
 import type { NgffImage } from "../types/ngff_image.ts";
+import type { V06Transform } from "../types/zarr_metadata.ts";
 import {
   type ItkTransformResampleBoundingBoxOptions,
   type ResampleBoundingBox,
@@ -19,7 +20,7 @@ import {
  * `itk_transform_resample_bounding_box-node.ts` for the full description.
  */
 export function itkTransformResampleBoundingBox(
-  transform: TransformList,
+  transform: V06Transform | TransformList,
   fixed: NgffImage,
   moving: NgffImage,
   options: ItkTransformResampleBoundingBoxOptions = {},

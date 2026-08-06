@@ -29,6 +29,16 @@ export {
   ResampleBoundingBox,
 } from "./io/itk_transform_resample_bounding_box-shared.ts";
 export {
+  itkTransformToNgffMatrix,
+  itkTransformToNgffTransform,
+  type NgffMatrixAndOffset,
+} from "./utils/itk_transform_to_ngff_transform.ts";
+export {
+  type ItkMatrixAndOffset,
+  ngffTransformToItkMatrix,
+  ngffTransformToItkTransform,
+} from "./utils/ngff_transform_to_itk_transform.ts";
+export {
   dataTypeToComponentType,
   ngffImageToItkImage,
   type NgffImageToItkImageOptions,

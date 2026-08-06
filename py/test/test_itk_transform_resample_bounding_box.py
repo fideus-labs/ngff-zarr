@@ -20,10 +20,20 @@ from ngff_zarr import (
     NgffImage,
     itk_transform_resample_bounding_box,
     ngff_image_to_itk_image,
+    ngff_transform_to_itk_matrix,
 )
 from ngff_zarr.itk_transform_resample_bounding_box import (
     _itk_direction,
     _metadata_only_itk_image,
+)
+from ngff_zarr.v06.zarr_metadata import (
+    Affine,
+    Displacements,
+    Identity,
+    Rotation,
+    Scale,
+    TransformSequence,
+    Translation,
 )
 
 
@@ -119,6 +129,176 @@ def _oracle_region(matrix, offset, fixed, moving, spatial, padding):
     start = np.floor(index_min).astype(np.int64) - padding
     end = np.ceil(index_max).astype(np.int64) + padding
     return start, np.maximum(end - start + 1, 0)
+
+
+def test_ngff_translation_matches_the_documented_worked_example():
+    """Reproduces the 2D translation example from the ITK-Wasm documentation.
+
+    That example is stated in ITK order: fixed 16x16 spacing (2,2) origin
+    (10,20), moving 64x64 spacing (1,1) origin 0, translation (10,5),
+    padding 1. Written as RFC-5 the axes reverse, so the translation is
+    ``[5, 10]`` over ``("y", "x")``.
+    """
+    fixed = _image("yx", {"y": 16, "x": 16}, {"y": 2, "x": 2}, {"y": 20, "x": 10})
+    moving = _image("yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+
+    bounding_box = itk_transform_resample_bounding_box(
+        Translation(translation=[5.0, 10.0]), fixed, moving, padding=1
+    )
+
+    assert bounding_box.start_index == {"y": 24, "x": 19}
+    assert bounding_box.size == {"y": 33, "x": 33}
+    assert bounding_box.corners_min == {"y": 25.0, "x": 20.0}
+    assert bounding_box.corners_max == {"y": 55.0, "x": 50.0}
+    assert bounding_box.padded_corners_min == {"y": 24.0, "x": 19.0}
+    assert bounding_box.padded_corners_max == {"y": 56.0, "x": 51.0}
+
+
+def test_padding_is_symmetric():
+    fixed = _image("yx", {"y": 16, "x": 16}, {"y": 2, "x": 2}, {"y": 20, "x": 10})
+    moving = _image("yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+    transform = Translation(translation=[5.0, 10.0])
+
+    padded = itk_transform_resample_bounding_box(transform, fixed, moving, padding=1)
+    tight = itk_transform_resample_bounding_box(transform, fixed, moving, padding=0)
+
+    for dim in ("y", "x"):
+        assert tight.start_index[dim] == padded.start_index[dim] + 1
+        assert tight.size[dim] == padded.size[dim] - 2
+    # The tight corners are padding independent.
+    assert tight.corners_min == padded.corners_min
+    assert tight.corners_max == padded.corners_max
+
+
+def test_asymmetric_three_dimensional_ngff_affine_matches_oracle():
+    """An asymmetric sheared affine makes any axis-order slip visible."""
+    spatial = ("z", "y", "x")
+    fixed = _image(
+        spatial,
+        {"z": 4, "y": 8, "x": 16},
+        {"z": 3.0, "y": 2.0, "x": 1.0},
+        {"z": 30.0, "y": 20.0, "x": 10.0},
+    )
+    moving = _image(
+        spatial,
+        {"z": 64, "y": 128, "x": 256},
+        {"z": 1.5, "y": 0.5, "x": 0.25},
+        {"z": -5.0, "y": 7.0, "x": 3.0},
+    )
+    matrix = np.array([[1.0, 0.2, 0.0], [0.0, 2.0, 0.3], [0.5, 0.0, 1.0]])
+    offset = np.array([4.0, -6.0, 11.0])
+    affine = np.hstack([matrix, offset.reshape(-1, 1)]).tolist()
+
+    bounding_box = itk_transform_resample_bounding_box(
+        Affine(affine=affine), fixed, moving, padding=2
+    )
+
+    expected_start, expected_size = _oracle_region(
+        matrix, offset, fixed, moving, spatial, 2
+    )
+    assert [bounding_box.start_index[d] for d in spatial] == expected_start.tolist()
+    assert [bounding_box.size[d] for d in spatial] == expected_size.tolist()
+
+
+def test_affine_translation_is_the_last_column():
+    """RFC-5 stores the translation as the last column of the affine matrix."""
+    matrix, offset = ngff_transform_to_itk_matrix(
+        Affine(affine=[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]), ("y", "x")
+    )
+    # In NGFF terms: y = 1*y + 2*x + 3 and x = 4*y + 5*x + 6. ITK reverses the
+    # axes, so both the matrix and the offset come back reversed.
+    assert np.allclose(offset, [6.0, 3.0])
+    assert np.allclose(matrix, [[5.0, 4.0], [2.0, 1.0]])
+
+
+def test_affine_with_wrong_shape_is_rejected():
+    with pytest.raises(ValueError, match="translation is the last column"):
+        ngff_transform_to_itk_matrix(
+            Affine(affine=[[1.0, 0.0], [0.0, 1.0]]), ("y", "x")
+        )
+
+
+def test_sequence_applies_its_first_entry_first():
+    """RFC-5 composes ``[f0, f1]`` as ``f1(f0(x))``.
+
+    ITK transform lists compose the other way round, so a sequence that is
+    passed through unreversed would silently give ``2x + 10`` here instead of
+    ``2(x + 10)``.
+    """
+    sequence = TransformSequence(
+        transformations=[
+            Translation(translation=[0.0, 10.0]),
+            Scale(scale=[1.0, 2.0]),
+        ]
+    )
+    matrix, offset = ngff_transform_to_itk_matrix(sequence, ("y", "x"))
+
+    # ITK order is (x, y): translate by 10 then scale by 2 gives an offset of 20.
+    assert np.isclose(offset[0], 20.0)
+    assert np.isclose(matrix[0, 0], 2.0)
+
+    reversed_sequence = TransformSequence(
+        transformations=[
+            Scale(scale=[1.0, 2.0]),
+            Translation(translation=[0.0, 10.0]),
+        ]
+    )
+    _, reversed_offset = ngff_transform_to_itk_matrix(reversed_sequence, ("y", "x"))
+    assert np.isclose(reversed_offset[0], 10.0)
+
+
+def test_nested_sequences_compose():
+    inner = TransformSequence(
+        transformations=[Scale(scale=[1.0, 2.0]), Translation(translation=[0.0, 1.0])]
+    )
+    outer = TransformSequence(
+        transformations=[inner, Translation(translation=[0.0, 100.0])]
+    )
+    _, offset = ngff_transform_to_itk_matrix(outer, ("y", "x"))
+    assert np.isclose(offset[0], 101.0)
+
+
+def test_identity_scale_rotation_round_trip():
+    matrix, offset = ngff_transform_to_itk_matrix(Identity(), ("y", "x"))
+    assert np.allclose(matrix, np.eye(2))
+    assert np.allclose(offset, np.zeros(2))
+
+    matrix, _ = ngff_transform_to_itk_matrix(Scale(scale=[2.0, 3.0]), ("y", "x"))
+    # Reversed to ITK order (x, y).
+    assert np.allclose(matrix, np.diag([3.0, 2.0]))
+
+    rotation = [[0.0, -1.0], [1.0, 0.0]]
+    matrix, _ = ngff_transform_to_itk_matrix(Rotation(rotation=rotation), ("y", "x"))
+    reversal = np.eye(2)[::-1]
+    assert np.allclose(matrix, reversal @ np.array(rotation) @ reversal)
+
+
+def test_non_linear_transform_is_rejected():
+    with pytest.raises(NotImplementedError, match="cannot be converted"):
+        ngff_transform_to_itk_matrix(Displacements(path="field"), ("y", "x"))
+
+
+def test_transform_coupling_spatial_and_non_spatial_axes_is_rejected():
+    affine = np.eye(3, 4)
+    affine[1, 0] = 0.5  # y would depend on c
+    with pytest.raises(ValueError, match="couples spatial and non-spatial"):
+        ngff_transform_to_itk_matrix(Affine(affine=affine.tolist()), ("c", "y", "x"))
+
+
+def test_v04_transform_dataclasses_are_accepted():
+    """``ngff_zarr.Scale`` and friends are the v0.4 spellings, not the v0.6 ones."""
+    import ngff_zarr as nz
+
+    assert not isinstance(nz.Translation(translation=[0.0, 0.0]), Translation)
+
+    fixed = _image("yx", {"y": 16, "x": 16}, {"y": 2, "x": 2}, {"y": 20, "x": 10})
+    moving = _image("yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+
+    bounding_box = itk_transform_resample_bounding_box(
+        nz.Translation(translation=[5.0, 10.0]), fixed, moving, padding=1
+    )
+
+    assert bounding_box.start_index == {"y": 24, "x": 19}
 
 
 def test_mismatched_spatial_dims_are_rejected():

@@ -9,7 +9,9 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .ngff_image import NgffImage
+from .ngff_transform_to_itk_transform import ngff_transform_to_itk_transform
 from .rfc4 import anatomical_orientation_to_itk_direction
+from .v06.zarr_metadata import BaseTransform
 
 _SPATIAL_DIMS = ("x", "y", "z")
 
@@ -292,6 +294,29 @@ def _metadata_only_itk_image(
     )
 
 
+#: RFC-5 transformation types, plus the v0.4 spellings of the three that
+#: predate it. ``ngff_zarr.Scale`` and friends are the v0.4 dataclasses, which
+#: do not share the v0.6 base class.
+_NGFF_TRANSFORM_TYPES = frozenset(
+    {
+        "identity",
+        "scale",
+        "translation",
+        "rotation",
+        "affine",
+        "sequence",
+        "coordinates",
+        "displacements",
+    }
+)
+
+
+def _is_ngff_transform(transform) -> bool:
+    if isinstance(transform, BaseTransform):
+        return True
+    return getattr(transform, "type", None) in _NGFF_TRANSFORM_TYPES
+
+
 def _as_itk_transform_list(transform) -> list:
     """Normalize a supported transform input into an ITK-Wasm transform list.
 
@@ -366,15 +391,21 @@ def itk_transform_resample_bounding_box(
     numbers, learn exactly which block of the moving image a resample will
     touch, and only then move pixels.
 
-    The transform acts on ITK physical space, so the image geometry is built
-    the way :func:`ngff_zarr.ngff_image_to_itk_image` builds it, including the
-    direction matrix derived from RFC-4 anatomical orientation. It maps *fixed*
-    points into *moving* space, matching the direction registration libraries
-    return.
+    Two kinds of transform are accepted, and they are interpreted in different
+    coordinate spaces:
 
-    :param transform: An ``itk.Transform`` (including the ``CompositeTransform``
-        an Elastix registration returns), or an ITK-Wasm ``Transform`` /
-        ``TransformList``.
+    * An **RFC-5 coordinate transformation** acts on the intrinsic coordinate
+      system, where a point is ``translation + scale * index``. Its parameters
+      are in Zarr axis order and no direction matrix applies.
+    * An **ITK transform** (for example a ``CompositeTransform`` returned by
+      Elastix) acts on ITK physical space, so the geometry is built the way
+      :func:`ngff_zarr.ngff_image_to_itk_image` builds it, including the
+      direction matrix derived from RFC-4 anatomical orientation.
+
+    In both cases the transform maps *fixed* points into *moving* space.
+
+    :param transform: An RFC-5 coordinate transformation, an ``itk.Transform``,
+        or an ITK-Wasm ``Transform`` / ``TransformList``.
 
     :param fixed: The image whose grid is resampled. Geometry only.
     :type  fixed: NgffImage
@@ -395,6 +426,7 @@ def itk_transform_resample_bounding_box(
         translation entry is missing, zero or non-finite, if ``padding`` is
         negative, if the transform couples spatial and non-spatial axes, or if
         the region spans more than the index range the pipeline can represent.
+    :raises NotImplementedError: If the RFC-5 transformation is not linear.
     """
     from itkwasm_downsample import resample_bounding_box
 
@@ -448,9 +480,16 @@ def itk_transform_resample_bounding_box(
             moving_shape=moving_shape,
         )
 
-    transform_list = _as_itk_transform_list(transform)
-    fixed_direction = _itk_direction(fixed, itk_dims)
-    moving_direction = _itk_direction(moving, itk_dims)
+    if _is_ngff_transform(transform):
+        transform_list = ngff_transform_to_itk_transform(transform, fixed.dims)
+        # An RFC-5 transformation is defined on the intrinsic coordinate
+        # system, which carries no direction matrix.
+        fixed_direction = np.eye(len(itk_dims))
+        moving_direction = np.eye(len(itk_dims))
+    else:
+        transform_list = _as_itk_transform_list(transform)
+        fixed_direction = _itk_direction(fixed, itk_dims)
+        moving_direction = _itk_direction(moving, itk_dims)
 
     result = resample_bounding_box(
         transform_list,

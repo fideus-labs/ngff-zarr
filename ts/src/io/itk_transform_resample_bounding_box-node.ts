@@ -6,6 +6,7 @@
 import { resampleBoundingBoxNode } from "@itk-wasm/downsample";
 import type { TransformList } from "itk-wasm";
 import type { NgffImage } from "../types/ngff_image.ts";
+import type { V06Transform } from "../types/zarr_metadata.ts";
 import {
   type ItkTransformResampleBoundingBoxOptions,
   type ResampleBoundingBox,
@@ -20,19 +21,27 @@ import {
  * and a transform with a few numbers, learn exactly which block of the moving
  * image a resample will touch, and only then move pixels.
  *
- * The transform acts on ITK physical space, so the geometry is built the way
- * {@link ngffImageToItkImage} builds it, including the direction matrix derived
- * from RFC-4 anatomical orientation. It maps *fixed* points into *moving*
- * space.
+ * Two kinds of transform are accepted, and they are interpreted in different
+ * coordinate spaces:
  *
- * @param transform An ITK-Wasm `TransformList`.
+ * - An **RFC-5 coordinate transformation** acts on the intrinsic coordinate
+ *   system, where a point is `translation + scale * index`. Its parameters are
+ *   in Zarr axis order and no direction matrix applies.
+ * - An **ITK-Wasm `TransformList`** acts on ITK physical space, so the
+ *   geometry is built the way {@link ngffImageToItkImage} builds it, including
+ *   the direction matrix derived from RFC-4 anatomical orientation.
+ *
+ * In both cases the transform maps *fixed* points into *moving* space.
+ *
+ * @param transform An RFC-5 coordinate transformation or an ITK-Wasm
+ *   `TransformList`.
  * @param fixed The image whose grid is resampled. Geometry only.
  * @param moving The image to be sampled. Geometry only.
  * @param options Padding options.
  * @returns The region, keyed by dimension name in Zarr order.
  */
 export function itkTransformResampleBoundingBox(
-  transform: TransformList,
+  transform: V06Transform | TransformList,
   fixed: NgffImage,
   moving: NgffImage,
   options: ItkTransformResampleBoundingBoxOptions = {},

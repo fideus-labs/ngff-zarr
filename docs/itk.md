@@ -55,43 +55,59 @@ overlapping region is wasteful.
 
 `itk_transform_resample_bounding_box` answers *which moving-image indices will
 the resample actually read?* from image geometry alone. The pixel buffers are
-never touched and the Dask graphs are never computed:
+never touched and the Dask graphs are never computed, so both images can be
+described by a handful of numbers:
 
 ```python
->>> import itk
+>>> import dask.array as da
+>>> import numpy as np
 >>> import ngff_zarr as nz
+>>> from ngff_zarr.v06.zarr_metadata import Affine
 >>>
->>> # Any linear or deformable ITK transform, including the CompositeTransform
->>> # an Elastix registration returns. It maps fixed points into moving space.
->>> transform = registration_method.GetCombinedTransform()   # doctest: +SKIP
->>> region = nz.itk_transform_resample_bounding_box(         # doctest: +SKIP
-...     transform, fixed_block, moving)
->>> region.start_index                                       # doctest: +SKIP
+>>> fixed = nz.NgffImage(
+...     data=da.zeros((64, 64), dtype=np.uint8),
+...     dims=['y', 'x'],
+...     scale={'y': 1.0, 'x': 1.0},
+...     translation={'y': 0.0, 'x': 0.0})
+>>> moving = nz.NgffImage(
+...     data=da.zeros((256, 256), dtype=np.uint8),
+...     dims=['y', 'x'],
+...     scale={'y': 1.0, 'x': 1.0},
+...     translation={'y': 0.0, 'x': 0.0})
+>>>
+>>> # An RFC-5 affine mapping fixed points into moving space. Its parameters
+>>> # are in Zarr axis order, and the translation is the last column, so this
+>>> # shifts y by +12 and x by -4.
+>>> transform = Affine(affine=[[1.0, 0.0, 12.0],
+...                            [0.0, 1.0, -4.0]])
+>>>
+>>> region = nz.itk_transform_resample_bounding_box(transform, fixed, moving)
+>>> region.start_index
 {'y': 11, 'x': -5}
+>>> region.size
+{'y': 66, 'x': 66}
 ```
 
 The result is keyed by dimension name, so there is no ambiguity about axis
-order -- the underlying pipeline reports arrays fastest-axis-first, the reverse
-of the Zarr order.
-
-`region.crop(moving)` returns a lazily sliced `NgffImage` whose `translation`
-has been shifted to match, ready to hand to `ngff_image_to_itk_image`:
+order. `region.crop(moving)` returns a lazily sliced `NgffImage` whose
+`translation` has been shifted to match, ready to hand to
+`ngff_image_to_itk_image`:
 
 ```python
->>> block = region.crop(moving)                              # doctest: +SKIP
+>>> block = region.crop(moving)   # still lazy; nothing read yet
+>>> block.data.shape              # clamped into the moving image bounds
+(66, 61)
+>>> block.translation
+{'y': 11.0, 'x': 0.0}
 >>> moving_itk = nz.ngff_image_to_itk_image(block, wasm=False)  # doctest: +SKIP
 ```
 
-Only that block's chunks are read. `crop` returns `None` when the transformed
-grid does not overlap the moving image at all, so a tiling loop can skip it
-instead of resampling nothing. Start indices may be negative when the grid
-extends past the moving origin; `crop`, `slices` and `clamped` clamp into
-bounds rather than letting a negative index wrap around.
-
-The image geometry is built the way `ngff_image_to_itk_image` builds it,
-including the direction matrix derived from [RFC-4](./rfc4.md) anatomical
-orientation, so the transform is applied in the space a registration produced
-it in.
+Only this block's chunks are read when `moving_itk` is finally built. `crop`
+returns `None` when the transformed grid does not overlap the moving image at
+all, so a tiling loop can skip that block instead of resampling nothing. Start
+indices may be negative when the grid extends past the moving origin; `crop`,
+`slices` and `clamped` all clamp into bounds rather than letting a negative
+index wrap around.
 
 Use `padding` to cover the interpolator's support. The default of `1` covers
 linear interpolation, which reads one neighbor beyond the continuous index
@@ -195,18 +211,124 @@ the transformed corners -- so the whole grid boundary is walked instead. Cost is
 proportional to the boundary, not the pixel count, and per block that boundary
 is small.
 
+Displacement-field transforms work directly:
+
+```python
+>>> region = nz.itk_transform_resample_bounding_box(  # doctest: +SKIP
+...     displacement_field_transform, fixed, moving)
+```
+
+### Registration transforms from Elastix
+
+Transforms produced by a registration library can be passed directly, including
+the `itk.CompositeTransform` that Elastix returns:
+
+```python
+>>> import itk
+>>> composite = registration_method.GetCombinedTransform()  # doctest: +SKIP
+>>> region = nz.itk_transform_resample_bounding_box(  # doctest: +SKIP
+...     composite, fixed_block, moving)
+```
+
+The two kinds of transform are interpreted in **different coordinate spaces**,
+which matters when anatomical orientation is present:
+
+- An **RFC-5 coordinate transformation** acts on the intrinsic coordinate
+  system, where a point is `translation + scale * index`. Its parameters are in
+  Zarr axis order, and no direction matrix applies.
+- An **ITK transform** acts on ITK physical space, so the image geometry is
+  built exactly the way `ngff_image_to_itk_image` builds it, including the
+  direction matrix derived from [RFC-4](./rfc4.md) anatomical orientation.
+
+In both cases the transform maps *fixed* points into *moving* space, matching
+the direction registration libraries return.
+
+## Converting transforms
+
+Transforms convert in both directions, mirroring `itk_image_to_ngff_image` and
+`ngff_image_to_itk_image`:
+
+| Function | Direction |
+| --- | --- |
+| `ngff_transform_to_itk_transform` | RFC-5 to ITK |
+| `itk_transform_to_ngff_transform` | ITK to RFC-5 |
+
+Both reconcile the two conventions that differ between the specifications:
+
+- **Axis order.** RFC-5 orders parameters like the Zarr array, so a `zyx` image
+  has `z` first; ITK orders points fastest-axis-first. The spatial block is
+  reversed in both rows and columns.
+- **Composition order.** An RFC-5 `sequence` applies its *first* entry first,
+  while an ITK transform list applies its *last* entry first. The chain is
+  collapsed into a single affine so the result does not depend on that
+  inversion.
+
+There is also a **center of rotation**: ITK computes `y = A(x - c) + t + c`,
+while an RFC-5 affine has no center. Converting to RFC-5 folds it into the
+offset as `b = t + c - A c`, so the mapping is preserved exactly.
+
+### Storing a registration result
+
+`itk_transform_to_ngff_transform` is what lets a registration be written into
+the OME-Zarr store. It accepts any linear ITK transform, including the
+`CompositeTransform` an Elastix registration returns, and it recovers the
+mapping by evaluating the transform rather than by decoding its parameters --
+so parameterizations that store angles or a quaternion (`Euler2DTransform`,
+`VersorRigid3DTransform`, ...) convert just as well as an `AffineTransform`:
+
+```python
+>>> import itk
+>>> import ngff_zarr as nz
+>>>
+>>> transform = registration_method.GetCombinedTransform()  # doctest: +SKIP
+>>> rfc5 = nz.itk_transform_to_ngff_transform(  # doctest: +SKIP
+...     transform, multiscales.metadata.dimension_names)
+>>> multiscales.metadata.coordinateTransformations = [rfc5]  # doctest: +SKIP
+>>> nz.to_ome_zarr(  # doctest: +SKIP
+...     'registered.ome.zarr', multiscales, version='0.6')
+```
+
+By default the result is the least expressive transformation that represents
+the mapping exactly -- `identity`, `translation`, `scale`, or a `sequence` of
+scale and translation -- falling back to `affine`. RFC-5 recommends this, and
+only those simpler forms are legal inside `multiscales > datasets`. Pass
+`simplify=False` to always get an `affine`.
+
+Only **linear** transforms convert between the two representations, in either
+direction: a deformation has no affine equivalent, so a non-linear ITK
+transform raises `NotImplementedError`, as do array-backed `displacements` and
+`coordinates` going the other way. RFC-5 represents deformations with those
+field types instead, described in the [RFC-5 documentation](./rfc5.md).
+
+This restriction applies only to *converting* a transform. Computing a bounding
+box does **not** require linearity -- that is the section above.
+
+In the TypeScript package the equivalents are `ngffTransformToItkTransform`
+and `itkTransformToNgffTransform`. TypeScript has no `itk` package to fall back
+on, so only parameterizations that carry a matrix (`Identity`, `Translation`,
+`Scale`, `Affine`) convert there; angle- and quaternion-based ones must be
+converted to an affine first.
+
 ## TypeScript
 
-The TypeScript package provides `itkTransformResampleBoundingBox`. It is async,
-takes options as an object, and returns a `ResampleBoundingBox` whose
+The same functions are available in the TypeScript package as
+`itkTransformResampleBoundingBox` and `ngffTransformToItkTransform`. They are
+async, take options as an object, and return a `ResampleBoundingBox` whose
 `selection()` yields a zarrita selection instead of Python slices:
 
 ```typescript
-import { itkTransformResampleBoundingBox, zarrGet } from "@fideus-labs/ngff-zarr";
+import {
+  createAffine,
+  itkTransformResampleBoundingBox,
+  zarrGet,
+} from "@fideus-labs/ngff-zarr";
 
-const region = await itkTransformResampleBoundingBox(transform, fixed, moving, {
-  padding: 1,
-});
+const region = await itkTransformResampleBoundingBox(
+  createAffine([[1, 0, 12], [0, 1, -4]]),
+  fixed,
+  moving,
+  { padding: 1 },
+);
 
 if (!region.isEmpty) {
   const block = await zarrGet(moving.data, region.selection(moving.dims));

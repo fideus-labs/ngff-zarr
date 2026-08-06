@@ -11,7 +11,9 @@
 import * as zarr from "zarrita";
 import type { Image, TransformList } from "itk-wasm";
 import { NgffImage } from "../types/ngff_image.ts";
+import type { V06Transform } from "../types/zarr_metadata.ts";
 import { anatomicalOrientationToItkDirection } from "../types/rfc4.ts";
+import { ngffTransformToItkTransform } from "../utils/ngff_transform_to_itk_transform.ts";
 
 const SPATIAL_DIMS = ["x", "y", "z"];
 
@@ -331,6 +333,11 @@ export function metadataOnlyItkImage(
   return itkImage;
 }
 
+function isV06Transform(value: unknown): value is V06Transform {
+  return typeof value === "object" && value !== null && "type" in value &&
+    typeof (value as { type: unknown }).type === "string";
+}
+
 /**
  * Compute the moving-image region needed to resample a fixed image grid.
  *
@@ -343,7 +350,7 @@ export async function resampleBoundingBoxShared(
     moving: Image,
     options: { padding?: number },
   ) => Promise<{ boundingBox: unknown }>,
-  transform: TransformList,
+  transform: V06Transform | TransformList,
   fixed: NgffImage,
   moving: NgffImage,
   options: ItkTransformResampleBoundingBoxOptions = {},
@@ -398,11 +405,28 @@ export async function resampleBoundingBoxShared(
     });
   }
 
-  // An ITK transform list acts on ITK physical space, so the geometry is built
-  // the way ngffImageToItkImage builds it, direction included.
-  const transformList = transform;
-  const fixedDirection = itkDirection(fixed, itkDims);
-  const movingDirection = itkDirection(moving, itkDims);
+  let transformList: TransformList;
+  let fixedDirection: Float64Array;
+  let movingDirection: Float64Array;
+
+  if (Array.isArray(transform)) {
+    // An ITK transform list acts on ITK physical space, so the geometry is
+    // built the way ngffImageToItkImage builds it, direction included.
+    transformList = transform;
+    fixedDirection = itkDirection(fixed, itkDims);
+    movingDirection = itkDirection(moving, itkDims);
+  } else if (isV06Transform(transform)) {
+    transformList = ngffTransformToItkTransform(transform, fixed.dims);
+    // An RFC-5 transformation is defined on the intrinsic coordinate system,
+    // which carries no direction matrix.
+    fixedDirection = identityDirection(itkDims.length);
+    movingDirection = identityDirection(itkDims.length);
+  } else {
+    throw new Error(
+      `unsupported transform type. Expected an RFC-5 coordinate ` +
+        `transformation or an ITK-Wasm TransformList.`,
+    );
+  }
 
   const { boundingBox } = await pipeline(
     transformList,

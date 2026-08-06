@@ -222,6 +222,25 @@ Use `Coordinates` instead of `Displacements` (and `axes_types={"c":
 "coordinate"}` on the field) for an absolute coordinate field; the store layout
 is identical.
 
+### Interoperating with ITK
+
+Linear transformations convert to and from ITK in both directions, with
+`ngff_transform_to_itk_transform` and `itk_transform_to_ngff_transform`. The
+second is how a registration result gets into the store: convert the
+`CompositeTransform` an Elastix registration returns and attach it to the
+multiscales metadata as shown above.
+
+Both reconcile the places where the conventions differ: RFC-5 orders
+parameters in Zarr axis order while ITK orders them fastest-axis-first, an
+RFC-5 `sequence` applies its first entry first while an ITK transform list
+applies its last entry first, and ITK's center of rotation is folded into the
+offset since an RFC-5 affine has none.
+
+Building on that, `itk_transform_resample_bounding_box` computes which region
+of a moving image a resample through the transformation would read, from
+geometry alone. See [Out-of-core resampling](./itk.md#out-of-core-resampling)
+and [Converting transforms](./itk.md#converting-transforms).
+
 ## TypeScript
 
 The TypeScript package (`@fideus-labs/ngff-zarr`) mirrors the Python API. Field

@@ -15,7 +15,17 @@
 
 import { assertAlmostEquals, assertEquals, assertRejects } from "@std/assert";
 import * as zarr from "zarrita";
-import { itkTransformResampleBoundingBox, NgffImage } from "../src/mod.ts";
+import {
+  createAffine,
+  createIdentity,
+  createRotation,
+  createScale,
+  createTransformSequence,
+  createTranslation,
+  itkTransformResampleBoundingBox,
+  NgffImage,
+  ngffTransformToItkMatrix,
+} from "../src/mod.ts";
 import { resampleBoundingBoxShared } from "../src/io/itk_transform_resample_bounding_box-shared.ts";
 import { RAS } from "../src/types/rfc4.ts";
 import type { AnatomicalOrientation } from "../src/types/rfc4.ts";
@@ -141,6 +151,210 @@ function oracleRegion(
   const end = indexMax.map((v) => Math.ceil(v) + padding);
   return { start, size: end.map((e, i) => Math.max(e - start[i] + 1, 0)) };
 }
+
+Deno.test("an NGFF translation reproduces the documented 2D example", async () => {
+  // The documentation states this in ITK order: fixed 16x16 spacing (2,2)
+  // origin (10,20), moving 64x64 spacing (1,1) origin 0, translation (10,5),
+  // padding 1. Written as RFC-5 the axes reverse, so the translation is
+  // [5, 10] over ["y", "x"].
+  const fixed = await geometryImage(["y", "x"], { y: 16, x: 16 }, {
+    y: 2,
+    x: 2,
+  }, { y: 20, x: 10 });
+  const moving = await geometryImage(["y", "x"], { y: 64, x: 64 }, {
+    y: 1,
+    x: 1,
+  }, { y: 0, x: 0 });
+
+  const boundingBox = await itkTransformResampleBoundingBox(
+    createTranslation([5, 10]),
+    fixed,
+    moving,
+    { padding: 1 },
+  );
+
+  assertEquals(boundingBox.startIndex, { y: 24, x: 19 });
+  assertEquals(boundingBox.size, { y: 33, x: 33 });
+  assertEquals(boundingBox.cornersMin, { y: 25, x: 20 });
+  assertEquals(boundingBox.cornersMax, { y: 55, x: 50 });
+  assertEquals(boundingBox.paddedCornersMin, { y: 24, x: 19 });
+  assertEquals(boundingBox.paddedCornersMax, { y: 56, x: 51 });
+});
+
+Deno.test("padding is applied symmetrically", async () => {
+  const fixed = await geometryImage(["y", "x"], { y: 16, x: 16 }, {
+    y: 2,
+    x: 2,
+  }, { y: 20, x: 10 });
+  const moving = await geometryImage(["y", "x"], { y: 64, x: 64 }, {
+    y: 1,
+    x: 1,
+  }, { y: 0, x: 0 });
+  const transform = createTranslation([5, 10]);
+
+  const padded = await itkTransformResampleBoundingBox(
+    transform,
+    fixed,
+    moving,
+    {
+      padding: 1,
+    },
+  );
+  const tight = await itkTransformResampleBoundingBox(
+    transform,
+    fixed,
+    moving,
+    {
+      padding: 0,
+    },
+  );
+
+  for (const dim of ["y", "x"]) {
+    assertEquals(tight.startIndex[dim], padded.startIndex[dim] + 1);
+    assertEquals(tight.size[dim], padded.size[dim] - 2);
+  }
+  // The tight corners are padding independent.
+  assertEquals(tight.cornersMin, padded.cornersMin);
+  assertEquals(tight.cornersMax, padded.cornersMax);
+});
+
+Deno.test("an asymmetric 3D NGFF affine matches the oracle", async () => {
+  const dims = ["z", "y", "x"];
+  const fixed = await geometryImage(dims, { z: 4, y: 8, x: 16 }, {
+    z: 3,
+    y: 2,
+    x: 1,
+  }, { z: 30, y: 20, x: 10 });
+  const moving = await geometryImage(dims, { z: 64, y: 128, x: 256 }, {
+    z: 1.5,
+    y: 0.5,
+    x: 0.25,
+  }, { z: -5, y: 7, x: 3 });
+
+  // Deliberately asymmetric, with shear, so any axis-order slip shows.
+  const matrix = [[1, 0.2, 0], [0, 2, 0.3], [0.5, 0, 1]];
+  const offset = [4, -6, 11];
+  const affine = matrix.map((row, i) => [...row, offset[i]]);
+
+  const boundingBox = await itkTransformResampleBoundingBox(
+    createAffine(affine),
+    fixed,
+    moving,
+    { padding: 2 },
+  );
+
+  const expected = oracleRegion(
+    matrix,
+    offset,
+    [4, 8, 16],
+    [3, 2, 1],
+    [30, 20, 10],
+    [1.5, 0.5, 0.25],
+    [-5, 7, 3],
+    2,
+  );
+  assertEquals(dims.map((d) => boundingBox.startIndex[d]), expected.start);
+  assertEquals(dims.map((d) => boundingBox.size[d]), expected.size);
+});
+
+Deno.test("affine translation is the last column", () => {
+  const { matrix, offset } = ngffTransformToItkMatrix(
+    createAffine([[1, 2, 3], [4, 5, 6]]),
+    ["y", "x"],
+  );
+  // In NGFF terms: y = 1*y + 2*x + 3 and x = 4*y + 5*x + 6. ITK reverses the
+  // axes, so both the matrix and the offset come back reversed.
+  assertEquals(offset, [6, 3]);
+  assertEquals(matrix, [[5, 4], [2, 1]]);
+});
+
+Deno.test("an affine of the wrong shape is rejected", () => {
+  let message = "";
+  try {
+    ngffTransformToItkMatrix(createAffine([[1, 0], [0, 1]]), ["y", "x"]);
+  } catch (error) {
+    message = (error as Error).message;
+  }
+  assertEquals(message.includes("translation is the last column"), true);
+});
+
+Deno.test("a sequence applies its first entry first", () => {
+  // RFC-5 composes [f0, f1] as f1(f0(x)). ITK transform lists compose the
+  // other way round, so a sequence passed through unreversed would silently
+  // give 2x + 10 here instead of 2(x + 10).
+  const sequence = createTransformSequence([
+    createTranslation([0, 10]),
+    createScale([1, 2]),
+  ]);
+  const { matrix, offset } = ngffTransformToItkMatrix(sequence, ["y", "x"]);
+
+  // ITK order is (x, y): translate by 10 then scale by 2 gives an offset of 20.
+  assertAlmostEquals(offset[0], 20);
+  assertAlmostEquals(matrix[0][0], 2);
+
+  const reversed = createTransformSequence([
+    createScale([1, 2]),
+    createTranslation([0, 10]),
+  ]);
+  assertAlmostEquals(
+    ngffTransformToItkMatrix(reversed, ["y", "x"]).offset[0],
+    10,
+  );
+});
+
+Deno.test("nested sequences compose", () => {
+  const inner = createTransformSequence([
+    createScale([1, 2]),
+    createTranslation([0, 1]),
+  ]);
+  const outer = createTransformSequence([inner, createTranslation([0, 100])]);
+  assertAlmostEquals(
+    ngffTransformToItkMatrix(outer, ["y", "x"]).offset[0],
+    101,
+  );
+});
+
+Deno.test("identity, scale and rotation convert", () => {
+  const identity = ngffTransformToItkMatrix(createIdentity(), ["y", "x"]);
+  assertEquals(identity.matrix, [[1, 0], [0, 1]]);
+  assertEquals(identity.offset, [0, 0]);
+
+  // Reversed to ITK order (x, y).
+  const scale = ngffTransformToItkMatrix(createScale([2, 3]), ["y", "x"]);
+  assertEquals(scale.matrix, [[3, 0], [0, 2]]);
+
+  const rotation = ngffTransformToItkMatrix(
+    createRotation([[0, -1], [1, 0]]),
+    ["y", "x"],
+  );
+  // Reversing both rows and columns of [[0,-1],[1,0]] gives [[0,1],[-1,0]].
+  assertEquals(rotation.matrix, [[0, 1], [-1, 0]]);
+});
+
+Deno.test("a non-linear transformation is rejected", () => {
+  let message = "";
+  try {
+    ngffTransformToItkMatrix(
+      { type: "displacements", path: "field" },
+      ["y", "x"],
+    );
+  } catch (error) {
+    message = (error as Error).message;
+  }
+  assertEquals(message.includes("cannot be converted"), true);
+});
+
+Deno.test("a transform coupling spatial and non-spatial axes is rejected", () => {
+  // y would depend on c.
+  const affine = [[1, 0, 0, 0], [0.5, 1, 0, 0], [0, 0, 1, 0]];
+  let message = "";
+  try {
+    ngffTransformToItkMatrix(createAffine(affine), ["c", "y", "x"]);
+  } catch (error) {
+    message = (error as Error).message;
+  }
+  assertEquals(message.includes("couples spatial and non-spatial"), true);
+});
 
 Deno.test("mismatched spatial dims are rejected", async () => {
   const fixed = await geometryImage(["z", "y", "x"], { z: 4, y: 4, x: 4 }, {
