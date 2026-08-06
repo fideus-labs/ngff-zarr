@@ -1354,16 +1354,16 @@ def _prepare_next_scale(
     store: StoreLike,
     path: str,
     progress: NgffProgress | NgffProgressCallback | None,
-    scale_strategy: ScaleStrategy = "exact",
+    scale_strategy: ScaleStrategy = "pad",
 ) -> object | None:
     """Prepare the next scale for processing if needed.
 
     :param scale_strategy: Strategy for handling non-power-of-2 scale factors.
-        "exact" (default) uses pre-computed images from the initial
-        to_multiscales() call when incremental downsampling cannot achieve the
-        exact target size, so the written arrays match the coordinate metadata.
-        "pad" always downsamples incrementally from the previous level, which
-        can miss the target sizes; the datasets metadata still describes the
+        "pad" (default) always downsamples incrementally from the previous
+        level, which can miss the target sizes. "exact" uses pre-computed
+        images from the initial to_multiscales() call when incremental
+        downsampling cannot achieve the exact target size, so the written
+        arrays match the coordinate metadata; the datasets metadata describes the
         exact targets, so the store then misdescribes its own geometry.
     """
     # No next scale if we're at the last one
@@ -1467,7 +1467,7 @@ def to_ome_zarr(
     chunk_store: StoreLike | None = None,
     progress: NgffProgress | NgffProgressCallback | None = None,
     chunks_per_shard: int | tuple[int, ...] | dict[str, int] | None = None,
-    scale_strategy: ScaleStrategy = "exact",
+    scale_strategy: ScaleStrategy = "pad",
     **kwargs,
 ) -> None:
     """
@@ -1501,13 +1501,14 @@ def to_ome_zarr(
 
 
     :param scale_strategy: Strategy for handling non-power-of-2 scale factors during
-        multiscale writing. "exact" (default) uses pre-computed images from the
-        initial to_multiscales() call when incremental downsampling cannot achieve
-        the exact target size (original_size // scale_factor), so the written
-        arrays match the coordinate metadata. "pad" always downsamples
-        incrementally from the previous level, which is memory-efficient but can
-        miss the target sizes; the datasets metadata still describes the exact
-        targets, so the store then misdescribes its own geometry.
+        multiscale writing. "pad" (default) always downsamples incrementally from
+        the previous level, which is memory-efficient but can miss the target
+        sizes; the datasets metadata still describes the exact targets, so the
+        store then misdescribes its own geometry. "exact" uses pre-computed
+        images from the initial to_multiscales() call when incremental
+        downsampling cannot achieve the exact target size
+        (original_size // scale_factor), so the written arrays match the
+        coordinate metadata.
     :type  scale_strategy: "pad" or "exact", optional
 
     :param **kwargs: Passed to the zarr.create_array() or zarr.creation.create() function, e.g., compression options.
@@ -1620,7 +1621,7 @@ def _to_ngff_zarr_impl(
     chunk_store: StoreLike | None = None,
     progress: NgffProgress | NgffProgressCallback | None = None,
     chunks_per_shard: int | tuple[int, ...] | dict[str, int] | None = None,
-    scale_strategy: ScaleStrategy = "exact",
+    scale_strategy: ScaleStrategy = "pad",
     **kwargs,
 ) -> None:
     """

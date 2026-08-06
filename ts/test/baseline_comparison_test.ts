@@ -71,10 +71,13 @@ async function writeScaleImage(
 /**
  * Compare two ITK-Wasm images by value: geometry and pixel data must be
  * identical. Mirrors the Python port's store_equals, which compares
- * decompressed arrays element-wise. (@itk-wasm/compare-images is not used
- * because it throws on 3D images with a non-identity direction matrix, and
- * the exact comparison used here — zero threshold, zero pixels tolerance —
- * is a plain element-wise equality anyway.)
+ * decompressed arrays element-wise, so both ports assert the same thing.
+ *
+ * @itk-wasm/compare-images is deliberately not used: the comparison wanted
+ * here is exact — zero threshold, zero pixels tolerance — which is plain
+ * element-wise equality, so a Wasm round trip would buy nothing. (It also
+ * threw on 3D images with a non-identity direction, fixed upstream in
+ * InsightSoftwareConsortium/ITK-Wasm#1582.)
  */
 function compareImages(
   testImage: ItkWasmImage,

@@ -156,10 +156,12 @@ def test_non_power_of_2_with_dict_scale_factors():
         ), f"Expected (40, 10) but got {result.images[2].data.shape}"
 
 
-def test_scale_strategy_defaults_to_exact():
+def test_scale_strategy_defaults_to_pad():
     """
-    Test that the default write produces the shapes to_multiscales computed,
-    so the arrays agree with the datasets metadata written for them.
+    The default write downsamples incrementally from the previous level, so a
+    target that is not reachable by an integer factor is missed: from level 1
+    (60, 60) a factor-3 target of (40, 40) is out of reach, pad lands on
+    (30, 30), and factor 4 then has nothing left to do.
     """
     data = np.random.randint(0, 256, size=(120, 120), dtype=np.uint8)
     image = nz.to_ngff_image(data, scale={"y": 1.0, "x": 1.0})
@@ -168,11 +170,11 @@ def test_scale_strategy_defaults_to_exact():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         zarr_path = f"{tmpdir}/test.ome.zarr"
-        # No scale_strategy arg → defaults to "exact"
+        # No scale_strategy arg -> defaults to "pad"
         nz.to_ngff_zarr(zarr_path, multiscales)
         result = nz.from_ngff_zarr(zarr_path)
 
-        expected_shapes = [(120, 120), (60, 60), (40, 40), (30, 30)]
+        expected_shapes = [(120, 120), (60, 60), (30, 30), (30, 30)]
         for i, expected in enumerate(expected_shapes):
             actual = result.images[i].data.shape
             assert actual == expected, f"Level {i}: expected {expected}, got {actual}"
