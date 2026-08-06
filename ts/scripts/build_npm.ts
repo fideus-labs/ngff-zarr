@@ -197,7 +197,7 @@ async function createPackageJson(): Promise<void> {
     dependencies: {
       "@fideus-labs/fizarrita": "^1.3.0",
       "@fideus-labs/worker-pool": "^1.0.0",
-      "@itk-wasm/downsample": "^1.8.1",
+      "@itk-wasm/downsample": "^2.0.0",
       "itk-wasm": "^1.0.0-b.196",
       "@zarrita/storage": "^0.1.4",
       zod: "^4.0.2",
