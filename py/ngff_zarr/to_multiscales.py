@@ -36,7 +36,7 @@ from .methods._itkwasm import (
     _downsample_itkwasm,
 )
 from .methods._metadata import get_method_metadata
-from .methods._support import _spatial_dims
+from .methods._support import _canonical_axis_order, _spatial_dims
 from .multiscales import NgffMultiscales
 from .ngff_image import NgffImage
 from .rfc4 import AnatomicalOrientation, orientation_from_name
@@ -497,7 +497,10 @@ def to_multiscales(
         output automatically whenever it is present; no separate opt-in is required.
     :type  orientation: str or mapping of str to AnatomicalOrientation, optional
 
-    :return: NgffImage for each resolution and NGFF multiscales metadata
+    :return: NgffImage for each resolution and NGFF multiscales metadata.
+        Axes are normalized to the OME-Zarr specification order -- time, then
+        channel, then space (t, c, z, y, x) -- with a lazy transpose when the
+        input image orders them differently.
     :rtype : NgffMultiscales
     """
     # Shallow copy, with its own computed_callbacks: the rechunk and dask
@@ -573,12 +576,23 @@ def to_multiscales(
     if "t" in ngff_image.dims:
         default_chunks["t"] = 1
 
-    da_out_chunks = tuple(out_chunks[d] for d in ngff_image.dims)
     if not isinstance(ngff_image.data, DaskArray):
         if isinstance(ngff_image.data, (ZarrArray, str, MutableMapping)):
             ngff_image.data = dask.array.from_zarr(ngff_image.data)
         else:
             ngff_image.data = dask.array.from_array(ngff_image.data)
+
+    # OME-Zarr orders axes time, then channel, then space. Channel-last input
+    # (the TIFF S axis, ITK component images, the 4-D/5-D default dims) is
+    # normalized with a lazy transpose so the generated metadata and every
+    # scale are spec-ordered.
+    ngff_image = _canonical_axis_order(ngff_image)
+    # Re-key the dim-keyed chunk mappings to follow the (possibly reordered)
+    # dims; _ngff_image_scale_factors asserts this ordering.
+    out_chunks = {dim: out_chunks[dim] for dim in ngff_image.dims}
+    default_chunks = {dim: default_chunks[dim] for dim in ngff_image.dims}
+
+    da_out_chunks = tuple(out_chunks[d] for d in ngff_image.dims)
 
     if isinstance(scale_factors, int):
         scale_factors = _ngff_image_scale_factors(ngff_image, scale_factors, out_chunks)

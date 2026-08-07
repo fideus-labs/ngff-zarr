@@ -9,6 +9,36 @@ from ..ngff_image import NgffImage
 
 _spatial_dims = {"x", "y", "z"}
 
+#: The OME-Zarr specification axis order: time, then channel, then space.
+_CANONICAL_AXIS_ORDER = ("t", "c", "z", "y", "x")
+
+
+def _canonical_axis_order(ngff_image: NgffImage) -> NgffImage:
+    """Return the image with dims in the spec axis order (t, c, z, y, x).
+
+    OME-Zarr requires axes ordered by type: time, then channel, then space.
+    Conversion sources produce channel-last layouts -- the TIFF ``S`` (sample)
+    axis, ITK/ITKWasm component images, and the default dims inference for 4-D
+    and 5-D arrays all yield ``(..., c)``. The multiscale pipeline normalizes
+    them through this helper so generated metadata is spec-ordered; the data
+    transpose is lazy.
+
+    An image with dims outside the canonical set is returned unchanged: axis
+    models not expressible before RFC-3 carry no spec ordering to normalize to.
+    """
+    dims = list(ngff_image.dims)
+    new_dims = [dim for dim in _CANONICAL_AXIS_ORDER if dim in dims]
+    if len(new_dims) != len(dims) or tuple(new_dims) == tuple(dims):
+        return ngff_image
+
+    new_order = [dims.index(dim) for dim in new_dims]
+
+    result = copy.copy(ngff_image)
+    result.data = ngff_image.data.transpose(new_order)
+    result.dims = tuple(new_dims)
+
+    return result
+
 
 def _spatial_dims_last(ngff_image: NgffImage) -> NgffImage:
     dims = list(ngff_image.dims)

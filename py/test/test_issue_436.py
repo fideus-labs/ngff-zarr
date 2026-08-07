@@ -143,13 +143,13 @@ def test_multiseries_tiff_to_ozx_creates_requested_file():
     # The auxiliary series is written alongside, preserving the .ozx format.
     assert (tmp / "out_Thumbnail.ozx").exists()
 
-    # The primary .ozx must hold the full-resolution Baseline pyramid.
+    # The primary .ozx must hold the full-resolution Baseline pyramid,
+    # normalized from the TIFF's YXS order to the spec axis order (c, y, x).
     store = zarr.storage.ZipStore(str(out), mode="r")
     root = zarr.open_group(store, mode="r")
     scale0 = root["scale0"]
     arr = scale0[next(iter(scale0.keys()))]
-    assert arr.shape[0] == base.shape[0]
-    assert arr.shape[1] == base.shape[1]
+    assert arr.shape == (base.shape[2], base.shape[0], base.shape[1])
     # Real pixel data, not an all-zero / blank array.
     assert int(np.asarray(arr[:]).max()) > 0
 

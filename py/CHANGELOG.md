@@ -1,3 +1,10 @@
+## py-v0.41.1 (2026-08-07)
+
+### 🐛 Bug Fixes
+
+- **py**: normalize generated axes to the spec order (t, c, z, y, x) ([358a491](https://github.com/fideus-labs/ngff-zarr/commit/358a491de374e4e3dd07ac0f956e975748fab982))
+- **py**: normalize accelerated itkwasm downsampling output ([f5b9d94](https://github.com/fideus-labs/ngff-zarr/commit/f5b9d9494018d0804ab6d08ac4c65d4ddd487715))
+
 ## py-v0.41.0 (2026-08-04)
 
 ### ✨ Features
