@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 import dask.array as da
 import zarr
 
+from .methods._support import _canonical_axis_order
 from .ngff_image import NgffImage
 from .to_ngff_image import to_ngff_image
 
@@ -812,8 +813,10 @@ def _build_multiscales_from_pyramid(
     base_scale = ngff_image_0.scale
     base_translation = ngff_image_0.translation
 
-    # Build NgffImages for all levels
-    images = [ngff_image_0]
+    # Build NgffImages for all levels. Levels are computed in the TIFF's own
+    # axis order and normalized to the spec order (t, c, z, y, x) on append,
+    # so the emitted metadata orders time, then channel, then space.
+    images = [_canonical_axis_order(ngff_image_0)]
     for path in paths[1:]:
         arr = root[path]
         level_scale: dict[str, float] = {}
@@ -875,11 +878,11 @@ def _build_multiscales_from_pyramid(
             channel_names=ngff_image_0.channel_names,
             channel_colors=ome_channel_colors,
         )
-        images.append(level_image)
+        images.append(_canonical_axis_order(level_image))
 
     # Build Metadata (axes, datasets, coordinate transforms)
     axes = []
-    for dim in ngff_image_0.dims:
+    for dim in images[0].dims:
         unit = None
         if ngff_image_0.axes_units and dim in ngff_image_0.axes_units:
             unit = ngff_image_0.axes_units[dim]
