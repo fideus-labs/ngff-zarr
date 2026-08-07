@@ -1360,11 +1360,12 @@ def _prepare_next_scale(
 
     :param scale_strategy: Strategy for handling non-power-of-2 scale factors.
         "pad" (default) always downsamples incrementally from the previous
-        level, which can miss the target sizes. "exact" uses pre-computed
-        images from the initial to_multiscales() call when incremental
-        downsampling cannot achieve the exact target size, so the written
-        arrays match the coordinate metadata; the datasets metadata describes the
-        exact targets, so the store then misdescribes its own geometry.
+        level, which is memory-efficient but can miss the target sizes; the
+        datasets metadata still describes the exact targets, so the store then
+        misdescribes its own geometry. "exact" uses pre-computed images from
+        the initial to_multiscales() call when incremental downsampling cannot
+        achieve the exact target size, so the written arrays match the
+        coordinate metadata.
     """
     # No next scale if we're at the last one
     if index >= nscales - 1:

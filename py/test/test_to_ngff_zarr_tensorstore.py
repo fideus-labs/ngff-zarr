@@ -53,18 +53,25 @@ def test_gaussian_isotropic_scale_factors(input_images):
     baseline_name = "2_3/ITKWASM_GAUSSIAN.zarr"
     multiscales = to_multiscales(image, [2, 3], method=Methods.ITKWASM_GAUSSIAN)
     with tempfile.TemporaryDirectory() as tmpdir:
-        to_ngff_zarr(tmpdir, multiscales, use_tensorstore=True)
+        # The baselines hold the exact geometry. The default "pad" strategy
+        # trades it for speed and is covered in
+        # test_non_power_of_2_scale_factors.py.
+        to_ngff_zarr(tmpdir, multiscales, use_tensorstore=True, scale_strategy="exact")
         multiscales = from_ngff_zarr(tmpdir)
-        verify_against_baseline(dataset_name, baseline_name, multiscales)
+        verify_against_baseline(
+            dataset_name, baseline_name, multiscales, scale_strategy="exact"
+        )
 
     dataset_name = "MR-head"
     image = input_images[dataset_name]
     baseline_name = "2_3_4/ITKWASM_GAUSSIAN.zarr"
     multiscales = to_multiscales(image, [2, 3, 4], method=Methods.ITKWASM_GAUSSIAN)
     with tempfile.TemporaryDirectory() as tmpdir:
-        to_ngff_zarr(tmpdir, multiscales, use_tensorstore=True)
+        to_ngff_zarr(tmpdir, multiscales, use_tensorstore=True, scale_strategy="exact")
         multiscales = from_ngff_zarr(tmpdir)
-        verify_against_baseline(dataset_name, baseline_name, multiscales)
+        verify_against_baseline(
+            dataset_name, baseline_name, multiscales, scale_strategy="exact"
+        )
 
 
 @pytest.mark.skipif(

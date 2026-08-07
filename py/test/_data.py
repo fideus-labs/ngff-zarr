@@ -272,7 +272,9 @@ def store_equals(baseline_store, test_store):
     return True
 
 
-def verify_against_baseline(dataset_name, baseline_name, multiscales, version="0.4"):
+def verify_against_baseline(
+    dataset_name, baseline_name, multiscales, version="0.4", scale_strategy="pad"
+):
     baseline_path = (
         test_data_dir
         / f"baseline/zarr{zarr_version_major}/v{version}/{dataset_name}/{baseline_name}"
@@ -304,7 +306,9 @@ def verify_against_baseline(dataset_name, baseline_name, multiscales, version="0
     )
 
     test_store = MemoryStore()
-    to_ngff_zarr(test_store, multiscales, version=version)
+    to_ngff_zarr(
+        test_store, multiscales, version=version, scale_strategy=scale_strategy
+    )
 
     assert store_equals(baseline_store, test_store)
 
