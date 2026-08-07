@@ -32,8 +32,16 @@ import type {
   Slice,
 } from "zarrita";
 import * as zarr from "zarrita";
+import { registry } from "zarrita";
 
+import { installBloscShuffleNormalization } from "./blosc_registry.ts";
+import type { CodecRegistry } from "./blosc_registry.ts";
 import { config } from "../config.ts";
+
+// Chunk encoding normally happens in a codec worker (which installs this
+// itself — see ../workers/omero_codec_worker.ts), but the fallbacks below drop
+// to zarrita's main-thread pipeline, so the main-thread registry needs it too.
+installBloscShuffleNormalization(registry as unknown as CodecRegistry);
 
 export type { ChunkCache } from "@fideus-labs/fizarrita";
 
@@ -46,6 +54,21 @@ type AnyZarrArray = any;
 
 /** Whether SharedArrayBuffer is available in this environment. */
 const USE_SHARED_ARRAY_BUFFER = typeof SharedArrayBuffer !== "undefined";
+
+/**
+ * Codec worker script backing the codec pool.
+ *
+ * This project's own worker rather than fizarrita's bundled one: it
+ * speaks the same protocol but additionally normalizes Zarr v3 string
+ * blosc shuffle modes — see {@link ./blosc_registry.ts}. Kept as a
+ * single `new URL(..., import.meta.url)` expression so bundlers can
+ * trace it, and so `scripts/inline_worker.ts` can swap in a blob URL for
+ * the self-contained browser bundle.
+ */
+const CODEC_WORKER_URL = new URL(
+  "../workers/omero_codec_worker.ts",
+  import.meta.url,
+);
 
 // ---------------------------------------------------------------------------
 // Codec pool — used by getWorker/setWorker for codec operations
@@ -174,6 +197,7 @@ export async function zarrGet<
   try {
     const mergedOpts: GetWorkerOptions<unknown> = {
       pool: getCodecPool(),
+      workerUrl: CODEC_WORKER_URL,
       useSharedArrayBuffer: USE_SHARED_ARRAY_BUFFER,
       ...opts,
     };
@@ -220,6 +244,7 @@ export async function zarrSet<D extends DataType>(
   try {
     const mergedOpts: SetWorkerOptions = {
       pool: getCodecPool(),
+      workerUrl: CODEC_WORKER_URL,
       useSharedArrayBuffer: USE_SHARED_ARRAY_BUFFER,
       ...opts,
     };

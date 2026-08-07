@@ -39,6 +39,62 @@ export function typeSizeForDtype(dtype: string): number {
 }
 
 /**
+ * Shuffle modes accepted by the Zarr v3 blosc codec specification.
+ *
+ * Zarr v3 uses these **string** values; Zarr v2 and the C blosc library
+ * use the integer constants 0/1/2 instead. See
+ * {@link bloscShuffleToInt} for the conversion.
+ */
+export type BloscShuffle = "noshuffle" | "shuffle" | "bitshuffle";
+
+/** Zarr v3 shuffle name → C blosc / numcodecs integer constant. */
+const BLOSC_SHUFFLE_INT: Record<string, number> = {
+  noshuffle: 0,
+  shuffle: 1,
+  bitshuffle: 2,
+};
+
+/**
+ * Convert a blosc `shuffle` configuration value to the integer form.
+ *
+ * Zarr v3 metadata carries `shuffle` as a string
+ * (`"noshuffle"` / `"shuffle"` / `"bitshuffle"`), but the *numcodecs*
+ * blosc binding used by zarrita expects the Zarr v2 integer constant.
+ * Passing the string straight through silently disables shuffling: the
+ * numcodecs constructor validates with `shuffle < -1 || shuffle > 2`,
+ * and both comparisons are `false` for a string, so the invalid value
+ * reaches the WASM encoder and is coerced to 0 (noshuffle).
+ *
+ * Numbers pass through unchanged. Unrecognised strings fall back to 0,
+ * matching the pre-existing behaviour so that reading an out-of-spec
+ * archive keeps working (blosc frames are self-describing, so the
+ * declared mode is irrelevant when decoding).
+ */
+export function bloscShuffleToInt(shuffle: unknown): number | undefined {
+  if (shuffle === undefined || shuffle === null) return undefined;
+  if (typeof shuffle === "number") return shuffle;
+  if (typeof shuffle === "string") return BLOSC_SHUFFLE_INT[shuffle] ?? 0;
+  return 0;
+}
+
+/**
+ * Pick the blosc shuffle mode for a data type.
+ *
+ * Byte shuffle deinterleaves the bytes of each element, so it only has
+ * meaning when an element is wider than one byte. For single-byte data
+ * types there is nothing to deinterleave and `"noshuffle"` is written.
+ *
+ * Note that *numcodecs* hardcodes a blosc `typesize` of 4 regardless of
+ * the declared `typesize`, so a shuffle requested for a 1-byte type is
+ * not merely a no-op there — it interleaves four unrelated elements and
+ * measurably *hurts* compression (14–71% larger on the uint8 test
+ * images). `"noshuffle"` avoids that.
+ */
+export function defaultBloscShuffle(dataType: string): BloscShuffle {
+  return typeSizeForDtype(dataType) > 1 ? "shuffle" : "noshuffle";
+}
+
+/**
  * Build the default zarr v3 codec pipeline for a given data type.
  *
  * Includes the required `bytes` array-to-bytes codec (little-endian)
@@ -47,7 +103,9 @@ export function typeSizeForDtype(dtype: string): number {
  * The `shuffle` value uses the **string** enum required by the Zarr v3
  * blosc codec specification (`"shuffle"`, `"noshuffle"`, or
  * `"bitshuffle"`) rather than the legacy integer convention used by
- * Zarr v2 / the C blosc library.
+ * Zarr v2 / the C blosc library. See {@link defaultBloscShuffle} for how
+ * the mode is chosen and {@link bloscShuffleToInt} for the conversion
+ * applied before the value reaches the encoder.
  *
  * Without explicit codecs, zarrita writes `"codecs": []` in zarr.json,
  * which is not spec-compliant and causes errors in other zarr v3
@@ -61,7 +119,7 @@ export function defaultCodecs(dataType: string): ZarrCodec[] {
       configuration: {
         cname: "zstd",
         clevel: 5,
-        shuffle: "shuffle",
+        shuffle: defaultBloscShuffle(dataType),
         typesize: typeSizeForDtype(dataType),
         blocksize: 0,
       },
@@ -173,7 +231,7 @@ export function codecFromName(
         configuration: {
           cname,
           clevel: level ?? 5,
-          shuffle: "shuffle",
+          shuffle: defaultBloscShuffle(dataType),
           typesize: typeSizeForDtype(dataType),
           blocksize: 0,
         },

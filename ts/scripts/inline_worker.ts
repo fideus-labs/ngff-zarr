@@ -4,12 +4,17 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * Script to inline the omero_codec_worker.ts code into compute_omero.js
- * for bundled browser builds.
+ * Script to inline the omero_codec_worker.ts code into the modules that
+ * spawn it, for bundled browser builds.
+ *
+ * The one worker script backs two pools, so it is bundled once and
+ * inlined into both consumers:
+ * - `compute_omero.js` — the OMERO statistics pool
+ * - `worker_pool.js` — the codec pool behind `zarrGet` / `zarrSet`
  *
  * This script:
  * 1. Bundles the worker code using esbuild
- * 2. Replaces the Worker URL constructor with a Blob URL in compute_omero.js
+ * 2. Replaces the worker URL construction with a Blob URL in each module
  *
  * Run this after the npm build but before creating the final bundle.
  */
@@ -20,16 +25,18 @@ const NPM_DIR = "./npm";
 const ESM_DIR = join(NPM_DIR, "esm");
 
 /**
- * Bundle the worker code for inline use.
+ * Bundle a worker's code for inline use.
+ *
+ * @param entryPoint - Worker entry path relative to the npm package root.
  */
-async function bundleWorker(): Promise<string> {
+async function bundleWorker(entryPoint: string): Promise<string> {
   // Use esbuild to bundle the worker with all its dependencies
   // Note: Run from NPM_DIR, use relative path to worker
   // Using pinned esbuild version for supply-chain security
   const command = new Deno.Command("npx", {
     args: [
       "esbuild@0.24.2",
-      "esm/workers/omero_codec_worker.js",
+      entryPoint,
       "--bundle",
       "--format=esm",
       "--platform=browser",
@@ -97,16 +104,58 @@ async function inlineWorkerCode(workerCode: string): Promise<void> {
   console.log("[inline_worker] Successfully inlined worker code");
 }
 
+/**
+ * Replace the codec pool's worker URL with an inline Blob URL in
+ * worker_pool.js.
+ *
+ * Unlike compute_omero, the codec pool hands the URL to fizarrita, which
+ * spawns the Worker itself — so what gets inlined here is the URL rather
+ * than a `new Worker(...)` expression.
+ */
+async function inlineCodecWorkerUrl(workerCode: string): Promise<void> {
+  const targetPath = join(ESM_DIR, "utils", "worker_pool.js");
+
+  let content = await Deno.readTextFile(targetPath);
+
+  // After tsc compilation, worker_pool.js contains:
+  //   const CODEC_WORKER_URL =
+  //     new URL("../workers/omero_codec_worker.js", import.meta.url);
+  const urlPattern =
+    /new\s+URL\(\s*["']\.\.\/workers\/omero_codec_worker\.js["']\s*,\s*import\.meta\.url\s*\)/g;
+
+  if (!urlPattern.test(content)) {
+    console.log(
+      "[inline_worker] Codec worker URL pattern not found, skipping inline step",
+    );
+    return;
+  }
+
+  const escapedWorkerCode = escapeForTemplateLiteral(workerCode);
+  const inlineUrlCreation = `URL.createObjectURL(
+    new Blob([\`${escapedWorkerCode}\`], { type: "application/javascript" })
+  )`;
+
+  // Replace using a replacer function to avoid String.replace()
+  // interpreting "$&", "$`", etc. in the worker bundle as back-references.
+  content = content.replace(urlPattern, () => inlineUrlCreation);
+
+  await Deno.writeTextFile(targetPath, content);
+  console.log("[inline_worker] Successfully inlined codec worker URL");
+}
+
 // Main process
 console.log("[inline_worker] Starting worker inlining...");
 
 try {
   console.log("[inline_worker] Bundling worker code...");
-  const workerCode = await bundleWorker();
+  const workerCode = await bundleWorker("esm/workers/omero_codec_worker.js");
   console.log(`[inline_worker] Worker bundle size: ${workerCode.length} bytes`);
 
   console.log("[inline_worker] Inlining worker into compute_omero module...");
   await inlineWorkerCode(workerCode);
+
+  console.log("[inline_worker] Inlining worker into worker_pool module...");
+  await inlineCodecWorkerUrl(workerCode);
 
   console.log("[inline_worker] Complete!");
 } catch (error) {

@@ -2,12 +2,16 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * Custom Web Worker that extends fizarrita's codec worker with OMERO
- * statistics computation.
+ * This project's codec Web Worker. Backs both the codec pool used by
+ * `zarrGet`/`zarrSet` and the OMERO statistics pool.
  *
  * Handles all standard fizarrita codec messages (init, decode, decode_into,
  * encode) PLUS a new `decode_and_stats` message that decodes a chunk AND
- * computes per-channel statistics in a single round-trip.
+ * computes per-channel statistics in a single round-trip. It also patches
+ * the codec registry so Zarr v3 string blosc shuffle modes reach numcodecs
+ * in the integer form it expects — see {@link ../utils/blosc_registry.ts}.
+ * That patch has to live worker-side because chunks are encoded here, in a
+ * module graph separate from the main thread's.
  *
  * Message protocol (superset of fizarrita's codec-worker):
  *   init:             → init_ok              (register codec pipeline metadata)
@@ -26,6 +30,20 @@ import {
 } from "@fideus-labs/fizarrita/internals/setter";
 import { get_ctr, get_strides } from "@fideus-labs/fizarrita/internals/util";
 import type { Chunk, DataType } from "zarrita";
+import { registry } from "zarrita";
+// `create_codec_pipeline` above resolves its registry through fizarrita, an
+// npm package, so under Deno that is npm:zarrita rather than the
+// jsr:@zarrita/zarrita this package imports as "zarrita" — separate module
+// instances with separate registries. Patch both; in the npm build the two
+// specifiers collapse to one module and the installer's idempotency guard
+// makes the second call a no-op.
+import { registry as npmRegistry } from "npm:zarrita@^0.6.1";
+
+import { installBloscShuffleNormalization } from "../utils/blosc_registry.ts";
+import type { CodecRegistry } from "../utils/blosc_registry.ts";
+
+installBloscShuffleNormalization(registry as unknown as CodecRegistry);
+installBloscShuffleNormalization(npmRegistry as unknown as CodecRegistry);
 
 // Projection type — plain serializable data describing chunk→output mapping.
 // Mirrors fizarrita's Projection type for worker messages.

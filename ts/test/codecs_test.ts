@@ -3,8 +3,10 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import {
   AVAILABLE_CODECS,
+  bloscShuffleToInt,
   bytesOnlyCodecs,
   codecFromName,
+  defaultBloscShuffle,
   defaultCodecs,
   typeSizeForDtype,
 } from "../src/utils/codecs.ts";
@@ -157,6 +159,68 @@ Deno.test("codecFromName throws on empty blosc variant", () => {
     () => codecFromName("blosc:", "uint8"),
     Error,
     'Unknown codec: "blosc:"',
+  );
+});
+
+// ---------------------------------------------------------------------------
+// blosc shuffle: v3 string ↔ numcodecs integer
+// ---------------------------------------------------------------------------
+
+Deno.test("bloscShuffleToInt maps the v3 string enum to numcodecs ints", () => {
+  assertEquals(bloscShuffleToInt("noshuffle"), 0);
+  assertEquals(bloscShuffleToInt("shuffle"), 1);
+  assertEquals(bloscShuffleToInt("bitshuffle"), 2);
+});
+
+Deno.test("bloscShuffleToInt passes integers through unchanged", () => {
+  assertEquals(bloscShuffleToInt(0), 0);
+  assertEquals(bloscShuffleToInt(1), 1);
+  assertEquals(bloscShuffleToInt(2), 2);
+  assertEquals(bloscShuffleToInt(-1), -1); // AUTOSHUFFLE
+});
+
+Deno.test("bloscShuffleToInt leaves an absent shuffle undefined", () => {
+  assertEquals(bloscShuffleToInt(undefined), undefined);
+  assertEquals(bloscShuffleToInt(null), undefined);
+});
+
+Deno.test(
+  "bloscShuffleToInt falls back to noshuffle for out-of-spec values",
+  () => {
+    // Reading an out-of-spec archive must keep working; blosc frames are
+    // self-describing so the declared mode is ignored when decoding.
+    assertEquals(bloscShuffleToInt("bogus"), 0);
+    assertEquals(bloscShuffleToInt({}), 0);
+  },
+);
+
+Deno.test("defaultBloscShuffle enables shuffle for multi-byte types", () => {
+  for (const dtype of ["int16", "uint16", "float32", "int64", "float64"]) {
+    assertEquals(defaultBloscShuffle(dtype), "shuffle", dtype);
+  }
+});
+
+Deno.test("defaultBloscShuffle disables shuffle for single-byte types", () => {
+  // numcodecs hardcodes a blosc typesize of 4, so shuffling a 1-byte type
+  // interleaves four unrelated elements and inflates the output.
+  for (const dtype of ["int8", "uint8", "bool"]) {
+    assertEquals(defaultBloscShuffle(dtype), "noshuffle", dtype);
+  }
+});
+
+Deno.test("defaultCodecs declares the shuffle mode as a v3 string", () => {
+  const shuffle = defaultCodecs("uint16")[1].configuration.shuffle;
+  assertEquals(typeof shuffle, "string");
+  assertEquals(shuffle, "shuffle");
+  assertEquals(defaultCodecs("uint8")[1].configuration.shuffle, "noshuffle");
+});
+
+Deno.test("codecFromName declares the shuffle mode as a v3 string", () => {
+  const blosc = codecFromName("blosc:zstd", "float32")[1];
+  assertEquals(blosc.configuration.shuffle, "shuffle");
+  assertEquals(
+    codecFromName("blosc:zstd", "uint8")[1].configuration.shuffle,
+    "noshuffle",
   );
 });
 

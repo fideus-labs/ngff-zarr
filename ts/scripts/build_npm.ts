@@ -23,8 +23,11 @@ const NPM_DIR = "./npm";
 
 /**
  * Rewrite imports in a TypeScript file from Deno-style to Node-style.
+ *
+ * Exported for `test/build_npm_test.ts`; the build itself calls it via
+ * {@link copyAndTransformSources}.
  */
-function rewriteImports(content: string): string {
+export function rewriteImports(content: string): string {
   // Replace .ts extensions with .js in relative imports
   content = content.replace(/(from\s+["'])(\.[^"']+)\.ts(["'])/g, "$1$2.js$3");
 
@@ -48,6 +51,18 @@ function rewriteImports(content: string): string {
   content = content.replace(
     /(new\s+URL\s*\(\s*["'])(\.[^"']+)\.ts(["'])/g,
     "$1$2.js$3",
+  );
+
+  // Strip the npm: prefix and version range from npm specifiers, leaving the
+  // bare package name (and any subpath). Source files use the explicit form
+  // where Deno would otherwise resolve a bare specifier to a different
+  // registry (e.g. jsr:@zarrita/zarrita vs npm:zarrita); in the npm build
+  // there is only ever the npm copy.
+  //   npm:zarrita@^0.6.1                    -> zarrita
+  //   npm:@scope/pkg@1.2.3/internals/util   -> @scope/pkg/internals/util
+  content = content.replace(
+    /(["'])npm:((?:@[^/"']+\/)?[^@/"']+)(?:@[^/"']*)?((?:\/[^"']*)?)(["'])/g,
+    "$1$2$3$4",
   );
 
   // Replace jsr: imports with node-style module imports
@@ -275,25 +290,28 @@ async function cleanup(): Promise<void> {
   }
 }
 
-// Main build process
-console.log("[build] Starting npm build with tsc...");
+// Main build process. Guarded so that importing a helper from this module
+// (e.g. rewriteImports in test/build_npm_test.ts) does not run a full build.
+if (import.meta.main) {
+  console.log("[build] Starting npm build with tsc...");
 
-console.log("[build] Copying and transforming sources...");
-await copyAndTransformSources();
+  console.log("[build] Copying and transforming sources...");
+  await copyAndTransformSources();
 
-console.log("[build] Creating tsconfig.json...");
-await createTsConfig();
+  console.log("[build] Creating tsconfig.json...");
+  await createTsConfig();
 
-console.log("[build] Creating package.json...");
-await createPackageJson();
+  console.log("[build] Creating package.json...");
+  await createPackageJson();
 
-console.log("[build] Installing dependencies and compiling...");
-await installAndBuild();
+  console.log("[build] Installing dependencies and compiling...");
+  await installAndBuild();
 
-console.log("[build] Copying static files...");
-await copyStaticFiles();
+  console.log("[build] Copying static files...");
+  await copyStaticFiles();
 
-console.log("[build] Cleaning up...");
-await cleanup();
+  console.log("[build] Cleaning up...");
+  await cleanup();
 
-console.log("[build] Complete!");
+  console.log("[build] Complete!");
+}

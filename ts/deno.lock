@@ -38,6 +38,7 @@
     "npm:numcodecs@~0.3.2": "0.3.2",
     "npm:reference-spec-reader@0.2": "0.2.0",
     "npm:unzipit@1.4.3": "1.4.3",
+    "npm:zarrita@~0.6.1": "0.6.1",
     "npm:zod@^4.3.6": "4.3.6"
   },
   "jsr": {
