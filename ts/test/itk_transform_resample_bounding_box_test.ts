@@ -18,6 +18,7 @@ import * as zarr from "zarrita";
 import { itkTransformResampleBoundingBox, NgffImage } from "../src/mod.ts";
 import { resampleBoundingBoxShared } from "../src/io/itk_transform_resample_bounding_box-shared.ts";
 import { RAS } from "../src/types/rfc4.ts";
+import type { AnatomicalOrientation } from "../src/types/rfc4.ts";
 
 /** An ITK-Wasm translation, in ITK (fastest-axis-first) order. */
 // deno-lint-ignore no-explicit-any
@@ -78,7 +79,7 @@ async function geometryImage(
   shape: Record<string, number>,
   scale: Record<string, number>,
   translation: Record<string, number>,
-  axesOrientations?: Record<string, never>,
+  axesOrientations?: Record<string, AnatomicalOrientation>,
 ): Promise<NgffImage> {
   const store = new Map();
   const root = zarr.root(store);
@@ -241,6 +242,9 @@ Deno.test("non-spatial axes are passed through", async () => {
   const selection = boundingBox.selection(moving.dims);
   assertEquals(selection[0], null); // t
   assertEquals(selection[1], null); // c
+  assertEquals(selection[2], zarr.slice(1, 5)); // z
+  assertEquals(selection[3], zarr.slice(2, 10)); // y
+  assertEquals(selection[4], zarr.slice(3, 11)); // x
 });
 
 Deno.test("a region outside the moving image is empty", async () => {
@@ -321,10 +325,34 @@ Deno.test("RAS orientation yields a non-identity direction", async () => {
     { z: 4, y: 8, x: 16 },
     { z: 1, y: 1, x: 1 },
     { z: 0, y: 0, x: 0 },
-    RAS as never,
+    RAS,
   );
   const direction = itkDirection(image, ["x", "y", "z"]);
   assertEquals(Array.from(direction), [-1, 0, 0, 0, -1, 0, 0, 0, 1]);
+});
+
+Deno.test("a 3D-only orientation on a 2D image falls back to identity", async () => {
+  const { itkDirection } = await import(
+    "../src/io/itk_transform_resample_bounding_box-shared.ts"
+  );
+  const { AnatomicalOrientationValues, createAnatomicalOrientation } =
+    await import("../src/types/rfc4.ts");
+  // An inferior/superior axis points along LPS z; truncating its column to
+  // 2D would produce a singular matrix.
+  const image = await geometryImage(
+    ["y", "x"],
+    { y: 8, x: 16 },
+    { y: 1, x: 1 },
+    { y: 0, x: 0 },
+    {
+      x: createAnatomicalOrientation(AnatomicalOrientationValues.LeftToRight),
+      y: createAnatomicalOrientation(
+        AnatomicalOrientationValues.InferiorToSuperior,
+      ),
+    },
+  );
+  const direction = itkDirection(image, ["x", "y"]);
+  assertEquals(Array.from(direction), [1, 0, 0, 1]);
 });
 
 Deno.test("an index range overflow is reported, not silently empty", async () => {
