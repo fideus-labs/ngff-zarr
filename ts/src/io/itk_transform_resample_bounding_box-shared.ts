@@ -284,6 +284,12 @@ export function itkDirection(
     if (orientation === undefined) return direction;
     const column = anatomicalOrientationToItkDirection(orientation.value);
     if (column === undefined) return direction;
+    // A column pointing outside the matrix's dimension (e.g. a
+    // superior/inferior orientation on a 2D image) would truncate to a
+    // singular matrix; keep the identity fallback instead.
+    if (column.slice(dimension).some((component) => component !== 0)) {
+      return direction;
+    }
     columns.push(column);
   }
 
