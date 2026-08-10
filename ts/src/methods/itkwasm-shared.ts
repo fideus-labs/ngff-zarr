@@ -6,6 +6,7 @@
  * Used by both browser and Node implementations
  */
 
+import { castImage } from "itk-wasm";
 import type { Image } from "itk-wasm";
 import * as zarr from "zarrita";
 
@@ -277,15 +278,6 @@ const INTEGER_COMPONENT_RANGES: Record<
   int32: [-2147483648, 2147483647],
 };
 
-const INTEGER_TYPED_ARRAY_CTORS = {
-  uint8: Uint8Array,
-  int8: Int8Array,
-  uint16: Uint16Array,
-  int16: Int16Array,
-  uint32: Uint32Array,
-  int32: Int32Array,
-} as const;
-
 export function isIntegerComponentType(
   componentType: unknown,
 ): componentType is IntegerComponentType {
@@ -318,17 +310,17 @@ export function castImageToFloat32(image: Image): Image {
   if (image.data === null) {
     throw new Error("Image data is null");
   }
-  return {
-    ...image,
-    imageType: { ...image.imageType, componentType: "float32" },
-    data: new Float32Array(image.data as ArrayLike<number>),
-  };
+  return castImage(image, { componentType: "float32" });
 }
 
 /**
  * Round a float image back to the given integer type, clamping to the
  * type's range. Matches np.clip(np.rint(data), min, max) in the Python
  * port's float workaround.
+ *
+ * castImage performs the type conversion; it truncates raw floats, so the
+ * values are rounded and clamped first. The intermediate is float64 because
+ * float32 cannot represent every uint32/int32 value exactly.
  */
 export function castImageToIntegerType(
   image: Image,
@@ -339,8 +331,7 @@ export function castImageToIntegerType(
     throw new Error("Image data is null");
   }
   const [min, max] = INTEGER_COMPONENT_RANGES[componentType];
-  const ctor = INTEGER_TYPED_ARRAY_CTORS[componentType];
-  const out = new ctor(src.length);
+  const rounded = new Float64Array(src.length);
   for (let i = 0; i < src.length; i++) {
     let value = rintHalfToEven(src[i] as number);
     if (value < min) {
@@ -348,13 +339,16 @@ export function castImageToIntegerType(
     } else if (value > max) {
       value = max;
     }
-    out[i] = value;
+    rounded[i] = value;
   }
-  return {
-    ...image,
-    imageType: { ...image.imageType, componentType },
-    data: out,
-  };
+  return castImage(
+    {
+      ...image,
+      imageType: { ...image.imageType, componentType: "float64" },
+      data: rounded,
+    },
+    { componentType },
+  );
 }
 
 /**
