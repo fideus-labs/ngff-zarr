@@ -239,6 +239,80 @@ def test_tensorstore_chunk_shape_consistency_with_sharding():
         )
 
 
+def _write_and_read_codecs(tmpdir, **to_ngff_zarr_kwargs):
+    import json
+
+    data = np.arange(64 * 64, dtype=np.uint16).reshape(64, 64)
+    image = to_ngff_image(data, dims=("y", "x"), scale={"y": 1.0, "x": 1.0})
+    multiscales = to_multiscales(image, [2], method=Methods.DASK_IMAGE_GAUSSIAN)
+    to_ngff_zarr(
+        tmpdir,
+        multiscales,
+        use_tensorstore=True,
+        version="0.5",
+        **to_ngff_zarr_kwargs,
+    )
+    array_metadata = json.loads(
+        (pathlib.Path(tmpdir) / "scale0" / "image" / "zarr.json").read_text()
+    )
+    return array_metadata["codecs"]
+
+
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.8"), reason="zarr version < 3.0.0b1"
+)
+def test_tensorstore_codec_chain_preserved():
+    """An explicit codec chain is written in order, not reduced to one codec."""
+    pytest.importorskip("tensorstore")
+    from zarr.codecs import BytesCodec, GzipCodec, ZstdCodec
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        codecs = _write_and_read_codecs(
+            tmpdir,
+            compressors=[BytesCodec(), ZstdCodec(level=3), GzipCodec(level=2)],
+        )
+    assert [codec["name"] for codec in codecs] == ["bytes", "zstd", "gzip"]
+    assert codecs[1]["configuration"]["level"] == 3
+    assert codecs[2]["configuration"]["level"] == 2
+
+
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.8"), reason="zarr version < 3.0.0b1"
+)
+def test_tensorstore_codec_chain_bytes_only():
+    """A chain holding only the bytes codec writes uncompressed data."""
+    pytest.importorskip("tensorstore")
+    from zarr.codecs import BytesCodec
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        codecs = _write_and_read_codecs(tmpdir, compressors=[BytesCodec()])
+    assert [codec["name"] for codec in codecs] == ["bytes"]
+
+
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.8"), reason="zarr version < 3.0.0b1"
+)
+def test_tensorstore_codec_chain_empty():
+    """An explicit empty chain writes uncompressed data."""
+    pytest.importorskip("tensorstore")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        codecs = _write_and_read_codecs(tmpdir, compressors=())
+    assert [codec["name"] for codec in codecs] == ["bytes"]
+
+
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.8"), reason="zarr version < 3.0.0b1"
+)
+def test_tensorstore_codec_chain_default():
+    """Without a codec option the default zstd compression is applied."""
+    pytest.importorskip("tensorstore")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        codecs = _write_and_read_codecs(tmpdir)
+    assert [codec["name"] for codec in codecs] == ["bytes", "zstd"]
+
+
 @pytest.mark.skipif(
     zarr_version < version.parse("3.0.8"), reason="zarr version < 3.0.0b1"
 )
