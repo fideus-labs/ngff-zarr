@@ -215,9 +215,16 @@ def _write_with_tensorstore(
     full_array_shape=None,
     create_dataset=True,
     compressor=None,
+    compression_chain=None,
     **kwargs,
 ) -> None:
-    """Write array using tensorstore backend"""
+    """Write array using tensorstore backend.
+
+    ``compressor`` carries a single legacy codec (zarr format 2 metadata).
+    ``compression_chain`` carries the ordered zarr v3 bytes-to-bytes codec
+    chain: ``None`` requests the default compression, an empty sequence
+    requests no compression.
+    """
     import tensorstore as ts
 
     # Use full array shape if provided, otherwise use the region array shape
@@ -346,10 +353,22 @@ def _write_with_tensorstore(
                 "name": "zstd",
                 "configuration": {"level": 0, "checksum": False},
             }
-            compression_codec = (
-                create_compression_codec(compressor) if compressor is not None else None
-            )
-            inner_codecs = [bytes_codec, compression_codec or default_compression]
+            if compression_chain is None:
+                fallback = (
+                    create_compression_codec(compressor)
+                    if compressor is not None
+                    else None
+                )
+                compression_codecs = [fallback or default_compression]
+            else:
+                # An explicit chain is preserved in order; an explicit empty
+                # chain means no compression, matching zarr-python.
+                compression_codecs = [
+                    codec
+                    for codec in map(create_compression_codec, compression_chain)
+                    if codec is not None
+                ]
+            inner_codecs = [bytes_codec, *compression_codecs]
 
             # Add sharding codec with inner codecs if needed
             if internal_chunk_shape:
@@ -631,16 +650,24 @@ def _write_array_with_tensorstore(
     # Extract compressor and other conflicting parameters from kwargs to avoid conflicts
     compressor = kwargs.pop("compressor", None)
     # The public API takes ``compressors`` (plural); without this a supplied
-    # codec is dropped and TensorStore silently writes its default.
-    compressors = kwargs.pop("compressors", None)
-    if compressor is None and compressors is not None:
-        if isinstance(compressors, (list, tuple)):
-            compressor = next(
-                (c for c in compressors if not _is_bytes_codec(c)),
-                None,
-            )
-        else:
-            compressor = compressors
+    # codec is dropped and TensorStore silently writes its default. The full
+    # chain is preserved in order; only the array-to-bytes ("bytes") codec is
+    # dropped since the writer always leads with one. ``None`` — absent or
+    # explicit — selects no compression only when explicitly passed, matching
+    # zarr-python, so the unset case is detected with a sentinel.
+    _unset = object()
+    compressors = kwargs.pop("compressors", _unset)
+    if compressors is _unset:
+        compression_chain = [compressor] if compressor is not None else None
+    elif compressors is None:
+        compression_chain = []
+    elif isinstance(compressors, (list, tuple)):
+        compression_chain = [c for c in compressors if not _is_bytes_codec(c)]
+    else:
+        compression_chain = [compressors]
+    if compressor is None and compression_chain:
+        # zarr format 2 metadata carries a single compressor.
+        compressor = compression_chain[0]
     kwargs.pop("chunks", None)  # Remove chunks from kwargs since it's a positional arg
 
     scale_path = f"{store_path}/{path}"
@@ -655,6 +682,7 @@ def _write_array_with_tensorstore(
             full_array_shape=full_array_shape,
             create_dataset=create_dataset,
             compressor=compressor,
+            compression_chain=compression_chain,
             **kwargs,
         )
     else:  # Sharding
@@ -669,6 +697,7 @@ def _write_array_with_tensorstore(
             full_array_shape=full_array_shape,
             create_dataset=create_dataset,
             compressor=compressor,
+            compression_chain=compression_chain,
             **kwargs,
         )
 

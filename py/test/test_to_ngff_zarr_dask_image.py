@@ -30,6 +30,11 @@ def test_gaussian_isotropic_scale_factors(input_images):
     verify_against_baseline(dataset_name, baseline_name, multiscales)
 
 
+@pytest.mark.skipif(
+    not _on_x86,
+    reason="baselines are generated on x86_64; scipy Gaussian "
+    "floating point differs on other architectures",
+)
 def test_gaussian_isotropic_scale_factors_two_components(input_images):
     dataset_name = "brain_two_components"
     image = input_images[dataset_name]
