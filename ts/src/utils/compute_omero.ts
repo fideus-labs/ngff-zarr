@@ -12,8 +12,12 @@
 
 import type { CodecChunkMeta } from "@fideus-labs/fizarrita";
 import { createCacheKey, readArrayMetadata } from "@fideus-labs/fizarrita";
-import type { WorkerPoolTask } from "@fideus-labs/worker-pool";
-import { WorkerPool } from "@fideus-labs/worker-pool";
+import type { WorkerLike, WorkerPoolTask } from "@fideus-labs/worker-pool";
+import {
+  isNodeRuntime,
+  NodeWorker,
+  WorkerPool,
+} from "@fideus-labs/worker-pool";
 import type { Array as ZarrArray, DataType, Readable } from "zarrita";
 
 import { config } from "../config.ts";
@@ -70,11 +74,30 @@ function getOmeroPool(): WorkerPool {
   return _omeroPool;
 }
 
-/** Create a new omero codec worker instance. */
-function createOmeroWorker(): Worker {
-  return new Worker(
-    new URL("../workers/omero_codec_worker.ts", import.meta.url),
-    { type: "module" },
+/**
+ * Create a new omero codec worker instance for the current runtime.
+ *
+ * The browser branch is written as a single
+ * `new Worker(new URL(..., import.meta.url), { type: "module" })` expression
+ * so bundlers recognise it as a worker entry point (and so
+ * `scripts/inline_worker.ts` can swap in a blob URL). The Node branch keeps
+ * its URL behind a variable for the opposite reason — bundlers targeting the
+ * browser then leave it alone. This mirrors fizarrita's `createDefaultWorker`.
+ */
+function createOmeroWorker(): WorkerLike {
+  if (typeof Worker !== "undefined") {
+    return new Worker(
+      new URL("../workers/omero_codec_worker.ts", import.meta.url),
+      { type: "module" },
+    );
+  }
+  if (isNodeRuntime()) {
+    const nodeEntry = "../workers/omero_codec_worker.ts";
+    return new NodeWorker(new URL(nodeEntry, import.meta.url));
+  }
+  throw new Error(
+    "No Worker implementation available: this runtime has no global `Worker` " +
+      "and is not Node.",
   );
 }
 
@@ -461,7 +484,7 @@ export async function computeOmeroFromNgffImage(
         // No worker needed — return the slot directly for pool management.
         // For cached results, we use the provided workerSlot if available,
         // or create a worker to satisfy the type contract.
-        tasks.push((workerSlot: Worker | null) => {
+        tasks.push((workerSlot: WorkerLike | null) => {
           const worker = workerSlot ?? createOmeroWorker();
           return Promise.resolve({
             worker,
@@ -472,7 +495,7 @@ export async function computeOmeroFromNgffImage(
       }
     }
 
-    tasks.push(async (workerSlot: Worker | null) => {
+    tasks.push(async (workerSlot: WorkerLike | null) => {
       const worker = workerSlot ?? createOmeroWorker();
 
       // Fetch raw bytes from store on main thread

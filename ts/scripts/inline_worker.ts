@@ -41,7 +41,11 @@ async function bundleWorker(entryPoint: string): Promise<string> {
       "--format=esm",
       "--platform=browser",
       "--minify",
-      "--target=es2020",
+      // es2022 rather than es2020 for top-level await: the worker awaits a
+      // dynamic `node:worker_threads` import on its Node branch. Module
+      // workers support it in every browser that supports module workers at
+      // all, which this package already requires.
+      "--target=es2022",
     ],
     cwd: NPM_DIR,
     stdout: "piped",

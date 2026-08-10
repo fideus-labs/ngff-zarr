@@ -20,7 +20,7 @@ import type {
   SetWorkerOptions,
 } from "@fideus-labs/fizarrita";
 import { getWorker, setWorker } from "@fideus-labs/fizarrita";
-import type { WorkerPoolTask } from "@fideus-labs/worker-pool";
+import type { WorkerLike, WorkerPoolTask } from "@fideus-labs/worker-pool";
 import { WorkerPool } from "@fideus-labs/worker-pool";
 import type {
   Array as ZarrArray,
@@ -299,12 +299,19 @@ export function createWriteQueue(): ChunkQueue {
 
   return {
     add(fn: () => Promise<void>) {
-      tasks.push(async (worker: Worker | null) => {
+      tasks.push(async (worker: WorkerLike | null) => {
         await fn();
-        // Return the worker (or a dummy) — the write pool does not
-        // actually use workers, only the concurrency slots matter.
+        // The write pool is a concurrency limiter, not a worker pool: `fn`
+        // runs on this thread and never touches a worker, so none is created
+        // and an empty slot is handed straight back.
+        //
+        // `WorkerPoolTask` types this field as non-null, hence the cast, but
+        // an empty slot is the pool's own representation: `workerQueue` is
+        // `Array<WorkerLike | null>`, starts out filled with `null`, and
+        // `terminateWorkers()` skips null entries. Returning null recycles
+        // the slot without spawning a thread that would do nothing.
         return {
-          worker: worker ?? (null as unknown as Worker),
+          worker: worker ?? (null as unknown as WorkerLike),
           result: undefined,
         };
       });
