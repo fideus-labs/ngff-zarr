@@ -22,7 +22,7 @@ pytestmark = pytest.mark.skipif(
 def test_zarr_v3_compression(input_images):
     dataset_name = "cthead1"
     image = input_images[dataset_name]
-    baseline_name = "2_4/RFC3_GAUSSIAN.zarr"
+    baseline_name = "2_4_chunks64/RFC3_GAUSSIAN.zarr"
     chunks = (64, 64)
     multiscales = to_multiscales(
         image, [2, 4], chunks=chunks, method=Methods.ITKWASM_GAUSSIAN
@@ -72,7 +72,7 @@ def test_zarr_v3_compression_with_sharding(input_images):
     """Test Zarr v3 compression combined with sharding functionality"""
     dataset_name = "cthead1"
     image = input_images[dataset_name]
-    baseline_name = "2_4/RFC3_GAUSSIAN.zarr"
+    baseline_name = "2_4_chunks64/RFC3_GAUSSIAN.zarr"
     chunks = (64, 64)
     multiscales = to_multiscales(
         image, [2, 4], chunks=chunks, method=Methods.ITKWASM_GAUSSIAN

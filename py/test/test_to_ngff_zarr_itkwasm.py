@@ -202,7 +202,11 @@ def test_gaussian_isotropic_scale_factors(input_images):
         baseline_name = "2_3/ITKWASM_GAUSSIAN.zarr"
     multiscales = to_multiscales(image, [2, 3], method=Methods.ITKWASM_GAUSSIAN)
     # store_new_multiscales(dataset_name, baseline_name, multiscales)
-    verify_against_baseline(dataset_name, baseline_name, multiscales)
+    # The baselines hold the exact geometry. The default "pad" strategy trades
+    # it for speed and is covered in test_non_power_of_2_scale_factors.py.
+    verify_against_baseline(
+        dataset_name, baseline_name, multiscales, scale_strategy="exact"
+    )
 
     dataset_name = "MR-head"
     image = input_images[dataset_name]
@@ -213,7 +217,9 @@ def test_gaussian_isotropic_scale_factors(input_images):
     multiscales = to_multiscales(image, [2, 3, 4], method=Methods.ITKWASM_GAUSSIAN)
     # from ._data import store_new_multiscales
     # store_new_multiscales(dataset_name, baseline_name, multiscales)
-    verify_against_baseline(dataset_name, baseline_name, multiscales)
+    verify_against_baseline(
+        dataset_name, baseline_name, multiscales, scale_strategy="exact"
+    )
 
 
 # def test_gaussian_anisotropic_scale_factors(input_images):
@@ -250,7 +256,13 @@ def test_label_image_isotropic_scale_factors(input_images):
     baseline_name = "2_3/ITKWASM_LABEL_IMAGE.zarr"
     multiscales = to_multiscales(image, [2, 3], method=Methods.ITKWASM_LABEL_IMAGE)
     # store_new_multiscales(dataset_name, baseline_name, multiscales)
-    verify_against_baseline(dataset_name, baseline_name, multiscales, version=version)
+    verify_against_baseline(
+        dataset_name,
+        baseline_name,
+        multiscales,
+        version=version,
+        scale_strategy="exact",
+    )
 
 
 # def test_label_image_anisotropic_scale_factors(input_images):

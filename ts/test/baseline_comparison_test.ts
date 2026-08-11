@@ -14,7 +14,6 @@
 import { assertEquals, assertExists } from "@std/assert";
 import { join } from "@std/path";
 import { readImageNode, writeImageNode } from "@itk-wasm/image-io";
-import { compareImagesNode } from "@itk-wasm/compare-images";
 import type { Image as ItkWasmImage } from "itk-wasm";
 
 import { Methods } from "../src/types/methods.ts";
@@ -70,60 +69,72 @@ async function writeScaleImage(
 }
 
 /**
- * Helper to compare two ITK-Wasm images with tolerance
+ * Compare two ITK-Wasm images by value: geometry and pixel data must be
+ * identical. Mirrors the Python port's store_equals, which compares
+ * decompressed arrays element-wise, so both ports assert the same thing.
+ *
+ * @itk-wasm/compare-images is deliberately not used: the comparison wanted
+ * here is exact — zero threshold, zero pixels tolerance — which is plain
+ * element-wise equality, so a Wasm round trip would buy nothing. (It also
+ * threw on 3D images with a non-identity direction, fixed upstream in
+ * InsightSoftwareConsortium/ITK-Wasm#1582.)
  */
-async function compareImages(
+function compareImages(
   testImage: ItkWasmImage,
   baselineImage: ItkWasmImage,
   testName: string,
-): Promise<void> {
-  try {
-    const result = await compareImagesNode(testImage, {
-      baselineImages: [baselineImage],
-      differenceThreshold: 0.0,
-      radiusTolerance: 0,
-      numberOfPixelsTolerance: 0,
-      ignoreBoundaryPixels: false,
-    });
+): void {
+  assertEquals(testImage.size, baselineImage.size, `${testName}: size`);
+  assertEquals(
+    testImage.spacing,
+    baselineImage.spacing,
+    `${testName}: spacing`,
+  );
+  assertEquals(testImage.origin, baselineImage.origin, `${testName}: origin`);
+  assertEquals(
+    Array.from(testImage.direction as ArrayLike<number>),
+    Array.from(baselineImage.direction as ArrayLike<number>),
+    `${testName}: direction`,
+  );
+  assertEquals(
+    testImage.imageType.componentType,
+    baselineImage.imageType.componentType,
+    `${testName}: componentType`,
+  );
 
-    // Check if images match
-    const metrics = result.metrics as {
-      almostEqual?: boolean;
-      numberOfPixelsWithDifferences?: number;
-    };
+  const testData = testImage.data;
+  const baselineData = baselineImage.data;
+  assertExists(testData, `${testName}: test image data`);
+  assertExists(baselineData, `${testName}: baseline image data`);
+  assertEquals(
+    testData.length,
+    baselineData.length,
+    `${testName}: data length`,
+  );
 
-    if (!metrics.almostEqual) {
-      console.error(
-        `❌ ${testName} failed: ${metrics.numberOfPixelsWithDifferences} pixels differ`,
-      );
+  let diffCount = 0;
+  let diffSum = 0;
+  let firstDiffIndex = -1;
+  for (let i = 0; i < testData.length; i++) {
+    // Compare raw values (works for bigint arrays too); Number() only for
+    // the diagnostics.
+    if (testData[i] !== baselineData[i]) {
+      diffCount++;
+      diffSum += Number(testData[i]) - Number(baselineData[i]);
+      if (firstDiffIndex < 0) firstDiffIndex = i;
     }
-
-    assertEquals(
-      metrics.almostEqual,
-      true,
-      `Images should match for ${testName}`,
-    );
-    assertEquals(
-      metrics.numberOfPixelsWithDifferences,
-      0,
-      `No pixels should differ for ${testName}`,
-    );
-  } catch (error) {
-    console.error(`Error comparing images for ${testName}:`, error);
-    console.error("Test image info:", {
-      size: testImage.size,
-      spacing: testImage.spacing,
-      origin: testImage.origin,
-      dataLength: testImage.data?.length,
-    });
-    console.error("Baseline image info:", {
-      size: baselineImage.size,
-      spacing: baselineImage.spacing,
-      origin: baselineImage.origin,
-      dataLength: baselineImage.data?.length,
-    });
-    throw error;
   }
+  if (diffCount > 0) {
+    const meanDiff = (diffSum / diffCount).toFixed(4);
+    console.error(
+      `❌ ${testName} failed: ${diffCount}/${testData.length} pixels differ, ` +
+        `mean diff ${meanDiff}, first at index ${firstDiffIndex} ` +
+        `(test=${testData[firstDiffIndex]}, baseline=${
+          baselineData[firstDiffIndex]
+        })`,
+    );
+  }
+  assertEquals(diffCount, 0, `No pixels should differ for ${testName}`);
 }
 
 Deno.test("cthead1 - ITKWASM_GAUSSIAN scale factors [2, 4]", async () => {
@@ -320,13 +331,10 @@ Deno.test("MR-head - ITKWASM_GAUSSIAN scale factors [2, 3, 4]", async () => {
   const inputPath = join(INPUT_DIR, "MR-head.nrrd");
   const itkImage = await readImageNode(inputPath);
   assertExists(itkImage);
-  // The baseline store predates automatic anatomical-orientation writing and
-  // carries no orientation, so its ITK direction is identity. Disable
-  // orientation here to compare downsampled pixel output apples-to-apples; the
-  // orientation round-trip itself is covered by rfc4_integration_test.ts.
-  const ngffImage = await itkImageToNgffImage(itkImage, {
-    addAnatomicalOrientation: false,
-  });
+  // The baseline store carries RFC-4 anatomical orientation, so keep it on
+  // the test side too; both are converted back to an ITK direction by
+  // ngffImageToItkImage before comparison.
+  const ngffImage = await itkImageToNgffImage(itkImage);
 
   // Generate multiscales
   const multiscales = await toMultiscales(ngffImage, {

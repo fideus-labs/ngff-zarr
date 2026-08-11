@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+import copy
 import sys
 import tempfile
 import warnings
@@ -68,6 +69,10 @@ def _numcodecs_to_zarr_v3_codec(compressor):
 
     codec_id = getattr(compressor, "codec_id", None)
     if codec_id is None:
+        # Already a native Zarr v3 codec: pass it through unchanged. The
+        # sharding path otherwise swaps it for the zstd default.
+        if hasattr(compressor, "to_dict"):
+            return compressor
         return None
 
     try:
@@ -210,9 +215,16 @@ def _write_with_tensorstore(
     full_array_shape=None,
     create_dataset=True,
     compressor=None,
+    compression_chain=None,
     **kwargs,
 ) -> None:
-    """Write array using tensorstore backend"""
+    """Write array using tensorstore backend.
+
+    ``compressor`` carries a single legacy codec (zarr format 2 metadata).
+    ``compression_chain`` carries the ordered zarr v3 bytes-to-bytes codec
+    chain: ``None`` requests the default compression, an empty sequence
+    requests no compression.
+    """
     import tensorstore as ts
 
     # Use full array shape if provided, otherwise use the region array shape
@@ -269,6 +281,35 @@ def _write_with_tensorstore(
                 if compressor is None:
                     return None
 
+                # Native Zarr v3 codecs carry no codec_id but serialise into
+                # exactly the form TensorStore expects.
+                if hasattr(compressor, "to_dict") and not hasattr(
+                    compressor, "codec_id"
+                ):
+                    codec = compressor.to_dict()
+                    # zarr-python records constructor-defaulted blosc attrs in
+                    # _tunable_attrs and evolves them from the dtype at write
+                    # time; mirror that so both backends land on the same
+                    # configuration. Explicitly chosen values are kept.
+                    config = codec.get("configuration")
+                    if codec.get("name") == "blosc" and isinstance(config, dict):
+                        config = dict(config)
+                        itemsize = array.dtype.itemsize
+                        tunable = getattr(compressor, "_tunable_attrs", None)
+                        if tunable is None:
+                            # Fallback for zarr without _tunable_attrs.
+                            if config.get("typesize") in (None, 1):
+                                config["typesize"] = itemsize
+                        else:
+                            if "typesize" in tunable:
+                                config["typesize"] = itemsize
+                            if "shuffle" in tunable:
+                                config["shuffle"] = (
+                                    "bitshuffle" if itemsize == 1 else "shuffle"
+                                )
+                        codec = {**codec, "configuration": config}
+                    return codec
+
                 if hasattr(compressor, "codec_id"):
                     # numcodecs compressor object
                     codec_id = compressor.codec_id
@@ -305,33 +346,45 @@ def _write_with_tensorstore(
                     return compressor
                 return None
 
+            # Mirror the zarr-python codec chain. Left unset, TensorStore
+            # applies its own defaults: sharded and uncompressed.
+            bytes_codec = {"name": "bytes", "configuration": {"endian": "little"}}
+            default_compression = {
+                "name": "zstd",
+                "configuration": {"level": 0, "checksum": False},
+            }
+            if compression_chain is None:
+                fallback = (
+                    create_compression_codec(compressor)
+                    if compressor is not None
+                    else None
+                )
+                compression_codecs = [fallback or default_compression]
+            else:
+                # An explicit chain is preserved in order; an explicit empty
+                # chain means no compression, matching zarr-python.
+                compression_codecs = [
+                    codec
+                    for codec in map(create_compression_codec, compression_chain)
+                    if codec is not None
+                ]
+            inner_codecs = [bytes_codec, *compression_codecs]
+
             # Add sharding codec with inner codecs if needed
             if internal_chunk_shape:
-                sharding_config = {"chunk_shape": internal_chunk_shape}
-
-                # If compression is specified, add it as inner codec for sharding
-                if compressor is not None:
-                    compression_codec = create_compression_codec(compressor)
-                    if compression_codec:
-                        # For sharding, compression goes in the inner codecs
-                        sharding_config["codecs"] = [compression_codec]
-
                 codecs.append(
                     {
                         "name": "sharding_indexed",
-                        "configuration": sharding_config,
+                        "configuration": {
+                            "chunk_shape": internal_chunk_shape,
+                            "codecs": inner_codecs,
+                        },
                     }
                 )
             else:
-                # No sharding, add compression codec directly if specified
-                if compressor is not None:
-                    compression_codec = create_compression_codec(compressor)
-                    if compression_codec:
-                        codecs.append(compression_codec)
+                codecs.extend(inner_codecs)
 
-            # Set codecs if any were added
-            if codecs:
-                spec["metadata"]["codecs"] = codecs
+            spec["metadata"]["codecs"] = codecs
     else:
         raise ValueError(f"Unsupported zarr format: {zarr_format}")
 
@@ -567,6 +620,18 @@ def _configure_sharding(
     return sharding_kwargs, internal_chunk_shape, arr
 
 
+def _is_bytes_codec(codec) -> bool:
+    """Is this the zarr v3 array-to-bytes codec rather than a compressor?"""
+    if isinstance(codec, str):
+        return codec == "bytes"
+    name = getattr(codec, "name", None)
+    if name is None and hasattr(codec, "to_dict"):
+        name = codec.to_dict().get("name")
+    if name is None and isinstance(codec, dict):
+        name = codec.get("name")
+    return name == "bytes"
+
+
 def _write_array_with_tensorstore(
     store_path: str,
     path: str,
@@ -584,6 +649,25 @@ def _write_array_with_tensorstore(
     """Write an array using the TensorStore backend."""
     # Extract compressor and other conflicting parameters from kwargs to avoid conflicts
     compressor = kwargs.pop("compressor", None)
+    # The public API takes ``compressors`` (plural); without this a supplied
+    # codec is dropped and TensorStore silently writes its default. The full
+    # chain is preserved in order; only the array-to-bytes ("bytes") codec is
+    # dropped since the writer always leads with one. ``None`` — absent or
+    # explicit — selects no compression only when explicitly passed, matching
+    # zarr-python, so the unset case is detected with a sentinel.
+    _unset = object()
+    compressors = kwargs.pop("compressors", _unset)
+    if compressors is _unset:
+        compression_chain = [compressor] if compressor is not None else None
+    elif compressors is None:
+        compression_chain = []
+    elif isinstance(compressors, (list, tuple)):
+        compression_chain = [c for c in compressors if not _is_bytes_codec(c)]
+    else:
+        compression_chain = [compressors]
+    if compressor is None and compression_chain:
+        # zarr format 2 metadata carries a single compressor.
+        compressor = compression_chain[0]
     kwargs.pop("chunks", None)  # Remove chunks from kwargs since it's a positional arg
 
     scale_path = f"{store_path}/{path}"
@@ -598,6 +682,7 @@ def _write_array_with_tensorstore(
             full_array_shape=full_array_shape,
             create_dataset=create_dataset,
             compressor=compressor,
+            compression_chain=compression_chain,
             **kwargs,
         )
     else:  # Sharding
@@ -612,6 +697,7 @@ def _write_array_with_tensorstore(
             full_array_shape=full_array_shape,
             create_dataset=create_dataset,
             compressor=compressor,
+            compression_chain=compression_chain,
             **kwargs,
         )
 
@@ -1302,10 +1388,13 @@ def _prepare_next_scale(
     """Prepare the next scale for processing if needed.
 
     :param scale_strategy: Strategy for handling non-power-of-2 scale factors.
-        "pad" (default) always uses incremental downsampling from the previous level,
-        which may produce slightly different sizes due to floor-division rounding.
-        "exact" uses pre-computed images from the initial to_multiscales() call when
-        incremental downsampling cannot achieve the exact target size.
+        "pad" (default) always downsamples incrementally from the previous
+        level, which is memory-efficient but can miss the target sizes; the
+        datasets metadata still describes the exact targets, so the store then
+        misdescribes its own geometry. "exact" uses pre-computed images from
+        the initial to_multiscales() call when incremental downsampling cannot
+        achieve the exact target size, so the written arrays match the
+        coordinate metadata.
     """
     # No next scale if we're at the last one
     if index >= nscales - 1:
@@ -1442,11 +1531,14 @@ def to_ome_zarr(
 
 
     :param scale_strategy: Strategy for handling non-power-of-2 scale factors during
-        multiscale writing. "pad" (default) always uses incremental downsampling from
-        the previous level, which is memory-efficient but may produce slightly different
-        sizes due to floor-division rounding. "exact" uses pre-computed images from
-        the initial to_multiscales() call when incremental downsampling cannot achieve
-        the exact target size (original_size // scale_factor).
+        multiscale writing. "pad" (default) always downsamples incrementally from
+        the previous level, which is memory-efficient but can miss the target
+        sizes; the datasets metadata still describes the exact targets, so the
+        store then misdescribes its own geometry. "exact" uses pre-computed
+        images from the initial to_multiscales() call when incremental
+        downsampling cannot achieve the exact target size
+        (original_size // scale_factor), so the written arrays match the
+        coordinate metadata.
     :type  scale_strategy: "pad" or "exact", optional
 
     :param **kwargs: Passed to the zarr.create_array() or zarr.creation.create() function, e.g., compression options.
@@ -1565,6 +1657,14 @@ def _to_ngff_zarr_impl(
     """
     Internal implementation of to_ngff_zarr without .ozx handling.
     """
+    # Shallow copy, with per-image computed_callbacks: the write loop swaps
+    # image data for on-disk views and regenerates scales, and none of that
+    # may reach the caller's multiscales (gh-issue-627).
+    multiscales = copy.copy(multiscales)
+    multiscales.images = [copy.copy(image) for image in multiscales.images]
+    for image in multiscales.images:
+        image.computed_callbacks = list(image.computed_callbacks)
+
     # Setup and validation
     store_path = str(store) if isinstance(store, (str, Path)) else None
 

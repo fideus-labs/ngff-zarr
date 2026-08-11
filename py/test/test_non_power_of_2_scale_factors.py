@@ -156,10 +156,12 @@ def test_non_power_of_2_with_dict_scale_factors():
         ), f"Expected (40, 10) but got {result.images[2].data.shape}"
 
 
-def test_scale_strategy_pad_default():
+def test_scale_strategy_defaults_to_pad():
     """
-    Test that scale_strategy defaults to "pad" and produces shapes from
-    incremental downsampling (which may differ from exact division).
+    The default write downsamples incrementally from the previous level, so a
+    target that is not reachable by an integer factor is missed: from level 1
+    (60, 60) a factor-3 target of (40, 40) is out of reach, pad lands on
+    (30, 30), and factor 4 then has nothing left to do.
     """
     data = np.random.randint(0, 256, size=(120, 120), dtype=np.uint8)
     image = nz.to_ngff_image(data, scale={"y": 1.0, "x": 1.0})
@@ -168,33 +170,38 @@ def test_scale_strategy_pad_default():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         zarr_path = f"{tmpdir}/test.ome.zarr"
-        # No scale_strategy arg → defaults to "pad"
+        # No scale_strategy arg -> defaults to "pad"
         nz.to_ngff_zarr(zarr_path, multiscales)
         result = nz.from_ngff_zarr(zarr_path)
 
-        # Level 0 is always exact
-        assert result.images[0].data.shape == (120, 120)
-        # Level 1 (factor 2): 120/2 = 60 — power-of-2, same either way
-        assert result.images[1].data.shape == (60, 60)
-        # Level 2 (factor 3): pad mode does incremental from level 1 (60)
-        # 60 // (3/2) = 60 // 1.5 → floor(60/1.5) = 40 if exact, but
-        # incremental factor = 3/2 = 1.5 → int(1.5) = 1 → 60/1 = 60?
-        # Actually, _dim_scale_factors computes: next_abs / prev_abs = 3/2 = 1.5
-        # Then to_multiscales uses this as a dict factor.
-        # The gaussian method downsamples by floor division, so:
-        # 60 // 1 = 60 is wrong.  Let me not assert specific pad shapes here.
-        # Instead, just verify all levels exist and have reasonable sizes.
-        assert len(result.images) == 4
-        for i in range(4):
-            shape = result.images[i].data.shape
-            assert len(shape) == 2
-            assert shape[0] > 0
-            assert shape[1] > 0
-            # Each level should be smaller or equal to the previous
-            if i > 0:
-                prev_shape = result.images[i - 1].data.shape
-                assert shape[0] <= prev_shape[0]
-                assert shape[1] <= prev_shape[1]
+        expected_shapes = [(120, 120), (60, 60), (30, 30), (30, 30)]
+        for i, expected in enumerate(expected_shapes):
+            actual = result.images[i].data.shape
+            assert actual == expected, f"Level {i}: expected {expected}, got {actual}"
+
+
+def test_scale_strategy_pad_opt_in():
+    """
+    Test that scale_strategy="pad" downsamples incrementally from the
+    previous level, missing targets that are not reachable by an integer
+    factor: from level 1 (60, 60) a factor-3 target of (40, 40) is not
+    reachable, so pad lands on (30, 30) and factor 4 then has nothing
+    left to do.
+    """
+    data = np.random.randint(0, 256, size=(120, 120), dtype=np.uint8)
+    image = nz.to_ngff_image(data, scale={"y": 1.0, "x": 1.0})
+
+    multiscales = nz.to_multiscales(image, scale_factors=[2, 3, 4])
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zarr_path = f"{tmpdir}/test.ome.zarr"
+        nz.to_ngff_zarr(zarr_path, multiscales, scale_strategy="pad")
+        result = nz.from_ngff_zarr(zarr_path)
+
+        expected_shapes = [(120, 120), (60, 60), (30, 30), (30, 30)]
+        for i, expected in enumerate(expected_shapes):
+            actual = result.images[i].data.shape
+            assert actual == expected, f"Level {i}: expected {expected}, got {actual}"
 
 
 def test_scale_strategy_exact():

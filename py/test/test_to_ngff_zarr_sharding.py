@@ -24,7 +24,7 @@ pytestmark = pytest.mark.skipif(
 def test_zarr_python_sharding(input_images):
     dataset_name = "cthead1"
     image = input_images[dataset_name]
-    baseline_name = "2_4/RFC3_GAUSSIAN.zarr"
+    baseline_name = "2_4_chunks64/RFC3_GAUSSIAN.zarr"
     chunks = (64, 64)
     multiscales = to_multiscales(
         image, [2, 4], chunks=chunks, method=Methods.ITKWASM_GAUSSIAN
@@ -110,7 +110,7 @@ def test_tensorstore_sharding(input_images):
 
     dataset_name = "cthead1"
     image = input_images[dataset_name]
-    baseline_name = "2_4/RFC3_GAUSSIAN.zarr"
+    baseline_name = "2_4_chunks64/RFC3_GAUSSIAN.zarr"
     chunks = (64, 64)
     multiscales = to_multiscales(
         image, [2, 4], chunks=chunks, method=Methods.ITKWASM_GAUSSIAN

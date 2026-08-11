@@ -1,11 +1,21 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+import platform
+
 import dask.array as da
+import pytest
 from ngff_zarr import Methods, config, to_multiscales, to_ngff_image
 
 from ._data import verify_against_baseline
 
+_on_x86 = platform.machine().lower() in ("x86_64", "amd64")
 
+
+@pytest.mark.skipif(
+    not _on_x86,
+    reason="baselines are generated on x86_64; scipy Gaussian "
+    "floating point differs on other architectures",
+)
 def test_gaussian_isotropic_scale_factors(input_images):
     dataset_name = "cthead1"
     image = input_images[dataset_name]
@@ -20,6 +30,11 @@ def test_gaussian_isotropic_scale_factors(input_images):
     verify_against_baseline(dataset_name, baseline_name, multiscales)
 
 
+@pytest.mark.skipif(
+    not _on_x86,
+    reason="baselines are generated on x86_64; scipy Gaussian "
+    "floating point differs on other architectures",
+)
 def test_gaussian_isotropic_scale_factors_two_components(input_images):
     dataset_name = "brain_two_components"
     image = input_images[dataset_name]

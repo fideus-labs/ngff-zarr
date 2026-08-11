@@ -23,8 +23,11 @@ import type { ZarrCodec } from "../utils/codecs.ts";
 import { defaultCodecs } from "../utils/codecs.ts";
 import { zarrGet, zarrSet } from "../utils/worker_pool.ts";
 import {
+  castImageToFloat32,
+  castImageToIntegerType,
   type DimFactors,
   dimScaleFactors,
+  isIntegerComponentType,
   itkImageToZarr,
   MAX_VECTOR_COMPONENTS,
   nextScaleMetadata,
@@ -329,11 +332,22 @@ async function downsampleGaussian(
   // Use all zeros for cropRadius
   const cropRadius = new Array(shrinkFactors.length).fill(0);
 
+  // The Gaussian filter loses precision on integer inputs; cast to
+  // float32 and round back afterwards, mirroring the Python port.
+  const originalComponentType = itkImage.imageType.componentType;
+  const needsFloatWorkaround = isIntegerComponentType(originalComponentType);
+  const inputImage = needsFloatWorkaround
+    ? castImageToFloat32(itkImage)
+    : itkImage;
+
   // Perform downsampling using Node-compatible function
-  const { downsampled } = await downsample(itkImage, {
+  const { downsampled: downsampledRaw } = await downsample(inputImage, {
     shrinkFactors,
     cropRadius: cropRadius,
   });
+  const downsampled = needsFloatWorkaround
+    ? castImageToIntegerType(downsampledRaw, originalComponentType)
+    : downsampledRaw;
 
   // Compute new metadata
   const [translation, scale] = nextScaleMetadata(
