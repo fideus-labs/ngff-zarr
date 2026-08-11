@@ -198,6 +198,7 @@ interface DecodeAndStatsResponse {
  * @param nChannels - Number of channels in the image
  * @param cIndex - Index of the channel dimension (-1 if no channel dim)
  * @param actualChunkShape - Edge chunk shape correction (optional)
+ * @param cOffset - Absolute index of this chunk's first channel
  * @returns The decoded chunk and per-channel accumulators
  */
 export async function workerDecodeAndStats<D extends DataType>(
@@ -208,6 +209,7 @@ export async function workerDecodeAndStats<D extends DataType>(
   nChannels: number,
   cIndex: number,
   actualChunkShape?: number[],
+  cOffset = 0,
 ): Promise<{
   chunk: Chunk<D>;
   accumulators: ChannelStatisticsAccumulator[];
@@ -232,6 +234,7 @@ export async function workerDecodeAndStats<D extends DataType>(
       actualChunkShape,
       nChannels,
       cIndex,
+      cOffset,
     },
     [transferBuffer],
   )) as DecodeAndStatsResponse;

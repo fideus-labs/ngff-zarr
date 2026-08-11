@@ -47,12 +47,21 @@ export function typeSizeForDtype(dtype: string): number {
  */
 export type BloscShuffle = "noshuffle" | "shuffle" | "bitshuffle";
 
-/** Zarr v3 shuffle name → C blosc / numcodecs integer constant. */
-const BLOSC_SHUFFLE_INT: Record<string, number> = {
-  noshuffle: 0,
-  shuffle: 1,
-  bitshuffle: 2,
-};
+/**
+ * Zarr v3 shuffle name → C blosc / numcodecs integer constant.
+ *
+ * Null-prototype so that a lookup of an out-of-spec name cannot reach
+ * `Object.prototype` — `{}["toString"]` is a function, which would escape
+ * the numeric fallback below and reach numcodecs.
+ */
+const BLOSC_SHUFFLE_INT: Record<string, number> = Object.assign(
+  Object.create(null),
+  {
+    noshuffle: 0,
+    shuffle: 1,
+    bitshuffle: 2,
+  },
+);
 
 /**
  * Convert a blosc `shuffle` configuration value to the integer form.

@@ -68,6 +68,8 @@ interface DecodeAndStatsMessage {
   actualChunkShape?: number[];
   nChannels: number;
   cIndex: number;
+  /** Absolute index of this chunk's first channel in the full array. */
+  cOffset?: number;
 }
 
 type WorkerMessage = CodecWorkerMessage | DecodeAndStatsMessage;
@@ -162,11 +164,20 @@ async function handleDecodeAndStats(
   const accumulators: SerializedAccumulator[] = [];
   if (msg.cIndex >= 0) {
     // Multi-channel: extract each channel and accumulate separately.
-    for (let ch = 0; ch < msg.nChannels; ch++) {
+    //
+    // Iterate the channels this chunk actually decoded, not the full array
+    // count: when the channel axis is chunked, `shape[cIndex]` is smaller
+    // than `nChannels`, and reading past it yields `undefined` (which
+    // `updateAccumulator` counts, since `Number.isNaN(undefined)` is false).
+    // Results are placed at their absolute channel index so that each chunk
+    // merges into the right channel rather than into channel 0.
+    const cOffset = msg.cOffset ?? 0;
+    const chunkChannels = Math.min(shape[msg.cIndex], msg.nChannels - cOffset);
+    for (let ch = 0; ch < chunkChannels; ch++) {
       const channelData = extractChannel(chunkData, shape, ch, msg.cIndex);
       const acc = createAccumulator();
       updateAccumulator(acc, channelData);
-      accumulators.push(acc);
+      accumulators[cOffset + ch] = acc;
     }
   } else {
     const acc = createAccumulator();
@@ -220,7 +231,10 @@ async function handleMessage(msg: WorkerMessage): Promise<Reply | null> {
   } catch (error) {
     return {
       response: {
-        type: ERROR_RESPONSE_TYPE[msg.type] ?? "init_ok",
+        // An unmapped request type has no natural response type. Report it
+        // under a distinct one rather than borrowing `init_ok`, which the
+        // dispatcher could route onto an unrelated pending request.
+        type: ERROR_RESPONSE_TYPE[msg.type] ?? "worker_error",
         id: (msg as { id: number }).id,
         error: error instanceof Error ? error.message : String(error),
       },
@@ -264,17 +278,23 @@ interface WorkerScope {
   postMessage(message: unknown, transfer: ArrayBuffer[]): void;
 }
 
-// A browser or Deno worker scope exposes `self`; a Node worker thread does not
-// and uses `parentPort` instead. `node:worker_threads` is imported through a
-// variable specifier so bundlers building for the browser never try to resolve
-// it.
+// A browser or Deno worker scope exposes `self` with a `postMessage`; a Node
+// worker thread has no `self` at all and uses `parentPort` instead.
+// `node:worker_threads` is imported through a variable specifier so bundlers
+// building for the browser never try to resolve it.
 //
-// Order matters: Deno sets `process.versions.node` for npm compatibility, so
-// `isNodeRuntime()` is true there as well. Testing `self` first keeps Deno
-// workers on the web branch, which is the one they can actually use.
-const workerScope = (globalThis as { self?: unknown }).self as
-  | WorkerScope
-  | undefined;
+// The `postMessage` test is what distinguishes a real worker scope: Deno also
+// defines `self` on the *main* thread (as `Window`, with no `postMessage`), so
+// testing only for `self` would attach the listener to the main global, where
+// no message ever arrives and every caller waits forever.
+//
+// Order matters too: Deno sets `process.versions.node` for npm compatibility,
+// so `isNodeRuntime()` is true there as well. Testing the worker scope first
+// keeps Deno workers on the web branch, which is the one they can actually use.
+const maybeSelf = (globalThis as { self?: { postMessage?: unknown } }).self;
+const workerScope = typeof maybeSelf?.postMessage === "function"
+  ? (maybeSelf as unknown as WorkerScope)
+  : undefined;
 
 if (workerScope !== undefined) {
   workerScope.addEventListener("message", async (event) => {

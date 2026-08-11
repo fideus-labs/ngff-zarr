@@ -60,9 +60,18 @@ export function rewriteImports(content: string): string {
   // there is only ever the npm copy.
   //   npm:zarrita@^0.6.1                    -> zarrita
   //   npm:@scope/pkg@1.2.3/internals/util   -> @scope/pkg/internals/util
+  //
+  // Only module-specifier positions are rewritten — `from "..."`, a bare
+  // `import "..."` for side effects, and `import("...")`. A plain string that
+  // happens to start with `npm:` (an error message, a label) is left alone.
+  const NPM_SPECIFIER =
+    /(["'])npm:((?:@[^/"']+\/)?[^@/"']+)(?:@[^/"']*)?((?:\/[^"']*)?)(["'])/;
   content = content.replace(
-    /(["'])npm:((?:@[^/"']+\/)?[^@/"']+)(?:@[^/"']*)?((?:\/[^"']*)?)(["'])/g,
-    "$1$2$3$4",
+    new RegExp(
+      `(from\\s+|import\\s+|import\\s*\\(\\s*)${NPM_SPECIFIER.source}`,
+      "g",
+    ),
+    "$1$2$3$4$5",
   );
 
   // Replace jsr: imports with node-style module imports

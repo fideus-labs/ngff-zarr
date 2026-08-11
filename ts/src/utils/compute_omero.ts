@@ -310,19 +310,32 @@ async function readLocalArrayMetadata<Store extends Readable>(
 // Main-thread fallback for stats computation from a cached/decoded chunk
 // ---------------------------------------------------------------------------
 
+/**
+ * Per-channel accumulators for one decoded chunk, indexed by the channel's
+ * absolute position in the full array.
+ *
+ * Only the channels this chunk actually covers are populated; the rest are
+ * holes, which the merge step skips. When the channel axis is chunked, the
+ * chunk covers `chunkShape[cIndex]` channels starting at `cOffset`, not the
+ * whole array — iterating to `nChannels` would read past the decoded data
+ * (yielding `undefined`, which `updateAccumulator` then counts) and would
+ * merge every chunk's channels into positions starting at zero.
+ */
 function computeStatsFromDecodedChunk(
   chunkData: ArrayLike<number>,
   chunkShape: number[],
   nChannels: number,
   cIndex: number,
+  cOffset = 0,
 ): ChannelStatisticsAccumulator[] {
   const accumulators: ChannelStatisticsAccumulator[] = [];
   if (cIndex >= 0) {
-    for (let ch = 0; ch < nChannels; ch++) {
+    const chunkChannels = Math.min(chunkShape[cIndex], nChannels - cOffset);
+    for (let ch = 0; ch < chunkChannels; ch++) {
       const channelData = extractChannel(chunkData, chunkShape, ch, cIndex);
       const acc = createAccumulator();
       updateAccumulator(acc, channelData);
-      accumulators.push(acc);
+      accumulators[cOffset + ch] = acc;
     }
   } else {
     const acc = createAccumulator();
@@ -467,6 +480,10 @@ export async function computeOmeroFromNgffImage(
       Math.min(chunkShape[dim], shape[dim] - coord * chunkShape[dim])
     );
 
+    // Absolute index of this chunk's first channel, for placing its
+    // accumulators when the channel axis is chunked.
+    const cOffset = cIndex >= 0 ? chunk_coords[cIndex] * chunkShape[cIndex] : 0;
+
     // Check cache before building the task
     const cacheKey = cache
       ? createCacheKey(image.data as AnyZarrArray, encodeChunkKey, chunk_coords)
@@ -480,17 +497,18 @@ export async function computeOmeroFromNgffImage(
           cachedChunk.shape,
           nChannels,
           cIndex,
+          cOffset,
         );
-        // No worker needed — return the slot directly for pool management.
-        // For cached results, we use the provided workerSlot if available,
-        // or create a worker to satisfy the type contract.
-        tasks.push((workerSlot: WorkerLike | null) => {
-          const worker = workerSlot ?? createOmeroWorker();
-          return Promise.resolve({
-            worker,
+        // No worker needed — the stats are already computed, so hand the slot
+        // straight back. Spawning one here just to satisfy the non-null
+        // `worker` field would start a thread that never receives a message,
+        // making a fully cached run pay for a whole pool of them.
+        tasks.push((workerSlot: WorkerLike | null) =>
+          Promise.resolve({
+            worker: workerSlot ?? (null as unknown as WorkerLike),
             result: accs,
-          });
-        });
+          })
+        );
         continue;
       }
     }
@@ -502,10 +520,14 @@ export async function computeOmeroFromNgffImage(
       const rawBytes = await image.data.store.get(chunkPath);
 
       if (!rawBytes) {
-        // Missing chunk — fill with zeros, compute trivial stats
+        // Missing chunk — no data to accumulate. Cover only the channels this
+        // chunk spans, at their absolute positions.
         const accs: ChannelStatisticsAccumulator[] = [];
-        for (let ch = 0; ch < nChannels; ch++) {
-          accs.push(createAccumulator());
+        const chunkChannels = cIndex >= 0
+          ? Math.min(chunkShape[cIndex], nChannels - cOffset)
+          : 1;
+        for (let ch = 0; ch < chunkChannels; ch++) {
+          accs[cOffset + ch] = createAccumulator();
         }
         return { worker, result: accs };
       }
@@ -519,6 +541,7 @@ export async function computeOmeroFromNgffImage(
         nChannels,
         cIndex,
         edgeChunkShape,
+        cOffset,
       );
 
       // Cache decoded chunk for future zarrGet reuse.

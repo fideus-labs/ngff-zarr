@@ -194,6 +194,22 @@ Deno.test(
   },
 );
 
+Deno.test("bloscShuffleToInt never returns a prototype member", () => {
+  // A plain-object lookup table would resolve these off Object.prototype and
+  // hand numcodecs a function instead of a number.
+  for (
+    const name of [
+      "toString",
+      "constructor",
+      "valueOf",
+      "hasOwnProperty",
+      "__proto__",
+    ]
+  ) {
+    assertEquals(bloscShuffleToInt(name), 0, name);
+  }
+});
+
 Deno.test("defaultBloscShuffle enables shuffle for multi-byte types", () => {
   for (const dtype of ["int16", "uint16", "float32", "int64", "float64"]) {
     assertEquals(defaultBloscShuffle(dtype), "shuffle", dtype);

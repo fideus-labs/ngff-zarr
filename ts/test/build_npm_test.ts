@@ -106,6 +106,31 @@ Deno.test("rewriteImports leaves bare npm package names alone", () => {
   assertEquals(rewriteImports(bare), bare);
 });
 
+Deno.test("rewriteImports rewrites side-effect and dynamic imports", () => {
+  assertEquals(
+    rewriteImports(`import "npm:some-polyfill@1.0.0";`),
+    `import "some-polyfill";`,
+  );
+  assertEquals(
+    rewriteImports(`const m = await import("npm:zarrita@^0.6.1");`),
+    `const m = await import("zarrita");`,
+  );
+});
+
+Deno.test("rewriteImports leaves non-specifier npm: strings alone", () => {
+  // Only module-specifier positions are rewritten. A string that merely
+  // starts with `npm:` — an error message, a label — is data, not an import.
+  for (
+    const src of [
+      `const label = "npm:zarrita@^0.6.1";`,
+      `throw new Error("install npm:pkg@1.0.0/sub first");`,
+      `const specifier = "npm:zarrita@^0.6.1";`,
+    ]
+  ) {
+    assertEquals(rewriteImports(src), src);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // jsr: specifiers
 // ---------------------------------------------------------------------------
