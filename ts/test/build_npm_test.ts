@@ -131,6 +131,52 @@ Deno.test("rewriteImports leaves non-specifier npm: strings alone", () => {
   }
 });
 
+Deno.test("rewriteImports leaves commented-out imports alone", () => {
+  // Several source comments discuss `npm:` versus `jsr:` resolution, so a
+  // quoted specifier inside one is a realistic way to corrupt the build.
+  for (
+    const src of [
+      `// import "npm:pkg@1.0.0"`,
+      `// see: from "npm:zarrita@^0.6.1"`,
+      `/* import "npm:pkg@1.0.0" */`,
+    ]
+  ) {
+    assertEquals(rewriteImports(src), src);
+  }
+});
+
+Deno.test("rewriteImports leaves a specifier nested in a string alone", () => {
+  // The inner quotes belong to the outer literal, not to an import.
+  const src = `const text = 'from "npm:pkg@1.0.0"';`;
+  assertEquals(rewriteImports(src), src);
+});
+
+Deno.test("rewriteImports rewrites imports but not surrounding prose", () => {
+  // A whole-file shape: a JSDoc block mentioning specifiers, a real import,
+  // a commented-out one, and a specifier embedded in string data.
+  const src = [
+    `/**`,
+    ` * Use import "npm:pkg@1.0.0" to load it.`,
+    ` * Also: from "npm:zarrita@^0.6.1" resolves differently.`,
+    ` */`,
+    `import x from "npm:zarrita@^0.6.1";`,
+    `// import "npm:other@2.0.0"`,
+    `const s = 'from "npm:inner@1.0.0"';`,
+  ].join("\n");
+
+  const expected = [
+    `/**`,
+    ` * Use import "npm:pkg@1.0.0" to load it.`,
+    ` * Also: from "npm:zarrita@^0.6.1" resolves differently.`,
+    ` */`,
+    `import x from "zarrita";`,
+    `// import "npm:other@2.0.0"`,
+    `const s = 'from "npm:inner@1.0.0"';`,
+  ].join("\n");
+
+  assertEquals(rewriteImports(src), expected);
+});
+
 // ---------------------------------------------------------------------------
 // jsr: specifiers
 // ---------------------------------------------------------------------------

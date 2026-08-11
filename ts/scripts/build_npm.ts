@@ -22,6 +22,110 @@ const STAGING_DIR = "./npm/src";
 const NPM_DIR = "./npm";
 
 /**
+ * Strip the `npm:` prefix and version range from an npm module specifier,
+ * leaving the bare package name and any subpath.
+ *
+ *     "npm:zarrita@^0.6.1"                   -> "zarrita"
+ *     "npm:@scope/pkg@1.2.3/internals/util"  -> "@scope/pkg/internals/util"
+ *
+ * Returns the literal unchanged when it is not an `npm:` specifier.
+ */
+function stripNpmPrefix(literal: string): string {
+  return literal.replace(
+    /^(["'])npm:((?:@[^/"']+\/)?[^@/"']+)(?:@[^/"']*)?((?:\/[^"']*)?)(["'])$/,
+    "$1$2$3$4",
+  );
+}
+
+/**
+ * Whether a run of code immediately preceding a string literal puts that
+ * literal in module-specifier position: `from "…"`, a bare side-effect
+ * `import "…"`, or `import("…")`.
+ */
+function isSpecifierPosition(precedingCode: string): boolean {
+  return /(?:^|[\s;{}()])(?:from|import)\s*\(?\s*$/.test(precedingCode);
+}
+
+/**
+ * Rewrite `npm:` module specifiers to bare package names.
+ *
+ * Source files use the explicit `npm:` form where Deno would otherwise
+ * resolve a bare specifier to a different registry (e.g.
+ * `jsr:@zarrita/zarrita` vs `npm:zarrita`); in the npm build there is only
+ * ever the npm copy.
+ *
+ * Scans rather than pattern-matches, because a bare regex also fires inside
+ * comments and unrelated string literals — `// import "npm:pkg@1.0.0"` and
+ * `const t = 'from "npm:pkg@1.0.0"'` both look like specifiers to it. That
+ * matters here in particular: several source comments discuss `npm:` versus
+ * `jsr:` resolution, so quoting one is a realistic way to silently corrupt
+ * the generated package.
+ *
+ * This is a lexer, not a parser: it tracks comments and string literals well
+ * enough to know whether a quote opens a real specifier. A full TypeScript
+ * AST would also be correct, but it would add a parser dependency to the
+ * build for a rule that only ever inspects the token immediately before a
+ * string literal.
+ */
+function rewriteNpmSpecifiers(content: string): string {
+  // Longest prefix that `isSpecifierPosition` can match, plus slack.
+  const LOOKBEHIND = 32;
+
+  let out = "";
+  let code = ""; // Code seen since the last comment or string literal.
+  let i = 0;
+
+  while (i < content.length) {
+    const ch = content[i];
+    const next = content[i + 1];
+
+    // Line comment — copy through to the newline.
+    if (ch === "/" && next === "/") {
+      const end = content.indexOf("\n", i);
+      const stop = end === -1 ? content.length : end;
+      out += content.slice(i, stop);
+      i = stop;
+      code = "";
+      continue;
+    }
+
+    // Block comment — copy through to the terminator.
+    if (ch === "/" && next === "*") {
+      const end = content.indexOf("*/", i + 2);
+      const stop = end === -1 ? content.length : end + 2;
+      out += content.slice(i, stop);
+      i = stop;
+      code = "";
+      continue;
+    }
+
+    // String or template literal — rewrite only in specifier position.
+    if (ch === '"' || ch === "'" || ch === "`") {
+      let j = i + 1;
+      while (j < content.length) {
+        if (content[j] === "\\") {
+          j += 2;
+          continue;
+        }
+        if (content[j] === ch) break;
+        j++;
+      }
+      const literal = content.slice(i, Math.min(j + 1, content.length));
+      out += isSpecifierPosition(code) ? stripNpmPrefix(literal) : literal;
+      i = j + 1;
+      code = "";
+      continue;
+    }
+
+    out += ch;
+    code = (code + ch).slice(-LOOKBEHIND);
+    i++;
+  }
+
+  return out;
+}
+
+/**
  * Rewrite imports in a TypeScript file from Deno-style to Node-style.
  *
  * Exported for `test/build_npm_test.ts`; the build itself calls it via
@@ -53,26 +157,7 @@ export function rewriteImports(content: string): string {
     "$1$2.js$3",
   );
 
-  // Strip the npm: prefix and version range from npm specifiers, leaving the
-  // bare package name (and any subpath). Source files use the explicit form
-  // where Deno would otherwise resolve a bare specifier to a different
-  // registry (e.g. jsr:@zarrita/zarrita vs npm:zarrita); in the npm build
-  // there is only ever the npm copy.
-  //   npm:zarrita@^0.6.1                    -> zarrita
-  //   npm:@scope/pkg@1.2.3/internals/util   -> @scope/pkg/internals/util
-  //
-  // Only module-specifier positions are rewritten — `from "..."`, a bare
-  // `import "..."` for side effects, and `import("...")`. A plain string that
-  // happens to start with `npm:` (an error message, a label) is left alone.
-  const NPM_SPECIFIER =
-    /(["'])npm:((?:@[^/"']+\/)?[^@/"']+)(?:@[^/"']*)?((?:\/[^"']*)?)(["'])/;
-  content = content.replace(
-    new RegExp(
-      `(from\\s+|import\\s+|import\\s*\\(\\s*)${NPM_SPECIFIER.source}`,
-      "g",
-    ),
-    "$1$2$3$4$5",
-  );
+  content = rewriteNpmSpecifiers(content);
 
   // Replace jsr: imports with node-style module imports
   content = content.replace(
