@@ -222,7 +222,9 @@ async function createPackageJson(): Promise<void> {
       "@fideus-labs/fizarrita": "^2.0.0",
       "@fideus-labs/worker-pool": "^2.0.0",
       "@itk-wasm/downsample": "^2.0.0",
-      "itk-wasm": "^1.0.0-b.196",
+      // Floor at b.201: b.200 shipped without its `dist/` directory, which
+      // breaks the browser bundle with unresolved "itk-wasm" imports.
+      "itk-wasm": "^1.0.0-b.201",
       "@zarrita/storage": "^0.1.4",
       zod: "^4.0.2",
       zarrita: "^0.6.1",

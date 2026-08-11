@@ -33,7 +33,7 @@
     "npm:@itk-wasm/image-io@^1.6.0": "1.6.0",
     "npm:@playwright/test@^1.58.1": "1.58.2",
     "npm:fflate@~0.8.2": "0.8.2",
-    "npm:itk-wasm@^1.0.0-b.196": "1.0.0-b.201",
+    "npm:itk-wasm@^1.0.0-b.201": "1.0.0-b.201",
     "npm:microdiff@^1.5.0": "1.5.0",
     "npm:numcodecs@~0.3.2": "0.3.2",
     "npm:reference-spec-reader@0.2": "0.2.0",
@@ -1287,7 +1287,7 @@
       "npm:@itk-wasm/image-io@^1.6.0",
       "npm:@playwright/test@^1.58.1",
       "npm:fflate@~0.8.2",
-      "npm:itk-wasm@^1.0.0-b.196",
+      "npm:itk-wasm@^1.0.0-b.201",
       "npm:microdiff@^1.5.0",
       "npm:zod@^4.3.6"
     ]
