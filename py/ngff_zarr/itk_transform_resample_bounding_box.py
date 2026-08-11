@@ -311,6 +311,17 @@ def _transform_from_dict(entry: dict):
     entry = dict(entry)
     transform_type = entry.get("transformType")
     if isinstance(transform_type, dict):
+        # itk.dict_from_transform always materializes the parameters as
+        # float64 but keeps the transform's declared value type, so a
+        # float-parameterized transform (e.g. DisplacementFieldTransform
+        # [itk.F, 2]) arrives declared float32 with a float64 buffer. The
+        # pipeline then reads the buffer as float32 and computes a region
+        # from garbage. Declare the type the buffer actually has.
+        parameters = entry.get("parameters")
+        if parameters is not None:
+            actual = str(np.asarray(parameters).dtype)
+            if actual in ("float32", "float64"):
+                transform_type = {**transform_type, "parametersValueType": actual}
         entry["transformType"] = TransformType(**transform_type)
     return ItkTransform(**entry)
 

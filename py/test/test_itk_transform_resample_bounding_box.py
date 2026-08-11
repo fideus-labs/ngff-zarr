@@ -394,9 +394,11 @@ def test_degenerate_fixed_grid_yields_an_empty_region():
     assert bounding_box.crop(moving) is None
 
 
-def _constant_displacement_field(itk, shift, size=8, spacing=8.0):
+def _constant_displacement_field(itk, shift, size=8, spacing=8.0, ctype=None):
     """A displacement field that shifts every point by ``shift`` (ITK order)."""
-    field = itk.Image[itk.Vector[itk.D, 2], 2].New()
+    if ctype is None:
+        ctype = itk.D
+    field = itk.Image[itk.Vector[ctype, 2], 2].New()
     region = itk.ImageRegion[2]()
     extent = itk.Size[2]()
     extent[0], extent[1] = size, size
@@ -405,11 +407,11 @@ def _constant_displacement_field(itk, shift, size=8, spacing=8.0):
     field.SetSpacing([spacing, spacing])
     field.SetOrigin([0.0, 0.0])
     field.Allocate()
-    offset = itk.Vector[itk.D, 2]()
+    offset = itk.Vector[ctype, 2]()
     offset[0], offset[1] = shift
     field.FillBuffer(offset)
 
-    transform = itk.DisplacementFieldTransform[itk.D, 2].New()
+    transform = itk.DisplacementFieldTransform[ctype, 2].New()
     transform.SetDisplacementField(field)
     return transform
 
@@ -438,6 +440,30 @@ def test_non_linear_displacement_field_is_supported():
     assert bounding_box.corners_max == {"y": 34.0, "x": 36.0}
     assert bounding_box.start_index == {"y": 2, "x": 4}
     assert bounding_box.size == {"y": 34, "x": 34}
+
+
+def test_float_displacement_field_matches_double():
+    """A float32-parameterized transform yields the double-precision region.
+
+    itk.dict_from_transform materializes the parameters as float64 while
+    declaring the transform's own value type, so a float32 declaration over
+    a float64 buffer must be corrected, not read as raw float32.
+    """
+    itk = pytest.importorskip("itk")
+
+    fixed = _image("yx", {"y": 32, "x": 32}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+    moving = _image("yx", {"y": 256, "x": 256}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+
+    reference = itk_transform_resample_bounding_box(
+        _constant_displacement_field(itk, (5.0, 3.0)), fixed, moving, padding=1
+    )
+    float_transform = _constant_displacement_field(itk, (5.0, 3.0), ctype=itk.F)
+    bounding_box = itk_transform_resample_bounding_box(
+        float_transform, fixed, moving, padding=1
+    )
+
+    assert bounding_box.start_index == reference.start_index == {"y": 2, "x": 4}
+    assert bounding_box.size == reference.size == {"y": 34, "x": 34}
 
 
 def test_unsupported_transform_type_is_rejected():
