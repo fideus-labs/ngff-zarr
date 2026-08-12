@@ -107,13 +107,6 @@ the transformed corners -- so the whole grid boundary is walked instead. Cost is
 proportional to the boundary, not the pixel count, and per block that boundary
 is small.
 
-```{note}
-`itk.BSplineTransform` currently aborts inside the `itkwasm-downsample`
-pipeline. This is an upstream defect in how that pipeline reconstructs a
-transform, not a limitation of the approach; every other parameterization
-tested -- rigid, similarity, affine, versor, and displacement fields -- works.
-```
-
 ## TypeScript
 
 The TypeScript package provides `itkTransformResampleBoundingBox`. It is async,

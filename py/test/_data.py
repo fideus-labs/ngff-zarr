@@ -260,7 +260,32 @@ def store_equals(baseline_store, test_store):
             json.loads(baseline_contents[k].decode("utf-8"))
         )
         test_metadata = _drop_codecs(json.loads(test_contents[k].decode("utf-8")))
-        diff = DeepDiff(baseline_metadata, test_metadata, ignore_order=True)
+        # The multiscales "metadata" block records which tool produced the
+        # pyramid, version included. That provenance legitimately changes on
+        # every itkwasm-downsample upgrade while the pixels stay identical,
+        # so it would force a baseline-archive rebuild per upgrade if
+        # compared.
+        diff = DeepDiff(
+            baseline_metadata,
+            test_metadata,
+            ignore_order=True,
+            exclude_regex_paths=[
+                # Anchored to the two supported locations -- directly in
+                # .zattrs and embedded in consolidated .zmetadata -- so a
+                # look-alike path nested deeper is still compared.
+                r"^root\['multiscales'\]\[\d+\]\['metadata'\]\['version'\]$",
+                (
+                    r"^root\['metadata'\]\['[^']*\.zattrs'\]\['multiscales'\]"
+                    r"\[\d+\]\['metadata'\]\['version'\]$"
+                ),
+                # OME-Zarr 0.5 keeps the attributes under the "ome" key of
+                # the zarr v3 zarr.json.
+                (
+                    r"^root\['attributes'\]\['ome'\]\['multiscales'\]"
+                    r"\[\d+\]\['metadata'\]\['version'\]$"
+                ),
+            ],
+        )
         if diff:
             sys.stderr.write(f"Metadata in {k} does not match\n")
             sys.stderr.write(f"Differences: {diff}\n")

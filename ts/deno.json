@@ -28,7 +28,7 @@
   },
   "imports": {
     "@itk-wasm/compare-images": "npm:@itk-wasm/compare-images@^5.4.1",
-    "@itk-wasm/downsample": "npm:@itk-wasm/downsample@^2.0.0",
+    "@itk-wasm/downsample": "npm:@itk-wasm/downsample@^2.0.1",
     "@itk-wasm/image-io": "npm:@itk-wasm/image-io@^1.6.0",
     "@std/assert": "jsr:@std/assert@^1.0.18",
     "@std/cli": "jsr:@std/cli@^1.0.27",

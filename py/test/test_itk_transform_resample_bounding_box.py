@@ -466,6 +466,62 @@ def test_float_displacement_field_matches_double():
     assert bounding_box.size == reference.size == {"y": 34, "x": 34}
 
 
+def _identity_bspline(itk, extent=32.0):
+    """An identity B-spline transform whose domain spans ``extent`` per axis."""
+    bspline = itk.BSplineTransform[itk.D, 2, 3].New()
+    bspline.SetTransformDomainOrigin([0.0, 0.0])
+    bspline.SetTransformDomainPhysicalDimensions([extent, extent])
+    bspline.SetTransformDomainMeshSize([4, 4])
+    parameters = itk.OptimizerParameters[itk.D](bspline.GetNumberOfParameters())
+    parameters.Fill(0.0)
+    bspline.SetParameters(parameters)
+    return bspline
+
+
+def test_bspline_transform_is_supported():
+    """A B-spline transform passes through the pipeline directly.
+
+    itkwasm-downsample releases before 2.0.1 aborted while reconstructing
+    this parameterization, so it is pinned out and covered here.
+    """
+    itk = pytest.importorskip("itk")
+
+    fixed = _image("yx", {"y": 32, "x": 32}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+    moving = _image("yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+
+    bounding_box = itk_transform_resample_bounding_box(
+        _identity_bspline(itk), fixed, moving, padding=1
+    )
+
+    # An identity B-spline maps the grid onto itself; padding adds one pixel.
+    assert bounding_box.start_index == {"y": -1, "x": -1}
+    assert bounding_box.size == {"y": 34, "x": 34}
+
+
+def test_composite_with_bspline_stage_is_supported():
+    """The affine + B-spline composite a registration returns works directly."""
+    itk = pytest.importorskip("itk")
+
+    affine = itk.AffineTransform[itk.D, 2].New()
+    affine.Translate([5.0, 3.0])
+    composite = itk.CompositeTransform[itk.D, 2].New()
+    composite.AddTransform(affine)
+    composite.AddTransform(_identity_bspline(itk))
+
+    fixed = _image("yx", {"y": 32, "x": 32}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+    moving = _image("yx", {"y": 256, "x": 256}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+
+    bounding_box = itk_transform_resample_bounding_box(
+        composite, fixed, moving, padding=1
+    )
+
+    # The identity B-spline stage leaves the affine translation of ITK
+    # (x, y) = (5, 3), so NGFF (y, x) = (3, 5), matching the displacement
+    # field test above.
+    assert bounding_box.start_index == {"y": 2, "x": 4}
+    assert bounding_box.size == {"y": 34, "x": 34}
+
+
 def test_unsupported_transform_type_is_rejected():
     fixed = _image("yx", {"y": 4, "x": 4}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
     with pytest.raises(TypeError, match="unsupported transform type"):

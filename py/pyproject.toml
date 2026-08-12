@@ -33,7 +33,7 @@ dependencies = [
   "dask[array]>=2026.1.2",
   "importlib_resources",
   "itkwasm >= 1.0b183",
-  "itkwasm-downsample >= 2.0.0",
+  "itkwasm-downsample >= 2.0.1",
   "numpy",
   "platformdirs",
   "psutil; sys_platform != \"emscripten\"",
