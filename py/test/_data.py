@@ -270,9 +270,12 @@ def store_equals(baseline_store, test_store):
             test_metadata,
             ignore_order=True,
             exclude_regex_paths=[
-                # Both directly in .zattrs and embedded in consolidated
-                # .zmetadata.
-                r"\['multiscales'\]\[\d+\]\['metadata'\]\['version'\]$"
+                # Anchored to the two supported locations -- directly in
+                # .zattrs and embedded in consolidated .zmetadata -- so a
+                # look-alike path nested deeper is still compared.
+                r"^root\['multiscales'\]\[\d+\]\['metadata'\]\['version'\]$",
+                r"^root\['metadata'\]\['[^']*\.zattrs'\]\['multiscales'\]"
+                r"\[\d+\]\['metadata'\]\['version'\]$",
             ],
         )
         if diff:
