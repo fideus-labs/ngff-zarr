@@ -957,7 +957,10 @@ def _convert_main(argv: list[str] | None = None) -> None:
 
         if input_backend is ConversionBackend.NGFF_ZARR:
             # Pass the path directly to from_ome_zarr to let it handle .ozx files
-            multiscales = from_ome_zarr(args.input[0])
+            storage_options = (
+                {"anon": True} if args.input[0].startswith("s3://") else None
+            )
+            multiscales = from_ome_zarr(args.input[0], storage_options=storage_options)
             _multiscales_to_ngff_zarr(
                 live,
                 args,
