@@ -454,10 +454,11 @@ def _extract_ome_translation_metadata(tif: "tifffile.TiffFile", series_index: in
     try:
         from tifffile import xml2dict
         ome_metadata = xml2dict(tif.ome_metadata)
-        if "OME" in ome_metadata:
-            ome_metadata = ome_metadata["OME"]
-    except:
+    except ET.ParseError:
         return None, None
+
+    if "OME" in ome_metadata:
+        ome_metadata = ome_metadata["OME"]
 
     images = ome_metadata["Image"]
     if not isinstance(images, list):
