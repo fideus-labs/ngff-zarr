@@ -403,6 +403,62 @@ def test_tiff_file_to_ngff_images_with_sample_axis():
     assert img.data.shape == (5, 100, 100, 3)
 
 
+def test_tiff_file_to_ngff_images_with_ome_translation():
+    """Test that OME translation metadata is extracted."""
+    try:
+        import tifffile
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    # Create an OME-TIFF with translation metadata
+    tmpdir = Path(tempfile.mkdtemp())
+    tiff_path = tmpdir / "ome_with_translation.ome.tiff"
+
+    size_x, size_y, size_z = 100, 100, 10
+    position_x, position_y, position_z = 1.1, 2.2, 3.3
+    ome_unit = "µm"
+    normalized_unit = "micrometer"
+
+    with tifffile.TiffWriter(tiff_path, ome=True) as tif:
+        nplanes = size_z
+        tif.write(
+            np.random.rand(size_z, size_y, size_x).astype(np.float32),
+            photometric="minisblack",
+            metadata={
+                "DimensionOrder": "XYZCT",
+                "Plane": {
+                    "PositionX": [position_x] * nplanes,
+                    "PositionXUnit": [ome_unit] * nplanes,
+                    "PositionY": [position_y] * nplanes,
+                    "PositionYUnit": [ome_unit] * nplanes,
+                    "PositionZ": [position_z] * nplanes,
+                    "PositionZUnit": [ome_unit] * nplanes,
+                },
+            },
+        )
+
+    # Convert and check metadata
+    images = tiff_file_to_ngff_images(tiff_path)
+    assert len(images) == 1
+
+    name, img = images[0]
+
+    # Check translation was extracted from OME metadata
+    assert img.translation is not None
+    assert img.translation["x"] == pytest.approx(position_x)
+    assert img.translation["y"] == pytest.approx(position_y)
+    assert img.translation["z"] == pytest.approx(position_z)
+
+    # Check units were extracted and normalized
+    # TODO: NgffImage does not currently store translation units
+    #assert img.translation_units is not None
+    #assert img.translation_units["x"] == normalized_unit
+    #assert img.translation_units["y"] == normalized_unit
+    #assert img.translation_units["z"] == normalized_unit
+
+
 def test_tiff_file_to_ngff_images_simple_rgb():
     """Test handling of simple RGB TIFF (YXS -> yxc)."""
     try:

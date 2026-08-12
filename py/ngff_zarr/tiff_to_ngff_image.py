@@ -429,6 +429,91 @@ def _extract_ome_pixel_metadata(
     return scale, units if units else None
 
 
+def _extract_ome_translation_metadata(tif: "tifffile.TiffFile", series_index: int = 0) -> tuple[dict[str, float] | None, dict[str, str] | None]:
+    """
+    Extract translation metadata from OME-XML for a specific series.
+
+    Parameters
+    ----------
+    tif : tifffile.TiffFile
+        An open TiffFile instance.
+    series_index : int, optional
+        Index of the series to extract metadata for. Default is 0.
+
+    Returns
+    -------
+    tuple[Optional[dict[str, float]], Optional[dict[str, str]]]
+        A tuple containing two dictionaries:
+        - translation: Mapping of dimension names to translation values.
+        - units: Mapping of dimension names to translation units.
+        Returns (None, None) if OME metadata is not available or cannot be parsed.
+    """
+    if not tif.is_ome or not tif.ome_metadata:
+        return None, None
+
+    try:
+        from tifffile import xml2dict
+        ome_metadata = xml2dict(tif.ome_metadata)
+        if "OME" in ome_metadata:
+            ome_metadata = ome_metadata["OME"]
+    except:
+        return None, None
+
+    images = ome_metadata["Image"]
+    if not isinstance(images, list):
+        images = [images]
+    if series_index < len(images):
+        image = images[series_index]
+        pixels = image.get("Pixels", {})
+        plane = pixels.get("Plane")
+        if isinstance(plane, list):
+            plane = plane[0]
+    else:
+        plane = None
+
+    if plane is None:
+        return None, None
+
+    translation: dict[str, float] = {}
+    units: dict[str, str] = {}
+
+    # Extract translation values for each dimension
+    dim_mapping = {
+        "PositionX": "x",
+        "PositionY": "y",
+        "PositionZ": "z",
+    }
+    unit_mapping = {
+        "PositionXUnit": "x",
+        "PositionYUnit": "y",
+        "PositionZUnit": "z",
+    }
+
+    for ome_attr, dim in dim_mapping.items():
+        value = plane.get(ome_attr)
+        if value is not None:
+            try:
+                translation[dim] = float(value)
+            except (ValueError, TypeError):
+                warnings.warn(
+                    f"Invalid translation value '{value}' for dimension '{dim}' "
+                    "in OME-XML metadata; ignoring this value.",
+                    RuntimeWarning,
+                )
+
+    for ome_attr, dim in unit_mapping.items():
+        value = plane.get(ome_attr)
+        if value is not None:
+            ngff_unit = _normalize_unit(value)
+            if ngff_unit is not None:
+                units[dim] = ngff_unit
+
+    if not translation:
+        return None, None
+
+    return translation, units if units else None
+
+
 def _extract_ome_channel_names(
     tif: "tifffile.TiffFile",
     series_index: int = 0,
@@ -1166,6 +1251,7 @@ def _read_tiff_series(
 
             # Extract OME metadata for this series
             ome_scale, ome_units = _extract_ome_pixel_metadata(tif, series_index=idx)
+            ome_translation, ome_translation_units = _extract_ome_translation_metadata(tif, series_index=idx)
             ome_channel_names = _extract_ome_channel_names(tif, series_index=idx)
             ome_channel_colors = _extract_ome_channel_colors(tif, series_index=idx)
 
@@ -1243,11 +1329,23 @@ def _read_tiff_series(
                     if dim in ome_units:
                         axes_units[dim] = ome_units[dim]
 
+            # Build translation dict from OME metadata
+            translation = None
+            if ome_translation:
+                translation = {}
+                spatial_dims = dims if dims else ("z", "y", "x")
+                for dim in spatial_dims:
+                    if dim in ome_translation:
+                        translation[dim] = ome_translation[dim]
+                    elif dim in ("x", "y", "z"):
+                        translation[dim] = 0.0  # Default translation for spatial dims
+
             # Convert to NgffImage
             ngff_image = to_ngff_image(
                 root,
                 dims=dims,
                 scale=scale,
+                translation=translation,
                 axes_units=axes_units,
                 channel_names=ome_channel_names,
             )
