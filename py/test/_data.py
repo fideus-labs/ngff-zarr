@@ -274,8 +274,16 @@ def store_equals(baseline_store, test_store):
                 # .zattrs and embedded in consolidated .zmetadata -- so a
                 # look-alike path nested deeper is still compared.
                 r"^root\['multiscales'\]\[\d+\]\['metadata'\]\['version'\]$",
-                r"^root\['metadata'\]\['[^']*\.zattrs'\]\['multiscales'\]"
-                r"\[\d+\]\['metadata'\]\['version'\]$",
+                (
+                    r"^root\['metadata'\]\['[^']*\.zattrs'\]\['multiscales'\]"
+                    r"\[\d+\]\['metadata'\]\['version'\]$"
+                ),
+                # OME-Zarr 0.5 keeps the attributes under the "ome" key of
+                # the zarr v3 zarr.json.
+                (
+                    r"^root\['attributes'\]\['ome'\]\['multiscales'\]"
+                    r"\[\d+\]\['metadata'\]\['version'\]$"
+                ),
             ],
         )
         if diff:

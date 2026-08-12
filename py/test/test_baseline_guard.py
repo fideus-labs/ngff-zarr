@@ -80,9 +80,7 @@ def test_provenance_version_is_ignored_only_in_place():
         if is_zarr3:
             from zarr.core.buffer import default_buffer_prototype
 
-            return asyncio.run(
-                store.get(key, default_buffer_prototype())
-            ).to_bytes()
+            return asyncio.run(store.get(key, default_buffer_prototype())).to_bytes()
         return store[key]
 
     def write(store, key, data):
@@ -97,9 +95,7 @@ def test_provenance_version_is_ignored_only_in_place():
     def edit_attrs(store, mutate):
         for key in (".zattrs", ".zmetadata"):
             document = json.loads(read(store, key))
-            attrs = (
-                document["metadata"][".zattrs"] if key == ".zmetadata" else document
-            )
+            attrs = document["metadata"][".zattrs"] if key == ".zmetadata" else document
             mutate(attrs)
             write(store, key, json.dumps(document).encode())
 
@@ -119,9 +115,7 @@ def test_provenance_version_is_ignored_only_in_place():
 
     def nest_lookalike(value):
         def mutate(attrs):
-            attrs["nested"] = {
-                "multiscales": [{"metadata": {"version": value}}]
-            }
+            attrs["nested"] = {"multiscales": [{"metadata": {"version": value}}]}
 
         return mutate
 
@@ -129,4 +123,29 @@ def test_provenance_version_is_ignored_only_in_place():
     edit_attrs(test_store, nest_lookalike("b"))
     assert not store_equals(baseline, test_store), (
         "a version change on a nested look-alike path went unnoticed"
+    )
+
+    if not is_zarr3:
+        return
+
+    # OME-Zarr 0.5: the attributes live under the "ome" key of zarr.json.
+    def edit_ome_attrs(store, mutate):
+        document = json.loads(read(store, "zarr.json"))
+        mutate(document["attributes"]["ome"])
+        write(store, "zarr.json", json.dumps(document).encode())
+
+    baseline_v05 = MemoryStore()
+    test_store_v05 = MemoryStore()
+    to_ngff_zarr(baseline_v05, multiscales, version="0.5")
+    to_ngff_zarr(test_store_v05, multiscales, version="0.5")
+
+    edit_ome_attrs(test_store_v05, bump_version)
+    assert store_equals(baseline_v05, test_store_v05), (
+        "a changed downsampler version in the 0.5 provenance metadata must be ignored"
+    )
+
+    edit_ome_attrs(baseline_v05, nest_lookalike("a"))
+    edit_ome_attrs(test_store_v05, nest_lookalike("b"))
+    assert not store_equals(baseline_v05, test_store_v05), (
+        "a version change on a nested look-alike path in zarr.json went unnoticed"
     )
