@@ -1278,6 +1278,8 @@ def _read_tiff_series(
             # Check if this series has existing pyramid levels we can reuse
             n_levels = len(tiff_series.levels) if hasattr(tiff_series, "levels") else 1
             if reuse_existing_pyramids and n_levels > 1:
+                # TODO: inside _build_multiscales_from_pyramid() translation needs to be (extracted) and passed to:
+                #           ngff_image_0 = to_ngff_image()
                 multiscales = _build_multiscales_from_pyramid(
                     tif,
                     idx,
