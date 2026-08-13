@@ -1,3 +1,9 @@
+## py-v0.42.1 (2026-08-13)
+
+### 🐛 Bug Fixes
+
+- fix ci PyPI publish failure on metadata 2.5 wheels ([90c5bee](https://github.com/fideus-labs/ngff-zarr/commit/90c5bee484e8f128023a4cf7da71d2d320db9532))
+
 ## py-v0.42.0 (2026-08-13)
 
 ### ✨ Features
