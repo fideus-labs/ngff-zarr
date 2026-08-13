@@ -1,3 +1,19 @@
+## ts-v0.28.0 (2026-08-13)
+
+### ♻️ Refactoring
+
+- **ts**: delegate the cast conversions to itk-wasm's castImage ([3d3b9e0](https://github.com/fideus-labs/ngff-zarr/commit/3d3b9e0ccdea09fe51c095e180c6933cc0f3d2fc))
+
+### ✨ Features
+
+- **ts**: add itkTransformResampleBoundingBox for out-of-core resampling ([ad9aefe](https://github.com/fideus-labs/ngff-zarr/commit/ad9aefe6f1e1d1b7051f3246273b885392761dd1))
+
+### 🐛 Bug Fixes
+
+- **ts**: fall back to identity for 3D-only orientations on 2D images ([51ebbeb](https://github.com/fideus-labs/ngff-zarr/commit/51ebbeb1cf49ecac0192bba0408cbd3f9b3dd15f))
+- **ts**: harden the integer-type check and the by-value comparison ([c7a7780](https://github.com/fideus-labs/ngff-zarr/commit/c7a7780079fccfb337131a748b849a8b2252c29f))
+- **ts**: cast integer images to float32 around the Gaussian downsample ([9b57a67](https://github.com/fideus-labs/ngff-zarr/commit/9b57a67744d548416d0d9cdef1fe4fad9a5978bb))
+
 ## ts-v0.27.1 (2026-08-07)
 
 ## ts-v0.27.0 (2026-08-04)
