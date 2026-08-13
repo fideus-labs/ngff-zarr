@@ -6,6 +6,15 @@ on:
       - 'py-v*'
       - 'ts-v*'
       - 'mcp-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: >-
+          Existing release tag to (re-)publish, e.g. py-v0.42.0. Run this from
+          the branch holding the workflow you want (usually main); the tag only
+          selects which source revision is built and published.
+        required: true
+        type: string
 
 permissions:
   contents: write  # Required to create releases
@@ -24,12 +33,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          # Empty on tag pushes, which checks out the triggering tag as usual.
+          ref: ${{ inputs.tag }}
           fetch-depth: 0  # Full history for changelog extraction
 
       - name: Identify project and version from tag
         id: identify
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
+          TAG="${INPUT_TAG:-${GITHUB_REF#refs/tags/}}"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
           # Extract project prefix and version
@@ -239,6 +252,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          # Explicit: on workflow_dispatch the ref is a branch, not the tag.
+          tag_name: ${{ steps.identify.outputs.tag }}
           name: "${{ steps.identify.outputs.project_name }} v${{ steps.identify.outputs.version }}"
           body_path: ${{ steps.changelog.outputs.changelog_file }}
           prerelease: ${{ steps.identify.outputs.prerelease }}
@@ -269,7 +284,7 @@ jobs:
 
       - name: Publish Python package to PyPI
         if: steps.identify.outputs.project == 'py'
-        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e  # release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
         with:
           packages-dir: py/dist/
           skip-existing: true
@@ -279,7 +294,7 @@ jobs:
 
       - name: Publish MCP package to PyPI
         if: steps.identify.outputs.project == 'mcp'
-        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e  # release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
         with:
           packages-dir: mcp/dist/
           skip-existing: true
