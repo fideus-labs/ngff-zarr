@@ -1,3 +1,18 @@
+## py-v0.42.0 (2026-08-13)
+
+### ✨ Features
+
+- **py**: add itk_transform_resample_bounding_box for out-of-core resampling ([ca87ef5](https://github.com/fideus-labs/ngff-zarr/commit/ca87ef59261585fb74c6c139a801a44298fec563))
+
+### 🐛 Bug Fixes
+
+- **py**: correct the declared value type of float32 ITK transforms ([86e3e69](https://github.com/fideus-labs/ngff-zarr/commit/86e3e6900bc7b79c556ffb3e78025481d15c9830))
+- **py**: preserve the explicit codec chain on the TensorStore path ([1f85381](https://github.com/fideus-labs/ngff-zarr/commit/1f8538109f3410eb9d4c295846d39e17b653c42d))
+- **py**: keep "pad" as the default scale strategy ([e21c914](https://github.com/fideus-labs/ngff-zarr/commit/e21c914230daea0a90e986d6d76b1ace785681a9))
+- **py**: match zarr-python's codec handling on the TensorStore path ([979bb21](https://github.com/fideus-labs/ngff-zarr/commit/979bb21cb75ef1bc9c28cf3d9ad206f1af5d862b))
+- **py**: default to the exact scale strategy and stop mutating the caller ([210a01f](https://github.com/fideus-labs/ngff-zarr/commit/210a01ff7cd7b77dbaa2ba24886751aea4d914c3))
+- **py**: stop inheriting backend defaults and leaking into the caller ([6121aad](https://github.com/fideus-labs/ngff-zarr/commit/6121aadbc8026579d4246be838461a3ec05db777))
+
 ## py-v0.41.1 (2026-08-07)
 
 ### 🐛 Bug Fixes
