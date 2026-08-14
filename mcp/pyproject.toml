@@ -31,7 +31,10 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "mcp",
+    # >= 1.8.0 for the Streamable HTTP transport with stateless_http and
+    # json_response support (MCP specification revision 2025-03-26);
+    # < 2 because mcp 2.0 removed the mcp.server.fastmcp module.
+    "mcp >= 1.8.0, < 2",
     "ngff-zarr[cli,tensorstore] >= 0.15.2",
     "pydantic >= 2.0",
     "httpx",

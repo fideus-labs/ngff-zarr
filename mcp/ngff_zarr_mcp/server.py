@@ -278,19 +278,72 @@ def main():
     parser = argparse.ArgumentParser(description="ngff-zarr MCP Server")
     parser.add_argument(
         "--transport",
-        choices=["stdio", "sse"],
+        choices=["stdio", "streamable-http", "sse"],
         default="stdio",
-        help="Transport mechanism to use",
+        help=(
+            "Transport mechanism to use. 'streamable-http' is the Streamable "
+            "HTTP transport introduced in MCP specification revision "
+            "2025-03-26; 'sse' (the legacy HTTP+SSE transport) is deprecated "
+            "and kept only for backwards compatibility."
+        ),
     )
-    parser.add_argument("--host", default="localhost", help="Host for SSE transport")
-    parser.add_argument("--port", type=int, default=8000, help="Port for SSE transport")
+    parser.add_argument("--host", default="localhost", help="Host for HTTP transports")
+    parser.add_argument(
+        "--port", type=int, default=8000, help="Port for HTTP transports"
+    )
+    parser.add_argument(
+        "--stateless-http",
+        action="store_true",
+        help=(
+            "Run the Streamable HTTP transport in stateless mode: the server "
+            "does not issue an Mcp-Session-Id header and every request is "
+            "self-contained, so instances can run behind load balancers or in "
+            "serverless environments without session affinity. Requires "
+            "--transport streamable-http."
+        ),
+    )
+    parser.add_argument(
+        "--json-response",
+        action="store_true",
+        help=(
+            "Return plain application/json responses instead of opening a "
+            "text/event-stream (SSE) response per request. Useful for "
+            "stateless deployments behind proxies that do not handle "
+            "streaming responses. Requires --transport streamable-http."
+        ),
+    )
 
     args = parser.parse_args()
 
+    if (
+        args.stateless_http or args.json_response
+    ) and args.transport != "streamable-http":
+        parser.error(
+            "--stateless-http and --json-response require --transport streamable-http"
+        )
+
     if args.transport == "stdio":
         mcp.run()
+        return
+
+    mcp.settings.host = args.host
+    mcp.settings.port = args.port
+
+    if args.transport == "streamable-http":
+        mcp.settings.stateless_http = args.stateless_http
+        mcp.settings.json_response = args.json_response
+        mcp.run(transport="streamable-http")
     elif args.transport == "sse":
-        mcp.run_sse(host=args.host, port=args.port)
+        import warnings
+
+        warnings.warn(
+            "The HTTP+SSE transport was deprecated in MCP specification "
+            "revision 2025-03-26 in favor of Streamable HTTP. "
+            "Use --transport streamable-http instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        mcp.run(transport="sse")
 
 
 if __name__ == "__main__":
