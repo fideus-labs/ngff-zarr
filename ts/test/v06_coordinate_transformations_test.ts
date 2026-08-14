@@ -15,8 +15,11 @@ import {
   AnatomicalOrientationValues,
   createAffine,
   createAxis,
+  createBijection,
+  createByDimension,
   createCoordinateSystem,
   createIdentity,
+  createMapAxis,
   createRotation,
   createScale,
   createTransformSequence,
@@ -200,6 +203,23 @@ function transformsToRoundTrip(): V06Transform[] {
       createScale([2.0, 2.0, 2.0]),
       createTranslation([10.0, 20.0, 30.0]),
     ]),
+    createMapAxis([2, 0, 1]),
+    createByDimension([
+      {
+        transformation: createScale([2.0, 3.0]),
+        input_axes: [0, 1],
+        output_axes: [0, 1],
+      },
+      {
+        transformation: createTranslation([5.0]),
+        input_axes: [2],
+        output_axes: [2],
+      },
+    ]),
+    createBijection(
+      { type: "displacements", path: "forward_field" },
+      { type: "displacements", path: "inverse_field" },
+    ),
   ];
 }
 
@@ -730,4 +750,144 @@ Deno.test("0.6.dev4 is a supported version", () => {
   assertEquals(isV06Version("0.6.dev4"), true);
   assertEquals(isV06Version("0.6"), true);
   assertEquals(isV06Version("0.5"), false);
+});
+
+// Mirrors test_coordinate_transformations.py: the mapAxis, byDimension and
+// bijection payloads survive the round-trip by value, not just by type.
+Deno.test("mapAxis, byDimension and bijection payloads survive the round-trip", async () => {
+  const multiscales = await buildMultiscales();
+  const intrinsic = multiscales.metadata.coordinateSystems![0];
+
+  const mapAxis = createMapAxis([2, 0, 1]);
+  const byDimension = createByDimension([
+    {
+      transformation: createScale([2.0, 3.0]),
+      input_axes: [0, 1],
+      output_axes: [0, 1],
+    },
+    {
+      transformation: createTranslation([5.0]),
+      input_axes: [2],
+      output_axes: [2],
+    },
+  ]);
+  const bijection = createBijection(
+    { type: "displacements", path: "forward_field" },
+    { type: "displacements", path: "inverse_field" },
+  );
+  for (const t of [mapAxis, byDimension, bijection]) {
+    t.input = { name: intrinsic.name };
+    t.output = { name: intrinsic.name };
+  }
+  multiscales.metadata.coordinateTransformations = [
+    mapAxis,
+    byDimension,
+    bijection,
+  ];
+
+  const store: MemoryStore = new Map();
+  await toOmeZarr(store, multiscales, { version: "0.6" });
+  const imported = await fromOmeZarr(store);
+
+  const transforms = imported.metadata.coordinateTransformations!;
+  assertEquals(transforms.length, 3);
+  const [importedMapAxis, importedByDimension, importedBijection] = transforms;
+  if (importedMapAxis.type !== "mapAxis") {
+    throw new Error("expected a mapAxis transform");
+  }
+  if (importedByDimension.type !== "byDimension") {
+    throw new Error("expected a byDimension transform");
+  }
+  if (importedBijection.type !== "bijection") {
+    throw new Error("expected a bijection transform");
+  }
+  assertEquals(importedMapAxis.mapAxis, [2, 0, 1]);
+  assertEquals(importedByDimension.transformations.length, 2);
+  const [first, second] = importedByDimension.transformations;
+  assertEquals(first.input_axes, [0, 1]);
+  assertEquals(first.output_axes, [0, 1]);
+  if (first.transformation.type !== "scale") {
+    throw new Error("expected a scale item transformation");
+  }
+  assertEquals(first.transformation.scale, [2.0, 3.0]);
+  assertEquals(second.input_axes, [2]);
+  assertEquals(second.output_axes, [2]);
+  if (importedBijection.forward.type !== "displacements") {
+    throw new Error("expected a displacements forward transformation");
+  }
+  assertEquals(importedBijection.forward.path, "forward_field");
+  assertEquals(importedBijection.inverse.type, "displacements");
+});
+
+// The RFC 5 constraints the schema cannot express are enforced at read time.
+Deno.test("invalid mapAxis, byDimension and bijection metadata are rejected", async () => {
+  const cases: Array<{ name: string; transform: V06Transform }> = [
+    // Not a permutation: index 1 missing, index 2 duplicated.
+    { name: "mapAxis gap", transform: createMapAxis([2, 0, 2]) },
+    // Output axis 1 produced by two items.
+    {
+      name: "byDimension duplicate output",
+      transform: createByDimension([
+        {
+          transformation: createScale([2.0, 3.0]),
+          input_axes: [0, 1],
+          output_axes: [0, 1],
+        },
+        {
+          transformation: createTranslation([5.0]),
+          input_axes: [2],
+          output_axes: [1],
+        },
+      ]),
+    },
+    // A 2D scale mapping a single axis.
+    {
+      name: "byDimension dimension mismatch",
+      transform: createByDimension([
+        {
+          transformation: createScale([2.0, 3.0]),
+          input_axes: [0],
+          output_axes: [0],
+        },
+      ]),
+    },
+  ];
+
+  for (const { name, transform } of cases) {
+    const multiscales = await buildMultiscales();
+    const intrinsic = multiscales.metadata.coordinateSystems![0];
+    transform.input = { name: intrinsic.name };
+    transform.output = { name: intrinsic.name };
+    multiscales.metadata.coordinateTransformations = [transform];
+
+    const store: MemoryStore = new Map();
+    await toOmeZarr(store, multiscales, { version: "0.6" });
+    await assertRejects(
+      () => fromOmeZarr(store),
+      Error,
+      undefined,
+      `case '${name}' should be rejected`,
+    );
+  }
+});
+
+// byDimension items must cover every output axis of a resolved coordinate
+// system exactly once; two items over three output axes leave one uncovered.
+Deno.test("byDimension incomplete output coverage is rejected", async () => {
+  const multiscales = await buildMultiscales();
+  const intrinsic = multiscales.metadata.coordinateSystems![0];
+  const byDimension = createByDimension([
+    {
+      transformation: createScale([2.0, 3.0]),
+      input_axes: [0, 1],
+      output_axes: [0, 1],
+    },
+  ]);
+  byDimension.input = { name: intrinsic.name };
+  byDimension.output = { name: intrinsic.name };
+  multiscales.metadata.coordinateTransformations = [byDimension];
+
+  const store: MemoryStore = new Map();
+  await toOmeZarr(store, multiscales, { version: "0.6" });
+  await assertRejects(() => fromOmeZarr(store), Error, "exactly once");
 });

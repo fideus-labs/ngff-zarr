@@ -113,6 +113,57 @@ export interface Displacements {
   name?: string;
 }
 
+/**
+ * RFC 5 mapAxis transformation (v0.6): an axis permutation stored as a
+ * transpose vector of integer indices. The value at position `i` names which
+ * input axis becomes the `i`-th output axis; every zero-based input axis
+ * index appears exactly once.
+ */
+export interface MapAxis {
+  mapAxis: number[];
+  type: "mapAxis";
+  input?: CoordinateSystemIdentifier;
+  output?: CoordinateSystemIdentifier;
+  name?: string;
+}
+
+/**
+ * One lower-dimensional transformation of a byDimension transform. The
+ * `input_axes` and `output_axes` arrays hold zero-based axis indices into the
+ * parent byDimension's input and output coordinate systems.
+ */
+export interface ByDimensionItem {
+  transformation: V06Transform;
+  input_axes: number[];
+  output_axes: number[];
+}
+
+/**
+ * RFC 5 byDimension transformation (v0.6): a high dimensional transform built
+ * from lower dimensional ones. Every axis index of the output coordinate
+ * system appears in exactly one item's `output_axes`.
+ */
+export interface ByDimension {
+  transformations: ByDimensionItem[];
+  type: "byDimension";
+  input?: CoordinateSystemIdentifier;
+  output?: CoordinateSystemIdentifier;
+  name?: string;
+}
+
+/**
+ * RFC 5 bijection transformation (v0.6): an invertible transform with
+ * explicit forward and inverse directions.
+ */
+export interface Bijection {
+  forward: V06Transform;
+  inverse: V06Transform;
+  type: "bijection";
+  input?: CoordinateSystemIdentifier;
+  output?: CoordinateSystemIdentifier;
+  name?: string;
+}
+
 /** RFC 5 sequence transformation, chaining sub-transformations (v0.6). */
 export interface TransformSequence {
   transformations: V06Transform[];
@@ -140,6 +191,9 @@ export type V06Transform =
   | Affine
   | Coordinates
   | Displacements
+  | MapAxis
+  | ByDimension
+  | Bijection
   | TransformSequence;
 
 export interface Dataset {
@@ -311,6 +365,30 @@ export function createTransformSequence(
   transformations: V06Transform[],
 ): TransformSequence {
   return { transformations: [...transformations], type: "sequence" };
+}
+
+export function createMapAxis(mapAxis: number[]): MapAxis {
+  return { mapAxis: [...mapAxis], type: "mapAxis" };
+}
+
+export function createByDimension(
+  transformations: ByDimensionItem[],
+): ByDimension {
+  return {
+    transformations: transformations.map((item) => ({
+      transformation: item.transformation,
+      input_axes: [...item.input_axes],
+      output_axes: [...item.output_axes],
+    })),
+    type: "byDimension",
+  };
+}
+
+export function createBijection(
+  forward: V06Transform,
+  inverse: V06Transform,
+): Bijection {
+  return { forward, inverse, type: "bijection" };
 }
 
 export function createCoordinateSystem(

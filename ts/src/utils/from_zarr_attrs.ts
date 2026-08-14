@@ -690,6 +690,7 @@ export async function fromZarrAttrsV06(
       const parsed = parseV06Transforms(
         dataset.coordinateTransformations as Array<Record<string, unknown>>,
         coordinateSystemNames,
+        coordinateSystems,
       );
       const extracted = extractScaleTranslation(parsed, dims);
       scaleValues = extracted.scale;
@@ -738,6 +739,7 @@ export async function fromZarrAttrsV06(
     coordinateTransformations = parseV06Transforms(
       entry.coordinateTransformations as Array<Record<string, unknown>>,
       coordinateSystemNames,
+      coordinateSystems,
     );
   }
 

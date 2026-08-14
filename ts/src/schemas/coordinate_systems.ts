@@ -24,16 +24,21 @@ export const IdentityTransformationSchema: z.ZodType<{
   name: z.string().optional(),
 });
 
-// Map Axis transformation (axis permutation)
+// Map Axis transformation: an axis permutation stored as a transpose vector
+// of zero-based integer indices, each appearing exactly once.
 export const MapAxisTransformationSchema: z.ZodType<{
   type: "mapAxis";
-  mapAxis: Record<string, string>;
+  mapAxis: number[];
   input?: string | string[] | undefined;
   output?: string | string[] | undefined;
   name?: string | undefined;
 }> = z.object({
   type: z.literal("mapAxis"),
-  mapAxis: z.record(z.string(), z.string()), // Dictionary mapping axis names
+  mapAxis: z
+    .array(z.number().int().nonnegative())
+    .refine((indices) => new Set(indices).size === indices.length, {
+      message: "mapAxis indices must be unique",
+    }),
   input: z.union([z.string(), z.array(z.string())]).optional(),
   output: z.union([z.string(), z.array(z.string())]).optional(),
   name: z.string().optional(),
@@ -135,7 +140,7 @@ type BaseCoordinateTransformation = {
   input?: string | string[] | undefined;
   output?: string | string[] | undefined;
   name?: string | undefined;
-  mapAxis?: Record<string, string> | undefined;
+  mapAxis?: number[] | undefined;
   translation?: number[] | undefined;
   path?: string | undefined;
   scale?: number[] | undefined;
@@ -201,16 +206,33 @@ export const BijectionTransformationSchema: z.ZodType<{
   name: z.string().optional(),
 });
 
-// By dimension transformation
+// One wrapped item of a byDimension transformation. The axis arrays hold
+// zero-based indices into the parent's input and output coordinate systems.
+export const ByDimensionItemSchema: z.ZodType<{
+  transformation: BaseCoordinateTransformation;
+  input_axes: number[];
+  output_axes: number[];
+}> = z.object({
+  transformation: BaseCoordinateTransformationSchema,
+  input_axes: z.array(z.number().int().nonnegative()),
+  output_axes: z.array(z.number().int().nonnegative()),
+});
+
+// By dimension transformation: a high dimensional transformation built from
+// lower dimensional transformations on subsets of dimensions.
 export const ByDimensionTransformationSchema: z.ZodType<{
   type: "byDimension";
-  transformations: BaseCoordinateTransformation[];
+  transformations: Array<{
+    transformation: BaseCoordinateTransformation;
+    input_axes: number[];
+    output_axes: number[];
+  }>;
   input?: string | string[] | undefined;
   output?: string | string[] | undefined;
   name?: string | undefined;
 }> = z.object({
   type: z.literal("byDimension"),
-  transformations: z.array(BaseCoordinateTransformationSchema),
+  transformations: z.array(ByDimensionItemSchema),
   input: z.union([z.string(), z.array(z.string())]).optional(),
   output: z.union([z.string(), z.array(z.string())]).optional(),
   name: z.string().optional(),
@@ -226,7 +248,7 @@ export const CoordinateTransformationSchema: z.ZodType<
   }
   | {
     type: "mapAxis";
-    mapAxis: Record<string, string>;
+    mapAxis: number[];
     input?: string | string[] | undefined;
     output?: string | string[] | undefined;
     name?: string | undefined;
@@ -287,7 +309,11 @@ export const CoordinateTransformationSchema: z.ZodType<
   }
   | {
     type: "byDimension";
-    transformations: BaseCoordinateTransformation[];
+    transformations: Array<{
+      transformation: BaseCoordinateTransformation;
+      input_axes: number[];
+      output_axes: number[];
+    }>;
     input?: string | string[] | undefined;
     output?: string | string[] | undefined;
     name?: string | undefined;
@@ -336,6 +362,9 @@ export type SequenceTransformation = z.infer<
 export type InverseTransformation = z.infer<typeof InverseTransformationSchema>;
 export type BijectionTransformation = z.infer<
   typeof BijectionTransformationSchema
+>;
+export type ByDimensionTransformationItem = z.infer<
+  typeof ByDimensionItemSchema
 >;
 export type ByDimensionTransformation = z.infer<
   typeof ByDimensionTransformationSchema
