@@ -211,6 +211,13 @@ def _item_dimensions(transformation: Transform) -> int | None:
     return None
 
 
+def _require_integer_axes(axes: list, context: str) -> None:
+    """Axis indices are zero-based integer positions; reject anything else."""
+    for axis in axes:
+        if isinstance(axis, bool) or not isinstance(axis, int):
+            raise ValueError(f"{context} axis indices must be integers; got {axis!r}")
+
+
 def validate_transform(
     transformation: Transform,
     coordinateSystems: list[CoordinateSystem] | None = None,
@@ -229,6 +236,7 @@ def validate_transform(
 
     if isinstance(transformation, MapAxis):
         indices = transformation.mapAxis
+        _require_integer_axes(indices, "mapAxis")
         if sorted(indices) != list(range(len(indices))):
             raise ValueError(
                 "mapAxis must be a permutation holding every zero-based "
@@ -242,12 +250,22 @@ def validate_transform(
                     f"{count} axes of coordinate system '{identifier.name}'"
                 )
     elif isinstance(transformation, ByDimension):
+        input_count = _axis_count(transformation.input, coordinateSystems)
         seen_output_axes: set[int] = set()
         for item in transformation.transformations:
             axes = list(item.input_axes) + list(item.output_axes)
+            _require_integer_axes(axes, "byDimension")
             if any(axis < 0 for axis in axes):
                 raise ValueError(
                     f"byDimension axis indices must be non-negative; got {axes}"
+                )
+            if input_count is not None and any(
+                axis >= input_count for axis in item.input_axes
+            ):
+                raise ValueError(
+                    f"byDimension input axes {item.input_axes} exceed the "
+                    f"{input_count} axes of coordinate system "
+                    f"'{transformation.input.name}'"
                 )
             duplicated = seen_output_axes.intersection(item.output_axes)
             if duplicated or len(set(item.output_axes)) != len(item.output_axes):
@@ -744,6 +762,11 @@ class Metadata:
 
             transformation.input = input
             transformation.output = output
+            # The wrapper branches above construct their transform from the
+            # payload fields alone, so the optional name is restored here for
+            # every type.
+            if transform.get("name") is not None:
+                transformation.name = transform["name"]
             validate_transform(transformation, coordinateSystems)
             parsed_transforms.append(transformation)
 

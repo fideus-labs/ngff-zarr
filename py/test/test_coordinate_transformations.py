@@ -159,6 +159,7 @@ def test_transform_serialization(transform):
         assert len(imported.metadata.coordinateSystems) == 2
 
         assert imported_transforms[0].type == transform.type
+        assert imported_transforms[0].name == transform.name
         assert imported_transforms[0].input == CoordinateSystemIdentifier(
             name=input_cs.name
         )
@@ -351,3 +352,35 @@ def test_invalid_map_axis_is_rejected_at_parse():
 
     with pytest.raises(ValueError, match="permutation"):
         Metadata._parse_transforms([{"type": "mapAxis", "mapAxis": [0, 0, 1]}], [])
+
+
+def test_axis_indices_must_be_integers():
+    with pytest.raises(ValueError, match="integers"):
+        validate_transform(MapAxis(mapAxis=[0.0, 1.0, 2.0]))
+    transform = ByDimension(
+        transformations=[
+            ByDimensionItem(
+                transformation=Scale(scale=[2.0, 3.0]),
+                input_axes=[0.0, 1.0],
+                output_axes=[0, 1],
+            ),
+        ]
+    )
+    with pytest.raises(ValueError, match="integers"):
+        validate_transform(transform)
+
+
+def test_by_dimension_rejects_out_of_range_input_axes():
+    transform = ByDimension(
+        transformations=[
+            ByDimensionItem(
+                transformation=Scale(scale=[2.0, 3.0, 4.0]),
+                input_axes=[0, 1, 3],
+                output_axes=[0, 1, 2],
+            ),
+        ],
+        input=CoordinateSystemIdentifier(name="system"),
+        output=CoordinateSystemIdentifier(name="system"),
+    )
+    with pytest.raises(ValueError, match="exceed"):
+        validate_transform(transform, [_three_axis_system()])
