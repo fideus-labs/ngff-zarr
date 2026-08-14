@@ -10,7 +10,12 @@
  * relying on downloaded fixtures.
  */
 
-import { assertEquals, assertExists, assertRejects } from "@std/assert";
+import {
+  assertEquals,
+  assertExists,
+  assertRejects,
+  assertThrows,
+} from "@std/assert";
 import {
   AnatomicalOrientationValues,
   createAffine,
@@ -40,6 +45,8 @@ import {
 import { fromOmeZarr as fromOmeZarrBrowser } from "../src/io/from_ngff_zarr-browser.ts";
 import { toOmeZarr as toOmeZarrBrowser } from "../src/io/to_ngff_zarr-browser.ts";
 import { prepareRfc9Metadata } from "../src/io/to_ngff_zarr_ozx_common.ts";
+import { CoordinateTransformationSchema } from "../src/schemas/coordinate_systems.ts";
+import { validateV06Transform } from "../src/utils/v06_metadata.ts";
 
 async function buildMultiscales(): Promise<NgffMultiscales> {
   const shape = [32, 32, 32];
@@ -816,7 +823,10 @@ Deno.test("mapAxis, byDimension and bijection payloads survive the round-trip", 
     throw new Error("expected a displacements forward transformation");
   }
   assertEquals(importedBijection.forward.path, "forward_field");
-  assertEquals(importedBijection.inverse.type, "displacements");
+  if (importedBijection.inverse.type !== "displacements") {
+    throw new Error("expected a displacements inverse transformation");
+  }
+  assertEquals(importedBijection.inverse.path, "inverse_field");
 });
 
 // The RFC 5 constraints the schema cannot express are enforced at read time.
@@ -890,4 +900,88 @@ Deno.test("byDimension incomplete output coverage is rejected", async () => {
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.6" });
   await assertRejects(() => fromOmeZarr(store), Error, "exactly once");
+});
+
+// A byDimension item may wrap any transformation, including a sequence; the
+// round-trip and the zod schema both accept the nesting.
+Deno.test("byDimension items nest wrapper transformations", async () => {
+  const multiscales = await buildMultiscales();
+  const intrinsic = multiscales.metadata.coordinateSystems![0];
+  const byDimension = createByDimension([
+    {
+      transformation: createTransformSequence([
+        createScale([2.0, 3.0]),
+        createTranslation([1.0, 1.0]),
+      ]),
+      input_axes: [0, 1],
+      output_axes: [0, 1],
+    },
+    {
+      transformation: createTranslation([5.0]),
+      input_axes: [2],
+      output_axes: [2],
+    },
+  ]);
+  byDimension.input = { name: intrinsic.name };
+  byDimension.output = { name: intrinsic.name };
+  multiscales.metadata.coordinateTransformations = [byDimension];
+
+  const store: MemoryStore = new Map();
+  await toOmeZarr(store, multiscales, { version: "0.6" });
+  const imported = await fromOmeZarr(store);
+
+  const transform = imported.metadata.coordinateTransformations![0];
+  if (transform.type !== "byDimension") {
+    throw new Error("expected a byDimension transform");
+  }
+  const nested = transform.transformations[0].transformation;
+  if (nested.type !== "sequence") {
+    throw new Error("expected a nested sequence transformation");
+  }
+  assertEquals(nested.transformations.length, 2);
+
+  const parsed = CoordinateTransformationSchema.parse({
+    type: "byDimension",
+    transformations: [
+      {
+        transformation: {
+          type: "sequence",
+          transformations: [{ type: "scale", scale: [2.0, 3.0] }],
+        },
+        input_axes: [0, 1],
+        output_axes: [0, 1],
+      },
+    ],
+  });
+  assertEquals(parsed.type, "byDimension");
+});
+
+// Programmatically built transforms are validated with the same rules the
+// reader applies to on-disk metadata.
+Deno.test("validateV06Transform rejects fractional and out-of-range axes", () => {
+  assertThrows(
+    () => validateV06Transform(createMapAxis([0.5, 1, 2]), []),
+    Error,
+    "integers",
+  );
+
+  const threeAxisSystem = createCoordinateSystem("system", [
+    createAxis("z", "space"),
+    createAxis("y", "space"),
+    createAxis("x", "space"),
+  ]);
+  const outOfRange = createByDimension([
+    {
+      transformation: createScale([2.0, 3.0, 4.0]),
+      input_axes: [0, 1, 3],
+      output_axes: [0, 1, 2],
+    },
+  ]);
+  outOfRange.input = { name: "system" };
+  outOfRange.output = { name: "system" };
+  assertThrows(
+    () => validateV06Transform(outOfRange, [threeAxisSystem]),
+    Error,
+    "exceed",
+  );
 });

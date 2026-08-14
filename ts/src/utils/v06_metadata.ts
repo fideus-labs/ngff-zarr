@@ -371,6 +371,11 @@ export function validateV06Transform(
 ): void {
   if (transform.type === "mapAxis") {
     const indices = transform.mapAxis;
+    if (!indices.every((axis) => Number.isInteger(axis))) {
+      throw new Error(
+        `mapAxis axis indices must be integers; got [${indices}]`,
+      );
+    }
     const sorted = [...indices].sort((a, b) => a - b);
     if (!sorted.every((value, position) => value === position)) {
       throw new Error(
@@ -388,12 +393,27 @@ export function validateV06Transform(
       }
     }
   } else if (transform.type === "byDimension") {
+    const inputCount = axisCount(transform.input, coordinateSystems);
     const seenOutputAxes = new Set<number>();
     for (const item of transform.transformations) {
       const axes = [...item.input_axes, ...item.output_axes];
+      if (!axes.every((axis) => Number.isInteger(axis))) {
+        throw new Error(
+          `byDimension axis indices must be integers; got [${axes}]`,
+        );
+      }
       if (axes.some((axis) => axis < 0)) {
         throw new Error(
           `byDimension axis indices must be non-negative; got [${axes}]`,
+        );
+      }
+      if (
+        inputCount !== undefined &&
+        item.input_axes.some((axis) => axis >= inputCount)
+      ) {
+        throw new Error(
+          `byDimension input axes [${item.input_axes}] exceed the ` +
+            `${inputCount} axes of coordinate system '${transform.input?.name}'`,
         );
       }
       for (const axis of item.output_axes) {
