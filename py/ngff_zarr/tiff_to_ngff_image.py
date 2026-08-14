@@ -321,6 +321,61 @@ def _reshape_tiff_for_channels(
     return data.reshape(ngff_shape)
 
 
+def _convert_unit_value(value, source_unit, target_unit):
+    """
+    Convert a physical size value from source_unit to target_unit.
+
+    Parameters
+    ----------
+    value : float
+        The physical size value to convert.
+    source_unit : str
+        The unit of the input value (e.g., 'micrometer').
+    target_unit : str
+        The desired unit for the output value (e.g., 'nanometer').
+
+    Returns
+    -------
+    float
+        The converted physical size value in target_unit.
+
+    Raises
+    ------
+    ValueError
+        If the source or target units are not recognized or compatible.
+    """
+    # Define conversion factors relative to meters
+    unit_to_meters = {
+        "attometer": 1e-18,
+        "femtometer": 1e-15,
+        "picometer": 1e-12,
+        "angstrom": 1e-10,
+        "nanometer": 1e-9,
+        "micrometer": 1e-6,
+        "millimeter": 1e-3,
+        "centimeter": 1e-2,
+        "decimeter": 1e-1,
+        "meter": 1.0,
+    }
+
+    # Normalize units using OME_UNIT_TO_NGFF mapping
+    if source_unit in OME_UNIT_TO_NGFF:
+        source_unit = OME_UNIT_TO_NGFF[source_unit]
+    if target_unit in OME_UNIT_TO_NGFF:
+        target_unit = OME_UNIT_TO_NGFF[target_unit]
+
+    if source_unit not in unit_to_meters:
+        raise ValueError(f"Unrecognized source unit: {source_unit}")
+    if target_unit not in unit_to_meters:
+        raise ValueError(f"Unrecognized target unit: {target_unit}")
+
+    # Convert to meters first, then to target unit
+    value_in_meters = value * unit_to_meters[source_unit]
+    converted_value = value_in_meters / unit_to_meters[target_unit]
+
+    return converted_value
+
+
 def _extract_ome_pixel_metadata(
     tif: "tifffile.TiffFile",
     series_index: int = 0,
@@ -757,6 +812,8 @@ def _build_multiscales_from_pyramid(
     tiff_series: "tifffile.TiffPageSeries",
     ome_scale: dict[str, float] | None,
     ome_units: dict[str, str] | None,
+    ome_translation: dict[str, float] | None,
+    ome_translation_units: dict[str, str] | None,
     ome_channel_names: list[str] | None,
     ome_channel_colors: list[str] | None = None,
 ) -> "NgffMultiscales":
@@ -777,6 +834,10 @@ def _build_multiscales_from_pyramid(
         Physical pixel sizes from OME metadata (e.g., {'x': 0.5, 'y': 0.5}).
     ome_units : dict or None
         Unit strings from OME metadata (e.g., {'x': 'micrometer'}).
+    ome_translation : dict or None
+        Translation values from OME metadata (e.g., {'x': 1.0, 'y': 2.0}).
+    ome_translation_units : dict or None
+        Translation unit strings from OME metadata (e.g., {'x': 'micrometer'}).
     ome_channel_names : list or None
         Channel names from OME metadata (e.g., ['DAPI', 'GFP', 'RFP']).
     ome_channel_colors : list or None
@@ -857,11 +918,26 @@ def _build_multiscales_from_pyramid(
             if dim in ome_units:
                 axes_units[dim] = ome_units[dim]
 
+    # Build translation dict from OME metadata
+    translation = None
+    if ome_translation:
+        translation = {}
+        spatial_dims = dims if dims else ("z", "y", "x")
+        for dim in spatial_dims:
+            if dim in ome_translation:
+                if ome_translation_units and axes_units:
+                    translation[dim] = _convert_unit_value(ome_translation[dim], ome_translation_units.get(dim), axes_units.get(dim))
+                else:
+                    translation[dim] = ome_translation[dim]
+            elif dim in ("x", "y", "z"):
+                translation[dim] = 0.0  # Default translation for spatial dims
+
     # Create base NgffImage
     ngff_image_0 = to_ngff_image(
         level0_data,
         dims=dims,
         scale=scale,
+        translation=translation,
         axes_units=axes_units,
         channel_names=ome_channel_names,
     )
@@ -1279,14 +1355,14 @@ def _read_tiff_series(
             # Check if this series has existing pyramid levels we can reuse
             n_levels = len(tiff_series.levels) if hasattr(tiff_series, "levels") else 1
             if reuse_existing_pyramids and n_levels > 1:
-                # TODO: inside _build_multiscales_from_pyramid() translation needs to be (extracted) and passed to:
-                #           ngff_image_0 = to_ngff_image()
                 multiscales = _build_multiscales_from_pyramid(
                     tif,
                     idx,
                     tiff_series,
                     ome_scale,
                     ome_units,
+                    ome_translation,
+                    ome_translation_units,
                     ome_channel_names,
                     ome_channel_colors,
                 )
@@ -1339,7 +1415,10 @@ def _read_tiff_series(
                 spatial_dims = dims if dims else ("z", "y", "x")
                 for dim in spatial_dims:
                     if dim in ome_translation:
-                        translation[dim] = ome_translation[dim]
+                        if ome_translation_units and axes_units:
+                            translation[dim] = _convert_unit_value(ome_translation[dim], ome_translation_units.get(dim), axes_units.get(dim))
+                        else:
+                            translation[dim] = ome_translation[dim]
                     elif dim in ("x", "y", "z"):
                         translation[dim] = 0.0  # Default translation for spatial dims
 
