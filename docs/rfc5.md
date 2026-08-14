@@ -4,9 +4,10 @@
 
 [RFC-5] extends OME-NGFF with named **coordinate systems** and a richer set of
 **coordinate transformations** — identity, scale, translation, rotation,
-affine, transformation sequences, and array-backed *displacement* and
-*coordinate* fields. This is the OME-Zarr v0.6 data model. `ngff-zarr` reads and
-writes it in both the Python and TypeScript packages.
+affine, axis permutations, transformation sequences, per-dimension and
+invertible wrappers, and array-backed *displacement* and *coordinate* fields.
+This is the OME-Zarr v0.6 data model. `ngff-zarr` reads and writes it in both
+the Python and TypeScript packages.
 
 ## Overview
 
@@ -76,6 +77,20 @@ The transformation data classes live in `ngff_zarr.v06.zarr_metadata`:
 | `Displacements` | `displacements` | `path: str`, `interpolation: str` |
 | `Coordinates` | `coordinates` | `path: str`, `interpolation: str` |
 | `TransformSequence` | `sequence` | `transformations: list[Transform]` |
+| `MapAxis` | `mapAxis` | `mapAxis: list[int]` |
+| `ByDimension` | `byDimension` | `transformations: list[ByDimensionItem]` |
+| `Bijection` | `bijection` | `forward: Transform`, `inverse: Transform` |
+
+`MapAxis` stores an axis permutation as a transpose vector: the value at
+position `i` is the input axis that becomes the `i`-th output axis, and every
+zero-based input axis index appears exactly once. `ByDimension` builds a high
+dimensional transform from lower dimensional ones; each `ByDimensionItem`
+wraps a transformation with the `input_axes` and `output_axes` (zero-based
+indices into the parent's coordinate systems) it applies to, and every output
+axis is produced by exactly one item. `Bijection` pairs an explicit `forward`
+transformation with its `inverse`. These constraints are enforced on read;
+`ngff_zarr.v06.zarr_metadata.validate_transform` checks them for
+programmatically built transforms.
 
 Every transform has an `input` and `output`, each a
 `CoordinateSystemIdentifier` naming a coordinate system (`name=`) or referencing
