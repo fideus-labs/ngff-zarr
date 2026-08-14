@@ -384,3 +384,13 @@ def test_by_dimension_rejects_out_of_range_input_axes():
     )
     with pytest.raises(ValueError, match="exceed"):
         validate_transform(transform, [_three_axis_system()])
+
+
+def test_map_axis_arity_is_bounded():
+    """OME-Zarr coordinate systems hold 2 to 5 axes; mapAxis matches."""
+    with pytest.raises(ValueError, match="between 2 and 5"):
+        validate_transform(MapAxis(mapAxis=[0]))
+    with pytest.raises(ValueError, match="between 2 and 5"):
+        validate_transform(MapAxis(mapAxis=[]))
+    with pytest.raises(ValueError, match="between 2 and 5"):
+        validate_transform(MapAxis(mapAxis=[5, 4, 3, 2, 1, 0]))

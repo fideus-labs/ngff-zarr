@@ -237,6 +237,11 @@ def validate_transform(
     if isinstance(transformation, MapAxis):
         indices = transformation.mapAxis
         _require_integer_axes(indices, "mapAxis")
+        if not (2 <= len(indices) <= 5):
+            raise ValueError(
+                "mapAxis must hold between 2 and 5 indices, one per axis "
+                f"of the coordinate systems it permutes; got {indices}"
+            )
         if sorted(indices) != list(range(len(indices))):
             raise ValueError(
                 "mapAxis must be a permutation holding every zero-based "
