@@ -180,7 +180,7 @@ type TransformationCommon = {
 
 /**
  * The full RFC-5 transformation union as a recursive type: wrapper
- * transformations (sequence, inverseOf, bijection, byDimension) nest any
+ * transformations (sequence, bijection, byDimension) nest any
  * transformation, matching the bundled JSON schema's recursive
  * coordinateTransformation reference.
  */
@@ -236,10 +236,6 @@ export type CoordinateTransformation =
     & TransformationCommon
   )
   | (
-    & { type: "inverseOf"; transformation: CoordinateTransformation }
-    & TransformationCommon
-  )
-  | (
     & {
       type: "bijection";
       forward: CoordinateTransformation;
@@ -274,7 +270,6 @@ export const CoordinateTransformationSchema: z.ZodType<
     CoordinatesTransformationSchema,
     DisplacementsTransformationSchema,
     SequenceTransformationSchema,
-    InverseTransformationSchema,
     BijectionTransformationSchema,
     ByDimensionTransformationSchema,
   ])
@@ -286,17 +281,6 @@ export const SequenceTransformationSchema: z.ZodType<
 > = z.object({
   type: z.literal("sequence"),
   transformations: z.array(z.lazy(() => CoordinateTransformationSchema)),
-  input: z.union([z.string(), z.array(z.string())]).optional(),
-  output: z.union([z.string(), z.array(z.string())]).optional(),
-  name: z.string().optional(),
-});
-
-// Inverse transformation
-export const InverseTransformationSchema: z.ZodType<
-  Extract<CoordinateTransformation, { type: "inverseOf" }>
-> = z.object({
-  type: z.literal("inverseOf"),
-  transformation: z.lazy(() => CoordinateTransformationSchema),
   input: z.union([z.string(), z.array(z.string())]).optional(),
   output: z.union([z.string(), z.array(z.string())]).optional(),
   name: z.string().optional(),
@@ -366,7 +350,6 @@ export type RotationTransformation = z.infer<
 export type SequenceTransformation = z.infer<
   typeof SequenceTransformationSchema
 >;
-export type InverseTransformation = z.infer<typeof InverseTransformationSchema>;
 export type BijectionTransformation = z.infer<
   typeof BijectionTransformationSchema
 >;
