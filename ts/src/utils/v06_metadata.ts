@@ -12,6 +12,7 @@
  */
 
 import type {
+  ByDimensionItem,
   CoordinateSystem,
   CoordinateSystemIdentifier,
   MetadataInterface,
@@ -150,6 +151,20 @@ export function serializeV06Transform(
         out.interpolation = transform.interpolation;
       }
       break;
+    case "mapAxis":
+      out.mapAxis = transform.mapAxis;
+      break;
+    case "byDimension":
+      out.transformations = transform.transformations.map((item) => ({
+        transformation: serializeV06Transform(item.transformation),
+        input_axes: item.input_axes,
+        output_axes: item.output_axes,
+      }));
+      break;
+    case "bijection":
+      out.forward = serializeV06Transform(transform.forward);
+      out.inverse = serializeV06Transform(transform.inverse);
+      break;
     case "sequence":
       out.transformations = transform.transformations.map(
         serializeV06Transform,
@@ -170,13 +185,17 @@ export function serializeV06Transform(
 export function parseV06Transforms(
   raw: Array<Record<string, unknown>>,
   coordinateSystemNames: string[],
+  coordinateSystems?: CoordinateSystem[],
 ): V06Transform[] {
-  return raw.map((entry) => parseV06Transform(entry, coordinateSystemNames));
+  return raw.map((entry) =>
+    parseV06Transform(entry, coordinateSystemNames, coordinateSystems)
+  );
 }
 
 function parseV06Transform(
   entry: Record<string, unknown>,
   coordinateSystemNames: string[],
+  coordinateSystems?: CoordinateSystem[],
 ): V06Transform {
   const type = String(entry.type);
   let transform: V06Transform;
@@ -227,6 +246,56 @@ function parseV06Transform(
       }
       break;
     }
+    case "mapAxis":
+      transform = {
+        type: "mapAxis",
+        mapAxis: asIntegerArray(entry.mapAxis, "mapAxis"),
+      };
+      break;
+    case "byDimension": {
+      if (!Array.isArray(entry.transformations)) {
+        throw new Error(
+          "Invalid byDimension transform: 'transformations' must be an array",
+        );
+      }
+      const items: ByDimensionItem[] = entry.transformations.map(
+        (rawItem: unknown) => {
+          const item = rawItem as Record<string, unknown>;
+          if (item === null || typeof item !== "object") {
+            throw new Error(
+              "Invalid byDimension transform: each item must be an object " +
+                "holding 'transformation', 'input_axes' and 'output_axes'",
+            );
+          }
+          return {
+            transformation: parseV06Transform(
+              item.transformation as Record<string, unknown>,
+              coordinateSystemNames,
+              coordinateSystems,
+            ),
+            input_axes: asIntegerArray(item.input_axes, "byDimension"),
+            output_axes: asIntegerArray(item.output_axes, "byDimension"),
+          };
+        },
+      );
+      transform = { type: "byDimension", transformations: items };
+      break;
+    }
+    case "bijection":
+      transform = {
+        type: "bijection",
+        forward: parseV06Transform(
+          entry.forward as Record<string, unknown>,
+          coordinateSystemNames,
+          coordinateSystems,
+        ),
+        inverse: parseV06Transform(
+          entry.inverse as Record<string, unknown>,
+          coordinateSystemNames,
+          coordinateSystems,
+        ),
+      };
+      break;
     case "sequence":
       if (!Array.isArray(entry.transformations)) {
         throw new Error(
@@ -238,6 +307,7 @@ function parseV06Transform(
         transformations: parseV06Transforms(
           entry.transformations as Array<Record<string, unknown>>,
           coordinateSystemNames,
+          coordinateSystems,
         ),
       };
       break;
@@ -257,7 +327,152 @@ function parseV06Transform(
     transform.name = entry.name;
   }
 
+  validateV06Transform(transform, coordinateSystems ?? []);
   return transform;
+}
+
+/** Number of axes of the referenced coordinate system, when resolvable. */
+function axisCount(
+  identifier: CoordinateSystemIdentifier | undefined,
+  coordinateSystems: CoordinateSystem[],
+): number | undefined {
+  if (identifier === undefined || identifier.name === undefined) {
+    return undefined;
+  }
+  return coordinateSystems.find((cs) => cs.name === identifier.name)?.axes
+    .length;
+}
+
+/** Dimensionality a byDimension item's axis lists must have, if knowable. */
+function itemDimensions(transformation: V06Transform): number | undefined {
+  switch (transformation.type) {
+    case "scale":
+      return transformation.scale.length;
+    case "translation":
+      return transformation.translation.length;
+    case "mapAxis":
+      return transformation.mapAxis.length;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Check the RFC 5 constraints the schema cannot express, mirroring the Python
+ * `validate_transform`: a `mapAxis` must be a permutation, a `byDimension`
+ * must cover every output axis exactly once with dimensionally consistent
+ * items, and a `bijection` must join coordinate systems of equal
+ * dimensionality. Dimension checks against `input`/`output` run only when
+ * those resolve to a known coordinate system.
+ */
+export function validateV06Transform(
+  transform: V06Transform,
+  coordinateSystems: CoordinateSystem[],
+): void {
+  if (transform.type === "mapAxis") {
+    const indices = transform.mapAxis;
+    if (!indices.every((axis) => Number.isInteger(axis))) {
+      throw new Error(
+        `mapAxis axis indices must be integers; got [${indices}]`,
+      );
+    }
+    if (indices.length < 2 || indices.length > 5) {
+      throw new Error(
+        "mapAxis must hold between 2 and 5 indices, one per axis of the " +
+          `coordinate systems it permutes; got [${indices}]`,
+      );
+    }
+    const sorted = [...indices].sort((a, b) => a - b);
+    if (!sorted.every((value, position) => value === position)) {
+      throw new Error(
+        "mapAxis must be a permutation holding every zero-based input axis " +
+          `index exactly once; got [${indices}]`,
+      );
+    }
+    for (const identifier of [transform.input, transform.output]) {
+      const count = axisCount(identifier, coordinateSystems);
+      if (count !== undefined && count !== indices.length) {
+        throw new Error(
+          `mapAxis length ${indices.length} does not match the ${count} ` +
+            `axes of coordinate system '${identifier?.name}'`,
+        );
+      }
+    }
+  } else if (transform.type === "byDimension") {
+    const inputCount = axisCount(transform.input, coordinateSystems);
+    const seenOutputAxes = new Set<number>();
+    for (const item of transform.transformations) {
+      const axes = [...item.input_axes, ...item.output_axes];
+      if (!axes.every((axis) => Number.isInteger(axis))) {
+        throw new Error(
+          `byDimension axis indices must be integers; got [${axes}]`,
+        );
+      }
+      if (axes.some((axis) => axis < 0)) {
+        throw new Error(
+          `byDimension axis indices must be non-negative; got [${axes}]`,
+        );
+      }
+      if (
+        inputCount !== undefined &&
+        item.input_axes.some((axis) => axis >= inputCount)
+      ) {
+        throw new Error(
+          `byDimension input axes [${item.input_axes}] exceed the ` +
+            `${inputCount} axes of coordinate system '${transform.input?.name}'`,
+        );
+      }
+      for (const axis of item.output_axes) {
+        if (seenOutputAxes.has(axis)) {
+          throw new Error(
+            "byDimension output axes must each be produced by exactly one " +
+              `transformation; axis ${axis} appears more than once`,
+          );
+        }
+        seenOutputAxes.add(axis);
+      }
+      const dimensions = itemDimensions(item.transformation);
+      if (
+        dimensions !== undefined &&
+        (item.input_axes.length !== dimensions ||
+          item.output_axes.length !== dimensions)
+      ) {
+        throw new Error(
+          `byDimension item of type '${item.transformation.type}' is ` +
+            `${dimensions}-dimensional but maps ${item.input_axes.length} ` +
+            `input axes to ${item.output_axes.length} output axes`,
+        );
+      }
+    }
+    const count = axisCount(transform.output, coordinateSystems);
+    if (count !== undefined) {
+      const expected = Array.from({ length: count }, (_, axis) => axis);
+      if (
+        seenOutputAxes.size !== count ||
+        !expected.every((axis) => seenOutputAxes.has(axis))
+      ) {
+        throw new Error(
+          "byDimension items must cover every output axis exactly once; " +
+            `coordinate system '${transform.output?.name}' has ${count} axes ` +
+            `but the items produce [${
+              [...seenOutputAxes].sort((a, b) => a - b)
+            }]`,
+        );
+      }
+    }
+  } else if (transform.type === "bijection") {
+    const inputCount = axisCount(transform.input, coordinateSystems);
+    const outputCount = axisCount(transform.output, coordinateSystems);
+    if (
+      inputCount !== undefined && outputCount !== undefined &&
+      inputCount !== outputCount
+    ) {
+      throw new Error(
+        "bijection input and output coordinate systems must have the same " +
+          `dimensionality; got ${inputCount} and ${outputCount}`,
+      );
+    }
+  }
 }
 
 /**
@@ -337,6 +552,19 @@ function asNumberArray(value: unknown, field: string): number[] {
   ) {
     throw new Error(
       `Invalid ${field} transform: '${field}' must be an array of numbers`,
+    );
+  }
+  return value as number[];
+}
+
+/** Validate that a parsed transform field is a flat array of integers. */
+function asIntegerArray(value: unknown, field: string): number[] {
+  if (
+    !Array.isArray(value) ||
+    !value.every((v) => typeof v === "number" && Number.isInteger(v))
+  ) {
+    throw new Error(
+      `Invalid ${field} transform: expected an array of integers`,
     );
   }
   return value as number[];

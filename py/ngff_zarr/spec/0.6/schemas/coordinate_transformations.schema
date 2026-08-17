@@ -322,16 +322,18 @@
               "input_axes": {
                 "type": "array",
                 "items": {
-                  "type": "number"
+                  "type": "integer",
+                  "minimum": 0
                 },
-                "description": "Names of the input axes for this transformation."
+                "description": "Zero-based axis indices into the parent byDimension transformation's input coordinate system."
               },
               "output_axes": {
                 "type": "array",
                 "items": {
-                  "type": "number"
+                  "type": "integer",
+                  "minimum": 0
                 },
-                "description": "Names of the output axes for this transformation."
+                "description": "Zero-based axis indices into the parent byDimension transformation's output coordinate system."
               }
             },
             "required": [
