@@ -410,7 +410,7 @@ def test_tiff_file_to_ngff_images_with_ome_translation():
     except ImportError:
         pytest.skip("tifffile not available")
 
-    from ngff_zarr import tiff_file_to_ngff_images, NgffMultiscales
+    from ngff_zarr import NgffMultiscales, tiff_file_to_ngff_images
     from ngff_zarr.tiff_to_ngff_image import _convert_unit_value
 
     # Create an OME-TIFF with translation metadata
@@ -431,14 +431,12 @@ def test_tiff_file_to_ngff_images_with_ome_translation():
 
     metadata = {
         "DimensionOrder": "XYZCT",
-
         "PhysicalSizeX": pixel_size,
         "PhysicalSizeXUnit": pixel_size_unit,
         "PhysicalSizeY": pixel_size,
         "PhysicalSizeYUnit": pixel_size_unit,
         "PhysicalSizeZ": pixel_size,
         "PhysicalSizeZUnit": pixel_size_unit,
-
         "Plane": {
             "PositionX": [position_x] * nplanes,
             "PositionXUnit": [ome_unit] * nplanes,
@@ -465,7 +463,9 @@ def test_tiff_file_to_ngff_images_with_ome_translation():
 
     # Convert and check metadata
     for reuse_existing_pyramids in [False, True]:
-        images = tiff_file_to_ngff_images(tiff_path, reuse_existing_pyramids=reuse_existing_pyramids)
+        images = tiff_file_to_ngff_images(
+            tiff_path, reuse_existing_pyramids=reuse_existing_pyramids
+        )
         assert len(images) == 1
 
         name, img = images[0]

@@ -484,7 +484,9 @@ def _extract_ome_pixel_metadata(
     return scale, units if units else None
 
 
-def _extract_ome_translation_metadata(tif: "tifffile.TiffFile", series_index: int = 0) -> tuple[dict[str, float] | None, dict[str, str] | None]:
+def _extract_ome_translation_metadata(
+    tif: "tifffile.TiffFile", series_index: int = 0
+) -> tuple[dict[str, float] | None, dict[str, str] | None]:
     """
     Extract translation metadata from OME-XML for a specific series.
 
@@ -508,6 +510,7 @@ def _extract_ome_translation_metadata(tif: "tifffile.TiffFile", series_index: in
 
     try:
         from tifffile import xml2dict
+
         ome_metadata = xml2dict(tif.ome_metadata)
     except ET.ParseError:
         return None, None
@@ -926,7 +929,11 @@ def _build_multiscales_from_pyramid(
         for dim in spatial_dims:
             if dim in ome_translation:
                 if ome_translation_units and axes_units:
-                    translation[dim] = _convert_unit_value(ome_translation[dim], ome_translation_units.get(dim), axes_units.get(dim))
+                    translation[dim] = _convert_unit_value(
+                        ome_translation[dim],
+                        ome_translation_units.get(dim),
+                        axes_units.get(dim),
+                    )
                 else:
                     translation[dim] = ome_translation[dim]
             elif dim in ("x", "y", "z"):
@@ -1328,7 +1335,9 @@ def _read_tiff_series(
 
             # Extract OME metadata for this series
             ome_scale, ome_units = _extract_ome_pixel_metadata(tif, series_index=idx)
-            ome_translation, ome_translation_units = _extract_ome_translation_metadata(tif, series_index=idx)
+            ome_translation, ome_translation_units = _extract_ome_translation_metadata(
+                tif, series_index=idx
+            )
             ome_channel_names = _extract_ome_channel_names(tif, series_index=idx)
             ome_channel_colors = _extract_ome_channel_colors(tif, series_index=idx)
 
@@ -1416,7 +1425,11 @@ def _read_tiff_series(
                 for dim in spatial_dims:
                     if dim in ome_translation:
                         if ome_translation_units and axes_units:
-                            translation[dim] = _convert_unit_value(ome_translation[dim], ome_translation_units.get(dim), axes_units.get(dim))
+                            translation[dim] = _convert_unit_value(
+                                ome_translation[dim],
+                                ome_translation_units.get(dim),
+                                axes_units.get(dim),
+                            )
                         else:
                             translation[dim] = ome_translation[dim]
                     elif dim in ("x", "y", "z"):
