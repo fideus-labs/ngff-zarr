@@ -529,6 +529,53 @@
           }
         ]
       }
+    },
+    {
+      "name": "mapAxis_missing_payload",
+      "ok": false,
+      "transformation": {
+        "type": "mapAxis"
+      }
+    },
+    {
+      "name": "byDim_missing_transformations",
+      "ok": false,
+      "transformation": {
+        "type": "byDimension"
+      }
+    },
+    {
+      "name": "byDim_item_missing_axes",
+      "ok": false,
+      "transformation": {
+        "type": "byDimension",
+        "transformations": [
+          {
+            "transformation": {
+              "type": "scale",
+              "scale": [
+                2,
+                3
+              ]
+            },
+            "input_axes": [
+              0,
+              1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "bijection_missing_inverse",
+      "ok": false,
+      "transformation": {
+        "type": "bijection",
+        "forward": {
+          "type": "displacements",
+          "path": "f"
+        }
+      }
     }
   ]
 }

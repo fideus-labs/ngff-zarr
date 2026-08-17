@@ -50,7 +50,7 @@ import {
   parseV06Transforms,
   validateV06Transform,
 } from "../src/utils/v06_metadata.ts";
-import { join } from "@std/path";
+import { fromFileUrl } from "@std/path";
 import type { CoordinateSystem } from "../src/types/zarr_metadata.ts";
 
 async function buildMultiscales(): Promise<NgffMultiscales> {
@@ -1007,12 +1007,8 @@ Deno.test("validateV06Transform bounds the mapAxis arity", () => {
 // give the same verdict on every case, so a rule enforced in one port and not
 // the other fails here.
 Deno.test("shared RFC-5 cases match the expected verdict", async () => {
-  const path = join(
-    Deno.cwd(),
-    "..",
-    "py",
-    "test",
-    "rfc5_transform_cases.json",
+  const path = fromFileUrl(
+    new URL("../../py/test/rfc5_transform_cases.json", import.meta.url),
   );
   const spec = JSON.parse(await Deno.readTextFile(path));
   const systems = spec.coordinateSystems as CoordinateSystem[];

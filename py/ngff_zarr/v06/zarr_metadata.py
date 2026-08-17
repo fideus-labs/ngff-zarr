@@ -80,6 +80,16 @@ def _resolved_axis_count(
     return None if identifier is None else identifier.axis_count(coordinateSystems)
 
 
+def _require_keys(data: dict, keys: tuple[str, ...], context: str) -> None:
+    """Reject a transformation payload that omits a required field."""
+    missing = [key for key in keys if key not in data]
+    if missing:
+        raise ValueError(
+            f"{context} transformation is missing required field(s) "
+            f"{', '.join(missing)}"
+        )
+
+
 def _require_integer_axes(axes: list, context: str) -> None:
     """Axis indices are zero-based integer positions; reject anything else."""
     for axis in axes:
@@ -272,6 +282,9 @@ class ByDimensionItem:
     def from_dict(
         cls, data: dict, coordinateSystems: list[CoordinateSystem] | None = None
     ) -> "ByDimensionItem":
+        _require_keys(
+            data, ("transformation", "input_axes", "output_axes"), "byDimension item"
+        )
         (transformation,) = Metadata._parse_transforms(
             [data["transformation"]], coordinateSystems or []
         )
@@ -344,6 +357,7 @@ class ByDimension(BaseTransform):
     def from_dict(
         cls, data: dict, coordinateSystems: list[CoordinateSystem] | None = None
     ) -> "ByDimension":
+        _require_keys(data, ("transformations",), "byDimension")
         return cls(
             transformations=[
                 ByDimensionItem.from_dict(item, coordinateSystems)
@@ -379,6 +393,7 @@ class Bijection(BaseTransform):
     def from_dict(
         cls, data: dict, coordinateSystems: list[CoordinateSystem] | None = None
     ) -> "Bijection":
+        _require_keys(data, ("forward", "inverse"), "bijection")
         systems = coordinateSystems or []
         (forward,) = Metadata._parse_transforms([data["forward"]], systems)
         (inverse,) = Metadata._parse_transforms([data["inverse"]], systems)
@@ -808,6 +823,7 @@ class Metadata:
             elif transform["type"] == "displacements":
                 transformation = Displacements.from_dict(transform)
             elif transform["type"] == "mapAxis":
+                _require_keys(transform, ("mapAxis",), "mapAxis")
                 transformation = MapAxis(mapAxis=list(transform["mapAxis"]))
             elif transform["type"] == "byDimension":
                 transformation = ByDimension.from_dict(transform, coordinateSystems)
