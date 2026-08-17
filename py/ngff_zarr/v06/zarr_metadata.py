@@ -56,6 +56,36 @@ class CoordinateSystemIdentifier:
     path: str | None = None
     name: str | None = None
 
+    def axis_count(
+        self, coordinateSystems: list[CoordinateSystem] | None
+    ) -> int | None:
+        """Number of axes of the referenced coordinate system, when resolvable.
+
+        Returns ``None`` when this identifier names no system in
+        ``coordinateSystems``, as for the wrapped transforms that omit
+        ``input`` and ``output``.
+        """
+        if self.name is None or not coordinateSystems:
+            return None
+        for coordinate_system in coordinateSystems:
+            if coordinate_system.name == self.name:
+                return len(coordinate_system.axes)
+        return None
+
+
+def _resolved_axis_count(
+    identifier: CoordinateSystemIdentifier | None,
+    coordinateSystems: list[CoordinateSystem] | None,
+) -> int | None:
+    return None if identifier is None else identifier.axis_count(coordinateSystems)
+
+
+def _require_integer_axes(axes: list, context: str) -> None:
+    """Axis indices are zero-based integer positions; reject anything else."""
+    for axis in axes:
+        if isinstance(axis, bool) or not isinstance(axis, int):
+            raise ValueError(f"{context} axis indices must be integers; got {axis!r}")
+
 
 @dataclass(kw_only=True)
 class BaseTransform(ABC):  # noqa: B024
@@ -72,6 +102,23 @@ class BaseTransform(ABC):  # noqa: B024
     @classmethod
     def from_dict(cls, data: dict) -> "BaseTransform":
         return cls(**data)
+
+    def validate(  # noqa: B027
+        self, coordinateSystems: list[CoordinateSystem] | None = None
+    ) -> None:
+        """Check this transform's RFC-5 constraints.
+
+        Constraints that follow from the parameters alone are enforced by
+        ``__post_init__``, so an invalid instance cannot be constructed;
+        this method checks them again, which covers instances mutated after
+        construction. Constraints against the ``input`` and ``output``
+        coordinate systems run when those resolve in ``coordinateSystems``
+        and are skipped otherwise. Raises ``ValueError`` on the first
+        violation.
+
+        Transform types without constraints beyond their field types, such
+        as ``Scale`` or ``Identity``, inherit this no-op deliberately.
+        """
 
 
 @dataclass(kw_only=True)
@@ -130,6 +177,33 @@ class MapAxis(BaseTransform):
     mapAxis: list[int]
     type: str = "mapAxis"
 
+    def __post_init__(self) -> None:
+        self._check_intrinsic()
+
+    def _check_intrinsic(self) -> None:
+        indices = self.mapAxis
+        _require_integer_axes(indices, "mapAxis")
+        if not (2 <= len(indices) <= 5):
+            raise ValueError(
+                "mapAxis must hold between 2 and 5 indices, one per axis "
+                f"of the coordinate systems it permutes; got {indices}"
+            )
+        if sorted(indices) != list(range(len(indices))):
+            raise ValueError(
+                "mapAxis must be a permutation holding every zero-based "
+                f"input axis index exactly once; got {indices}"
+            )
+
+    def validate(self, coordinateSystems: list[CoordinateSystem] | None = None) -> None:
+        self._check_intrinsic()
+        for identifier in (self.input, self.output):
+            count = _resolved_axis_count(identifier, coordinateSystems)
+            if count is not None and count != len(self.mapAxis):
+                raise ValueError(
+                    f"mapAxis length {len(self.mapAxis)} does not match the "
+                    f"{count} axes of coordinate system '{identifier.name}'"
+                )
+
 
 Transform = Union[
     Identity,
@@ -146,6 +220,17 @@ Transform = Union[
 ]
 
 
+def _item_dimensions(transformation: "Transform") -> int | None:
+    """Dimensionality a byDimension item's axis lists must have, if knowable."""
+    if isinstance(transformation, Scale):
+        return len(transformation.scale)
+    if isinstance(transformation, Translation):
+        return len(transformation.translation)
+    if isinstance(transformation, MapAxis):
+        return len(transformation.mapAxis)
+    return None
+
+
 @dataclass
 class ByDimensionItem:
     """One lower-dimensional transformation of a byDimension transform.
@@ -157,6 +242,44 @@ class ByDimensionItem:
     transformation: Transform
     input_axes: list[int]
     output_axes: list[int]
+
+    def __post_init__(self) -> None:
+        self._check_intrinsic()
+
+    def _check_intrinsic(self) -> None:
+        axes = list(self.input_axes) + list(self.output_axes)
+        _require_integer_axes(axes, "byDimension")
+        if any(axis < 0 for axis in axes):
+            raise ValueError(
+                f"byDimension axis indices must be non-negative; got {axes}"
+            )
+        if len(set(self.output_axes)) != len(self.output_axes):
+            raise ValueError(
+                "byDimension output axes must each be produced by exactly "
+                f"one transformation; {self.output_axes} repeats an axis"
+            )
+        dimensions = _item_dimensions(self.transformation)
+        if dimensions is not None and (
+            len(self.input_axes) != dimensions or len(self.output_axes) != dimensions
+        ):
+            raise ValueError(
+                f"byDimension item of type '{self.transformation.type}' is "
+                f"{dimensions}-dimensional but maps {len(self.input_axes)} "
+                f"input axes to {len(self.output_axes)} output axes"
+            )
+
+    @classmethod
+    def from_dict(
+        cls, data: dict, coordinateSystems: list[CoordinateSystem] | None = None
+    ) -> "ByDimensionItem":
+        (transformation,) = Metadata._parse_transforms(
+            [data["transformation"]], coordinateSystems or []
+        )
+        return cls(
+            transformation=transformation,
+            input_axes=list(data["input_axes"]),
+            output_axes=list(data["output_axes"]),
+        )
 
 
 @dataclass(kw_only=True)
@@ -170,6 +293,64 @@ class ByDimension(BaseTransform):
     transformations: list[ByDimensionItem]
     type: str = "byDimension"
 
+    def __post_init__(self) -> None:
+        self._check_intrinsic()
+
+    def _check_intrinsic(self) -> None:
+        seen_output_axes: set[int] = set()
+        for item in self.transformations:
+            duplicated = seen_output_axes.intersection(item.output_axes)
+            if duplicated:
+                raise ValueError(
+                    "byDimension output axes must each be produced by exactly "
+                    f"one transformation; axis {sorted(duplicated)} appears "
+                    "more than once"
+                )
+            seen_output_axes.update(item.output_axes)
+
+    @property
+    def produced_output_axes(self) -> set[int]:
+        """The output axis indices the items produce, taken together."""
+        axes: set[int] = set()
+        for item in self.transformations:
+            axes.update(item.output_axes)
+        return axes
+
+    def validate(self, coordinateSystems: list[CoordinateSystem] | None = None) -> None:
+        for item in self.transformations:
+            item._check_intrinsic()
+            item.transformation.validate(coordinateSystems)
+        self._check_intrinsic()
+        input_count = _resolved_axis_count(self.input, coordinateSystems)
+        if input_count is not None:
+            for item in self.transformations:
+                if any(axis >= input_count for axis in item.input_axes):
+                    raise ValueError(
+                        f"byDimension input axes {item.input_axes} exceed the "
+                        f"{input_count} axes of coordinate system "
+                        f"'{self.input.name}'"
+                    )
+        output_count = _resolved_axis_count(self.output, coordinateSystems)
+        if output_count is not None:
+            produced = self.produced_output_axes
+            if produced != set(range(output_count)):
+                raise ValueError(
+                    "byDimension items must cover every output axis exactly "
+                    f"once; coordinate system '{self.output.name}' has "
+                    f"{output_count} axes but the items produce {sorted(produced)}"
+                )
+
+    @classmethod
+    def from_dict(
+        cls, data: dict, coordinateSystems: list[CoordinateSystem] | None = None
+    ) -> "ByDimension":
+        return cls(
+            transformations=[
+                ByDimensionItem.from_dict(item, coordinateSystems)
+                for item in data["transformations"]
+            ]
+        )
+
 
 @dataclass(kw_only=True)
 class Bijection(BaseTransform):
@@ -179,127 +360,11 @@ class Bijection(BaseTransform):
     inverse: Transform
     type: str = "bijection"
 
-
-@dataclass(kw_only=True)
-class TransformSequence(BaseTransform):
-    transformations: list[Transform]
-    name: str | None = "transformSequence"
-    type: str = "sequence"
-
-
-def _axis_count(
-    identifier: CoordinateSystemIdentifier | None,
-    coordinateSystems: list[CoordinateSystem],
-) -> int | None:
-    """Number of axes of the referenced coordinate system, when resolvable."""
-    if identifier is None or identifier.name is None:
-        return None
-    for coordinate_system in coordinateSystems:
-        if coordinate_system.name == identifier.name:
-            return len(coordinate_system.axes)
-    return None
-
-
-def _item_dimensions(transformation: Transform) -> int | None:
-    """Dimensionality a byDimension item's axis lists must have, if knowable."""
-    if isinstance(transformation, Scale):
-        return len(transformation.scale)
-    if isinstance(transformation, Translation):
-        return len(transformation.translation)
-    if isinstance(transformation, MapAxis):
-        return len(transformation.mapAxis)
-    return None
-
-
-def _require_integer_axes(axes: list, context: str) -> None:
-    """Axis indices are zero-based integer positions; reject anything else."""
-    for axis in axes:
-        if isinstance(axis, bool) or not isinstance(axis, int):
-            raise ValueError(f"{context} axis indices must be integers; got {axis!r}")
-
-
-def validate_transform(
-    transformation: Transform,
-    coordinateSystems: list[CoordinateSystem] | None = None,
-) -> None:
-    """Check the RFC-5 constraints the JSON schema cannot express.
-
-    Raises ``ValueError`` when the transform's parameters contradict the
-    spec: a ``mapAxis`` that is not a permutation, a ``byDimension`` whose
-    items skip or duplicate an output axis, or a ``bijection`` between
-    coordinate systems of different dimensionality. Dimension checks against
-    the ``input`` and ``output`` coordinate systems run when those resolve
-    to a known system and are skipped otherwise, as for the wrapped
-    transforms that omit them.
-    """
-    coordinateSystems = coordinateSystems or []
-
-    if isinstance(transformation, MapAxis):
-        indices = transformation.mapAxis
-        _require_integer_axes(indices, "mapAxis")
-        if not (2 <= len(indices) <= 5):
-            raise ValueError(
-                "mapAxis must hold between 2 and 5 indices, one per axis "
-                f"of the coordinate systems it permutes; got {indices}"
-            )
-        if sorted(indices) != list(range(len(indices))):
-            raise ValueError(
-                "mapAxis must be a permutation holding every zero-based "
-                f"input axis index exactly once; got {indices}"
-            )
-        for identifier in (transformation.input, transformation.output):
-            count = _axis_count(identifier, coordinateSystems)
-            if count is not None and count != len(indices):
-                raise ValueError(
-                    f"mapAxis length {len(indices)} does not match the "
-                    f"{count} axes of coordinate system '{identifier.name}'"
-                )
-    elif isinstance(transformation, ByDimension):
-        input_count = _axis_count(transformation.input, coordinateSystems)
-        seen_output_axes: set[int] = set()
-        for item in transformation.transformations:
-            axes = list(item.input_axes) + list(item.output_axes)
-            _require_integer_axes(axes, "byDimension")
-            if any(axis < 0 for axis in axes):
-                raise ValueError(
-                    f"byDimension axis indices must be non-negative; got {axes}"
-                )
-            if input_count is not None and any(
-                axis >= input_count for axis in item.input_axes
-            ):
-                raise ValueError(
-                    f"byDimension input axes {item.input_axes} exceed the "
-                    f"{input_count} axes of coordinate system "
-                    f"'{transformation.input.name}'"
-                )
-            duplicated = seen_output_axes.intersection(item.output_axes)
-            if duplicated or len(set(item.output_axes)) != len(item.output_axes):
-                raise ValueError(
-                    "byDimension output axes must each be produced by exactly "
-                    f"one transformation; axis {sorted(duplicated) or item.output_axes} "
-                    "appears more than once"
-                )
-            seen_output_axes.update(item.output_axes)
-            dimensions = _item_dimensions(item.transformation)
-            if dimensions is not None and (
-                len(item.input_axes) != dimensions
-                or len(item.output_axes) != dimensions
-            ):
-                raise ValueError(
-                    f"byDimension item of type '{item.transformation.type}' is "
-                    f"{dimensions}-dimensional but maps {len(item.input_axes)} "
-                    f"input axes to {len(item.output_axes)} output axes"
-                )
-        count = _axis_count(transformation.output, coordinateSystems)
-        if count is not None and seen_output_axes != set(range(count)):
-            raise ValueError(
-                "byDimension items must cover every output axis exactly once; "
-                f"coordinate system '{transformation.output.name}' has {count} "
-                f"axes but the items produce {sorted(seen_output_axes)}"
-            )
-    elif isinstance(transformation, Bijection):
-        input_count = _axis_count(transformation.input, coordinateSystems)
-        output_count = _axis_count(transformation.output, coordinateSystems)
+    def validate(self, coordinateSystems: list[CoordinateSystem] | None = None) -> None:
+        self.forward.validate(coordinateSystems)
+        self.inverse.validate(coordinateSystems)
+        input_count = _resolved_axis_count(self.input, coordinateSystems)
+        output_count = _resolved_axis_count(self.output, coordinateSystems)
         if (
             input_count is not None
             and output_count is not None
@@ -309,6 +374,39 @@ def validate_transform(
                 "bijection input and output coordinate systems must have the "
                 f"same dimensionality; got {input_count} and {output_count}"
             )
+
+    @classmethod
+    def from_dict(
+        cls, data: dict, coordinateSystems: list[CoordinateSystem] | None = None
+    ) -> "Bijection":
+        systems = coordinateSystems or []
+        (forward,) = Metadata._parse_transforms([data["forward"]], systems)
+        (inverse,) = Metadata._parse_transforms([data["inverse"]], systems)
+        return cls(forward=forward, inverse=inverse)
+
+
+@dataclass(kw_only=True)
+class TransformSequence(BaseTransform):
+    transformations: list[Transform]
+    name: str | None = "transformSequence"
+    type: str = "sequence"
+
+    def validate(self, coordinateSystems: list[CoordinateSystem] | None = None) -> None:
+        for transformation in self.transformations:
+            transformation.validate(coordinateSystems)
+
+
+def validate_transform(
+    transformation: Transform,
+    coordinateSystems: list[CoordinateSystem] | None = None,
+) -> None:
+    """Check a transform's RFC-5 constraints; see ``BaseTransform.validate``.
+
+    Constraints that follow from the parameters alone hold by construction.
+    This also checks the ones that need the ``input`` and ``output``
+    coordinate systems, when those resolve in ``coordinateSystems``.
+    """
+    transformation.validate(coordinateSystems)
 
 
 @dataclass
@@ -712,27 +810,9 @@ class Metadata:
             elif transform["type"] == "mapAxis":
                 transformation = MapAxis(mapAxis=list(transform["mapAxis"]))
             elif transform["type"] == "byDimension":
-                items = []
-                for item in transform["transformations"]:
-                    (sub_transform,) = cls._parse_transforms(
-                        [item["transformation"]], coordinateSystems
-                    )
-                    items.append(
-                        ByDimensionItem(
-                            transformation=sub_transform,
-                            input_axes=list(item["input_axes"]),
-                            output_axes=list(item["output_axes"]),
-                        )
-                    )
-                transformation = ByDimension(transformations=items)
+                transformation = ByDimension.from_dict(transform, coordinateSystems)
             elif transform["type"] == "bijection":
-                (forward,) = cls._parse_transforms(
-                    [transform["forward"]], coordinateSystems
-                )
-                (inverse,) = cls._parse_transforms(
-                    [transform["inverse"]], coordinateSystems
-                )
-                transformation = Bijection(forward=forward, inverse=inverse)
+                transformation = Bijection.from_dict(transform, coordinateSystems)
             elif transform["type"] == "sequence":
                 # TODO: Undo nested sequences on import?
                 sub_transforms = cls._parse_transforms(

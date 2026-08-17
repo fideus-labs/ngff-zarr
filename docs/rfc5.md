@@ -88,9 +88,12 @@ dimensional transform from lower dimensional ones; each `ByDimensionItem`
 wraps a transformation with the `input_axes` and `output_axes` (zero-based
 indices into the parent's coordinate systems) it applies to, and every output
 axis is produced by exactly one item. `Bijection` pairs an explicit `forward`
-transformation with its `inverse`. These constraints are enforced on read;
-`ngff_zarr.v06.zarr_metadata.validate_transform` checks them for
-programmatically built transforms.
+transformation with its `inverse`. Constraints that follow from a transform's
+parameters alone are enforced when it is constructed, so an invalid instance
+cannot exist; the ones that depend on the resolved input and output
+coordinate systems are checked on read, and by
+`ngff_zarr.v06.zarr_metadata.validate_transform` (or the transform's own
+`validate` method) for programmatically built transforms.
 
 Every transform has an `input` and `output`, each a
 `CoordinateSystemIdentifier` naming a coordinate system (`name=`) or referencing

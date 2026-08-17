@@ -1,0 +1,534 @@
+{
+  "$comment": "RFC-5 transformation cases shared by the Python and TypeScript test suites. Both ports must accept every case with ok=true and reject every case with ok=false when parsing it against the listed coordinate systems.",
+  "coordinateSystems": [
+    {
+      "name": "s3",
+      "axes": [
+        {
+          "name": "z",
+          "type": "space"
+        },
+        {
+          "name": "y",
+          "type": "space"
+        },
+        {
+          "name": "x",
+          "type": "space"
+        }
+      ]
+    },
+    {
+      "name": "s2",
+      "axes": [
+        {
+          "name": "y",
+          "type": "space"
+        },
+        {
+          "name": "x",
+          "type": "space"
+        }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "name": "mapAxis_valid",
+      "ok": true,
+      "transformation": {
+        "type": "mapAxis",
+        "mapAxis": [
+          2,
+          0,
+          1
+        ],
+        "input": {
+          "name": "s3"
+        },
+        "output": {
+          "name": "s3"
+        }
+      }
+    },
+    {
+      "name": "mapAxis_dup",
+      "ok": false,
+      "transformation": {
+        "type": "mapAxis",
+        "mapAxis": [
+          0,
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "name": "mapAxis_gap",
+      "ok": false,
+      "transformation": {
+        "type": "mapAxis",
+        "mapAxis": [
+          0,
+          1,
+          3
+        ]
+      }
+    },
+    {
+      "name": "mapAxis_too_short",
+      "ok": false,
+      "transformation": {
+        "type": "mapAxis",
+        "mapAxis": [
+          0
+        ]
+      }
+    },
+    {
+      "name": "mapAxis_too_long",
+      "ok": false,
+      "transformation": {
+        "type": "mapAxis",
+        "mapAxis": [
+          5,
+          4,
+          3,
+          2,
+          1,
+          0
+        ]
+      }
+    },
+    {
+      "name": "mapAxis_negative",
+      "ok": false,
+      "transformation": {
+        "type": "mapAxis",
+        "mapAxis": [
+          -1,
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "name": "mapAxis_float",
+      "ok": false,
+      "transformation": {
+        "type": "mapAxis",
+        "mapAxis": [
+          0.5,
+          1,
+          2
+        ]
+      }
+    },
+    {
+      "name": "mapAxis_len_mismatch",
+      "ok": false,
+      "transformation": {
+        "type": "mapAxis",
+        "mapAxis": [
+          1,
+          0
+        ],
+        "input": {
+          "name": "s3"
+        }
+      }
+    },
+    {
+      "name": "mapAxis_unknown_system",
+      "ok": true,
+      "transformation": {
+        "type": "mapAxis",
+        "mapAxis": [
+          1,
+          0
+        ],
+        "input": {
+          "name": "nope"
+        }
+      }
+    },
+    {
+      "name": "byDim_valid",
+      "ok": true,
+      "transformation": {
+        "type": "byDimension",
+        "input": {
+          "name": "s3"
+        },
+        "output": {
+          "name": "s3"
+        },
+        "transformations": [
+          {
+            "transformation": {
+              "type": "scale",
+              "scale": [
+                2,
+                3
+              ]
+            },
+            "input_axes": [
+              0,
+              1
+            ],
+            "output_axes": [
+              0,
+              1
+            ]
+          },
+          {
+            "transformation": {
+              "type": "translation",
+              "translation": [
+                5
+              ]
+            },
+            "input_axes": [
+              2
+            ],
+            "output_axes": [
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "byDim_missing_output",
+      "ok": false,
+      "transformation": {
+        "type": "byDimension",
+        "output": {
+          "name": "s3"
+        },
+        "transformations": [
+          {
+            "transformation": {
+              "type": "scale",
+              "scale": [
+                2,
+                3
+              ]
+            },
+            "input_axes": [
+              0,
+              1
+            ],
+            "output_axes": [
+              0,
+              1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "byDim_dup_across_items",
+      "ok": false,
+      "transformation": {
+        "type": "byDimension",
+        "transformations": [
+          {
+            "transformation": {
+              "type": "scale",
+              "scale": [
+                2,
+                3
+              ]
+            },
+            "input_axes": [
+              0,
+              1
+            ],
+            "output_axes": [
+              0,
+              1
+            ]
+          },
+          {
+            "transformation": {
+              "type": "translation",
+              "translation": [
+                5
+              ]
+            },
+            "input_axes": [
+              2
+            ],
+            "output_axes": [
+              1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "byDim_dup_within_item",
+      "ok": false,
+      "transformation": {
+        "type": "byDimension",
+        "transformations": [
+          {
+            "transformation": {
+              "type": "scale",
+              "scale": [
+                2,
+                3
+              ]
+            },
+            "input_axes": [
+              0,
+              1
+            ],
+            "output_axes": [
+              1,
+              1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "byDim_dim_mismatch",
+      "ok": false,
+      "transformation": {
+        "type": "byDimension",
+        "transformations": [
+          {
+            "transformation": {
+              "type": "scale",
+              "scale": [
+                2,
+                3
+              ]
+            },
+            "input_axes": [
+              0
+            ],
+            "output_axes": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "byDim_input_out_of_range",
+      "ok": false,
+      "transformation": {
+        "type": "byDimension",
+        "input": {
+          "name": "s3"
+        },
+        "output": {
+          "name": "s3"
+        },
+        "transformations": [
+          {
+            "transformation": {
+              "type": "scale",
+              "scale": [
+                2,
+                3,
+                4
+              ]
+            },
+            "input_axes": [
+              0,
+              1,
+              3
+            ],
+            "output_axes": [
+              0,
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "byDim_negative",
+      "ok": false,
+      "transformation": {
+        "type": "byDimension",
+        "transformations": [
+          {
+            "transformation": {
+              "type": "scale",
+              "scale": [
+                2
+              ]
+            },
+            "input_axes": [
+              -1
+            ],
+            "output_axes": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "byDim_float",
+      "ok": false,
+      "transformation": {
+        "type": "byDimension",
+        "transformations": [
+          {
+            "transformation": {
+              "type": "scale",
+              "scale": [
+                2
+              ]
+            },
+            "input_axes": [
+              0.5
+            ],
+            "output_axes": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "byDim_nested_invalid",
+      "ok": false,
+      "transformation": {
+        "type": "byDimension",
+        "transformations": [
+          {
+            "transformation": {
+              "type": "mapAxis",
+              "mapAxis": [
+                0,
+                0
+              ]
+            },
+            "input_axes": [
+              0,
+              1
+            ],
+            "output_axes": [
+              0,
+              1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "byDim_nested_sequence",
+      "ok": true,
+      "transformation": {
+        "type": "byDimension",
+        "transformations": [
+          {
+            "transformation": {
+              "type": "sequence",
+              "transformations": [
+                {
+                  "type": "scale",
+                  "scale": [
+                    2,
+                    3
+                  ]
+                }
+              ]
+            },
+            "input_axes": [
+              0,
+              1
+            ],
+            "output_axes": [
+              0,
+              1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "bijection_valid",
+      "ok": true,
+      "transformation": {
+        "type": "bijection",
+        "input": {
+          "name": "s3"
+        },
+        "output": {
+          "name": "s3"
+        },
+        "forward": {
+          "type": "displacements",
+          "path": "f"
+        },
+        "inverse": {
+          "type": "displacements",
+          "path": "i"
+        }
+      }
+    },
+    {
+      "name": "bijection_dim_mismatch",
+      "ok": false,
+      "transformation": {
+        "type": "bijection",
+        "input": {
+          "name": "s2"
+        },
+        "output": {
+          "name": "s3"
+        },
+        "forward": {
+          "type": "displacements",
+          "path": "f"
+        },
+        "inverse": {
+          "type": "displacements",
+          "path": "i"
+        }
+      }
+    },
+    {
+      "name": "bijection_nested_invalid",
+      "ok": false,
+      "transformation": {
+        "type": "bijection",
+        "forward": {
+          "type": "mapAxis",
+          "mapAxis": [
+            0,
+            0
+          ]
+        },
+        "inverse": {
+          "type": "identity"
+        }
+      }
+    },
+    {
+      "name": "sequence_nested_invalid",
+      "ok": false,
+      "transformation": {
+        "type": "sequence",
+        "transformations": [
+          {
+            "type": "mapAxis",
+            "mapAxis": [
+              1,
+              1
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

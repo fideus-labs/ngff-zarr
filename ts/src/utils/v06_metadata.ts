@@ -376,6 +376,12 @@ export function validateV06Transform(
         `mapAxis axis indices must be integers; got [${indices}]`,
       );
     }
+    if (indices.length < 2 || indices.length > 5) {
+      throw new Error(
+        "mapAxis must hold between 2 and 5 indices, one per axis of the " +
+          `coordinate systems it permutes; got [${indices}]`,
+      );
+    }
     const sorted = [...indices].sort((a, b) => a - b);
     if (!sorted.every((value, position) => value === position)) {
       throw new Error(

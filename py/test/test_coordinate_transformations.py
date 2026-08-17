@@ -268,52 +268,73 @@ def _three_axis_system(name: str = "system") -> CoordinateSystem:
 
 
 def test_map_axis_must_be_a_permutation():
+    """Intrinsic constraints hold by construction; the instance never exists."""
     with pytest.raises(ValueError, match="permutation"):
-        validate_transform(MapAxis(mapAxis=[2, 0, 2]))
+        MapAxis(mapAxis=[2, 0, 2])
     with pytest.raises(ValueError, match="permutation"):
-        validate_transform(MapAxis(mapAxis=[0, 1, 3]))
+        MapAxis(mapAxis=[0, 1, 3])
+
+
+def test_map_axis_arity_is_bounded():
+    """OME-Zarr coordinate systems hold 2 to 5 axes; mapAxis matches."""
+    for indices in ([0], [], [5, 4, 3, 2, 1, 0]):
+        with pytest.raises(ValueError, match="between 2 and 5"):
+            MapAxis(mapAxis=indices)
+
+
+def test_axis_indices_must_be_integers():
+    with pytest.raises(ValueError, match="integers"):
+        MapAxis(mapAxis=[0.0, 1.0, 2.0])
+    with pytest.raises(ValueError, match="integers"):
+        ByDimensionItem(
+            transformation=Scale(scale=[2.0, 3.0]),
+            input_axes=[0.0, 1.0],
+            output_axes=[0, 1],
+        )
+
+
+def test_by_dimension_item_rejects_dimension_mismatch():
+    with pytest.raises(ValueError, match="dimensional"):
+        ByDimensionItem(
+            transformation=Scale(scale=[2.0, 3.0]),
+            input_axes=[0],
+            output_axes=[0],
+        )
+
+
+def test_by_dimension_rejects_duplicate_output_axes():
+    """Duplicates within an item and across items are both rejected."""
+    with pytest.raises(ValueError, match="exactly one"):
+        ByDimensionItem(
+            transformation=Scale(scale=[2.0, 3.0]),
+            input_axes=[0, 1],
+            output_axes=[1, 1],
+        )
+    with pytest.raises(ValueError, match="exactly one"):
+        ByDimension(
+            transformations=[
+                ByDimensionItem(
+                    transformation=Scale(scale=[2.0, 3.0]),
+                    input_axes=[0, 1],
+                    output_axes=[0, 1],
+                ),
+                ByDimensionItem(
+                    transformation=Translation(translation=[5.0]),
+                    input_axes=[2],
+                    output_axes=[1],
+                ),
+            ]
+        )
 
 
 def test_map_axis_length_must_match_coordinate_system():
+    """Contextual constraints need the coordinate systems: validate_transform."""
     transform = MapAxis(
         mapAxis=[1, 0],
         input=CoordinateSystemIdentifier(name="system"),
     )
     with pytest.raises(ValueError, match="does not match"):
         validate_transform(transform, [_three_axis_system()])
-
-
-def test_by_dimension_rejects_duplicate_output_axes():
-    transform = ByDimension(
-        transformations=[
-            ByDimensionItem(
-                transformation=Scale(scale=[2.0, 3.0]),
-                input_axes=[0, 1],
-                output_axes=[0, 1],
-            ),
-            ByDimensionItem(
-                transformation=Translation(translation=[5.0]),
-                input_axes=[2],
-                output_axes=[1],
-            ),
-        ]
-    )
-    with pytest.raises(ValueError, match="exactly one"):
-        validate_transform(transform)
-
-
-def test_by_dimension_rejects_item_dimension_mismatch():
-    transform = ByDimension(
-        transformations=[
-            ByDimensionItem(
-                transformation=Scale(scale=[2.0, 3.0]),
-                input_axes=[0],
-                output_axes=[0],
-            ),
-        ]
-    )
-    with pytest.raises(ValueError, match="dimensional"):
-        validate_transform(transform)
 
 
 def test_by_dimension_must_cover_every_output_axis():
@@ -329,45 +350,6 @@ def test_by_dimension_must_cover_every_output_axis():
     )
     with pytest.raises(ValueError, match="every output axis"):
         validate_transform(transform, [_three_axis_system()])
-
-
-def test_bijection_dimensions_must_match():
-    transform = Bijection(
-        forward=Displacements(path="forward_field"),
-        inverse=Displacements(path="inverse_field"),
-        input=CoordinateSystemIdentifier(name="two"),
-        output=CoordinateSystemIdentifier(name="three"),
-    )
-    two_axis = CoordinateSystem(
-        name="two",
-        axes=[Axis(name="y", type="space"), Axis(name="x", type="space")],
-    )
-    with pytest.raises(ValueError, match="dimensionality"):
-        validate_transform(transform, [two_axis, _three_axis_system("three")])
-
-
-def test_invalid_map_axis_is_rejected_at_parse():
-    """The reader enforces the constraints on untrusted on-disk metadata."""
-    from ngff_zarr.v06.zarr_metadata import Metadata
-
-    with pytest.raises(ValueError, match="permutation"):
-        Metadata._parse_transforms([{"type": "mapAxis", "mapAxis": [0, 0, 1]}], [])
-
-
-def test_axis_indices_must_be_integers():
-    with pytest.raises(ValueError, match="integers"):
-        validate_transform(MapAxis(mapAxis=[0.0, 1.0, 2.0]))
-    transform = ByDimension(
-        transformations=[
-            ByDimensionItem(
-                transformation=Scale(scale=[2.0, 3.0]),
-                input_axes=[0.0, 1.0],
-                output_axes=[0, 1],
-            ),
-        ]
-    )
-    with pytest.raises(ValueError, match="integers"):
-        validate_transform(transform)
 
 
 def test_by_dimension_rejects_out_of_range_input_axes():
@@ -386,11 +368,98 @@ def test_by_dimension_rejects_out_of_range_input_axes():
         validate_transform(transform, [_three_axis_system()])
 
 
-def test_map_axis_arity_is_bounded():
-    """OME-Zarr coordinate systems hold 2 to 5 axes; mapAxis matches."""
-    with pytest.raises(ValueError, match="between 2 and 5"):
-        validate_transform(MapAxis(mapAxis=[0]))
-    with pytest.raises(ValueError, match="between 2 and 5"):
-        validate_transform(MapAxis(mapAxis=[]))
-    with pytest.raises(ValueError, match="between 2 and 5"):
-        validate_transform(MapAxis(mapAxis=[5, 4, 3, 2, 1, 0]))
+def test_bijection_dimensions_must_match():
+    transform = Bijection(
+        forward=Displacements(path="forward_field"),
+        inverse=Displacements(path="inverse_field"),
+        input=CoordinateSystemIdentifier(name="two"),
+        output=CoordinateSystemIdentifier(name="three"),
+    )
+    two_axis = CoordinateSystem(
+        name="two",
+        axes=[Axis(name="y", type="space"), Axis(name="x", type="space")],
+    )
+    with pytest.raises(ValueError, match="dimensionality"):
+        validate_transform(transform, [two_axis, _three_axis_system("three")])
+
+
+def test_contextual_checks_are_skipped_without_coordinate_systems():
+    """A valid transform whose systems do not resolve passes on its own."""
+    transform = MapAxis(
+        mapAxis=[1, 0],
+        input=CoordinateSystemIdentifier(name="unknown"),
+    )
+    validate_transform(transform)
+    validate_transform(transform, [_three_axis_system("other")])
+
+
+def test_axis_count_resolves_named_systems():
+    systems = [_three_axis_system("system")]
+    assert CoordinateSystemIdentifier(name="system").axis_count(systems) == 3
+    assert CoordinateSystemIdentifier(name="unknown").axis_count(systems) is None
+    assert CoordinateSystemIdentifier(path="scale0").axis_count(systems) is None
+    assert CoordinateSystemIdentifier(name="system").axis_count(None) is None
+
+
+def test_invalid_map_axis_is_rejected_at_parse():
+    """The reader enforces the constraints on untrusted on-disk metadata."""
+    from ngff_zarr.v06.zarr_metadata import Metadata
+
+    with pytest.raises(ValueError, match="permutation"):
+        Metadata._parse_transforms([{"type": "mapAxis", "mapAxis": [0, 0, 1]}], [])
+
+
+def test_wrapper_validation_reaches_nested_transforms():
+    """Mutating a nested transform after construction is caught by validate."""
+    nested = MapAxis(mapAxis=[1, 0])
+    wrappers = [
+        Bijection(forward=nested, inverse=Identity()),
+        TransformSequence(transformations=[nested]),
+        ByDimension(
+            transformations=[ByDimensionItem(nested, [0, 1], [0, 1])],
+        ),
+    ]
+    for wrapper in wrappers:
+        validate_transform(wrapper)
+    nested.mapAxis = [0, 0]
+    for wrapper in wrappers:
+        with pytest.raises(ValueError, match="permutation"):
+            validate_transform(wrapper)
+
+
+def _shared_cases():
+    import json
+    from pathlib import Path
+
+    spec = json.loads((Path(__file__).parent / "rfc5_transform_cases.json").read_text())
+    systems = [
+        CoordinateSystem(
+            name=system["name"],
+            axes=[
+                Axis(name=axis["name"], type=axis["type"]) for axis in system["axes"]
+            ],
+        )
+        for system in spec["coordinateSystems"]
+    ]
+    return systems, spec["cases"]
+
+
+_SHARED_SYSTEMS, _SHARED_CASES = _shared_cases()
+
+
+@pytest.mark.parametrize(
+    "case", _SHARED_CASES, ids=[case["name"] for case in _SHARED_CASES]
+)
+def test_shared_rfc5_cases_match_expected_verdict(case):
+    """The Python and TypeScript readers give the same verdict on each case.
+
+    ``rfc5_transform_cases.json`` is also exercised by the TypeScript suite,
+    so a rule enforced in one port and not the other fails here.
+    """
+    from ngff_zarr.v06.zarr_metadata import Metadata
+
+    if case["ok"]:
+        Metadata._parse_transforms([case["transformation"]], _SHARED_SYSTEMS)
+    else:
+        with pytest.raises(ValueError):
+            Metadata._parse_transforms([case["transformation"]], _SHARED_SYSTEMS)

@@ -46,7 +46,12 @@ import { fromOmeZarr as fromOmeZarrBrowser } from "../src/io/from_ngff_zarr-brow
 import { toOmeZarr as toOmeZarrBrowser } from "../src/io/to_ngff_zarr-browser.ts";
 import { prepareRfc9Metadata } from "../src/io/to_ngff_zarr_ozx_common.ts";
 import { CoordinateTransformationSchema } from "../src/schemas/coordinate_systems.ts";
-import { validateV06Transform } from "../src/utils/v06_metadata.ts";
+import {
+  parseV06Transforms,
+  validateV06Transform,
+} from "../src/utils/v06_metadata.ts";
+import { join } from "@std/path";
+import type { CoordinateSystem } from "../src/types/zarr_metadata.ts";
 
 async function buildMultiscales(): Promise<NgffMultiscales> {
   const shape = [32, 32, 32];
@@ -984,4 +989,41 @@ Deno.test("validateV06Transform rejects fractional and out-of-range axes", () =>
     Error,
     "exceed",
   );
+});
+
+// OME-Zarr coordinate systems hold 2 to 5 axes; a mapAxis of another length
+// is rejected on read as well as by the zod schema.
+Deno.test("validateV06Transform bounds the mapAxis arity", () => {
+  for (const indices of [[0], [], [5, 4, 3, 2, 1, 0]]) {
+    assertThrows(
+      () => validateV06Transform(createMapAxis(indices), []),
+      Error,
+      "between 2 and 5",
+    );
+  }
+});
+
+// rfc5_transform_cases.json is shared with the Python suite: both readers must
+// give the same verdict on every case, so a rule enforced in one port and not
+// the other fails here.
+Deno.test("shared RFC-5 cases match the expected verdict", async () => {
+  const path = join(
+    Deno.cwd(),
+    "..",
+    "py",
+    "test",
+    "rfc5_transform_cases.json",
+  );
+  const spec = JSON.parse(await Deno.readTextFile(path));
+  const systems = spec.coordinateSystems as CoordinateSystem[];
+  const names = systems.map((system) => system.name);
+  for (const testCase of spec.cases) {
+    const parse = () =>
+      parseV06Transforms([testCase.transformation], names, systems);
+    if (testCase.ok) {
+      parse();
+    } else {
+      assertThrows(parse, Error, undefined, testCase.name);
+    }
+  }
 });
