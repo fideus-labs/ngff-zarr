@@ -204,7 +204,7 @@ def _numpy_to_zarr_dtype(dtype):
         raise ValueError(f"dtype {dtype} cannot be mapped to Zarr v3 core dtype")
 
 
-def _write_with_tensorstore(
+def _write_with_zarrista(
     store_path: str,
     array,
     region,
@@ -218,207 +218,90 @@ def _write_with_tensorstore(
     compression_chain=None,
     **kwargs,
 ) -> None:
-    """Write array using tensorstore backend.
+    """Write array using the zarrista backend.
 
+    *store_path* addresses the array node itself (``<store>/<path>``).
     ``compressor`` carries a single legacy codec (zarr format 2 metadata).
     ``compression_chain`` carries the ordered zarr v3 bytes-to-bytes codec
     chain: ``None`` requests the default compression, an empty sequence
     requests no compression.
     """
-    import tensorstore as ts
+    from ._zarrista_utils import (
+        create_zarrista_array,
+        open_zarrista_array,
+        write_dask_array,
+    )
 
     # Use full array shape if provided, otherwise use the region array shape
-    dataset_shape = full_array_shape if full_array_shape is not None else array.shape
+    dataset_shape = tuple(
+        full_array_shape if full_array_shape is not None else array.shape
+    )
+    scale_path = Path(store_path)
+    store_root = scale_path.parent
+    node_name = scale_path.name
 
-    # Build the base spec
-    spec = {
-        "kvstore": {
-            "driver": "file",
-            "path": store_path,
-        },
-        "metadata": {
-            "shape": dataset_shape,
-        },
-    }
-
-    if zarr_format == 2:
-        spec["driver"] = "zarr" if not IS_ZARR_V3_PLUS else "zarr2"
-        spec["metadata"]["dimension_separator"] = "/"
-        spec["metadata"]["dtype"] = array.dtype.str
-        # Only add chunk info when creating the dataset
-        if create_dataset:
-            spec["metadata"]["chunks"] = chunks
-            # Add compression for zarr v2 with TensorStore
-            if compressor is not None:
-                # TensorStore zarr2 driver uses compressor in metadata
-                if hasattr(compressor, "codec_id"):
-                    # numcodecs compressor object
-                    spec["metadata"]["compressor"] = compressor.get_config()
-                else:
-                    # Simple compressor name or config dict
-                    spec["metadata"]["compressor"] = compressor
-    elif zarr_format == 3:
-        spec["driver"] = "zarr3"
-        spec["metadata"]["data_type"] = _numpy_to_zarr_dtype(array.dtype)
-        spec["metadata"]["chunk_key_encoding"] = {
-            "name": "default",
-            "configuration": {"separator": "/"},
-        }
-        if dimension_names:
-            spec["metadata"]["dimension_names"] = dimension_names
-        # Only add chunk info when creating the dataset
-        if create_dataset:
-            spec["metadata"]["chunk_grid"] = {
-                "name": "regular",
-                "configuration": {"chunk_shape": chunks},
-            }
-
-            # Build codecs list for zarr v3
-            codecs = []
-
-            # Helper function to create compression codec
-            def create_compression_codec(compressor):
-                if compressor is None:
-                    return None
-
-                # Native Zarr v3 codecs carry no codec_id but serialise into
-                # exactly the form TensorStore expects.
-                if hasattr(compressor, "to_dict") and not hasattr(
-                    compressor, "codec_id"
-                ):
-                    codec = compressor.to_dict()
-                    # zarr-python records constructor-defaulted blosc attrs in
-                    # _tunable_attrs and evolves them from the dtype at write
-                    # time; mirror that so both backends land on the same
-                    # configuration. Explicitly chosen values are kept.
-                    config = codec.get("configuration")
-                    if codec.get("name") == "blosc" and isinstance(config, dict):
-                        config = dict(config)
-                        itemsize = array.dtype.itemsize
-                        tunable = getattr(compressor, "_tunable_attrs", None)
-                        if tunable is None:
-                            # Fallback for zarr without _tunable_attrs.
-                            if config.get("typesize") in (None, 1):
-                                config["typesize"] = itemsize
-                        else:
-                            if "typesize" in tunable:
-                                config["typesize"] = itemsize
-                            if "shuffle" in tunable:
-                                config["shuffle"] = (
-                                    "bitshuffle" if itemsize == 1 else "shuffle"
-                                )
-                        codec = {**codec, "configuration": config}
-                    return codec
-
-                if hasattr(compressor, "codec_id"):
-                    # numcodecs compressor object
-                    codec_id = compressor.codec_id
-                    if codec_id == "gzip":
-                        return {
-                            "name": "gzip",
-                            "configuration": {"level": getattr(compressor, "level", 6)},
-                        }
-                    if codec_id == "blosc":
-                        return {
-                            "name": "blosc",
-                            "configuration": {
-                                "cname": getattr(compressor, "cname", "lz4"),
-                                "clevel": getattr(compressor, "clevel", 5),
-                                "shuffle": "shuffle"
-                                if getattr(compressor, "shuffle", 1) == 1
-                                else "noshuffle",
-                            },
-                        }
-                    if codec_id == "zstd":
-                        return {
-                            "name": "zstd",
-                            "configuration": {"level": getattr(compressor, "level", 3)},
-                        }
-                    if codec_id == "lz4":
-                        return {"name": "lz4"}
-                    # Fallback: try to use the codec_id as name
-                    return {"name": codec_id}
-                if isinstance(compressor, str):
-                    # Simple codec name
-                    return {"name": compressor}
-                if isinstance(compressor, dict):
-                    # Already in codec format
-                    return compressor
-                return None
-
-            # Mirror the zarr-python codec chain. Left unset, TensorStore
-            # applies its own defaults: sharded and uncompressed.
-            bytes_codec = {"name": "bytes", "configuration": {"endian": "little"}}
+    if create_dataset:
+        create_kwargs = {}
+        if zarr_format == 2:
+            if compressor is None:
+                # The TensorStore backend this replaces compressed with its
+                # driver default (blosc) when no compressor was configured;
+                # resolve the driver's "auto" shuffle to a concrete per-dtype
+                # value so the stored metadata is explicit.
+                compressor = {
+                    "id": "blosc",
+                    "cname": "lz4",
+                    "clevel": 5,
+                    "shuffle": 2 if array.dtype.itemsize == 1 else 1,
+                    "blocksize": 0,
+                }
+            create_kwargs["compressor"] = compressor
+        elif zarr_format == 3:
             default_compression = {
                 "name": "zstd",
                 "configuration": {"level": 0, "checksum": False},
             }
             if compression_chain is None:
-                fallback = (
-                    create_compression_codec(compressor)
-                    if compressor is not None
-                    else None
-                )
-                compression_codecs = [fallback or default_compression]
+                # Mirror the zarr-python default codec chain.
+                create_kwargs["compressors"] = [default_compression]
             else:
                 # An explicit chain is preserved in order; an explicit empty
                 # chain means no compression, matching zarr-python.
-                compression_codecs = [
-                    codec
-                    for codec in map(create_compression_codec, compression_chain)
-                    if codec is not None
-                ]
-            inner_codecs = [bytes_codec, *compression_codecs]
-
-            # Add sharding codec with inner codecs if needed
+                create_kwargs["compressors"] = list(compression_chain)
+            if dimension_names:
+                create_kwargs["dimension_names"] = tuple(dimension_names)
             if internal_chunk_shape:
-                codecs.append(
-                    {
-                        "name": "sharding_indexed",
-                        "configuration": {
-                            "chunk_shape": internal_chunk_shape,
-                            "codecs": inner_codecs,
-                        },
-                    }
-                )
-            else:
-                codecs.extend(inner_codecs)
+                # ``chunks`` is the shard (outer chunk) grid; the subchunks
+                # inside each shard are the internal chunk shape.
+                create_kwargs["shards"] = tuple(chunks)
+                chunks = tuple(internal_chunk_shape)
+        else:
+            raise ValueError(f"Unsupported zarr format: {zarr_format}")
 
-            spec["metadata"]["codecs"] = codecs
+        # Try to create the dataset first, open existing only if needed
+        try:
+            dataset = create_zarrista_array(
+                store_root,
+                node_name,
+                dataset_shape,
+                array.dtype,
+                chunks,
+                zarr_format,
+                **create_kwargs,
+            )
+        except Exception as create_error:
+            # Dataset may already exist: fall back to opening it, surfacing
+            # the create failure when there is nothing to open.
+            try:
+                dataset = open_zarrista_array(store_root, node_name)
+            except Exception:
+                raise create_error from None
     else:
-        raise ValueError(f"Unsupported zarr format: {zarr_format}")
-
-    # Try to open existing dataset first, create only if needed
-    try:
-        if create_dataset:
-            dataset = ts.open(spec, create=True, dtype=array.dtype).result()
-        else:
-            # For existing datasets, use a minimal spec that just specifies the path
-            existing_spec = {
-                "kvstore": {
-                    "driver": "file",
-                    "path": store_path,
-                },
-                "driver": spec["driver"],
-            }
-            dataset = ts.open(existing_spec, create=False, dtype=array.dtype).result()
-    except Exception as e:
-        if "ALREADY_EXISTS" in str(e) and create_dataset:
-            # Dataset already exists, open it without creating
-            existing_spec = {
-                "kvstore": {
-                    "driver": "file",
-                    "path": store_path,
-                },
-                "driver": spec["driver"],
-            }
-            dataset = ts.open(existing_spec, create=False, dtype=array.dtype).result()
-        else:
-            raise
+        dataset = open_zarrista_array(store_root, node_name)
 
     # Try to write the dask array directly first
     try:
-        dataset[region] = array
+        write_dask_array(array, dataset, region=region)
     except Exception as e:
         # If we encounter dimension mismatch or shape-related errors,
         # compute the array and try again with corrective action
@@ -436,7 +319,7 @@ def _write_with_tensorstore(
             ]
         ):
             # Compute the array to get the actual shape
-            computed_array = array.compute()
+            computed_array = np.ascontiguousarray(array)
 
             # Adjust region to match the actual computed array shape if needed
             if len(region) == len(computed_array.shape):
@@ -632,7 +515,7 @@ def _is_bytes_codec(codec) -> bool:
     return name == "bytes"
 
 
-def _write_array_with_tensorstore(
+def _write_array_with_zarrista(
     store_path: str,
     path: str,
     arr: dask.array.Array,
@@ -646,11 +529,11 @@ def _write_array_with_tensorstore(
     create_dataset: bool = True,
     **kwargs,
 ) -> None:
-    """Write an array using the TensorStore backend."""
+    """Write an array using the zarrista backend."""
     # Extract compressor and other conflicting parameters from kwargs to avoid conflicts
     compressor = kwargs.pop("compressor", None)
     # The public API takes ``compressors`` (plural); without this a supplied
-    # codec is dropped and TensorStore silently writes its default. The full
+    # codec is dropped and the backend silently writes its default. The full
     # chain is preserved in order; only the array-to-bytes ("bytes") codec is
     # dropped since the writer always leads with one. ``None`` — absent or
     # explicit — selects no compression only when explicitly passed, matching
@@ -672,7 +555,7 @@ def _write_array_with_tensorstore(
 
     scale_path = f"{store_path}/{path}"
     if shards is None:
-        _write_with_tensorstore(
+        _write_with_zarrista(
             scale_path,
             arr,
             region,
@@ -686,7 +569,7 @@ def _write_array_with_tensorstore(
             **kwargs,
         )
     else:  # Sharding
-        _write_with_tensorstore(
+        _write_with_zarrista(
             scale_path,
             arr,
             region,
@@ -700,6 +583,11 @@ def _write_array_with_tensorstore(
             compression_chain=compression_chain,
             **kwargs,
         )
+
+
+# Transitional alias: the ``use_tensorstore`` call sites still reference the
+# old name until they are rewired to the zarrista writer.
+_write_array_with_tensorstore = _write_array_with_zarrista
 
 
 def _prepare_zarr_kwargs(to_zarr_kwargs: dict):

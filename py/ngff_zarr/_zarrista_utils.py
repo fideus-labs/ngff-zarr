@@ -26,7 +26,7 @@ ngff-zarr's ``chunks_per_shard`` multiplies ``chunks`` into the builder grid
 shape while ``chunks`` itself becomes the subchunk shape.
 
 zarrista requires Python >= 3.11 and is an optional dependency, so it is
-imported lazily inside each function, mirroring the tensorstore backend.
+imported lazily inside each function.
 """
 
 import json
@@ -44,6 +44,7 @@ __all__ = [
     "create_zarrista_array",
     "create_zarrista_group",
     "normalize_store",
+    "open_zarrista_array",
     "open_zarrista_lazy",
     "write_dask_array",
 ]
@@ -77,12 +78,15 @@ class _ZarristaArrayAdapter:
 def _canonical_compressor(compressor) -> tuple[str, dict] | None:
     """Normalize any accepted compressor form to a ``(name, params)`` pair.
 
-    Accepts a numcodecs codec object, a zarr v3 codec object, a
-    numcodecs-style config dict (``{"id": ...}``), or a zarr v3 codec dict
-    (``{"name": ..., "configuration": ...}``). Returns ``None`` for ``None``.
+    Accepts a numcodecs codec object, a zarr v3 codec object, a bare codec
+    name string, a numcodecs-style config dict (``{"id": ...}``), or a zarr
+    v3 codec dict (``{"name": ..., "configuration": ...}``). Returns ``None``
+    for ``None``.
     """
     if compressor is None:
         return None
+    if isinstance(compressor, str):
+        return compressor, {}
     if hasattr(compressor, "codec_id"):
         params = dict(compressor.get_config())
         return params.pop("id"), params
@@ -101,13 +105,18 @@ def _canonical_compressor(compressor) -> tuple[str, dict] | None:
     )
 
 
-def _blosc_shuffle_int(value) -> int:
+def _blosc_shuffle_int(value, itemsize: int = 4) -> int:
+    if value is None or (not isinstance(value, str) and int(value) == -1):
+        # numcodecs AUTOSHUFFLE / an unresolved zarr v3 default: bitshuffle
+        # for single-byte dtypes, byte shuffle otherwise, matching how
+        # zarr-python evolves the codec from the dtype at write time.
+        return 2 if itemsize == 1 else 1
     if isinstance(value, str):
         return _BLOSC_SHUFFLE_TO_INT[value]
     return int(value)
 
 
-def _compressor_to_v2_config(compressor) -> dict | None:
+def _compressor_to_v2_config(compressor, dtype: np.dtype) -> dict | None:
     """Map a compressor to the numcodecs config dict stored in ``.zarray``."""
     canonical = _canonical_compressor(compressor)
     if canonical is None:
@@ -118,7 +127,7 @@ def _compressor_to_v2_config(compressor) -> dict | None:
             "id": "blosc",
             "cname": params.get("cname", "lz4"),
             "clevel": params.get("clevel", 5),
-            "shuffle": _blosc_shuffle_int(params.get("shuffle", 1)),
+            "shuffle": _blosc_shuffle_int(params.get("shuffle", 1), dtype.itemsize),
             "blocksize": params.get("blocksize", 0) or 0,
         }
     if name == "gzip":
@@ -140,7 +149,9 @@ def _compressor_to_zarrista_codec(compressor, dtype: np.dtype):
         return None
     name, params = canonical
     if name == "blosc":
-        shuffle = _BLOSC_SHUFFLE_TO_STR[_blosc_shuffle_int(params.get("shuffle", 1))]
+        shuffle = _BLOSC_SHUFFLE_TO_STR[
+            _blosc_shuffle_int(params.get("shuffle", 1), dtype.itemsize)
+        ]
         return zarrista_codec.blosc(
             params.get("cname", "lz4"),
             params.get("clevel", 5),
@@ -230,15 +241,22 @@ def create_zarrista_array(
     chunks_per_shard: int | tuple[int, ...] | None = None,
     dimension_names: tuple[str, ...] | None = None,
     dimension_separator: str = "/",
+    compressors=None,
+    shards: tuple[int, ...] | None = None,
 ):
     """Create a zarr array under the store at *path* and return it.
 
     *name* is the array's path within the store (e.g. ``"0"``). *compressor*
     accepts the same forms as ngff-zarr's writer: a numcodecs codec, a zarr
     v3 codec, or their config dicts; ``None`` means no compression.
-    ``chunks_per_shard`` (format 3 only) is an int or per-dimension tuple of
-    chunks per shard, matching ``to_ngff_zarr``. The metadata is stored
-    immediately; the returned ``zarrista.Array`` is ready for chunk writes.
+    *compressors* (format 3 only) is an ordered sequence of bytes-to-bytes
+    codecs written after the ``bytes`` codec; it overrides *compressor*, and
+    an empty sequence means no compression. Sharding (format 3 only) is
+    requested either via ``chunks_per_shard`` — an int or per-dimension tuple
+    of chunks per shard, matching ``to_ngff_zarr`` — or via ``shards``, the
+    explicit outer shard shape whose subchunks are *chunks*. The metadata is
+    stored immediately; the returned ``zarrista.Array`` is ready for chunk
+    writes.
     """
     path = normalize_store(path)
     path.mkdir(parents=True, exist_ok=True)
@@ -257,16 +275,21 @@ def create_zarrista_array(
     store = FilesystemStore(path)
 
     if zarr_format == 2:
-        if chunks_per_shard is not None:
+        if chunks_per_shard is not None or shards is not None:
             raise ValueError("Sharding is only supported for zarr format 3")
         if dimension_names is not None:
             raise ValueError("dimension_names requires zarr format 3")
+        if compressors is not None:
+            raise ValueError(
+                "compressors (a zarr v3 codec chain) requires zarr format 3; "
+                "pass a single compressor for zarr format 2"
+            )
         metadata = {
             "zarr_format": 2,
             "shape": list(shape),
             "chunks": list(chunks),
             "dtype": dtype.str,
-            "compressor": _compressor_to_v2_config(compressor),
+            "compressor": _compressor_to_v2_config(compressor, dtype),
             "fill_value": np.zeros((), dtype=dtype).item(),
             "order": "C",
             "filters": None,
@@ -282,7 +305,14 @@ def create_zarrista_array(
     # ngff-zarr's dtype normalization also yields valid zarr v3 dtype names.
     from .to_ngff_zarr import _numpy_to_zarr_dtype
 
-    if chunks_per_shard is None:
+    if shards is not None:
+        if chunks_per_shard is not None:
+            raise ValueError("Pass either chunks_per_shard or shards, not both")
+        shards = tuple(int(s) for s in shards)
+        if len(shards) != len(shape):
+            raise ValueError(f"shards must have {len(shape)} dimensions, got {shards}")
+        grid_chunk_shape = shards
+    elif chunks_per_shard is None:
         grid_chunk_shape = chunks
     else:
         if isinstance(chunks_per_shard, int):
@@ -298,11 +328,21 @@ def create_zarrista_array(
     data_type = DataType.from_string(_numpy_to_zarr_dtype(dtype))
     fill_value = FillValue(np.zeros((), dtype=dtype).tobytes())
     builder = ArrayBuilder(grid, data_type, fill_value)
-    if chunks_per_shard is not None:
+    if chunks_per_shard is not None or shards is not None:
         builder = builder.subchunk_shape(list(chunks))
-    codec = _compressor_to_zarrista_codec(compressor, dtype)
-    if codec is not None:
-        builder = builder.compressors([codec])
+    if compressors is not None:
+        codecs = [
+            codec
+            for codec in (
+                _compressor_to_zarrista_codec(entry, dtype) for entry in compressors
+            )
+            if codec is not None
+        ]
+    else:
+        codec = _compressor_to_zarrista_codec(compressor, dtype)
+        codecs = [codec] if codec is not None else []
+    if codecs:
+        builder = builder.compressors(codecs)
     if dimension_names is not None:
         builder = builder.dimension_names(list(dimension_names))
     return builder.create(store, node_path)
@@ -315,9 +355,12 @@ def write_dask_array(darr, zarrista_array, region=None) -> None:
     granularity (the shard shape for sharded arrays) so concurrent block
     writes never touch the same stored chunk, then streamed with
     ``dask.array.store``. A *region* (tuple of slices) selects the target
-    subset and should be aligned to the same granularity.
+    subset and should be aligned to the same granularity. Empty arrays
+    (a zero-length dimension) are a no-op.
     """
     darr = dask.array.asarray(darr)
+    if darr.size == 0:
+        return
     write_chunks = tuple(zarrista_array.chunk_shape([0] * zarrista_array.ndim))
     if darr.chunksize != write_chunks:
         darr = darr.rechunk(write_chunks)
@@ -328,18 +371,29 @@ def write_dask_array(darr, zarrista_array, region=None) -> None:
     dask.array.store(darr, target, **store_kwargs)
 
 
-def open_zarrista_lazy(path, component: str | None = None) -> dask.array.Array:
-    """Open the array at *component* within *path* as a lazy dask array.
+def open_zarrista_array(path, component: str | None = None):
+    """Open the existing array at *component* within the store at *path*.
 
-    Chunks follow the stored chunk grid, using the subchunk (inner chunk)
-    shape for sharded arrays so reads stay at the efficient granularity.
+    Returns the raw ``zarrista.Array``, ready for region ``__setitem__``
+    writes into an already-created array (either zarr format). Write input
+    must be C-contiguous; :class:`_ZarristaArrayAdapter` or
+    :func:`write_dask_array` handle that for adapter-mediated writes.
     """
     from zarrista import Array
     from zarrista.store import FilesystemStore
 
     path = normalize_store(path)
     node_path = "/" + str(component).strip("/") if component else "/"
-    arr = Array.open(FilesystemStore(path), node_path)
+    return Array.open(FilesystemStore(path), node_path)
+
+
+def open_zarrista_lazy(path, component: str | None = None) -> dask.array.Array:
+    """Open the array at *component* within *path* as a lazy dask array.
+
+    Chunks follow the stored chunk grid, using the subchunk (inner chunk)
+    shape for sharded arrays so reads stay at the efficient granularity.
+    """
+    arr = open_zarrista_array(path, component)
     if arr.is_sharded:
         chunks = tuple(arr.subchunk_shape)
     else:
