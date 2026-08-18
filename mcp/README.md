@@ -132,14 +132,31 @@ Add this to your Windsurf MCP config file. See
 }
 ```
 
-#### SSE Transport
+#### Streamable HTTP Transport
+
+```json
+{
+  "mcpServers": {
+    "ngff-zarr": {
+      "url": "http://localhost:8000/mcp",
+      "description": "ngff-zarr server running with Streamable HTTP transport"
+    }
+  }
+}
+```
+
+#### SSE Transport (deprecated)
+
+The HTTP+SSE transport was deprecated in MCP specification revision
+2025-03-26 in favor of Streamable HTTP. It remains available for older
+clients:
 
 ```json
 {
   "mcpServers": {
     "ngff-zarr": {
       "url": "http://localhost:8000/sse",
-      "description": "ngff-zarr server running with SSE transport"
+      "description": "ngff-zarr server running with legacy SSE transport"
     }
   }
 }
@@ -592,15 +609,36 @@ The server can be run in different transport modes:
 # STDIO transport (default)
 ngff-zarr-mcp
 
-# Server-Sent Events transport
+# Streamable HTTP transport (recommended for network deployments)
+ngff-zarr-mcp --transport streamable-http --host localhost --port 8000
+
+# Stateless Streamable HTTP for load-balanced or serverless deployments
+ngff-zarr-mcp --transport streamable-http --stateless-http --json-response
+
+# Legacy Server-Sent Events transport (deprecated)
 ngff-zarr-mcp --transport sse --host localhost --port 8000
 ```
 
 ### Transport Options
 
 - **STDIO**: Default transport for most MCP clients
-- **SSE**: Server-Sent Events for web-based clients or when HTTP transport is
-  preferred
+- **Streamable HTTP**: The HTTP transport introduced in MCP specification
+  revision 2025-03-26. Serves a single `/mcp` endpoint and supports optional
+  session management via the `Mcp-Session-Id` header.
+- **SSE**: The legacy HTTP+SSE transport, deprecated in MCP specification
+  revision 2025-03-26. Kept for backwards compatibility with older clients.
+
+### Stateless Operation
+
+With `--stateless-http`, the server does not issue an `Mcp-Session-Id`
+header and treats every request as self-contained. This allows horizontal
+scaling behind a load balancer without session affinity and deployment on
+serverless platforms. Adding `--json-response` returns plain
+`application/json` bodies instead of opening a Server-Sent Events stream per
+request, which is friendlier to proxies that buffer streaming responses.
+Note that stateless mode disables server-initiated interactions that require
+a persistent session (such as sampling and elicitation); the ngff-zarr tools
+do not rely on these features.
 
 See the installation section above for client-specific configuration examples.
 
