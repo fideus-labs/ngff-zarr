@@ -240,3 +240,150 @@ def test_default_padding_reproduces_an_undecomposed_resample(interpolator):
         transform, fixed, moving, interpolator=interpolator
     )
     np.testing.assert_array_equal(result, expected)
+
+
+def test_the_fixed_image_pixels_are_never_read():
+    """Only the fixed grid's geometry is used, so its blocks must stay unread.
+
+    Mapping over ``fixed.data`` instead of a placeholder would read every one
+    of its blocks while returning exactly the same pixels, so nothing else in
+    this file can catch it.
+    """
+    moving = _image("yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+    fixed = _image(
+        "yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 0, "x": 0}, chunks=(16, 16)
+    )
+    reads = []
+
+    fixed = NgffImage(
+        data=fixed.data.map_blocks(
+            lambda block: reads.append(1) or block, dtype=fixed.data.dtype
+        ),
+        dims=fixed.dims,
+        scale=fixed.scale,
+        translation=fixed.translation,
+    )
+    baseline = len(reads)
+
+    result = itk_transform_resample(_identity(2), fixed, moving)
+    np.asarray(result.data)
+
+    assert len(reads) == baseline
+
+
+def test_moving_chunks_shared_by_several_blocks_are_read_once():
+    """Blocks are tasks of one graph that share the moving chunks they touch.
+
+    With 16-pixel output blocks over 32-pixel moving chunks and a fractional
+    translation, every moving chunk lies in the region of several output
+    blocks. Reading it once per block would multiply I/O and decoding by that
+    factor, which is what makes a remote or compressed moving image slow.
+    """
+    moving = _image("yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+    fixed = _image(
+        "yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 0, "x": 0}, chunks=(16, 16)
+    )
+    reads = []
+
+    moving = NgffImage(
+        data=moving.data.rechunk((32, 32)).map_blocks(
+            lambda block: reads.append(1) or block, dtype=moving.data.dtype
+        ),
+        dims=moving.dims,
+        scale=moving.scale,
+        translation=moving.translation,
+    )
+    baseline = len(reads)
+
+    result = itk_transform_resample(_translation(2, [0.5, 0.5]), fixed, moving)
+    np.asarray(result.data)
+
+    assert len(reads) - baseline == moving.data.npartitions
+
+
+def test_a_transform_that_shifts_off_the_moving_image_reads_no_chunks():
+    """Blocks whose region misses the moving image are constants in the graph."""
+    moving = _image("yx", {"y": 32, "x": 32}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+    fixed = _image(
+        "yx",
+        {"y": 32, "x": 32},
+        {"y": 1, "x": 1},
+        {"y": 500, "x": 500},
+        chunks=(16, 16),
+    )
+    reads = []
+    moving = NgffImage(
+        data=moving.data.map_blocks(
+            lambda block: reads.append(1) or block, dtype=moving.data.dtype
+        ),
+        dims=moving.dims,
+        scale=moving.scale,
+        translation=moving.translation,
+    )
+    baseline = len(reads)
+
+    result = itk_transform_resample(_identity(2), fixed, moving, default_value=3.0)
+
+    assert np.all(np.asarray(result.data) == 3.0)
+    assert len(reads) == baseline
+
+
+def test_moving_geometry_is_part_of_the_graph_name():
+    """Two resamples differing only in where the moving image sits must not
+    share Dask keys.
+
+    Keys are global to a computation, so a collision does not raise: one
+    result silently stands in for the other.
+    """
+    moving = _image("yx", {"y": 32, "x": 32}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+    shifted = NgffImage(
+        data=moving.data,
+        dims=moving.dims,
+        scale=moving.scale,
+        translation={"y": 8.0, "x": 0.0},
+    )
+    fixed = _image(
+        "yx", {"y": 32, "x": 32}, {"y": 1, "x": 1}, {"y": 0, "x": 0}, chunks=(16, 16)
+    )
+
+    first = itk_transform_resample(_identity(2), fixed, moving)
+    second = itk_transform_resample(_identity(2), fixed, shifted)
+    assert first.data.name != second.data.name
+
+    alone_first = np.asarray(first.data)
+    alone_second = np.asarray(second.data)
+    assert not np.array_equal(alone_first, alone_second)
+
+    together = np.asarray(da.stack([first.data, second.data]))
+    np.testing.assert_array_equal(together[0], alone_first)
+    np.testing.assert_array_equal(together[1], alone_second)
+
+
+def test_the_graph_does_not_carry_a_buffer_for_every_block():
+    """The tasks have to stay small enough to ship to a worker.
+
+    A block's grid is geometry, but holding an array of the block's shape in
+    every task costs one byte per output voxel. Locally that hides, since the
+    pages are never touched; it is paid in full the moment the graph is
+    serialized to a distributed worker.
+    """
+    import pickle
+
+    def lazy(shape, chunks):
+        return NgffImage(
+            data=da.zeros(shape, chunks=chunks, dtype=np.uint8),
+            dims=("y", "x"),
+            scale={"y": 1.0, "x": 1.0},
+            translation={"y": 0.0, "x": 0.0},
+        )
+
+    fixed = lazy((1024, 1024), (256, 256))
+    moving = lazy((1024, 1024), (256, 256))
+
+    result = itk_transform_resample(_identity(2), fixed, moving)
+    layer = result.data.dask.layers[result.data.name]
+    weight = sum(len(pickle.dumps(task, protocol=5)) for task in layer.values())
+
+    assert weight < result.data.size // 16, (
+        f"the graph weighs {weight} bytes to describe {result.data.size} voxels"
+    )

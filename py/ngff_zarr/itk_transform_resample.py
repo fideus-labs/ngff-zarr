@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: MIT
 """Resample a moving image onto a fixed image grid, one block at a time."""
 
+import functools
+
 import numpy as np
 
 from .itk_transform_resample_bounding_box import (
@@ -62,6 +64,17 @@ def _component_type(out_dtype) -> str:
     return mapping[name]
 
 
+def _shape_only(shape: tuple) -> np.ndarray:
+    """An array carrying a shape without owning memory for it.
+
+    Only ``shape`` and ``dtype`` are ever read off these stand-ins. Allocating
+    for real costs one byte per output voxel, which looks free while the pages
+    stay untouched and is then paid in full the moment something serializes
+    the object holding it.
+    """
+    return np.broadcast_to(np.zeros((), dtype=np.uint8), shape)
+
+
 def _block_grid(fixed: NgffImage, starts: dict, shape: tuple) -> NgffImage:
     """A geometry-only stand-in for one output block of the fixed grid."""
     translation = {
@@ -69,7 +82,7 @@ def _block_grid(fixed: NgffImage, starts: dict, shape: tuple) -> NgffImage:
         for dim in fixed.dims
     }
     return NgffImage(
-        data=np.empty(shape, dtype=np.uint8),
+        data=_shape_only(shape),
         dims=tuple(fixed.dims),
         scale=dict(fixed.scale),
         translation=translation,
@@ -81,33 +94,86 @@ def _block_grid(fixed: NgffImage, starts: dict, shape: tuple) -> NgffImage:
 
 
 def _resample_block(
-    block,
+    chunks,
     *,
-    block_info,
+    nchunks,
+    offset,
+    bounds,
+    moving_dims,
+    moving_scale,
+    moving_translation,
+    grid_dims,
+    grid_scale,
+    grid_translation,
+    grid_shape,
+    grid_orientations,
     transform_list,
-    fixed: NgffImage,
-    moving: NgffImage,
-    padding: int,
     interpolator: str,
     default_value: float,
     out_dtype,
 ):
+    """Resample one output block from the moving chunks its region touches.
+
+    ``chunks`` are whole moving-image chunks, in C order over the ``nchunks``
+    grid of chunks that covers the block's region; ``offset`` is the index of
+    the first of them in the moving image and ``bounds`` the region itself.
+    """
     from itkwasm_downsample import resample_to_reference
 
     from .ngff_image_to_itk_image import ngff_image_to_itk_image
 
-    location = block_info[0]["array-location"]
-    starts = {dim: start for dim, (start, _stop) in zip(fixed.dims, location)}
-    grid = _block_grid(fixed, starts, block.shape)
+    nested = np.empty(nchunks, dtype=object)
+    for flat, index in enumerate(np.ndindex(*nchunks)):
+        nested[index] = chunks[flat]
 
-    region = itk_transform_resample_bounding_box(
-        transform_list, grid, moving, padding=padding
+    # Where each chunk of the grid starts in the moving image, per axis.
+    starts = []
+    for axis in range(len(nchunks)):
+        picker = [0] * len(nchunks)
+        sizes = []
+        for position in range(nchunks[axis]):
+            picker[axis] = position
+            sizes.append(nested[tuple(picker)].shape[axis])
+        starts.append(np.concatenate([[0], np.cumsum(sizes)[:-1]]) + offset[axis])
+
+    # Trim every chunk to its share of the region before assembling. Assembling
+    # first and slicing after would allocate the union of the chunks, which for
+    # a block whose region straddles chunk borders is several times the region.
+    for index in np.ndindex(*nchunks):
+        chunk = nested[index]
+        nested[index] = chunk[
+            tuple(
+                slice(
+                    max(0, low - starts[axis][position]),
+                    min(chunk.shape[axis], high - starts[axis][position]),
+                )
+                for axis, (position, (low, high)) in enumerate(zip(index, bounds))
+            )
+        ]
+
+    if len(chunks) == 1:
+        region = np.ascontiguousarray(nested[(0,) * len(nchunks)])
+    else:
+        region = np.block(nested.tolist())
+    translation = {
+        dim: moving_translation[dim] + start * moving_scale[dim]
+        for dim, (start, _stop) in zip(moving_dims, bounds)
+    }
+    crop = NgffImage(
+        data=region,
+        dims=moving_dims,
+        scale=dict(moving_scale),
+        translation=translation,
     )
-    crop = region.crop(moving)
-    if crop is None:
-        return np.full(block.shape, default_value, dtype=out_dtype)
 
-    itk_dims = list(reversed(_spatial_dims(fixed)))
+    grid = NgffImage(
+        data=_shape_only(grid_shape),
+        dims=grid_dims,
+        scale=dict(grid_scale),
+        translation=dict(grid_translation),
+        axes_orientations=grid_orientations,
+    )
+    itk_dims = list(reversed(_spatial_dims(grid)))
     reference = _metadata_only_itk_image(grid, itk_dims, _itk_direction(grid, itk_dims))
     # resample_to_reference reads only the reference geometry, but it aborts
     # when the component type disagrees with the moving image, so align it.
@@ -120,7 +186,7 @@ def _resample_block(
         interpolator=interpolator,
         default_value=float(default_value),
     )
-    return np.asarray(resampled.data).reshape(block.shape).astype(out_dtype, copy=False)
+    return np.asarray(resampled.data).reshape(grid_shape).astype(out_dtype, copy=False)
 
 
 def itk_transform_resample(
@@ -134,12 +200,14 @@ def itk_transform_resample(
     """Resample ``moving`` onto the grid of ``fixed`` through ``transform``.
 
     The result is a lazy :class:`NgffImage`: nothing is read or computed until
-    the returned Dask array is. Each output block is resampled on its own, and
-    a block only ever materializes the region of ``moving`` its own resample
-    reads, as reported by
-    :func:`ngff_zarr.itk_transform_resample_bounding_box`. The full moving
-    image is never loaded, which is what makes this usable when it is larger
-    than memory, remote, or chunked.
+    the returned Dask array is. Each output block is resampled on its own from
+    the moving chunks inside the region its resample reads, as reported by
+    :func:`ngff_zarr.itk_transform_resample_bounding_box`. The regions are
+    computed once, when the graph is built, and the blocks are tasks of a
+    single Dask graph that reference the moving chunks directly, so a chunk
+    that several blocks need is read and decoded once per computation. The
+    full moving image is never loaded, which is what makes this usable when it
+    is larger than memory, remote, or chunked.
 
     Resampling runs through ``itkwasm-downsample``, so no native ITK build is
     required and the result is identical to one across platforms.
@@ -174,6 +242,8 @@ def itk_transform_resample(
     :rtype: NgffImage
     """
     import dask.array as da
+    from dask.base import tokenize
+    from dask.highlevelgraph import HighLevelGraph
 
     if interpolator not in _INTERPOLATORS:
         msg = f"interpolator must be one of {_INTERPOLATORS}, got {interpolator!r}"
@@ -210,17 +280,102 @@ def itk_transform_resample(
     dtype = moving.data.dtype
     transform_list = _as_itk_transform_list(transform)
 
-    data = da.map_blocks(
-        _resample_block,
-        fixed.data,
+    out_chunks = fixed.data.chunks
+    out_offsets = [np.concatenate([[0], np.cumsum(sizes)[:-1]]) for sizes in out_chunks]
+    moving_chunks = moving.data.chunks
+    moving_offsets = [
+        np.concatenate([[0], np.cumsum(sizes)[:-1]]) for sizes in moving_chunks
+    ]
+    moving_keys = moving.data.__dask_keys__()
+
+    def moving_key(index):
+        key = moving_keys
+        for i in index:
+            key = key[i]
+        return key
+
+    # Every input the result depends on belongs in the token. The moving
+    # image's geometry is not carried by its array name, so leaving it out
+    # gives two resamples of the same array at different origins the same key,
+    # and one silently stands in for the other.
+    name = "itk-transform-resample-" + tokenize(
+        moving.data.name,
+        moving.dims,
+        moving.scale,
+        moving.translation,
+        moving.axes_orientations,
+        out_chunks,
+        fixed.dims,
+        fixed.scale,
+        fixed.translation,
+        fixed.axes_orientations,
+        transform_list,
+        padding,
+        interpolator,
+        default_value,
+    )
+    graph = {}
+    for index in np.ndindex(*[len(sizes) for sizes in out_chunks]):
+        starts = {
+            dim: int(out_offsets[axis][index[axis]])
+            for axis, dim in enumerate(fixed.dims)
+        }
+        shape = tuple(int(out_chunks[axis][index[axis]]) for axis in range(len(index)))
+        grid = _block_grid(fixed, starts, shape)
+        region = itk_transform_resample_bounding_box(
+            transform_list, grid, moving, padding=padding
+        )
+        if region.is_empty:
+            graph[(name, *index)] = (np.full, shape, default_value, dtype)
+            continue
+        clamped = region.clamped()
+        bounds = tuple(
+            clamped[dim] if dim in clamped else (0, moving.data.shape[axis])
+            for axis, dim in enumerate(moving.dims)
+        )
+        first_chunk = tuple(
+            int(np.searchsorted(moving_offsets[axis], start, side="right") - 1)
+            for axis, (start, _stop) in enumerate(bounds)
+        )
+        last_chunk = tuple(
+            int(np.searchsorted(moving_offsets[axis], stop - 1, side="right"))
+            for axis, (_start, stop) in enumerate(bounds)
+        )
+        nchunks = tuple(last - first for first, last in zip(first_chunk, last_chunk))
+        chunk_keys = [
+            moving_key(tuple(first + rel for first, rel in zip(first_chunk, relative)))
+            for relative in np.ndindex(*nchunks)
+        ]
+        offset = tuple(
+            int(moving_offsets[axis][first]) for axis, first in enumerate(first_chunk)
+        )
+        graph[(name, *index)] = (
+            functools.partial(
+                _resample_block,
+                nchunks=nchunks,
+                offset=offset,
+                bounds=bounds,
+                moving_dims=tuple(moving.dims),
+                moving_scale=dict(moving.scale),
+                moving_translation=dict(moving.translation),
+                grid_dims=tuple(fixed.dims),
+                grid_scale=dict(fixed.scale),
+                grid_translation=dict(grid.translation),
+                grid_shape=shape,
+                grid_orientations=fixed.axes_orientations,
+                transform_list=transform_list,
+                interpolator=interpolator,
+                default_value=default_value,
+                out_dtype=dtype,
+            ),
+            chunk_keys,
+        )
+
+    data = da.Array(
+        HighLevelGraph.from_collections(name, graph, dependencies=[moving.data]),
+        name,
+        chunks=out_chunks,
         dtype=dtype,
-        transform_list=transform_list,
-        fixed=fixed,
-        moving=moving,
-        padding=padding,
-        interpolator=interpolator,
-        default_value=default_value,
-        out_dtype=dtype,
     )
 
     return NgffImage(
