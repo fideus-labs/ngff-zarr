@@ -403,6 +403,82 @@ def test_tiff_file_to_ngff_images_with_sample_axis():
     assert img.data.shape == (5, 100, 100, 3)
 
 
+def test_tiff_file_to_ngff_images_with_ome_translation():
+    """Test that OME translation metadata is extracted."""
+    try:
+        import tifffile
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+    from ngff_zarr import NgffMultiscales, tiff_file_to_ngff_images
+    from ngff_zarr.tiff_to_ngff_image import _convert_unit_value
+
+    # Create an OME-TIFF with translation metadata
+    tmpdir = Path(tempfile.mkdtemp())
+    tiff_path = tmpdir / "ome_with_translation.ome.tiff"
+
+    pixel_size = 1
+    pixel_size_unit = "nm"
+
+    size_x, size_y, size_z = 100, 100, 10
+    position_x, position_y, position_z = 1.1, 2.2, 3.3
+    ome_unit = "µm"
+    nplanes = size_z
+
+    expected_position_x = _convert_unit_value(position_x, ome_unit, pixel_size_unit)
+    expected_position_y = _convert_unit_value(position_y, ome_unit, pixel_size_unit)
+    expected_position_z = _convert_unit_value(position_z, ome_unit, pixel_size_unit)
+
+    metadata = {
+        "DimensionOrder": "XYZCT",
+        "PhysicalSizeX": pixel_size,
+        "PhysicalSizeXUnit": pixel_size_unit,
+        "PhysicalSizeY": pixel_size,
+        "PhysicalSizeYUnit": pixel_size_unit,
+        "PhysicalSizeZ": pixel_size,
+        "PhysicalSizeZUnit": pixel_size_unit,
+        "Plane": {
+            "PositionX": [position_x] * nplanes,
+            "PositionXUnit": [ome_unit] * nplanes,
+            "PositionY": [position_y] * nplanes,
+            "PositionYUnit": [ome_unit] * nplanes,
+            "PositionZ": [position_z] * nplanes,
+            "PositionZUnit": [ome_unit] * nplanes,
+        },
+    }
+
+    with tifffile.TiffWriter(tiff_path, ome=True) as tif:
+        tif.write(
+            np.random.rand(size_z, size_y, size_x).astype(np.float32),
+            photometric="minisblack",
+            metadata=metadata,
+            subifds=1,
+        )
+        tif.write(
+            np.random.rand(size_z // 2, size_y // 2, size_x // 2).astype(np.float32),
+            photometric="minisblack",
+            metadata=metadata,
+            subfiletype=1,
+        )
+
+    # Convert and check metadata
+    for reuse_existing_pyramids in [False, True]:
+        images = tiff_file_to_ngff_images(
+            tiff_path, reuse_existing_pyramids=reuse_existing_pyramids
+        )
+        assert len(images) == 1
+
+        name, img = images[0]
+        if isinstance(img, NgffMultiscales):
+            img = img.images[0]  # Get the first NgffImage from the multiscales
+
+        # Check translation was extracted from OME metadata
+        assert img.translation is not None
+        assert img.translation["x"] == pytest.approx(expected_position_x)
+        assert img.translation["y"] == pytest.approx(expected_position_y)
+        assert img.translation["z"] == pytest.approx(expected_position_z)
+
+
 def test_tiff_file_to_ngff_images_simple_rgb():
     """Test handling of simple RGB TIFF (YXS -> yxc)."""
     try:
