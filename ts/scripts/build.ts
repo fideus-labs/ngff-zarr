@@ -72,7 +72,15 @@ async function main() {
     },
     {
       condition: args.test || args.target === "all" || args.target === "test",
-      cmd: ["deno", "test", "--allow-all", "--ignore=test/browser-npm/"],
+      // test/node/ is excluded here and run by the `test-node` task instead:
+      // it imports the built package from npm/, which this build has not
+      // produced yet, so Deno would fail to resolve it while type-checking.
+      cmd: [
+        "deno",
+        "test",
+        "--allow-all",
+        "--ignore=test/browser-npm/,test/node/",
+      ],
       description: "Running tests",
     },
     {
