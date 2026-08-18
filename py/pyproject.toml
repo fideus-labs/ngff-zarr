@@ -41,6 +41,7 @@ dependencies = [
   "rich-argparse",
   "typing_extensions",
   "zarr",
+  "zarrista; python_version >= \"3.11\"",
 ]
 dynamic = ["version"]
 
