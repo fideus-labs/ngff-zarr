@@ -126,7 +126,8 @@ so that is the knob to reach for when the peak is still too high:
 ```python
 >>> import dask                                         # doctest: +SKIP
 >>> with dask.config.set(num_workers=4):                # doctest: +SKIP
-...     resampled.data.to_zarr("resampled.zarr")
+...     nz.to_ngff_zarr("resampled.zarr",
+...         nz.to_multiscales(resampled, scale_factors=[]))
 ```
 
 Building the graph is where the regions are computed, one bounding box per
@@ -147,8 +148,10 @@ resample level by level from local disk and from S3.
 block-wise result to match an undecomposed one exactly. Those defaults are
 measured, not assumed, because too small a padding does not raise: it silently
 returns wrong pixels near block borders. `b_spline` needs a notably wide 16,
-since it prefilters coefficients over the whole image it is handed, so cropping
-perturbs them everywhere and the perturbation only decays with distance.
+and 32 on float64 images, since it prefilters coefficients over the whole image
+it is handed, so cropping perturbs them everywhere and the perturbation only
+decays with distance, further than float32 can resolve but not further than
+float64 can.
 
 ### Non-linear transforms
 

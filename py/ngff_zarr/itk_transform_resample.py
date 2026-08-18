@@ -11,6 +11,7 @@ from .itk_transform_resample_bounding_box import (
     _check_geometry,
     _itk_direction,
     _metadata_only_itk_image,
+    _shifted_translation,
     _spatial_dims,
     itk_transform_resample_bounding_box,
 )
@@ -40,6 +41,16 @@ _INTERPOLATOR_PADDING = {
     "windowed_sinc": 3,
     "b_spline": 16,
 }
+
+#: float64 resolves the prefilter perturbation further out than float32 does,
+#: so ``b_spline`` needs twice the padding to stay exact on float64 images.
+_FLOAT64_INTERPOLATOR_PADDING = {"b_spline": 32}
+
+
+def _default_padding(interpolator: str, dtype) -> int:
+    if np.dtype(dtype) == np.float64 and interpolator in _FLOAT64_INTERPOLATOR_PADDING:
+        return _FLOAT64_INTERPOLATOR_PADDING[interpolator]
+    return _INTERPOLATOR_PADDING[interpolator]
 
 
 def _component_type(out_dtype) -> str:
@@ -77,15 +88,11 @@ def _shape_only(shape: tuple) -> np.ndarray:
 
 def _block_grid(fixed: NgffImage, starts: dict, shape: tuple) -> NgffImage:
     """A geometry-only stand-in for one output block of the fixed grid."""
-    translation = {
-        dim: fixed.translation[dim] + starts[dim] * fixed.scale[dim]
-        for dim in fixed.dims
-    }
     return NgffImage(
         data=_shape_only(shape),
         dims=tuple(fixed.dims),
         scale=dict(fixed.scale),
-        translation=translation,
+        translation=_shifted_translation(fixed, starts),
         name=fixed.name,
         axes_units=fixed.axes_units,
         axes_orientations=fixed.axes_orientations,
@@ -102,6 +109,7 @@ def _resample_block(
     moving_dims,
     moving_scale,
     moving_translation,
+    moving_orientations,
     grid_dims,
     grid_scale,
     grid_translation,
@@ -155,15 +163,22 @@ def _resample_block(
         region = np.ascontiguousarray(nested[(0,) * len(nchunks)])
     else:
         region = np.block(nested.tolist())
-    translation = {
-        dim: moving_translation[dim] + start * moving_scale[dim]
-        for dim, (start, _stop) in zip(moving_dims, bounds)
-    }
+    moving_geometry = NgffImage(
+        data=_shape_only(tuple(stop - start for start, stop in bounds)),
+        dims=moving_dims,
+        scale=dict(moving_scale),
+        translation=dict(moving_translation),
+        axes_orientations=moving_orientations,
+    )
     crop = NgffImage(
         data=region,
         dims=moving_dims,
         scale=dict(moving_scale),
-        translation=translation,
+        translation=_shifted_translation(
+            moving_geometry,
+            {dim: start for dim, (start, _stop) in zip(moving_dims, bounds)},
+        ),
+        axes_orientations=moving_orientations,
     )
 
     grid = NgffImage(
@@ -225,7 +240,8 @@ def itk_transform_resample(
 
     :param padding: Pixels of padding added per side when computing each
         block's source region. Defaults to what ``interpolator`` reads beyond
-        the continuous index bound, so the two stay in step.
+        the continuous index bound, so the two stay in step; ``b_spline``
+        defaults to 16, or 32 on float64 images.
     :type  padding: int | None
 
     :param interpolator: One of ``"linear"`` (default),
@@ -249,7 +265,7 @@ def itk_transform_resample(
         msg = f"interpolator must be one of {_INTERPOLATORS}, got {interpolator!r}"
         raise ValueError(msg)
     if padding is None:
-        padding = _INTERPOLATOR_PADDING[interpolator]
+        padding = _default_padding(interpolator, moving.data.dtype)
     if not isinstance(padding, int) or isinstance(padding, bool) or padding < 0:
         msg = f"padding must be a non-negative integer, got {padding!r}"
         raise ValueError(msg)
@@ -262,7 +278,7 @@ def itk_transform_resample(
             f"image has {tuple(moving_spatial)}; they must match"
         )
         raise ValueError(msg)
-    if len(fixed_spatial) < 2:
+    if len(fixed_spatial) not in (2, 3):
         msg = (
             f"images have {len(fixed_spatial)} spatial dims "
             f"{tuple(fixed_spatial)}; only 2 and 3 are supported"
@@ -272,6 +288,13 @@ def itk_transform_resample(
         msg = (
             f"fixed image has dims {tuple(fixed.dims)} but moving image has "
             f"{tuple(moving.dims)}; they must match"
+        )
+        raise ValueError(msg)
+    non_spatial = tuple(dim for dim in fixed.dims if dim not in fixed_spatial)
+    if non_spatial:
+        msg = (
+            f"images have non-spatial dims {non_spatial}; index or squeeze "
+            "them so that only spatial dims remain before resampling"
         )
         raise ValueError(msg)
     for label, image in (("fixed", fixed), ("moving", moving)):
@@ -358,6 +381,7 @@ def itk_transform_resample(
                 moving_dims=tuple(moving.dims),
                 moving_scale=dict(moving.scale),
                 moving_translation=dict(moving.translation),
+                moving_orientations=moving.axes_orientations,
                 grid_dims=tuple(fixed.dims),
                 grid_scale=dict(fixed.scale),
                 grid_translation=dict(grid.translation),

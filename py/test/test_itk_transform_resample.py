@@ -144,15 +144,17 @@ def test_each_block_reads_only_its_own_region():
 
     from ngff_zarr.itk_transform_resample import _block_grid
 
-    for y_start in range(0, 64, 16):
-        for x_start in range(0, 64, 16):
-            grid = _block_grid(fixed, {"y": y_start, "x": x_start}, (16, 16))
+    block = 16
+    pad = _INTERPOLATOR_PADDING["linear"]
+    for y_start in range(0, 64, block):
+        for x_start in range(0, 64, block):
+            grid = _block_grid(fixed, {"y": y_start, "x": x_start}, (block, block))
             region = itk_transform_resample_bounding_box(transform, grid, moving)
             bounds = region.clamped()
             for dim in ("y", "x"):
                 assert bounds[dim][0] >= whole_bounds[dim][0]
                 assert bounds[dim][1] <= whole_bounds[dim][1]
-                assert bounds[dim][1] - bounds[dim][0] <= 16 + 2 * 1 + 1
+                assert bounds[dim][1] - bounds[dim][0] <= block + 2 * pad + 1
 
 
 @pytest.mark.parametrize("interpolator", ["linear", "nearest_neighbor"])
@@ -387,3 +389,92 @@ def test_the_graph_does_not_carry_a_buffer_for_every_block():
     assert weight < result.data.size // 16, (
         f"the graph weighs {weight} bytes to describe {result.data.size} voxels"
     )
+
+
+def test_b_spline_default_padding_is_exact_on_float64_images():
+    """float64 resolves the prefilter perturbation further out than float32.
+
+    A 16-pixel padding leaves differences of about 1e-8 on float64 images
+    (measured: 24 leaves 3e-13, 32 none), so the float64 default is 32 and
+    must reproduce an undecomposed resample exactly.
+    """
+    moving = _image(
+        "yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 0, "x": 0}, dtype=np.float64
+    )
+    fixed = _image(
+        "yx",
+        {"y": 64, "x": 64},
+        {"y": 1, "x": 1},
+        {"y": 0, "x": 0},
+        chunks=(16, 16),
+        dtype=np.float64,
+    )
+    transform = _translation(2, [3.5, -2.25])
+
+    result = np.asarray(
+        itk_transform_resample(transform, fixed, moving, interpolator="b_spline").data
+    )
+    expected = _whole_image_reference(transform, fixed, moving, interpolator="b_spline")
+    np.testing.assert_array_equal(result, expected)
+
+
+def test_oriented_images_match_an_undecomposed_resample():
+    """RFC-4 orientation must travel with every block and every crop.
+
+    With a non-identity direction, the origin of a sub-grid is the translation
+    moved by the index offset rotated through that direction; shifting it along
+    the array axes instead would place every block but the first at the wrong
+    physical position, and a crop that dropped the orientation would be
+    sampled at mirrored points.
+    """
+    from ngff_zarr.rfc4 import RAS
+
+    def oriented(image):
+        return NgffImage(
+            data=image.data,
+            dims=image.dims,
+            scale=image.scale,
+            translation=image.translation,
+            axes_orientations=RAS,
+        )
+
+    moving = oriented(
+        _image(
+            "zyx",
+            {"z": 24, "y": 32, "x": 32},
+            {"z": 2.0, "y": 1.0, "x": 1.0},
+            {"z": 5.0, "y": -3.0, "x": 2.0},
+        )
+    )
+    fixed = oriented(
+        _image(
+            "zyx",
+            {"z": 24, "y": 32, "x": 32},
+            {"z": 2.0, "y": 1.0, "x": 1.0},
+            {"z": 5.0, "y": -3.0, "x": 2.0},
+            chunks=(8, 16, 16),
+        )
+    )
+    transform = _translation(3, [1.5, -2.25, 3.0])
+
+    result = np.asarray(itk_transform_resample(transform, fixed, moving).data)
+    expected = _whole_image_reference(transform, fixed, moving)
+    np.testing.assert_array_equal(result, expected)
+
+
+def test_non_spatial_dims_are_rejected():
+    moving = _image(
+        "tyx",
+        {"t": 1, "y": 16, "x": 16},
+        {"t": 1, "y": 1, "x": 1},
+        {"t": 0, "y": 0, "x": 0},
+    )
+    fixed = _image(
+        "tyx",
+        {"t": 1, "y": 16, "x": 16},
+        {"t": 1, "y": 1, "x": 1},
+        {"t": 0, "y": 0, "x": 0},
+    )
+
+    with pytest.raises(ValueError, match="non-spatial dims"):
+        itk_transform_resample(_identity(2), fixed, moving)
