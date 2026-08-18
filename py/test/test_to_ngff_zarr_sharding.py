@@ -105,8 +105,9 @@ def test_zarr_python_sharding(input_images):
         )
 
 
-def test_tensorstore_sharding(input_images):
-    pytest.importorskip("tensorstore")
+@pytest.mark.filterwarnings("ignore:use_tensorstore is deprecated:DeprecationWarning")
+def test_zarrista_sharding(input_images):
+    pytest.importorskip("zarrista")
 
     dataset_name = "cthead1"
     image = input_images[dataset_name]

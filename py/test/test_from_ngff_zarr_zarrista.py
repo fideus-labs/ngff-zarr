@@ -1,5 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+"""Reading back stores written by the zarrista fast direct-write path."""
+
 import tempfile
 
 import pytest
@@ -11,7 +13,12 @@ from ngff_zarr import (
     to_ngff_zarr,
 )
 
-pytest.importorskip("tensorstore")
+# zarrista requires Python >= 3.11; the py310 environment runs without it.
+pytest.importorskip("zarrista")
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:use_tensorstore is deprecated:DeprecationWarning"
+)
 
 
 def test_from_ngff_zarr(input_images):

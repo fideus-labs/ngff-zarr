@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-"""Test script to test tensorstore compression directly."""
+"""Test script to test zarrista fast-path compression directly."""
 
-import sys
 import tempfile
 from pathlib import Path
 
 import numcodecs
+import pytest
 from ngff_zarr import cli_input_to_ngff_image, detect_cli_io_backend, to_ngff_zarr
 
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:use_tensorstore is deprecated:DeprecationWarning"
+)
 
-def test_tensorstore_compression():
-    if sys.platform == "win32":
-        print("Skipping tensorstore test on Windows")
-        return
+
+def test_zarrista_compression():
+    pytest.importorskip("zarrista")
 
     test_input_file = Path("../mcp/test/data/input/MR-head.nrrd")
     if test_input_file.exists():
@@ -28,7 +30,7 @@ def test_tensorstore_compression():
 
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = f"{temp_dir}/test.ome.zarr"
-            print("Testing compression with tensorstore...")
+            print("Testing compression with the zarrista fast path...")
 
             try:
                 compressor = numcodecs.Blosc(cname="lz4", clevel=5)
@@ -50,4 +52,4 @@ def test_tensorstore_compression():
 
 
 if __name__ == "__main__":
-    test_tensorstore_compression()
+    test_zarrista_compression()

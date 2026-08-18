@@ -38,8 +38,9 @@ def test_gaussian_isotropic_scale_factors(input_images):
         assert ax.name == dimension_names[idx]
 
 
-def test_gaussian_isotropic_scale_factors_tensorstore(input_images):
-    pytest.importorskip("tensorstore")
+@pytest.mark.filterwarnings("ignore:use_tensorstore is deprecated:DeprecationWarning")
+def test_gaussian_isotropic_scale_factors_zarrista(input_images):
+    pytest.importorskip("zarrista")
 
     dataset_name = "cthead1"
     image = input_images[dataset_name]
