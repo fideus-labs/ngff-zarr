@@ -53,13 +53,28 @@ _BLOSC_SHUFFLE_TO_INT = {"noshuffle": 0, "shuffle": 1, "bitshuffle": 2}
 _BLOSC_SHUFFLE_TO_STR = {v: k for k, v in _BLOSC_SHUFFLE_TO_INT.items()}
 
 
+def _native_contiguous(value) -> np.ndarray:
+    """Return *value* as a C-contiguous, native-byte-order ndarray.
+
+    zarrista ingests write input through DLPack, which rejects both
+    non-contiguous buffers and non-native byte order (e.g. big-endian
+    ``>u2`` input); the target array's stored byte order comes from its
+    metadata, so byteswapping the in-memory values is safe.
+    """
+    value = np.ascontiguousarray(value)
+    if not value.dtype.isnative:
+        value = value.astype(value.dtype.newbyteorder("="))
+    return value
+
+
 class _ZarristaArrayAdapter:
     """Minimal numpy-protocol surface over a zarrista ``Array`` for dask.
 
     zarrista exposes ``shape`` as a ``list``, ``dtype`` as its own
     ``DataType``, has no ``.chunks`` attribute, and rejects non-C-contiguous
-    write input. dask needs a tuple ``shape``, a numpy ``dtype``, ndarray
-    ``__getitem__`` results, and contiguity-tolerant ``__setitem__``.
+    or non-native-byte-order write input. dask needs a tuple ``shape``, a
+    numpy ``dtype``, ndarray ``__getitem__`` results, and a tolerant
+    ``__setitem__`` (see :func:`_native_contiguous`).
     """
 
     def __init__(self, arr):
@@ -72,7 +87,7 @@ class _ZarristaArrayAdapter:
         return np.asarray(self._arr[selection])
 
     def __setitem__(self, selection, value):
-        self._arr[selection] = np.ascontiguousarray(value)
+        self._arr[selection] = _native_contiguous(value)
 
 
 def _canonical_compressor(compressor) -> tuple[str, dict] | None:
@@ -105,6 +120,29 @@ def _canonical_compressor(compressor) -> tuple[str, dict] | None:
     )
 
 
+def _evolve_blosc_params(compressor, params: dict, itemsize: int) -> dict:
+    """Resolve constructor-defaulted blosc typesize/shuffle from the dtype.
+
+    zarr-python's ``BloscCodec`` serializes unset attrs as ``typesize=1`` /
+    ``shuffle="bitshuffle"``, records which were defaulted in
+    ``_tunable_attrs``, and evolves those from the dtype at write time.
+    Mirror that so the stored metadata matches what zarr-python would write;
+    explicitly chosen values are kept.
+    """
+    params = dict(params)
+    tunable = getattr(compressor, "_tunable_attrs", None)
+    if tunable is None:
+        # Fallback for compressor forms without _tunable_attrs.
+        if params.get("typesize") in (None, 1):
+            params["typesize"] = itemsize
+    else:
+        if "typesize" in tunable:
+            params["typesize"] = itemsize
+        if "shuffle" in tunable:
+            params["shuffle"] = "bitshuffle" if itemsize == 1 else "shuffle"
+    return params
+
+
 def _blosc_shuffle_int(value, itemsize: int = 4) -> int:
     if value is None or (not isinstance(value, str) and int(value) == -1):
         # numcodecs AUTOSHUFFLE / an unresolved zarr v3 default: bitshuffle
@@ -123,6 +161,7 @@ def _compressor_to_v2_config(compressor, dtype: np.dtype) -> dict | None:
         return None
     name, params = canonical
     if name == "blosc":
+        params = _evolve_blosc_params(compressor, params, dtype.itemsize)
         return {
             "id": "blosc",
             "cname": params.get("cname", "lz4"),
@@ -149,6 +188,7 @@ def _compressor_to_zarrista_codec(compressor, dtype: np.dtype):
         return None
     name, params = canonical
     if name == "blosc":
+        params = _evolve_blosc_params(compressor, params, dtype.itemsize)
         shuffle = _BLOSC_SHUFFLE_TO_STR[
             _blosc_shuffle_int(params.get("shuffle", 1), dtype.itemsize)
         ]

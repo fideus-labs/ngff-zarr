@@ -227,6 +227,7 @@ def _write_with_zarrista(
     requests no compression.
     """
     from ._zarrista_utils import (
+        _native_contiguous,
         create_zarrista_array,
         open_zarrista_array,
         write_dask_array,
@@ -319,7 +320,7 @@ def _write_with_zarrista(
             ]
         ):
             # Compute the array to get the actual shape
-            computed_array = np.ascontiguousarray(array)
+            computed_array = _native_contiguous(array)
 
             # Adjust region to match the actual computed array shape if needed
             if len(region) == len(computed_array.shape):
@@ -366,7 +367,10 @@ def _validate_ngff_parameters(
             )
 
     if use_tensorstore and not isinstance(store, (str, Path)):
-        raise ValueError("use_tensorstore currently requires a path-like store")
+        raise ValueError(
+            "The zarrista writer (use_tensorstore=True) currently requires a "
+            "path-like store"
+        )
 
 
 def _prepare_metadata(
@@ -583,11 +587,6 @@ def _write_array_with_zarrista(
             compression_chain=compression_chain,
             **kwargs,
         )
-
-
-# Transitional alias: the ``use_tensorstore`` call sites still reference the
-# old name until they are rewired to the zarrista writer.
-_write_array_with_tensorstore = _write_array_with_zarrista
 
 
 def _prepare_zarr_kwargs(to_zarr_kwargs: dict):
@@ -1085,7 +1084,7 @@ def _handle_large_array_writing(
         )
 
         if use_tensorstore:
-            _write_array_with_tensorstore(
+            _write_array_with_zarrista(
                 store_path,
                 path,
                 optimized,
@@ -1404,7 +1403,8 @@ def to_ome_zarr(
     :param overwrite: If True, delete any pre-existing data in `store` before creating groups.
     :type  overwrite: bool, optional
 
-    :param use_tensorstore: If True, write array using tensorstore backend.
+    :param use_tensorstore: Deprecated. If True, write arrays with the zarrista
+        backend's fast direct-write path (tensorstore is no longer used).
     :type  use_tensorstore: bool, optional
 
     :param chunk_store: Separate storage for chunks. If not provided, `store` will be used
@@ -1431,6 +1431,14 @@ def to_ome_zarr(
 
     :param **kwargs: Passed to the zarr.create_array() or zarr.creation.create() function, e.g., compression options.
     """
+    if use_tensorstore:
+        warnings.warn(
+            "use_tensorstore is deprecated; the fast direct-write path now "
+            "uses the zarrista backend instead of tensorstore.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     # ``enabled_rfcs`` was removed: RFC-4 anatomical orientation is now written
     # automatically whenever it is present. Reject it explicitly so a legacy
     # caller gets a clear migration message instead of an opaque error from the
@@ -1485,7 +1493,7 @@ def to_ome_zarr(
                 multiscales,
                 version=version,
                 overwrite=overwrite,
-                use_tensorstore=False,  # Can't use tensorstore with memory/temp stores
+                use_tensorstore=False,  # zarrista writer needs a path-like store, not memory/temp stores
                 chunk_store=None,
                 progress=progress,
                 chunks_per_shard=chunks_per_shard,
@@ -1619,7 +1627,7 @@ def _to_ngff_zarr_impl(
         # Get the chunks - these are now the shards if sharding is enabled
         chunks = tuple([c[0] for c in arr.chunks])
 
-        # For TensorStore, shards are the same as chunks when sharding is enabled
+        # For the zarrista writer, shards are the same as chunks when sharding is enabled
         shards = chunks if chunks_per_shard is not None else None
 
         # Determine write method based on memory requirements
@@ -1656,7 +1664,7 @@ def _to_ngff_zarr_impl(
             # For small arrays, write in one go
             region = tuple([slice(arr.shape[i]) for i in range(arr.ndim)])
             if use_tensorstore:
-                _write_array_with_tensorstore(
+                _write_array_with_zarrista(
                     store_path,
                     path,
                     arr,

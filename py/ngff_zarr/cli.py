@@ -319,6 +319,11 @@ def _multiscales_to_ngff_zarr(
             )
         return
     if args.use_tensorstore:
+        live.console.print(
+            "[yellow]Warning: --use-tensorstore is deprecated; "
+            "using the zarrista backend."
+        )
+        # The zarrista writer requires a path-like store
         if hasattr(output_store, "root"):
             output_store = output_store.root
         else:
@@ -629,7 +634,7 @@ def _convert_main(argv: list[str] | None = None) -> None:
     processing_group.add_argument(
         "--use-tensorstore",
         action="store_true",
-        help="Use the TensorStore library for I/O",
+        help="Deprecated: now uses the zarrista backend for I/O",
     )
     processing_group.add_argument(
         "--codec",
