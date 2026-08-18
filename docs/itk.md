@@ -100,9 +100,12 @@ bound; pass `0` for the tight region or a larger value for wider kernels.
 ### Resampling the whole grid
 
 `itk_transform_resample` does the loop for you: it returns a lazy `NgffImage`
-on the grid of `fixed`, where every block computes its own region, materializes
-only that crop of `moving`, and resamples it. The full moving image is never
-loaded, and nothing runs until the result is computed.
+on the grid of `fixed`, where every block reads only the chunks of `moving`
+inside its own region and resamples that crop. The regions are computed when
+the graph is built, and the blocks are tasks of one Dask graph that reference
+the moving chunks directly, so a chunk that several blocks need is read and
+decoded once. The full moving image is never loaded, and nothing runs until
+the result is computed.
 
 ```python
 >>> resampled = nz.itk_transform_resample(              # doctest: +SKIP
@@ -113,6 +116,32 @@ loaded, and nothing runs until the result is computed.
 
 Resampling runs through `itkwasm-downsample`, so no native ITK build is needed
 and the result does not depend on the platform.
+
+What bounds memory is streaming the result, not building it. Writing the lazy
+array straight to a store keeps only the blocks in flight resident, while
+`np.asarray` on it holds the whole output at once and gives most of that back.
+The number of blocks in flight is a Dask setting rather than an argument here,
+so that is the knob to reach for when the peak is still too high:
+
+```python
+>>> import dask                                         # doctest: +SKIP
+>>> with dask.config.set(num_workers=4):                # doctest: +SKIP
+...     resampled.data.to_zarr("resampled.zarr")
+```
+
+Building the graph is where the regions are computed, one bounding box per
+output block, so the call itself is not instant and its cost grows with the
+number of blocks rather than with their size. On a 513 x 1331 x 1775 grid that
+is about 0.25 s for 126 blocks of 256 and 1.8 s for 770 blocks of 128. It is
+paid once, whether or not the result is ever computed, so prefer chunks that
+are large enough to be worth a resample call.
+
+For a worked example, see
+[`py/examples/itk_elastix_transform_resample_s3.ipynb`](https://github.com/fideus-labs/ngff-zarr/blob/main/py/examples/itk_elastix_transform_resample_s3.ipynb):
+it registers two whole mouse brains streamed anonymously from S3 with
+ITKElastix at the coarsest pyramid level, resamples one onto the other at full
+resolution (1.2 billion voxels) into a local OME-Zarr, and benchmarks the
+resample level by level from local disk and from S3.
 
 `padding` defaults to what the chosen `interpolator` requires for the
 block-wise result to match an undecomposed one exactly. Those defaults are
