@@ -30,7 +30,7 @@ A lean and kind
 - Writes OME-Zarr v0.4 to v0.6
 - v0.6 adds RFC-5 coordinate systems and transformations
 - [Sharded Zarr] stores
-- Optional writing via zarr-python 2, zarr-python 3, [tensorstore] or zarrita (TypeScript)
+- Optional writing via zarr-python 2, zarr-python 3, [zarrista] or zarrita (TypeScript)
 - [Anatomical orientation metadata](./rfc4.md) (RFC-4)
 - [Coordinate systems and transformations](./rfc5.md) (RFC-5)
 - **OME-Zarr Zip (.ozx) file support** for single-file OME-Zarr datasets (RFC-9)
@@ -66,4 +66,4 @@ apidocs/index.rst
 ```
 
 [Sharded Zarr]: https://zarr.dev/zeps/accepted/ZEP0002.html
-[tensorstore]: https://google.github.io/tensorstore/
+[zarrista]: https://github.com/developmentseed/zarrista

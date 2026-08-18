@@ -23,7 +23,8 @@ supported by `ngff-zarr`.
 - **Sharded Zarr**: Support for sharded Zarr stores, allowing for scalable data
   management.
 - **Format conversion**: Conversion of most bioimaging file formats to OME-Zarr.
-- **Tensorstore Writing**: Optional writing via [tensorstore] for advanced use
+- **Zarrista Writing**: Optional fast direct writing via
+  [zarrista](https://github.com/developmentseed/zarrista) for advanced use
   cases.
 - **Model Context Protocol (MCP)**: Integration with the Model Context Protocol
   for AI agent interaction.

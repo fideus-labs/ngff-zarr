@@ -41,8 +41,6 @@ Optional extras dependencies include:
 Cloud Storage, and Azure -- via [fsspec] backends. See
 [Network Storage and Authentication](./faq.md#network-storage-and-authentication).
 
-`tensorstore` : Support writing with [tensorstore].
-
 `validate` : Support OME-Zarr data model metadata validation when reading.
 
 [Pyodide REPL]: https://pyodide.org/en/stable/console.html
@@ -50,14 +48,13 @@ Cloud Storage, and Azure -- via [fsspec] backends. See
 [dask-image]: https://image.dask.org/en/latest/
 [itk]: https://docs.itk.org/en/latest/learn/python_quick_start.html
 [fsspec]: https://filesystem-spec.readthedocs.io/en/latest/
-[tensorstore]: https://google.github.io/tensorstore/
 
 ### Install all optional dependencies
 
 To install all optional dependencies:
 
 ```shell
-pip install "ngff-zarr[cli,dask-image,itk,remote,tensorstore,validate]"
+pip install "ngff-zarr[cli,dask-image,itk,remote,validate]"
 ```
 
 which is equivalent to:

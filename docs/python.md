@@ -302,20 +302,20 @@ also be used.
 
 The multiscales will be computed and written out-of-core, limiting memory usage.
 
-### Writing with Tensorstore
+### Fast direct writing with zarrista
 
-To write with [tensorstore], which may provide better performance, use the
-`tensorstore` optional dependency.
-
-```shell
-pip install "ngff-zarr[tensorstore]"
-```
+The [zarrista] backend, included with ngff-zarr on Python 3.11+, provides a
+fast direct-write path for local, path-like stores.
 
 ```python
 nz.to_ngff_zarr('cthead1.ome.zarr', multiscales, use_tensorstore=True)
 ```
 
-The TensorStore backend uses the same dtype canonicalization, including for
+The `use_tensorstore` keyword is a deprecated name kept for backwards
+compatibility -- it now enables the zarrista writer, which replaced the
+previous tensorstore backend.
+
+The zarrista backend uses the same dtype canonicalization, including for
 big-endian NumPy arrays written to Zarr v3 stores.
 
 ### Write a sharded OME-Zarr store
@@ -362,7 +362,7 @@ The resulting shard shape will be the product of the chunk shape and the
 `chunks_per_shard` shape. In this case the shard shape will be `(256, 128, 128)`
 for a chunk shape of `(64, 64, 64)`.
 
-Tensorstore can also be used with sharded OME-Zarr stores.
+The zarrista writer can also be used with sharded OME-Zarr stores.
 
 ```python
 nz.to_ngff_zarr('lightsheet.ome.zarr',
@@ -604,4 +604,4 @@ example `plate.ome.zarr/A/1/0`).
 [`upgrade_ome_zarr`]: ./apidocs/ngff_zarr/ngff_zarr.upgrade_ome_zarr.md
 [`from_hcs_zarr`]: ./apidocs/ngff_zarr/ngff_zarr.hcs.md
 [Sharded Zarr]: https://zarr.dev/zeps/accepted/ZEP0002.html
-[tensorstore]: https://google.github.io/tensorstore/
+[zarrista]: https://github.com/developmentseed/zarrista

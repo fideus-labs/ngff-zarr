@@ -398,7 +398,8 @@ export class NgffImage {
 
 ### Performance Optimization
 
-- Enable `use_tensorstore=True` for very large datasets
+- Enable the zarrista fast direct-write path with `use_tensorstore=True`
+  (deprecated keyword name) for very large datasets
 - Use `chunks_per_shard` for zarr v3 sharding
 - Set appropriate `chunks` parameter for your use case
 
