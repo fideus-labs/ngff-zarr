@@ -131,6 +131,40 @@ Deno.test("rewriteImports leaves non-specifier npm: strings alone", () => {
   }
 });
 
+Deno.test("rewriteImports rewrites across a comment before the specifier", () => {
+  // A comment is whitespace to the JS grammar, so it does not stop the
+  // literal after it from being a module specifier.
+  assertEquals(
+    rewriteImports(`import /* c */ "npm:pkg@1.0.0";`),
+    `import /* c */ "pkg";`,
+  );
+  assertEquals(
+    rewriteImports(`import x from /* c */ "npm:zarrita@^0.6.1";`),
+    `import x from /* c */ "zarrita";`,
+  );
+  assertEquals(
+    rewriteImports(`import x from // c\n  "npm:zarrita@^0.6.1";`),
+    `import x from // c\n  "zarrita";`,
+  );
+  assertEquals(
+    rewriteImports(`const m = await import(/* c */ "npm:zarrita@^0.6.1");`),
+    `const m = await import(/* c */ "zarrita");`,
+  );
+});
+
+Deno.test("rewriteImports does not let comment text fake a specifier", () => {
+  // Skipped comments contribute a placeholder space, never their own text —
+  // otherwise a comment ending in `import` would capture the next literal.
+  for (
+    const src of [
+      `/* import */ "npm:pkg@1.0.0"`,
+      `// the word from\n"npm:pkg@1.0.0"`,
+    ]
+  ) {
+    assertEquals(rewriteImports(src), src);
+  }
+});
+
 Deno.test("rewriteImports leaves commented-out imports alone", () => {
   // Several source comments discuss `npm:` versus `jsr:` resolution, so a
   // quoted specifier inside one is a realistic way to corrupt the build.

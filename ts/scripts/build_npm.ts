@@ -79,13 +79,17 @@ function rewriteNpmSpecifiers(content: string): string {
     const ch = content[i];
     const next = content[i + 1];
 
-    // Line comment — copy through to the newline.
+    // Line comment — copy through to the newline. A comment stands in for
+    // whitespace rather than clearing the preceding code: JS treats the two
+    // the same, so `import /* c */ "npm:pkg"` is still an import. Only a
+    // placeholder space is recorded, never the comment's own text, so words
+    // inside a comment cannot fake a specifier position.
     if (ch === "/" && next === "/") {
       const end = content.indexOf("\n", i);
       const stop = end === -1 ? content.length : end;
       out += content.slice(i, stop);
       i = stop;
-      code = "";
+      code = (code + " ").slice(-LOOKBEHIND);
       continue;
     }
 
@@ -95,7 +99,7 @@ function rewriteNpmSpecifiers(content: string): string {
       const stop = end === -1 ? content.length : end + 2;
       out += content.slice(i, stop);
       i = stop;
-      code = "";
+      code = (code + " ").slice(-LOOKBEHIND);
       continue;
     }
 
