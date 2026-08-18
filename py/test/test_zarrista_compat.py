@@ -20,6 +20,7 @@ from ngff_zarr._zarrista_utils import (
     create_zarrista_group,
     normalize_store,
     open_zarrista_lazy,
+    use_zarrista_for,
     write_dask_array,
 )
 from packaging import version
@@ -229,3 +230,36 @@ def test_normalize_store_paths_and_rejections(tmp_path):
         normalize_store(tmp_path / "archive.zip")
     with pytest.raises(ValueError, match="zip"):
         normalize_store(tmp_path / "archive.ozx")
+
+
+def test_use_zarrista_for_path_targets(tmp_path):
+    pytest.importorskip("zarrista")
+    target = tmp_path / "store.zarr"
+    assert use_zarrista_for(str(target))
+    assert use_zarrista_for(target)
+
+    class _PathLikeTarget:
+        def __fspath__(self):
+            return str(target)
+
+    assert use_zarrista_for(_PathLikeTarget())
+
+
+def test_use_zarrista_for_legacy_targets(tmp_path, monkeypatch):
+    assert not use_zarrista_for({})
+    assert not use_zarrista_for(zarr.storage.MemoryStore())
+    local_store_cls = getattr(zarr.storage, "LocalStore", None)
+    if local_store_cls is not None:
+        assert not use_zarrista_for(local_store_cls(tmp_path))
+    directory_store_cls = getattr(zarr.storage, "DirectoryStore", None)
+    if directory_store_cls is not None:
+        assert not use_zarrista_for(directory_store_cls(str(tmp_path)))
+
+    # zarrista can only read zip archives, so zip targets keep zarr-python
+    assert not use_zarrista_for(tmp_path / "archive.zip")
+    assert not use_zarrista_for(str(tmp_path / "archive.ozx"))
+
+    import ngff_zarr._zarrista_utils as zarrista_utils
+
+    monkeypatch.setattr(zarrista_utils, "_ZARRISTA_AVAILABLE", False)
+    assert not use_zarrista_for(tmp_path / "store.zarr")

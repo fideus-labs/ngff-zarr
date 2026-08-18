@@ -29,8 +29,10 @@ zarrista requires Python >= 3.11 and is an optional dependency, so it is
 imported lazily inside each function.
 """
 
+import importlib.util
 import json
 import os
+from collections.abc import MutableMapping
 from pathlib import Path
 
 import dask.array
@@ -46,6 +48,7 @@ __all__ = [
     "normalize_store",
     "open_zarrista_array",
     "open_zarrista_lazy",
+    "use_zarrista_for",
     "write_dask_array",
 ]
 
@@ -208,6 +211,36 @@ def _compressor_to_zarrista_codec(compressor, dtype: np.dtype):
         f"Compressor {name!r} is not supported by the zarrista "
         "compatibility layer (supported: blosc, gzip, zstd)"
     )
+
+
+_ZARRISTA_AVAILABLE: bool | None = None
+
+
+def _zarrista_available() -> bool:
+    global _ZARRISTA_AVAILABLE
+    if _ZARRISTA_AVAILABLE is None:
+        _ZARRISTA_AVAILABLE = importlib.util.find_spec("zarrista") is not None
+    return _ZARRISTA_AVAILABLE
+
+
+def use_zarrista_for(store) -> bool:
+    """Return True when writes targeting *store* should use zarrista.
+
+    This is the single backend-dispatch point: every write site branches
+    through it so the zarr-python fallback can later be removed in one place.
+    zarrista handles ``str``/``pathlib.Path``/``os.PathLike`` targets; store
+    objects and ``MutableMapping``s keep the zarr-python engine, as do
+    ``.zip``/``.ozx`` targets (zarrista can only read zip archives). Also
+    False when zarrista itself is unavailable (it requires Python >= 3.11).
+    """
+    if not isinstance(store, (str, Path, os.PathLike)) or isinstance(
+        store, MutableMapping
+    ):
+        return False
+    path = Path(os.fspath(store))
+    if path.suffix.lower() == ".zip" or is_ozx_path(path):
+        return False
+    return _zarrista_available()
 
 
 def normalize_store(store) -> Path:
