@@ -97,6 +97,30 @@ Use `padding` to cover the interpolator's support. The default of `1` covers
 linear interpolation, which reads one neighbor beyond the continuous index
 bound; pass `0` for the tight region or a larger value for wider kernels.
 
+### Resampling the whole grid
+
+`itk_transform_resample` does the loop for you: it returns a lazy `NgffImage`
+on the grid of `fixed`, where every block computes its own region, materializes
+only that crop of `moving`, and resamples it. The full moving image is never
+loaded, and nothing runs until the result is computed.
+
+```python
+>>> resampled = nz.itk_transform_resample(              # doctest: +SKIP
+...     transform, fixed, moving)
+>>> nz.to_ngff_zarr("resampled.zarr",                   # doctest: +SKIP
+...     nz.to_multiscales(resampled))
+```
+
+Resampling runs through `itkwasm-downsample`, so no native ITK build is needed
+and the result does not depend on the platform.
+
+`padding` defaults to what the chosen `interpolator` requires for the
+block-wise result to match an undecomposed one exactly. Those defaults are
+measured, not assumed, because too small a padding does not raise: it silently
+returns wrong pixels near block borders. `b_spline` needs a notably wide 16,
+since it prefilters coefficients over the whole image it is handed, so cropping
+perturbs them everywhere and the perturbation only decays with distance.
+
 ### Non-linear transforms
 
 Deformable registration is supported. For a linear transform the region is
