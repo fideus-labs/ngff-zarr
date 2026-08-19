@@ -84,17 +84,26 @@ def cli_input_to_ngff_image(
             print("[red]Please install the [i]tifffile[/i] package.")
             sys.exit(1)
         try:
-            if len(input) == 1:
-                store = tifffile.imread(input[0], aszarr=True)
-            else:
-                store = tifffile.imread(input, aszarr=True)
-            # tifffile's aszarr store serves zarr metadata documents through
-            # the async zarr-store interface; read it with the pure-Python
-            # store reader instead of zarr-python.
-            from ._v2_store_reader import AsyncStoreMapping, open_store_node
+            # tifffile's aszarr stores import zarr-python; build the lazy
+            # view from TIFF page primitives instead so the minimal install
+            # can convert TIFFs.
+            from .tiff_to_ngff_image import _series_level_to_dask
 
-            root = open_store_node(AsyncStoreMapping(store))
-            return to_ngff_image(root)
+            if len(input) == 1:
+                tif = tifffile.TiffFile(input[0])
+                data = _series_level_to_dask(tif.series[0])
+            else:
+                # Stack each file's first series along a new leading axis,
+                # mirroring tifffile's file-sequence stores.
+                import dask.array as da
+
+                data = da.stack(
+                    [
+                        _series_level_to_dask(tifffile.TiffFile(path).series[0])
+                        for path in input
+                    ]
+                )
+            return to_ngff_image(data)
         except (OSError, ValueError, tifffile.TiffFileError) as e:
             path_repr = input[0] if len(input) == 1 else input
             if isinstance(e, (FileNotFoundError, PermissionError, IsADirectoryError)):

@@ -14,6 +14,7 @@ Requires the `tifffile` package: pip install tifffile
 """
 
 import logging
+import math
 import re
 import warnings
 import xml.etree.ElementTree as ET
@@ -22,8 +23,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import dask.array as da
+import numpy as np
+from dask import delayed
 
-from ._v2_store_reader import AsyncStoreMapping, V2Group, V3Group, open_store_node
 from .methods._support import _canonical_axis_order
 from .ngff_image import NgffImage
 from .to_ngff_image import to_ngff_image
@@ -806,12 +808,75 @@ def _sanitize_series_name(name: str) -> str:
     return name if name else "unnamed"
 
 
+def _series_level_to_dask(
+    tiff_series: "tifffile.TiffPageSeries", level: int = 0
+) -> da.Array:
+    """Build a lazy dask array for one pyramid level of a TIFF series.
+
+    tifffile's ``aszarr`` stores import zarr-python (>= 3) since 2025, so
+    they cannot back the minimal, zarr-free install. This builds the
+    equivalent lazy view from TIFF page primitives instead: each chunk
+    decodes one stored page (2D plane). Page reads synchronize on the parent
+    file handle's reentrant lock and reopen the file when the surrounding
+    ``TiffFile`` context has already exited, so the returned array stays
+    valid after the file is closed.
+    """
+    levels = getattr(tiff_series, "levels", None)
+    level_series = levels[level] if levels else tiff_series
+    shape = tuple(level_series.shape)
+    dtype = np.dtype(level_series.dtype)
+    keyframe = level_series.keyframe
+    page_shape = tuple(keyframe.shape)
+    pages = list(level_series.pages)
+    n_lead = len(shape) - len(page_shape)
+    lead_shape = shape[:n_lead]
+
+    # tifffile file handles default to a no-op lock; install a real
+    # reentrant lock up front so concurrent dask chunk reads are serialized
+    # (pages may span multiple files for multi-file OME-TIFF).
+    for page in [keyframe, *pages]:
+        if page is not None:
+            page.parent.filehandle.set_lock(True)
+
+    def read_page(page):
+        fh = page.parent.filehandle
+        with fh.lock:
+            if fh.closed:
+                fh.open()
+        return np.asarray(page.asarray()).reshape(page_shape)
+
+    def plane_array(page):
+        if page is None:
+            # Missing pages (e.g. sparse OME-TIFF planes) read as nodata.
+            return da.full(page_shape, keyframe.nodata, dtype=dtype, chunks=page_shape)
+        return da.from_delayed(delayed(read_page)(page), shape=page_shape, dtype=dtype)
+
+    if (
+        n_lead >= 0
+        and shape[n_lead:] == page_shape
+        and math.prod(lead_shape) == len(pages)
+    ):
+        planes = [plane_array(page) for page in pages]
+        if not lead_shape:
+            return planes[0]
+        return da.stack(planes).reshape(shape)
+
+    # Pages do not tile the series shape one plane per page (e.g. a
+    # truncated hyperstack); materialize the level in a single read.
+    def read_level():
+        fh = keyframe.parent.filehandle
+        with fh.lock:
+            if fh.closed:
+                fh.open()
+        return np.asarray(level_series.asarray()).reshape(shape)
+
+    return da.from_delayed(delayed(read_level)(), shape=shape, dtype=dtype)
+
+
 _SPATIAL_DIMS = {"x", "y", "z"}
 
 
 def _build_multiscales_from_pyramid(
-    tif: "tifffile.TiffFile",
-    series_idx: int,
     tiff_series: "tifffile.TiffPageSeries",
     ome_scale: dict[str, float] | None,
     ome_units: dict[str, str] | None,
@@ -827,12 +892,9 @@ def _build_multiscales_from_pyramid(
 
     Parameters
     ----------
-    tif : tifffile.TiffFile
-        An open TiffFile instance.
-    series_idx : int
-        Index of the series in the TIFF file.
     tiff_series : tifffile.TiffPageSeries
-        The TIFF series object (used for axis/shape info).
+        The TIFF series object (provides the pyramid levels and
+        axis/shape info).
     ome_scale : dict or None
         Physical pixel sizes from OME metadata (e.g., {'x': 0.5, 'y': 0.5}).
     ome_units : dict or None
@@ -856,36 +918,18 @@ def _build_multiscales_from_pyramid(
     from .multiscales import NgffMultiscales
     from .v04.zarr_metadata import Axis, Dataset, Metadata, Scale, Translation
 
-    # Open the full zarr store (all levels) for this series with the
-    # pure-Python store reader; tifffile serves the zarr documents through
-    # the async zarr-store interface.
-    store = tif.aszarr(series=series_idx)
-    root = open_store_node(AsyncStoreMapping(store))
+    # One lazy array per stored pyramid level, largest (full resolution)
+    # first -- the order tifffile enumerates levels in.
+    level_arrays = [
+        _series_level_to_dask(tiff_series, level=lvl)
+        for lvl in range(len(tiff_series.levels))
+    ]
 
     # Get TIFF axis mapping
     tiff_axes = tiff_series.axes if tiff_series.axes else None
 
-    # Get ordered dataset paths from multiscales metadata
-    paths: list[str] = []
-    if isinstance(root, (V2Group, V3Group)) and "multiscales" in root.attrs:
-        multiscales_meta = root.attrs["multiscales"]
-        if multiscales_meta:
-            datasets = multiscales_meta[0].get("datasets", [])
-            paths = [d["path"] for d in datasets if d["path"] in root]
-
-    if not paths and isinstance(root, (V2Group, V3Group)):
-        # Fallback: sort arrays by size (largest first = full resolution)
-        items = [(k, root[k]) for k in root.array_keys()]
-        items.sort(key=lambda x: x[1].size, reverse=True)
-        paths = [k for k, _ in items]
-
-    if not paths:
-        # Single array (not a Group), shouldn't happen for pyramidal TIFFs
-        msg = "Expected pyramidal TIFF but got a single array"
-        raise ValueError(msg)
-
     # Build the base level NgffImage (level 0)
-    level0_data = root[paths[0]]
+    level0_data = level_arrays[0]
 
     # Map TIFF axes for level 0
     dims: tuple[str, ...] | None = None
@@ -983,8 +1027,7 @@ def _build_multiscales_from_pyramid(
     # axis order and normalized to the spec order (t, c, z, y, x) on append,
     # so the emitted metadata orders time, then channel, then space.
     images = [_canonical_axis_order(ngff_image_0)]
-    for path in paths[1:]:
-        arr = root[path]
+    for arr in level_arrays[1:]:
         level_scale: dict[str, float] = {}
         level_translation: dict[str, float] = {}
 
@@ -1002,8 +1045,7 @@ def _build_multiscales_from_pyramid(
                 if dim in base_translation:
                     level_translation[dim] = base_translation[dim]
 
-        # Convert to dask array first
-        level_data = arr.to_dask()
+        level_data = arr
 
         # Apply the same axis mapping and channel reshaping that was applied to level 0
         # Pyramid levels have the same axis structure as the original TIFF,
@@ -1362,8 +1404,6 @@ def _read_tiff_series(
             n_levels = len(tiff_series.levels) if hasattr(tiff_series, "levels") else 1
             if reuse_existing_pyramids and n_levels > 1:
                 multiscales = _build_multiscales_from_pyramid(
-                    tif,
-                    idx,
                     tiff_series,
                     ome_scale,
                     ome_units,
@@ -1375,10 +1415,8 @@ def _read_tiff_series(
                 results.append((series_name, multiscales))
                 continue
 
-            # Get the zarr store for this series, using level=0 for base resolution
-            # This ensures we always get an Array, not a Group, for pyramidal TIFFs
-            store = tif.aszarr(series=idx, level=0)
-            root = open_store_node(AsyncStoreMapping(store))
+            # Lazy base-resolution (level 0) array for this series
+            root = _series_level_to_dask(tiff_series, level=0)
 
             # Get dims from the series axes with proper mapping
             # TIFF axes like 'S' (sample/RGB) need to be mapped to NGFF 'c' (channel)
