@@ -6,8 +6,8 @@ import re
 from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING, Literal, Union
 
+from .._store_types import StoreLike
 from .._supported_versions import NgffVersion
-from .._zarr_types import StoreLike
 
 # Import RFC 4 support
 from ..rfc4 import AnatomicalOrientation

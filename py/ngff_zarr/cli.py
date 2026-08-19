@@ -35,7 +35,7 @@ if hasattr(zarr.storage, "DirectoryStore"):
 else:
     LocalStore = zarr.storage.LocalStore
 
-from ._zarr_types import StoreLike
+from ._store_types import StoreLike
 from .cli_input_to_ngff_image import cli_input_to_ngff_image
 from .compute_omero import compute_omero_from_multiscales
 from .config import config
@@ -694,7 +694,7 @@ def _convert_main(argv: list[str] | None = None) -> None:
         cache_dir = Path(args.cache_dir).resolve()
         if not cache_dir.exists():
             Path.makedirs(cache_dir, parents=True)
-        config.cache_store = LocalStore(cache_dir)
+        config.cache_store = cache_dir
 
     console = _build_console()
     progress = RichProgress(

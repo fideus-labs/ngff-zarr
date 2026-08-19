@@ -23,8 +23,6 @@ except ImportError:
     from zarr.core.array import Array as ZarrArray
 import zarr.storage
 
-from ._zarr_kwargs import zarr_kwargs
-from ._zarr_open_array import open_array
 from ._zarrista_utils import (
     create_zarrista_array,
     open_zarrista_lazy,
@@ -61,6 +59,18 @@ from .v06.zarr_metadata import (
     TransformSequence,
     Translation,
 )
+
+# Legacy zarr-python cache-writer fallback, used only for configured cache
+# stores without a local directory; removed with the fallback branches in
+# _CacheTarget.
+try:
+    from zarr.api.synchronous import open_array
+
+    zarr_kwargs = {"chunk_key_encoding": {"name": "default", "separator": "/"}}
+except ImportError:
+    from zarr.creation import open_array
+
+    zarr_kwargs = {"dimension_separator": "/"}
 
 
 def _ngff_image_scale_factors(ngff_image, min_length, out_chunks):
@@ -123,9 +133,9 @@ class _CacheTarget:
 
     Bundles the configured cache store, the local directory backing it
     (``None`` when it has no directory), and the write-engine dispatch. The
-    default ``config.cache_store`` is a directory-backed zarr-python store,
-    so it resolves to its path and writes through zarrista; user-supplied
-    store objects without a local directory keep the zarr-python engine.
+    default ``config.cache_store`` is the cache directory path itself, so it
+    writes through zarrista; user-supplied store objects without a local
+    directory keep the zarr-python engine.
     """
 
     store: Any

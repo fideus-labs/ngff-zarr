@@ -24,10 +24,8 @@ from dask import __version__ as dask_version
 from itkwasm import array_like_to_numpy_array
 from packaging.version import Version
 
+from ._store_types import StoreLike
 from ._supported_versions import NgffVersion
-from ._zarr_kwargs import zarr_kwargs
-from ._zarr_open_array import open_array
-from ._zarr_types import StoreLike
 from ._zarrista_utils import (
     consolidate_metadata as _zarrista_consolidate_metadata,
 )
@@ -49,6 +47,17 @@ from .v05.zarr_metadata import Metadata as Metadata_v05
 zarr_version = Version(zarr.__version__)
 IS_ZARR_V3_PLUS = zarr_version.major >= 3
 DASK_SUPPORTS_SHARDING = Version(dask_version) >= Version("2025.12.0")
+
+# Legacy zarr-python engine fallback (store objects / MutableMapping targets);
+# removed together with the ``use_zarrista`` False-branches.
+if IS_ZARR_V3_PLUS:
+    from zarr.api.synchronous import open_array
+
+    zarr_kwargs = {"chunk_key_encoding": {"name": "default", "separator": "/"}}
+else:
+    from zarr.creation import open_array
+
+    zarr_kwargs = {"dimension_separator": "/"}
 
 # Detect whether dask.array.to_zarr uses Group.create_array() (which rejects
 # ``zarr_format`` but inherits it from the group) or top-level
@@ -629,7 +638,8 @@ def _prepare_zarr_kwargs(to_zarr_kwargs: dict):
     """
     is_zarr_f2 = to_zarr_kwargs.get("zarr_format") == 2
 
-    # The zarr v2 case does not have to be checked here as this is done in `_zarr_kwargs.py`.
+    # The zarr v2 case does not have to be checked here as this is done by
+    # the module-level ``zarr_kwargs`` fallback definition.
     # The reason for not doing it here is that it only has one option whereas zarr v3 depends on zarr format being used.
     if IS_ZARR_V3_PLUS and is_zarr_f2:
         if DASK_SUPPORTS_SHARDING:

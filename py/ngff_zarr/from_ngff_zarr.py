@@ -12,7 +12,7 @@ from ._remote_reader import (
     open_remote_node,
     remote_read_available,
 )
-from ._zarr_types import StoreLike
+from ._store_types import StoreLike
 from ._zarrista_utils import (
     _is_bytes_mapping,
     open_local_node,

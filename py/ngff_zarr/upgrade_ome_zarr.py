@@ -49,8 +49,8 @@ import packaging.version
 import zarr
 import zarr.storage
 
+from ._store_types import StoreLike
 from ._supported_versions import NgffVersion
-from ._zarr_types import StoreLike
 from ._zarrista_utils import (
     consolidate_metadata as _zarrista_consolidate_metadata,
 )

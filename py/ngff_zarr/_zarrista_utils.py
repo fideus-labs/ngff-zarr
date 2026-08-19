@@ -340,12 +340,11 @@ def _zarrista_filesystem_store_path(store) -> Path | None:
 def resolve_store_path(store) -> Path | None:
     """Resolve *store* to the local directory path backing it, or ``None``.
 
-    Accepts plain ``str``/``pathlib.Path``/``os.PathLike`` targets, the
-    directory-backed zarr-python stores (``LocalStore``/``DirectoryStore``,
-    e.g. the default ``config.cache_store``), and zarrista
-    ``FilesystemStore`` handles. Returns ``None`` for stores with no local
-    directory (in-memory mappings, remote stores, ...), which must keep the
-    zarr-python engine.
+    Accepts plain ``str``/``pathlib.Path``/``os.PathLike`` targets (e.g. the
+    default ``config.cache_store``), the directory-backed zarr-python stores
+    (``LocalStore``/``DirectoryStore``), and zarrista ``FilesystemStore``
+    handles. Returns ``None`` for stores with no local directory (in-memory
+    mappings, remote stores, ...), which must keep the zarr-python engine.
     """
     local_store_cls = getattr(zarr.storage, "LocalStore", None)
     if local_store_cls is not None and isinstance(store, local_store_cls):

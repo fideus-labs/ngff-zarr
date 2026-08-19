@@ -4,8 +4,8 @@ from abc import ABC
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Union
 
+from .._store_types import StoreLike
 from .._supported_versions import NgffVersion
-from .._zarr_types import StoreLike
 from ..rfc4 import AnatomicalOrientation
 from ..v04.zarr_metadata import (
     AxesType as AxesTypeV04,

@@ -12,7 +12,6 @@ import zarr
 from deepdiff import DeepDiff
 from itkwasm_image_io import imread
 from ngff_zarr import itk_image_to_ngff_image, to_ngff_zarr
-from ngff_zarr._zarr_kwargs import zarr_kwargs
 from packaging import version
 from zarr.storage import MemoryStore
 
@@ -316,7 +315,7 @@ def verify_against_baseline(
     try:
         from zarr.storage import DirectoryStore
 
-        baseline_store = DirectoryStore(baseline_path, **zarr_kwargs)
+        baseline_store = DirectoryStore(baseline_path, dimension_separator="/")
     except ImportError:
         from zarr.storage import LocalStore
 
@@ -347,7 +346,7 @@ def store_new_multiscales(dataset_name, baseline_name, multiscales, version="0.4
         store = DirectoryStore(
             test_data_dir
             / f"baseline/zarr{zarr_version_major}/v{version}/{dataset_name}/{baseline_name}",
-            **zarr_kwargs,
+            dimension_separator="/",
         )
     except ImportError:
         from zarr.storage import LocalStore
