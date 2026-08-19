@@ -36,22 +36,27 @@ import os
 import re
 import shutil
 import threading
-from collections.abc import MutableMapping
+from collections.abc import Mapping, MutableMapping
 from pathlib import Path
 
 import dask.array
 import numpy as np
 import zarr.storage
 
+from ._v2_store_reader import AttrsDict
 from .rfc9_zip import is_ozx_path
 
 __all__ = [
+    "LocalZarrArray",
+    "LocalZarrGroup",
     "consolidate_metadata",
     "create_zarrista_array",
     "create_zarrista_group",
     "create_zarrista_subgroup",
     "has_consolidated_metadata",
     "normalize_store",
+    "open_lazy_array",
+    "open_local_node",
     "open_zarrista_array",
     "open_zarrista_lazy",
     "read_group_attributes",
@@ -106,7 +111,32 @@ class _ZarristaArrayAdapter:
         self.ndim = arr.ndim
 
     def __getitem__(self, selection):
-        return np.asarray(self._arr[selection])
+        # zarrista treats an integer index like a length-1 slice, keeping the
+        # axis; dask's fused getters rely on numpy semantics where integer
+        # indices drop it. Normalize integers to slices and squeeze after.
+        if not isinstance(selection, tuple):
+            selection = (selection,)
+        if Ellipsis in selection:
+            explicit = [index for index in selection if index is not Ellipsis]
+            fill = (slice(None),) * (self.ndim - len(explicit))
+            at = selection.index(Ellipsis)
+            selection = selection[:at] + fill + selection[at + 1 :]
+            selection = tuple(index for index in selection if index is not Ellipsis)
+        drop_axes = []
+        normalized = []
+        for axis, index in enumerate(selection):
+            if isinstance(index, (int, np.integer)):
+                index = int(index)
+                if index < 0:
+                    index += self.shape[axis]
+                normalized.append(slice(index, index + 1))
+                drop_axes.append(axis)
+            else:
+                normalized.append(index)
+        result = np.asarray(self._arr[tuple(normalized)])
+        if drop_axes:
+            result = np.squeeze(result, axis=tuple(drop_axes))
+        return result
 
     def __setitem__(self, selection, value):
         self._arr[selection] = _native_contiguous(value)
@@ -731,6 +761,164 @@ def open_zarrista_lazy(path, component: str | None = None) -> dask.array.Array:
     else:
         chunks = tuple(arr.chunk_shape([0] * arr.ndim))
     return dask.array.from_array(_ZarristaArrayAdapter(arr), chunks=chunks)
+
+
+def _is_bytes_mapping(store) -> bool:
+    """Whether *store* is a key-to-bytes mapping for the pure-Python reader.
+
+    ``str``/``Path`` are excluded even though paths are iterable: only real
+    mapping objects (plain dicts, zip-archive views, tifffile's aszarr store)
+    go through :mod:`._v2_store_reader`.
+    """
+    return isinstance(store, Mapping) and not isinstance(
+        store, (str, Path, os.PathLike)
+    )
+
+
+def open_lazy_array(store, component: str | None = None) -> dask.array.Array:
+    """Open the array at *component* within *store* as a lazy dask array.
+
+    The single read-dispatch point mirroring :func:`use_zarrista_for` on the
+    write side: bytes mappings go through the pure-Python v2 store reader,
+    local paths through zarrista, and every other store object (zarr-python
+    stores: ZipStore, FsspecStore, MemoryStore, ...) keeps the zarr-python
+    engine via ``dask.array.from_zarr``.
+    """
+    if _is_bytes_mapping(store):
+        from ._v2_store_reader import open_v2_array
+
+        return open_v2_array(store, component).to_dask()
+    if use_zarrista_for(store):
+        return open_zarrista_lazy(store, component)
+    return dask.array.from_zarr(store, component=component)
+
+
+def _load_local_doc(doc_path: Path) -> dict:
+    loaded = json.loads(doc_path.read_text())
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _local_node_document(dirpath: Path, zarr_format: int) -> tuple[str, dict] | None:
+    """``(node_type, metadata document)`` for the node at *dirpath*.
+
+    Returns ``None`` when no node of *zarr_format* exists there. For format 2
+    an array wins when both ``.zarray`` and ``.zgroup`` are present, matching
+    zarr-python.
+    """
+    if zarr_format == 3:
+        doc_path = dirpath / "zarr.json"
+        if not doc_path.exists():
+            return None
+        doc = _load_local_doc(doc_path)
+        node_type = doc.get("node_type")
+        return (node_type, doc) if node_type in ("array", "group") else None
+    if zarr_format != 2:
+        raise ValueError(f"Unsupported zarr format: {zarr_format}")
+    if (dirpath / ".zarray").exists():
+        return "array", _load_local_doc(dirpath / ".zarray")
+    if (dirpath / ".zgroup").exists():
+        return "group", _load_local_doc(dirpath / ".zgroup")
+    return None
+
+
+def _local_node_attrs(dirpath: Path, doc: dict, zarr_format: int) -> AttrsDict:
+    """User attributes for the node at *dirpath* (``.zattrs`` or inline)."""
+    if zarr_format == 2:
+        attrs_path = dirpath / ".zattrs"
+        attrs = _load_local_doc(attrs_path) if attrs_path.exists() else {}
+    else:
+        attrs = doc.get("attributes") or {}
+    return AttrsDict(attrs if isinstance(attrs, dict) else {})
+
+
+class LocalZarrArray:
+    """Read-only handle for an array node within a local directory store.
+
+    Exposes ``shape``/``attrs`` for node inspection and :meth:`to_dask` for
+    lazy pixel access through zarrista.
+    """
+
+    def __init__(self, store_root: Path, path: str, zarr_format: int, doc: dict):
+        self._store_root = store_root
+        self.path = path
+        self.zarr_format = zarr_format
+        self.shape = tuple(int(s) for s in doc.get("shape", ()))
+        dirpath = store_root.joinpath(*path.split("/")) if path else store_root
+        self.attrs = _local_node_attrs(dirpath, doc, zarr_format)
+
+    def to_dask(self) -> dask.array.Array:
+        return open_zarrista_lazy(self._store_root, self.path or None)
+
+
+class LocalZarrGroup:
+    """Read-only handle for a group node within a local directory store.
+
+    Provides the slice of the zarr-python ``Group`` surface the read path
+    uses -- ``attrs`` (a dict with ``asdict()``), ``__contains__`` /
+    ``__getitem__`` path navigation, and ``keys()`` -- backed by direct
+    metadata-document reads (``.zgroup``/``.zattrs`` for zarr format 2,
+    ``zarr.json`` for format 3). Child arrays open their pixel data lazily
+    through zarrista.
+    """
+
+    def __init__(self, store_root: Path, path: str, zarr_format: int, doc: dict):
+        self._store_root = store_root
+        self.path = path
+        self.zarr_format = zarr_format
+        dirpath = store_root.joinpath(*path.split("/")) if path else store_root
+        self._dirpath = dirpath
+        self.attrs = _local_node_attrs(dirpath, doc, zarr_format)
+
+    def _child_path(self, name) -> str:
+        child = "/".join(p for p in str(name).split("/") if p not in ("", "."))
+        return f"{self.path}/{child}" if self.path else child
+
+    def __getitem__(self, name):
+        child_path = self._child_path(name)
+        node = open_local_node(
+            self._store_root, child_path, zarr_format=self.zarr_format
+        )
+        if node is None:
+            raise KeyError(child_path)
+        return node
+
+    def __contains__(self, name) -> bool:
+        try:
+            self[name]
+        except KeyError:
+            return False
+        return True
+
+    def keys(self) -> list[str]:
+        """Names of all immediate child nodes (arrays and groups), sorted."""
+        if not self._dirpath.is_dir():
+            return []
+        return sorted(
+            child.name
+            for child in self._dirpath.iterdir()
+            if child.is_dir()
+            and _local_node_document(child, self.zarr_format) is not None
+        )
+
+
+def open_local_node(store, node_path=None, *, zarr_format: int):
+    """Open the node at *node_path* within the local directory store *store*.
+
+    The compat-layer read equivalent of ``zarr.open``: metadata documents are
+    read directly from the filesystem, no zarr-python involved. Returns a
+    :class:`LocalZarrGroup` or :class:`LocalZarrArray`, or ``None`` when no
+    node of *zarr_format* exists at that path.
+    """
+    root = normalize_store(store)
+    parts = [p for p in str(node_path or "").split("/") if p not in ("", ".")]
+    path = "/".join(parts)
+    found = _local_node_document(root.joinpath(*parts), zarr_format)
+    if found is None:
+        return None
+    node_type, doc = found
+    if node_type == "array":
+        return LocalZarrArray(root, path, zarr_format, doc)
+    return LocalZarrGroup(root, path, zarr_format, doc)
 
 
 def consolidate_metadata(path, zarr_format: int) -> None:

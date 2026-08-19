@@ -8,6 +8,7 @@ import zarr.errors
 import zarr.storage
 
 from ._zarr_types import StoreLike
+from ._zarrista_utils import _is_bytes_mapping, open_local_node, use_zarrista_for
 from .multiscales import NgffMultiscales
 from .rfc9_zip import is_ozx_path, read_ozx_version
 
@@ -54,6 +55,128 @@ def _remote_backend_import_error(store, original: ImportError) -> ImportError:
         "This provides the fsspec backends for http(s), S3, GCS, and Azure. "
         f"Original error: {original}"
     )
+
+
+def _group_not_found_error(store) -> ValueError:
+    """The shared no-group-here error, identical across read backends."""
+    store_path = str(store)
+    return ValueError(
+        f"No valid Zarr group found at '{store_path}'. "
+        "This error typically occurs when:\n"
+        "  1. The path does not contain a valid Zarr store\n"
+        "  2. The Zarr store is empty or corrupted\n"
+        "  3. The download was incomplete\n"
+        "  4. The store contains a Zarr array at the root instead of a group\n\n"
+        "For OME-Zarr files, the root must be a Zarr group "
+        "containing multiscale metadata. "
+        "Please verify that the input path points to a valid OME-Zarr store."
+    )
+
+
+def _array_at_root_error(store) -> ValueError:
+    """The shared array-at-root error, identical across read backends."""
+    store_path = str(store)
+    return ValueError(
+        f"The Zarr store at '{store_path}' contains an array at the root level, "
+        "but OME-Zarr requires a group structure with multiscale metadata. "
+        "Single Zarr arrays cannot be directly converted to OME-Zarr format."
+    )
+
+
+def _open_zarr_python_root(store, version: str | None):
+    """Open the root group with zarr-python (the legacy store-object branch).
+
+    Store objects the compat layer cannot handle -- ``ZipStore`` for
+    ``.ozx``, ``FsspecStore`` for remote URLs, ``MemoryStore``, remote URL
+    strings, ... -- keep the zarr-python engine here.
+    """
+    format_kwargs = {}
+    if version and zarr_version_major >= 3:
+        format_kwargs = (
+            {"zarr_format": 2}
+            if packaging.version.parse(version) < packaging.version.parse("0.5")
+            else {"zarr_format": 3}
+        )
+
+    def _open_group_with_helpful_errors(**open_kwargs):
+        try:
+            return zarr.open_group(store, mode="r", **open_kwargs)
+        except zarr.errors.GroupNotFoundError as e:
+            raise _group_not_found_error(store) from e
+        except zarr.errors.ContainsArrayError as e:
+            raise _array_at_root_error(store) from e
+        except ImportError as e:
+            # Reading a remote store (e.g. https://, s3://) goes through an
+            # fsspec filesystem backend such as aiohttp, requests, s3fs, gcsfs,
+            # or adlfs. When the relevant backend is missing, fsspec raises an
+            # ImportError. Rewrite it into an actionable message; re-raise any
+            # unrelated import failure unchanged. _is_remote_store also matches
+            # an FsspecStore, whose str() is not the original URL.
+            if _is_remote_store(store):
+                raise _remote_backend_import_error(store, e) from e
+            raise
+
+    root = _open_group_with_helpful_errors(**format_kwargs)
+    # When auto-detecting version (no explicit version provided) on zarr-python 3,
+    # zarr may prefer a spurious zarr.json (format 3) over .zgroup (format 2),
+    # which can yield an empty-root group. Retry the v2 open through the same
+    # helper so fallback errors get the same helpful wrapping.
+    if version is None and zarr_version_major >= 3 and not root.attrs:
+        root = _open_group_with_helpful_errors(zarr_format=2)
+    # resulting in empty root attributes. Fall back to zarr_format=2 in that case.
+    if not version and zarr_version_major >= 3:
+        root_attrs_check = root.attrs.asdict()
+        if not root_attrs_check:
+            root = zarr.open_group(store, mode="r", zarr_format=2)
+    return root
+
+
+def _open_local_root(store, version: str | None):
+    """Open the root group of a local directory store through the compat layer.
+
+    Mirrors the zarr-python branch's semantics: an explicit *version* pins the
+    zarr format (< 0.5 -> format 2, otherwise 3); auto-detection prefers
+    format 3 but falls back to the format 2 documents when the ``zarr.json``
+    group has empty attributes (the spurious-``zarr.json`` case) or is absent.
+    """
+    if version:
+        zarr_format = (
+            2
+            if packaging.version.parse(version) < packaging.version.parse("0.5")
+            else 3
+        )
+        node = open_local_node(store, zarr_format=zarr_format)
+    else:
+        node = open_local_node(store, zarr_format=3)
+        if node is None or (not hasattr(node, "shape") and not node.attrs):
+            node = open_local_node(store, zarr_format=2)
+    if node is None:
+        raise _group_not_found_error(store)
+    if hasattr(node, "shape"):
+        raise _array_at_root_error(store)
+    return node
+
+
+def _open_root_node(store, version: str | None):
+    """Open the root node of *store* for reading via the best backend.
+
+    Local directory paths go through the zarrista compat layer (direct
+    metadata-document reads), bytes mappings through the pure-Python v2 store
+    reader, and any other store object through zarr-python.
+    """
+    if _is_bytes_mapping(store):
+        from ._v2_store_reader import V2Group, open_v2
+
+        try:
+            node = open_v2(store)
+        except KeyError as e:
+            raise _group_not_found_error(store) from e
+        if not isinstance(node, V2Group):
+            raise _array_at_root_error(store)
+        return node
+    if use_zarrista_for(store):
+        return _open_local_root(store, version)
+    return _open_zarr_python_root(store, version)
 
 
 # -- blosc codec backward-compatibility -----------------------------------
@@ -194,61 +317,10 @@ def from_ome_zarr(
                     f"Current zarr version: {zarr.__version__}"
                 )
 
-    format_kwargs = {}
-    if version and zarr_version_major >= 3:
-        format_kwargs = (
-            {"zarr_format": 2}
-            if packaging.version.parse(version) < packaging.version.parse("0.5")
-            else {"zarr_format": 3}
-        )
-
-    def _open_group_with_helpful_errors(**open_kwargs):
-        try:
-            return zarr.open_group(store, mode="r", **open_kwargs)
-        except zarr.errors.GroupNotFoundError as e:
-            store_path = str(store)
-            raise ValueError(
-                f"No valid Zarr group found at '{store_path}'. "
-                "This error typically occurs when:\n"
-                "  1. The path does not contain a valid Zarr store\n"
-                "  2. The Zarr store is empty or corrupted\n"
-                "  3. The download was incomplete\n"
-                "  4. The store contains a Zarr array at the root instead of a group\n\n"
-                "For OME-Zarr files, the root must be a Zarr group "
-                "containing multiscale metadata. "
-                "Please verify that the input path points to a valid OME-Zarr store."
-            ) from e
-        except zarr.errors.ContainsArrayError as e:
-            store_path = str(store)
-            raise ValueError(
-                f"The Zarr store at '{store_path}' contains an array at the root level, "
-                "but OME-Zarr requires a group structure with multiscale metadata. "
-                "Single Zarr arrays cannot be directly converted to OME-Zarr format."
-            ) from e
-        except ImportError as e:
-            # Reading a remote store (e.g. https://, s3://) goes through an
-            # fsspec filesystem backend such as aiohttp, requests, s3fs, gcsfs,
-            # or adlfs. When the relevant backend is missing, fsspec raises an
-            # ImportError. Rewrite it into an actionable message; re-raise any
-            # unrelated import failure unchanged. _is_remote_store also matches
-            # an FsspecStore, whose str() is not the original URL.
-            if _is_remote_store(store):
-                raise _remote_backend_import_error(store, e) from e
-            raise
-
-    # Open the Zarr store as a group with helpful error messages
-    root = _open_group_with_helpful_errors(**format_kwargs)
-    # When auto-detecting version (no explicit version provided) on zarr-python 3,
-    # zarr may prefer a spurious zarr.json (format 3) over .zgroup (format 2),
-    # which can yield an empty-root group. Retry the v2 open through the same
-    # helper so fallback errors get the same helpful wrapping.
-    if version is None and zarr_version_major >= 3 and not root.attrs:
-        root = _open_group_with_helpful_errors(zarr_format=2)
-    # resulting in empty root attributes. Fall back to zarr_format=2 in that case.
-    if not version and zarr_version_major >= 3:
-        root_attrs_check = root.attrs.asdict()
-        if not root_attrs_check:
-            root = zarr.open_group(store, mode="r", zarr_format=2)
+    # Open the root node with helpful error messages, dispatching on store
+    # type: local paths -> compat layer, bytes mappings -> v2 store reader,
+    # other store objects -> zarr-python.
+    root = _open_root_node(store, version)
 
     # Check root-level attributes first to see if this is an HCS plate
     root_attrs_initial = root.attrs.asdict()

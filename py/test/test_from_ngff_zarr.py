@@ -173,7 +173,12 @@ def test_from_ngff_zarr_remote_missing_backend_helpful_error(url):
 
 
 def test_from_ngff_zarr_local_import_error_not_rewritten():
-    """A non-remote store re-raises an ImportError unchanged (remote-only guard)."""
+    """A non-remote store re-raises an ImportError unchanged (remote-only guard).
+
+    Uses a zarr-python store object so the read goes through the legacy
+    zarr-python branch that carries the remote-error rewriting; local paths
+    now read through the zarrista compat layer without touching fsspec.
+    """
     from unittest.mock import patch
 
     original_message = "No module named 'unrelated_dependency'"
@@ -182,7 +187,7 @@ def test_from_ngff_zarr_local_import_error_not_rewritten():
         side_effect=ModuleNotFoundError(original_message),
     ):
         with pytest.raises(ModuleNotFoundError) as exc_info:
-            from_ngff_zarr("local-store.zarr")
+            from_ngff_zarr(MemoryStore())
 
     message = str(exc_info.value)
     assert "ngff-zarr[remote]" not in message

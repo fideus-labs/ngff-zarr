@@ -1,6 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -53,10 +52,10 @@ def test_y_x_valid_ngff():
 def test_validate_0_1():
     test_store = Path(__file__).parent / "data" / "input" / "v01" / "6001251.zarr"
     multiscales = from_ngff_zarr(test_store, validate=True, version="0.1")
-    if sys.byteorder == "little":
-        assert multiscales.images[0].data.dtype.byteorder == "<"
-    else:
-        assert multiscales.images[0].data.dtype.byteorder == ">"
+    # The read path normalizes byte order to the host's: zarr-python keeps the
+    # explicit stored order character ("<"/">"), zarrista decodes straight to
+    # native ("="); both are the native dtype.
+    assert multiscales.images[0].data.dtype.isnative
 
 
 def test_validate_0_1_no_version():

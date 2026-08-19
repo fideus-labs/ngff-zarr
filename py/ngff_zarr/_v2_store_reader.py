@@ -29,6 +29,7 @@ from numcodecs import get_codec
 from numcodecs.compat import ensure_bytes, ensure_ndarray
 
 __all__ = [
+    "AttrsDict",
     "V2Array",
     "V2Group",
     "open_v2",
@@ -37,6 +38,17 @@ __all__ = [
 ]
 
 _FLOAT_FILLS = {"NaN": np.nan, "Infinity": np.inf, "-Infinity": -np.inf}
+
+
+class AttrsDict(dict):
+    """Plain dict exposing zarr-python's ``Attributes.asdict()`` surface.
+
+    Lets the read path treat node attributes uniformly across backends
+    (zarr-python groups, this reader, the compat-layer local reader).
+    """
+
+    def asdict(self) -> dict:
+        return dict(self)
 
 
 def _normalize_path(path) -> str:
@@ -142,7 +154,7 @@ class V2Array:
         )
         self._filters = [get_codec(config) for config in meta.get("filters") or []]
         attrs = source.doc(_doc_key(path, ".zattrs"))
-        self.attrs = dict(attrs) if attrs else {}
+        self.attrs = AttrsDict(attrs) if attrs else AttrsDict()
 
     def _chunk_key(self, chunk_index: tuple[int, ...]) -> str:
         prefix = f"{self.path}/" if self.path else ""
@@ -210,7 +222,7 @@ class V2Group:
         self._source = source
         self.path = path
         attrs = source.doc(_doc_key(path, ".zattrs"))
-        self.attrs = dict(attrs) if attrs else {}
+        self.attrs = AttrsDict(attrs) if attrs else AttrsDict()
 
     def _child_path(self, name) -> str:
         child = _normalize_path(name)
@@ -262,6 +274,10 @@ class V2Group:
     def group_keys(self) -> list[str]:
         """Names of the immediate child groups, sorted."""
         return self._child_names(".zgroup")
+
+    def keys(self) -> list[str]:
+        """Names of all immediate child nodes (arrays and groups), sorted."""
+        return sorted({*self.array_keys(), *self.group_keys()})
 
 
 def open_v2(store: Mapping, path=None):

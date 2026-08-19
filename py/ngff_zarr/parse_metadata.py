@@ -205,16 +205,16 @@ def _get_bioformats2raw_series(root) -> list:
 
     Parameters
     ----------
-    root : zarr.Group
-        The root zarr group of the bioformats2raw container.
+    root : group node
+        The root group of the bioformats2raw container, from any read
+        backend (zarr-python ``Group``, compat-layer ``LocalZarrGroup``, or
+        the v2 store reader's ``V2Group``).
 
     Returns
     -------
     list of str
         Sorted list of image path strings (e.g., ``["0", "1", "2"]``).
     """
-    import zarr
-
     # Try reading the OME subgroup's series metadata
     try:
         ome_group = root["OME"]
@@ -238,10 +238,11 @@ def _get_bioformats2raw_series(root) -> list:
             continue
         try:
             child = root[key]
-            if isinstance(child, zarr.Group):
-                image_paths.append(key)
         except (KeyError, TypeError):
             continue
+        # Array nodes expose a shape on every backend; group nodes do not.
+        if not hasattr(child, "shape"):
+            image_paths.append(key)
 
     # Sort numerically if all paths are numeric, otherwise alphabetically
     try:

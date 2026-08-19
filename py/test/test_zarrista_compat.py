@@ -1020,3 +1020,84 @@ def test_has_consolidated_metadata(tmp_path):
     assert not has_consolidated_metadata(v2, zarr_format=2)
     (v2 / ".zmetadata").write_text('{"metadata": {}, "zarr_consolidated_format": 1}')
     assert has_consolidated_metadata(v2, zarr_format=2)
+
+
+def test_adapter_integer_index_drops_axis(tmp_path):
+    """Integer indices follow numpy semantics through the read adapter.
+
+    zarrista itself keeps an integer-indexed axis (treating it like a
+    length-1 slice); dask's fused getters require the axis to be dropped.
+    Regression test for from_ngff_zarr followed by data[t_index] compute.
+    """
+    pytest.importorskip("zarrista")
+
+    store_path = tmp_path / "int_index.zarr"
+    data = np.arange(2 * 3 * 4, dtype=np.uint16).reshape(2, 3, 4)
+    arr = create_zarrista_array(store_path, "0", data.shape, data.dtype, (1, 3, 4), 2)
+    write_dask_array(da.from_array(data, chunks=(1, 3, 4)), arr)
+
+    lazy = open_zarrista_lazy(store_path, "0")
+    assert np.array_equal(np.asarray(lazy[1]), data[1])
+    assert np.array_equal(np.asarray(lazy[0, :, 2]), data[0, :, 2])
+    assert np.array_equal(np.asarray(lazy[..., -1]), data[..., -1])
+    assert np.asarray(lazy[1, 2, 3]) == data[1, 2, 3]
+
+
+def test_open_local_node(tmp_path):
+    """open_local_node reads groups/arrays for both formats without zarr."""
+    from ngff_zarr._zarrista_utils import (
+        LocalZarrArray,
+        LocalZarrGroup,
+        open_lazy_array,
+        open_local_node,
+    )
+
+    pytest.importorskip("zarrista")
+
+    store_path = tmp_path / "local.zarr"
+    create_zarrista_group(store_path, {"hello": "world"}, 2)
+    data = np.arange(12, dtype=np.uint8).reshape(3, 4)
+    arr = create_zarrista_array(
+        store_path, "0", data.shape, data.dtype, (3, 4), 2, attributes={"a": 1}
+    )
+    write_dask_array(da.from_array(data, chunks=(3, 4)), arr)
+
+    root = open_local_node(store_path, zarr_format=2)
+    assert isinstance(root, LocalZarrGroup)
+    assert root.attrs.asdict() == {"hello": "world"}
+    assert root.keys() == ["0"]
+    assert "0" in root
+    assert "missing" not in root
+    child = root["0"]
+    assert isinstance(child, LocalZarrArray)
+    assert child.shape == (3, 4)
+    assert child.attrs.asdict() == {"a": 1}
+    assert np.array_equal(np.asarray(child.to_dask()), data)
+    with pytest.raises(KeyError):
+        root["missing"]
+    assert open_local_node(store_path, "missing", zarr_format=2) is None
+    # No format 3 documents exist in this store.
+    assert open_local_node(store_path, zarr_format=3) is None
+
+    # The dispatching lazy opener resolves local paths through zarrista.
+    assert np.array_equal(np.asarray(open_lazy_array(store_path, "0")), data)
+
+
+def test_open_lazy_array_mapping_dispatch(tmp_path):
+    """open_lazy_array routes bytes mappings through the v2 store reader."""
+    from ngff_zarr._zarrista_utils import open_lazy_array
+
+    store_path = tmp_path / "mapping.zarr"
+    data = np.arange(20, dtype=np.int32).reshape(4, 5)
+    root = zarr.open_group(str(store_path), mode="w", zarr_format=2)
+    zarr_arr = root.create_array("0", shape=data.shape, dtype=data.dtype, chunks=(2, 5))
+    zarr_arr[:] = data
+    mapping = {
+        p.relative_to(store_path).as_posix(): p.read_bytes()
+        for p in store_path.rglob("*")
+        if p.is_file()
+    }
+
+    lazy = open_lazy_array(mapping, "0")
+    assert lazy.chunks == ((2, 2), (5,))
+    assert np.array_equal(np.asarray(lazy), data)
