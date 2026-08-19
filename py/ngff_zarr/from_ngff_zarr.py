@@ -252,9 +252,9 @@ def from_ome_zarr(
             raise _remote_backend_import_error(store, None)
         store = RemoteZarrStore(store, storage_options=storage_options)
 
-    # Open the root node with helpful error messages, dispatching on store
-    # type: local paths -> compat layer, bytes mappings -> store reader,
-    # remote handles -> zarrista/obstore.
+    # Open the root node with helpful error messages, dispatching on the
+    # store type: local paths -> compat layer, bytes mappings -> store
+    # reader, remote handles -> zarrista/obstore.
     root = _open_root_node(store, version)
 
     # Check root-level attributes first to see if this is an HCS plate
