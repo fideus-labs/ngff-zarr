@@ -2,14 +2,26 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * Custom Web Worker that extends fizarrita's codec worker with OMERO
- * statistics computation.
+ * This project's codec Web Worker. Backs both the codec pool used by
+ * `zarrGet`/`zarrSet` and the OMERO statistics pool.
  *
- * Handles all standard fizarrita codec messages (init, decode, decode_into,
- * encode) PLUS a new `decode_and_stats` message that decodes a chunk AND
- * computes per-channel statistics in a single round-trip.
+ * Runs in a browser `DedicatedWorkerGlobalScope` and in a
+ * `node:worker_threads` thread. The two runtimes differ only in how messages
+ * arrive and leave, so the plumbing is selected at startup and everything
+ * below it is shared.
  *
- * Message protocol (superset of fizarrita's codec-worker):
+ * The standard codec protocol (`init`, `decode`, `decode_into`, `encode`) is
+ * delegated to fizarrita's exported {@link handleCodecMessage}, which owns the
+ * pipeline cache and the edge-chunk correction. This worker adds:
+ *
+ * - `decode_and_stats` — decode a chunk *and* compute per-channel statistics
+ *   in a single round-trip, saving a second transfer of the decoded data.
+ * - The blosc shuffle registry patch, so Zarr v3's string shuffle modes reach
+ *   numcodecs in the integer form it expects (see
+ *   {@link ../utils/blosc_registry.ts}). It has to be installed here because
+ *   chunks are encoded in this module graph, not the main thread's.
+ *
+ * Message protocol (superset of fizarrita's codec worker):
  *   init:             → init_ok              (register codec pipeline metadata)
  *   decode:           → decoded              (decode raw bytes, return chunk)
  *   decode_into:      → decode_into_ok       (decode into SharedArrayBuffer)
@@ -18,152 +30,51 @@
  */
 
 import type { CodecChunkMeta } from "@fideus-labs/fizarrita";
-// fizarrita internals for codec pipeline
-import { create_codec_pipeline } from "@fideus-labs/fizarrita/internals/codec-pipeline";
-import {
-  compat_chunk,
-  set_from_chunk_binary,
-} from "@fideus-labs/fizarrita/internals/setter";
-import { get_ctr, get_strides } from "@fideus-labs/fizarrita/internals/util";
-import type { Chunk, DataType } from "zarrita";
+import { handleCodecMessage } from "@fideus-labs/fizarrita";
+import type { CodecWorkerMessage } from "@fideus-labs/fizarrita/internals/codec-worker-core";
+import { get_ctr } from "@fideus-labs/fizarrita/internals/util";
+import { isNodeRuntime } from "@fideus-labs/worker-pool";
+import type { DataType } from "zarrita";
+import { registry } from "zarrita";
+// `handleCodecMessage` resolves its registry through fizarrita, an npm
+// package, so under Deno that is npm:zarrita rather than the
+// jsr:@zarrita/zarrita this package imports as "zarrita" — separate module
+// instances with separate registries. Patch both; in the npm build the two
+// specifiers collapse to one module and the installer's idempotency guard
+// makes the second call a no-op.
+import { registry as npmRegistry } from "npm:zarrita@^0.6.1";
 
-// Projection type — plain serializable data describing chunk→output mapping.
-// Mirrors fizarrita's Projection type for worker messages.
-type Indices = [start: number, stop: number, step: number];
-type Projection =
-  | { from: null; to: number }
-  | { from: number; to: null }
-  | { from: Indices; to: Indices };
-
-// ngff-zarr stats functions
+import { installBloscShuffleNormalization } from "../utils/blosc_registry.ts";
+import type { CodecRegistry } from "../utils/blosc_registry.ts";
 import {
   createAccumulator,
   extractChannel,
   updateAccumulator,
 } from "../utils/compute_omero-shared.ts";
 
-// Use typeof self for cross-environment compatibility (Deno, Node.js, Browser workers)
-// deno-lint-ignore no-explicit-any
-const ctx = self as any;
+installBloscShuffleNormalization(registry as unknown as CodecRegistry);
+installBloscShuffleNormalization(npmRegistry as unknown as CodecRegistry);
 
 // ---------------------------------------------------------------------------
-// Edge chunk shape correction (same as fizarrita's codec-worker)
+// Messages
 // ---------------------------------------------------------------------------
 
-function fixEdgeChunkShapeStride<D extends DataType>(
-  chunk: Chunk<D>,
-  actualChunkShape?: number[],
-): Chunk<D> {
-  if (actualChunkShape) {
-    const expectedElements = actualChunkShape.reduce((a, b) => a * b, 1);
-    const actualElements = (chunk.data as unknown as ArrayLike<unknown>).length;
-    if (actualElements === expectedElements) {
-      // Decoded size matches the actual edge shape — just fix shape/stride
-      return {
-        data: chunk.data,
-        shape: actualChunkShape,
-        stride: get_strides(actualChunkShape, "C"),
-      };
-    }
-    if (actualElements > expectedElements) {
-      // Decoded chunk is padded to full chunk_shape (e.g. by setWorker).
-      // Extract the valid sub-region into a compact contiguous buffer.
-      // deno-lint-ignore no-explicit-any
-      const src = chunk.data as any;
-      const Ctr = src.constructor as new (n: number) => typeof src;
-      const dst = new Ctr(expectedElements);
-      const srcStrides = get_strides(chunk.shape, "C");
-      copySubRegion(src, srcStrides, dst, actualChunkShape);
-      return {
-        data: dst as typeof chunk.data,
-        shape: actualChunkShape,
-        stride: get_strides(actualChunkShape, "C"),
-      };
-    }
-  }
-  return chunk;
+/** Decode a chunk and compute its per-channel statistics in one round-trip. */
+interface DecodeAndStatsMessage {
+  type: "decode_and_stats";
+  id: number;
+  bytes: ArrayBuffer;
+  metaId: number;
+  actualChunkShape?: number[];
+  nChannels: number;
+  cIndex: number;
+  /** Absolute index of this chunk's first channel in the full array. */
+  cOffset?: number;
 }
 
-/**
- * Copy a sub-region from a padded C-order buffer into a compact destination.
- *
- * For each dimension, copies only the first `subShape[d]` elements along
- * that axis from the source (which has strides `srcStrides`).
- */
-function copySubRegion(
-  src: { readonly [i: number]: unknown; readonly length: number },
-  srcStrides: number[],
-  dst: { [i: number]: unknown; length: number },
-  subShape: number[],
-  srcOffset = 0,
-  dstOffset = 0,
-  dim = 0,
-): void {
-  if (dim === subShape.length - 1) {
-    // Innermost dimension — copy contiguous run
-    for (let i = 0; i < subShape[dim]; i++) {
-      dst[dstOffset + i] = src[srcOffset + i];
-    }
-    return;
-  }
-  const dstStride = subShape.slice(dim + 1).reduce((a, b) => a * b, 1);
-  for (let i = 0; i < subShape[dim]; i++) {
-    copySubRegion(
-      src,
-      srcStrides,
-      dst,
-      subShape,
-      srcOffset + i * srcStrides[dim],
-      dstOffset + i * dstStride,
-      dim + 1,
-    );
-  }
-}
+type WorkerMessage = CodecWorkerMessage | DecodeAndStatsMessage;
 
-// ---------------------------------------------------------------------------
-// Codec pipeline cache — keyed by metaId
-// ---------------------------------------------------------------------------
-
-const pipelineByMetaId = new Map<
-  number,
-  ReturnType<typeof create_codec_pipeline>
->();
-
-const metaByMetaId = new Map<number, CodecChunkMeta>();
-
-const pipelineByKey = new Map<
-  string,
-  ReturnType<typeof create_codec_pipeline>
->();
-
-function getPipeline(metaId: number): ReturnType<typeof create_codec_pipeline> {
-  const pipeline = pipelineByMetaId.get(metaId);
-  if (!pipeline) {
-    throw new Error(
-      `No pipeline for metaId ${metaId}. Send an 'init' message first.`,
-    );
-  }
-  return pipeline;
-}
-
-function getOrCreatePipelineLegacy(meta: CodecChunkMeta) {
-  const key = JSON.stringify(meta);
-  let pipeline = pipelineByKey.get(key);
-  if (!pipeline) {
-    pipeline = create_codec_pipeline({
-      data_type: meta.data_type,
-      shape: meta.chunk_shape,
-      codecs: meta.codecs,
-    });
-    pipelineByKey.set(key, pipeline);
-  }
-  return pipeline;
-}
-
-// ---------------------------------------------------------------------------
-// Serialized accumulator type for transfer
-// ---------------------------------------------------------------------------
-
+/** Accumulator in the plain-object form that survives structured clone. */
 interface SerializedAccumulator {
   min: number;
   max: number;
@@ -171,239 +82,258 @@ interface SerializedAccumulator {
   count: number;
 }
 
+/** A reply to post back, with the buffers to hand over rather than copy. */
+interface Reply {
+  response: Record<string, unknown>;
+  transfer: ArrayBuffer[];
+}
+
 // ---------------------------------------------------------------------------
-// Message handler
+// decode_and_stats
 // ---------------------------------------------------------------------------
 
-type WorkerMessage =
-  | {
-    type: "init";
-    id: number;
-    metaId: number;
-    meta: CodecChunkMeta;
+/**
+ * Element type per `metaId`, recorded from the `init` messages on their way
+ * through to {@link handleCodecMessage}.
+ *
+ * `decode_and_stats` reuses the core `decode` path, which hands back a raw
+ * `ArrayBuffer`; reading statistics out of it needs the array's data type to
+ * pick a typed-array view.
+ */
+const dataTypeByMetaId = new Map<number, DataType>();
+
+function rememberDataType(metaId: number, meta: CodecChunkMeta): void {
+  dataTypeByMetaId.set(metaId, meta.data_type);
+}
+
+/**
+ * Handle `decode_and_stats` by delegating the decode to the shared core and
+ * computing statistics over the result.
+ *
+ * Reusing the core's `decode` keeps a single codec pipeline cache and a single
+ * implementation of the edge-chunk correction.
+ */
+async function handleDecodeAndStats(
+  msg: DecodeAndStatsMessage,
+): Promise<Reply> {
+  const dataType = dataTypeByMetaId.get(msg.metaId);
+  if (dataType === undefined) {
+    return {
+      response: {
+        type: "decoded_and_stats",
+        id: msg.id,
+        error: `No metadata for metaId ${msg.metaId}. Send an 'init' first.`,
+      },
+      transfer: [],
+    };
   }
-  | {
-    type: "decode";
-    id: number;
-    bytes: ArrayBuffer;
-    metaId?: number;
-    meta?: CodecChunkMeta;
-    actualChunkShape?: number[];
+
+  const decoded = await handleCodecMessage({
+    type: "decode",
+    id: msg.id,
+    bytes: msg.bytes,
+    metaId: msg.metaId,
+    // Spread rather than assign: `exactOptionalPropertyTypes` rejects an
+    // explicit `undefined` for an optional property.
+    ...(msg.actualChunkShape ? { actualChunkShape: msg.actualChunkShape } : {}),
+  });
+
+  // A decode failure comes back as a `decoded` response carrying `error`.
+  // Relabel it so the caller's `decoded_and_stats` request settles.
+  if (decoded === null || decoded.response.error !== undefined) {
+    return {
+      response: {
+        type: "decoded_and_stats",
+        id: msg.id,
+        error: decoded?.response.error ??
+          "Codec worker did not handle the decode request",
+      },
+      transfer: [],
+    };
   }
-  | {
-    type: "decode_into";
-    id: number;
-    bytes: ArrayBuffer;
-    metaId: number;
-    output: SharedArrayBuffer;
-    outputByteLength: number;
-    outputStride: number[];
-    projections: Projection[];
-    bytesPerElement: number;
-    actualChunkShape?: number[];
-  }
-  | {
-    type: "encode";
-    id: number;
+
+  const { data, shape, stride } = decoded.response as {
     data: ArrayBuffer;
-    metaId?: number;
-    meta?: CodecChunkMeta;
-  }
-  | {
-    type: "decode_and_stats";
-    id: number;
-    bytes: ArrayBuffer;
-    metaId: number;
-    actualChunkShape?: number[];
-    nChannels: number;
-    cIndex: number;
+    shape: number[];
+    stride: number[];
   };
 
-ctx.addEventListener("message", async (event: MessageEvent<WorkerMessage>) => {
-  const msg = event.data;
+  const Ctr = get_ctr(dataType);
+  const chunkData = new Ctr(data) as unknown as ArrayLike<number>;
 
+  const accumulators: SerializedAccumulator[] = [];
+  if (msg.cIndex >= 0) {
+    // Multi-channel: extract each channel and accumulate separately.
+    //
+    // Iterate the channels this chunk actually decoded, not the full array
+    // count: when the channel axis is chunked, `shape[cIndex]` is smaller
+    // than `nChannels`, and reading past it yields `undefined` (which
+    // `updateAccumulator` counts, since `Number.isNaN(undefined)` is false).
+    // Results are placed at their absolute channel index so that each chunk
+    // merges into the right channel rather than into channel 0.
+    const cOffset = msg.cOffset ?? 0;
+    const chunkChannels = Math.min(shape[msg.cIndex], msg.nChannels - cOffset);
+    for (let ch = 0; ch < chunkChannels; ch++) {
+      const channelData = extractChannel(chunkData, shape, ch, msg.cIndex);
+      const acc = createAccumulator();
+      updateAccumulator(acc, channelData);
+      accumulators[cOffset + ch] = acc;
+    }
+  } else {
+    const acc = createAccumulator();
+    updateAccumulator(acc, chunkData);
+    accumulators.push(acc);
+  }
+
+  // Hand the decoded buffer back too, so the caller can cache the chunk
+  // instead of decoding it a second time.
+  return {
+    response: {
+      type: "decoded_and_stats",
+      id: msg.id,
+      data,
+      shape,
+      stride,
+      accumulators,
+    },
+    transfer: decoded.transfer,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Dispatch
+// ---------------------------------------------------------------------------
+
+/** Response type to report a failure under, per request type. */
+const ERROR_RESPONSE_TYPE: Record<string, string> = {
+  init: "init_ok",
+  decode: "decoded",
+  decode_into: "decode_into_ok",
+  encode: "encoded",
+  decode_and_stats: "decoded_and_stats",
+};
+
+/**
+ * Route one request. Never rejects — a failure is reported as the request's
+ * normal response type carrying an `error` string, which is what the
+ * main-thread dispatcher routes back to the waiting caller.
+ */
+async function handleMessage(msg: WorkerMessage): Promise<Reply | null> {
   try {
     if (msg.type === "init") {
-      metaByMetaId.set(msg.metaId, msg.meta);
-      const pipeline = create_codec_pipeline({
-        data_type: msg.meta.data_type,
-        shape: msg.meta.chunk_shape,
-        codecs: msg.meta.codecs,
-      });
-      pipelineByMetaId.set(msg.metaId, pipeline);
-      ctx.postMessage({ type: "init_ok", id: msg.id });
-      return;
+      rememberDataType(msg.metaId, msg.meta);
+      return await handleCodecMessage(msg);
     }
-
-    if (msg.type === "decode") {
-      const pipeline =
-        msg.metaId !== undefined && pipelineByMetaId.has(msg.metaId)
-          ? getPipeline(msg.metaId)
-          : getOrCreatePipelineLegacy(msg.meta!);
-
-      const bytes = new Uint8Array(msg.bytes);
-      let chunk = (await pipeline.decode(bytes)) as Chunk<DataType>;
-      chunk = fixEdgeChunkShapeStride(chunk, msg.actualChunkShape);
-
-      const dataView = chunk.data as unknown as {
-        buffer: ArrayBuffer;
-        byteOffset: number;
-        byteLength: number;
-      };
-      const buffer = dataView.buffer;
-      const byteOffset = dataView.byteOffset;
-      const byteLength = dataView.byteLength;
-
-      let transferBuffer: ArrayBuffer;
-      if (byteOffset === 0 && byteLength === buffer.byteLength) {
-        transferBuffer = buffer;
-      } else {
-        transferBuffer = buffer.slice(byteOffset, byteOffset + byteLength);
-      }
-
-      ctx.postMessage(
-        {
-          type: "decoded" as const,
-          id: msg.id,
-          data: transferBuffer,
-          shape: chunk.shape,
-          stride: chunk.stride,
-        },
-        [transferBuffer],
-      );
-    } else if (msg.type === "decode_into") {
-      const pipeline = getPipeline(msg.metaId);
-      const bytes = new Uint8Array(msg.bytes);
-      let chunk = (await pipeline.decode(bytes)) as Chunk<DataType>;
-      chunk = fixEdgeChunkShapeStride(chunk, msg.actualChunkShape);
-
-      const destView = new Uint8Array(msg.output, 0, msg.outputByteLength);
-      // deno-lint-ignore no-explicit-any
-      const src = compat_chunk(chunk as any);
-
-      set_from_chunk_binary(
-        { data: destView, stride: msg.outputStride },
-        src,
-        msg.bytesPerElement,
-        msg.projections,
-      );
-
-      ctx.postMessage({ type: "decode_into_ok", id: msg.id });
-    } else if (msg.type === "encode") {
-      let pipeline: ReturnType<typeof create_codec_pipeline>;
-      let meta: CodecChunkMeta;
-      if (msg.metaId !== undefined && pipelineByMetaId.has(msg.metaId)) {
-        pipeline = getPipeline(msg.metaId);
-        meta = metaByMetaId.get(msg.metaId)!;
-      } else {
-        meta = msg.meta!;
-        pipeline = getOrCreatePipelineLegacy(meta);
-      }
-
-      const Ctr = get_ctr(meta.data_type) as unknown as {
-        new (buf: ArrayBuffer, off: number, len: number): unknown;
-        BYTES_PER_ELEMENT: number;
-      };
-      const data = new Ctr(
-        msg.data,
-        0,
-        msg.data.byteLength / Ctr.BYTES_PER_ELEMENT,
-      );
-      const shape = meta.chunk_shape;
-      const stride = get_strides(shape, "C");
-
-      const chunk = { data, shape, stride } as Chunk<DataType>;
-      // deno-lint-ignore no-explicit-any
-      const encoded = await pipeline.encode(chunk as any);
-
-      const transferBuffer = encoded.byteOffset === 0 &&
-          encoded.byteLength === encoded.buffer.byteLength
-        ? (encoded.buffer as ArrayBuffer)
-        : encoded.buffer.slice(
-          encoded.byteOffset,
-          encoded.byteOffset + encoded.byteLength,
-        );
-
-      ctx.postMessage(
-        {
-          type: "encoded" as const,
-          id: msg.id,
-          bytes: transferBuffer,
-        },
-        [transferBuffer],
-      );
-    } else if (msg.type === "decode_and_stats") {
-      // NEW: Decode chunk AND compute per-channel statistics in one pass
-      const pipeline = getPipeline(msg.metaId);
-      const bytes = new Uint8Array(msg.bytes);
-      let chunk = (await pipeline.decode(bytes)) as Chunk<DataType>;
-      chunk = fixEdgeChunkShapeStride(chunk, msg.actualChunkShape);
-
-      const chunkData = chunk.data as unknown as ArrayLike<number>;
-      const chunkShape = chunk.shape;
-      const { nChannels, cIndex } = msg;
-
-      // Compute per-channel statistics
-      const accumulators: SerializedAccumulator[] = [];
-      if (cIndex >= 0) {
-        // Multi-channel: extract each channel and compute stats
-        for (let ch = 0; ch < nChannels; ch++) {
-          const channelData = extractChannel(chunkData, chunkShape, ch, cIndex);
-          const acc = createAccumulator();
-          updateAccumulator(acc, channelData);
-          accumulators.push(acc);
-        }
-      } else {
-        // Single channel: compute stats on full chunk data
-        const acc = createAccumulator();
-        updateAccumulator(acc, chunkData);
-        accumulators.push(acc);
-      }
-
-      // Transfer the decoded data buffer back for caching
-      const dataView = chunk.data as unknown as {
-        buffer: ArrayBuffer;
-        byteOffset: number;
-        byteLength: number;
-      };
-      const buffer = dataView.buffer;
-      const byteOffset = dataView.byteOffset;
-      const byteLength = dataView.byteLength;
-
-      let transferBuffer: ArrayBuffer;
-      if (byteOffset === 0 && byteLength === buffer.byteLength) {
-        transferBuffer = buffer;
-      } else {
-        transferBuffer = buffer.slice(byteOffset, byteOffset + byteLength);
-      }
-
-      ctx.postMessage(
-        {
-          type: "decoded_and_stats" as const,
-          id: msg.id,
-          data: transferBuffer,
-          shape: chunk.shape,
-          stride: chunk.stride,
-          accumulators,
-        },
-        [transferBuffer],
-      );
+    if (msg.type === "decode_and_stats") {
+      return await handleDecodeAndStats(msg);
     }
+    return await handleCodecMessage(msg);
   } catch (error) {
-    // Send error back to main thread
-    const errorType = msg.type === "decode"
-      ? "decoded"
-      : msg.type === "encode"
-      ? "encoded"
-      : msg.type === "decode_into"
-      ? "decode_into_ok"
-      : msg.type === "decode_and_stats"
-      ? "decoded_and_stats"
-      : "init_ok";
-    ctx.postMessage({
-      type: errorType,
-      id: msg.id,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    return {
+      response: {
+        // An unmapped request type has no natural response type. Report it
+        // under a distinct one rather than borrowing `init_ok`, which the
+        // dispatcher could route onto an unrelated pending request.
+        type: ERROR_RESPONSE_TYPE[msg.type] ?? "worker_error",
+        id: (msg as { id: number }).id,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      transfer: [],
+    };
   }
-});
+}
+
+/** Post a reply, falling back to an error-only reply if posting fails. */
+function postReply(
+  post: (response: unknown, transfer: ArrayBuffer[]) => void,
+  reply: Reply,
+): void {
+  try {
+    post(reply.response, reply.transfer);
+  } catch (error) {
+    // Posting can still fail on its own — an unclonable value, a buffer that
+    // is no longer transferable. Retry without the payload so the caller gets
+    // a rejection instead of a request that never settles.
+    post(
+      {
+        type: reply.response.type,
+        id: reply.response.id,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      [],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Runtime plumbing
+// ---------------------------------------------------------------------------
+
+/** The worker scope, when this module is running as a web-style worker. */
+interface WorkerScope {
+  addEventListener(
+    type: "message",
+    listener: (event: MessageEvent<WorkerMessage>) => void,
+  ): void;
+  postMessage(message: unknown, transfer: ArrayBuffer[]): void;
+}
+
+// A browser or Deno worker scope exposes `self` with a `postMessage`; a Node
+// worker thread has no `self` at all and uses `parentPort` instead.
+// `node:worker_threads` is imported through a variable specifier so bundlers
+// building for the browser never try to resolve it.
+//
+// The `postMessage` test is what distinguishes a real worker scope: Deno also
+// defines `self` on the *main* thread (as `Window`, with no `postMessage`), so
+// testing only for `self` would attach the listener to the main global, where
+// no message ever arrives and every caller waits forever.
+//
+// Order matters too: Deno sets `process.versions.node` for npm compatibility,
+// so `isNodeRuntime()` is true there as well. Testing the worker scope first
+// keeps Deno workers on the web branch, which is the one they can actually use.
+const maybeSelf = (globalThis as { self?: { postMessage?: unknown } }).self;
+const workerScope = typeof maybeSelf?.postMessage === "function"
+  ? (maybeSelf as unknown as WorkerScope)
+  : undefined;
+
+if (workerScope !== undefined) {
+  workerScope.addEventListener("message", async (event) => {
+    const reply = await handleMessage(event.data);
+    if (!reply) return;
+    postReply(
+      (response, transfer) => workerScope.postMessage(response, transfer),
+      reply,
+    );
+  });
+} else if (isNodeRuntime()) {
+  const specifier = "node:worker_threads";
+  const { parentPort } = await import(
+    /* @vite-ignore */ /* webpackIgnore: true */ specifier
+  );
+
+  if (parentPort === null) {
+    throw new Error(
+      "omero_codec_worker must be run as a worker thread, not imported on " +
+        "the main thread.",
+    );
+  }
+
+  // A MessagePort queues incoming messages until the first 'message' listener
+  // is attached, so nothing posted before this module finishes evaluating is
+  // lost. Awaiting here rather than chaining `.then()` keeps a failed startup
+  // a rejection of the module's own evaluation, instead of an unhandled
+  // rejection beside a worker that silently answers nothing.
+  parentPort.on("message", async (msg: WorkerMessage) => {
+    const reply = await handleMessage(msg);
+    if (!reply) return;
+    postReply(
+      (response, transfer) => parentPort.postMessage(response, transfer),
+      reply,
+    );
+  });
+} else {
+  throw new Error(
+    "omero_codec_worker: no worker message channel available — this runtime " +
+      "has no `self` and is not Node.",
+  );
+}

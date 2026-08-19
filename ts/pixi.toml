@@ -10,7 +10,7 @@ platforms = ["linux-64", "osx-64", "osx-arm64", "win-64", "linux-aarch64"]
 
 [tasks]
 dev = "deno run --allow-all src/mod.ts"
-test = "deno test --allow-all --ignore=test/browser-npm/"
+test = "deno test --allow-all --ignore=test/browser-npm/,test/node/"
 lint = "deno lint"
 fmt = "deno fmt"
 check = "deno check src/mod.ts"
@@ -43,8 +43,11 @@ cmd = "deno task build:bundle && deno task test:browser"
 [tasks.test-browser-npm]
 cmd = "deno task build:npm && deno task test:browser"
 
+[tasks.test-node]
+cmd = "deno task test:node"
+
 [tasks.test-all]
-cmd = "deno task test && deno task test:browser:bundle"
+cmd = "deno task test && deno task test:node && deno task test:browser:bundle"
 
 [tasks.build-npm]
 # Build NPM package first, inline the worker, then bundle the browser module with esbuild
