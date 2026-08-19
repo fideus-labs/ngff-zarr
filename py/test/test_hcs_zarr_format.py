@@ -4,7 +4,7 @@
 
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import dask.array as da
 import numpy as np
@@ -120,109 +120,9 @@ def test_to_hcs_zarr_uses_correct_zarr_format_v05(basic_plate_metadata):
         assert attrs["ome"]["version"] == "0.5"
 
 
-@patch("ngff_zarr.hcs.use_zarrista_for", new=lambda _store: False)
-@patch("ngff_zarr.hcs.zarr.open_group")
-@patch("ngff_zarr.hcs.pkg_version.parse")
-def test_to_hcs_zarr_zarr_format_parameter_v04(
-    mock_version_parse, mock_open_group, basic_plate_metadata
-):
-    """Test the zarr_format parameter of the legacy fallback engine for v0.4.
-
-    Path stores normally dispatch to the zarrista compat layer, so the
-    fallback is forced to pin the zarr.open_group call it must make.
-    """
-    # Mock zarr-python version 3+
-    mock_version = MagicMock()
-    mock_version.major = 3
-    mock_version_parse.return_value = mock_version
-
-    # Mock the zarr group
-    mock_group = MagicMock()
-    mock_open_group.return_value = mock_group
-
-    basic_plate_metadata.version = "0.4"
-    plate = HCSPlate(None, basic_plate_metadata)
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        test_path = str(Path(tmpdir) / "test_store")
-
-        # Call the function
-        to_hcs_zarr(plate, test_path)
-
-        # Verify that zarr.open_group was called with zarr_format=2
-        mock_open_group.assert_called_once_with(test_path, mode="w", zarr_format=2)
-
-
-@patch("ngff_zarr.hcs.use_zarrista_for", new=lambda _store: False)
-@patch("ngff_zarr.hcs.zarr.open_group")
-@patch("ngff_zarr.hcs.pkg_version.parse")
-def test_to_hcs_zarr_zarr_format_parameter_v05(
-    mock_version_parse, mock_open_group, basic_plate_metadata
-):
-    """Test the zarr_format parameter of the legacy fallback engine for v0.5.
-
-    Path stores normally dispatch to the zarrista compat layer, so the
-    fallback is forced to pin the zarr.open_group call it must make.
-    """
-    # Mock zarr-python version 3+
-    mock_version = MagicMock()
-    mock_version.major = 3
-    mock_version_parse.return_value = mock_version
-
-    # Mock the zarr group
-    mock_group = MagicMock()
-    mock_open_group.return_value = mock_group
-
-    basic_plate_metadata.version = "0.5"
-    plate = HCSPlate(None, basic_plate_metadata)
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        test_path = str(Path(tmpdir) / "test_store")
-
-        # Call the function
-        to_hcs_zarr(plate, test_path)
-
-        # Verify that zarr.open_group was called with zarr_format=3
-        mock_open_group.assert_called_once_with(test_path, mode="w", zarr_format=3)
-
-
-@patch("ngff_zarr.hcs.use_zarrista_for", new=lambda _store: False)
-@patch("ngff_zarr.hcs.zarr.open_group")
-@patch("ngff_zarr.hcs.pkg_version.parse")
-def test_to_hcs_zarr_legacy_zarr_version(
-    mock_version_parse, mock_open_group, basic_plate_metadata
-):
-    """Test that the legacy fallback handles zarr-python 2.x correctly."""
-    # Mock zarr-python version 2.x
-    mock_version = MagicMock()
-    mock_version.major = 2
-    mock_version_parse.return_value = mock_version
-
-    # Mock the zarr group
-    mock_group = MagicMock()
-    mock_open_group.return_value = mock_group
-
-    basic_plate_metadata.version = "0.4"
-    plate = HCSPlate(None, basic_plate_metadata)
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        test_path = str(Path(tmpdir) / "test_store")
-
-        # Call the function
-        to_hcs_zarr(plate, test_path)
-
-        # Verify that zarr.open_group was called without zarr_format parameter
-        mock_open_group.assert_called_once_with(test_path, mode="w")
-
-
-@patch("ngff_zarr.hcs.zarr.open_group")
 @patch("ngff_zarr.hcs.create_zarrista_group")
-def test_to_hcs_zarr_path_store_uses_zarrista(
-    mock_create_group, mock_open_group, basic_plate_metadata
-):
+def test_to_hcs_zarr_path_store_uses_zarrista(mock_create_group, basic_plate_metadata):
     """Path stores dispatch plate-group creation to the zarrista compat layer."""
-    pytest.importorskip("zarrista")
-
     basic_plate_metadata.version = "0.4"
     plate = HCSPlate(None, basic_plate_metadata)
 
@@ -231,7 +131,6 @@ def test_to_hcs_zarr_path_store_uses_zarrista(
 
         to_hcs_zarr(plate, test_path)
 
-        mock_open_group.assert_not_called()
         args, kwargs = mock_create_group.call_args
         assert args[0] == test_path
         assert args[1]["ome"]["plate"]["name"] == "Test Plate"
@@ -239,107 +138,15 @@ def test_to_hcs_zarr_path_store_uses_zarrista(
         assert kwargs["overwrite"] is True
 
 
-@patch("ngff_zarr.hcs.use_zarrista_for", new=lambda _store: False)
-@patch("ngff_zarr.hcs.zarr.open_group")
-@patch("ngff_zarr.hcs.pkg_version.parse")
 @patch("ngff_zarr.hcs.to_ome_zarr")
-@patch("pathlib.Path.mkdir")
-def test_write_hcs_well_image_zarr_format_v04(
-    mock_mkdir,
-    mock_to_ngff_zarr,
-    mock_version_parse,
-    mock_open_group,
-    basic_plate_metadata,
-    sample_multiscales,
-):
-    """Test that the legacy fallback uses zarr format 2 for NGFF version 0.4."""
-    # Mock zarr-python version 3+
-    mock_version = MagicMock()
-    mock_version.major = 3
-    mock_version_parse.return_value = mock_version
-
-    # Mock the zarr group and its attributes
-    mock_group = MagicMock()
-    mock_group.attrs = {}
-    mock_open_group.return_value = mock_group
-
-    basic_plate_metadata.version = "0.4"
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        store_path = str(Path(tmpdir) / "test_store")
-
-        # Call the function
-        write_hcs_well_image(
-            store=store_path,
-            multiscales=sample_multiscales,
-            plate_metadata=basic_plate_metadata,
-            row_name="A",
-            column_name="1",
-            field_index=0,
-            version="0.4",
-        )
-
-        # Verify that zarr.open_group was called with zarr_format=2
-        mock_open_group.assert_called_once_with(store_path, mode="a", zarr_format=2)
-
-
-@patch("ngff_zarr.hcs.use_zarrista_for", new=lambda _store: False)
-@patch("ngff_zarr.hcs.zarr.open_group")
-@patch("ngff_zarr.hcs.pkg_version.parse")
-@patch("ngff_zarr.hcs.to_ome_zarr")
-@patch("pathlib.Path.mkdir")
-def test_write_hcs_well_image_zarr_format_v05(
-    mock_mkdir,
-    mock_to_ngff_zarr,
-    mock_version_parse,
-    mock_open_group,
-    basic_plate_metadata,
-    sample_multiscales,
-):
-    """Test that the legacy fallback uses zarr format 3 for NGFF version 0.5."""
-    # Mock zarr-python version 3+
-    mock_version = MagicMock()
-    mock_version.major = 3
-    mock_version_parse.return_value = mock_version
-
-    # Mock the zarr group and its attributes
-    mock_group = MagicMock()
-    mock_group.attrs = {}
-    mock_open_group.return_value = mock_group
-
-    basic_plate_metadata.version = "0.5"
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        store_path = str(Path(tmpdir) / "test_store")
-
-        # Call the function
-        write_hcs_well_image(
-            store=store_path,
-            multiscales=sample_multiscales,
-            plate_metadata=basic_plate_metadata,
-            row_name="A",
-            column_name="1",
-            field_index=0,
-            version="0.5",
-        )
-
-        # Verify that zarr.open_group was called with zarr_format=3
-        mock_open_group.assert_called_once_with(store_path, mode="a", zarr_format=3)
-
-
-@patch("ngff_zarr.hcs.to_ome_zarr")
-@patch("ngff_zarr.hcs.zarr.open_group")
 @patch("ngff_zarr.hcs.create_zarrista_subgroup")
 def test_write_hcs_well_image_path_store_uses_zarrista(
     mock_create_subgroup,
-    mock_open_group,
     mock_to_ome_zarr,
     basic_plate_metadata,
     sample_multiscales,
 ):
     """Path stores dispatch well-group writes to the zarrista compat layer."""
-    pytest.importorskip("zarrista")
-
     with tempfile.TemporaryDirectory() as tmpdir:
         store_path = str(Path(tmpdir) / "test_store")
 
@@ -353,7 +160,6 @@ def test_write_hcs_well_image_path_store_uses_zarrista(
             version="0.5",
         )
 
-        mock_open_group.assert_not_called()
         args, _kwargs = mock_create_subgroup.call_args
         assert args[0] == store_path
         assert args[1] == "A/1"

@@ -7,15 +7,6 @@ import dask
 from dask.array.core import Array as DaskArray
 from numpy.typing import ArrayLike
 
-try:
-    # Zarr v3 imports
-    from zarr.core.array import Array as ZarrArray
-    from zarr.core.group import Group as ZarrGroup
-except ImportError:
-    # Zarr v2 imports
-    from zarr.core import Array as ZarrArray
-    from zarr.hierarchy import Group as ZarrGroup
-
 from ._v2_store_reader import V2Group, V3Group
 from ._zarrista_utils import (
     LocalZarrGroup,
@@ -27,9 +18,9 @@ from .methods._support import _spatial_dims
 from .ngff_image import NgffImage
 from .v04.zarr_metadata import SupportedDims, Units
 
-# Group node types across the read backends: zarr-python, the compat-layer
-# local reader, and the pure-Python mapping-store reader.
-_group_types = (ZarrGroup, LocalZarrGroup, V2Group, V3Group)
+# Group node types across the read backends: the compat-layer local reader
+# and the pure-Python mapping-store reader.
+_group_types = (LocalZarrGroup, V2Group, V3Group)
 
 
 def _extract_array_from_group(group):
@@ -76,8 +67,7 @@ def _as_dask_array(data) -> DaskArray:
     The read counterpart of the write-side engine dispatch: compat-layer
     ``LocalZarrArray`` and v2-reader ``V2Array`` nodes expose ``to_dask()``,
     raw zarrista arrays wrap through the adapter, and ``str``/mapping stores
-    dispatch through :func:`~._zarrista_utils.open_lazy_array`. zarr-python
-    array objects keep the legacy ``dask.array.from_zarr`` engine; anything
+    dispatch through :func:`~._zarrista_utils.open_lazy_array`; anything
     else is treated as an in-memory array.
     """
     if isinstance(data, DaskArray):
@@ -86,15 +76,13 @@ def _as_dask_array(data) -> DaskArray:
         return data.to_dask()
     if is_zarrista_array(data):
         return zarrista_array_to_dask(data)
-    if isinstance(data, ZarrArray):
-        return dask.array.from_zarr(data)
     if isinstance(data, (str, MutableMapping)):
         return open_lazy_array(data)
     return dask.array.from_array(data)
 
 
 def to_ngff_image(
-    data: ArrayLike | MutableMapping | str | ZarrArray | ZarrGroup,
+    data: ArrayLike | MutableMapping | str,
     dims: Sequence[SupportedDims] | None = None,
     scale: Mapping[Hashable, float] | None = None,
     translation: Mapping[Hashable, float] | None = None,
@@ -107,10 +95,10 @@ def to_ngff_image(
 
     :param data: Multi-dimensional array that provides the image pixel
          values. It can be a numpy.ndarray or another type that behaves like
-         a numpy.ndarray, i.e. an ArrayLike. If a ZarrArray, MutableMapping,
-         or str, it will be loaded into Dask lazily as a zarr Array. If a
-         ZarrGroup, the first array in the group will be used.
-    :type  data: ArrayLike, ZarrArray, ZarrGroup, MutableMapping, str
+         a numpy.ndarray, i.e. an ArrayLike. If a MutableMapping or str, it
+         will be loaded into Dask lazily as a zarr Array. If a group node,
+         the full-resolution array in the group will be used.
+    :type  data: ArrayLike, MutableMapping, str
 
     :param dims: Tuple specifying the data dimensions.
         Values should drawn from: {'t', 'z', 'y', 'x', 'c'} for time, third

@@ -3,9 +3,6 @@
 from pathlib import Path
 
 import packaging.version
-import zarr
-import zarr.errors
-import zarr.storage
 
 from ._remote_reader import (
     RemoteZarrStore,
@@ -15,15 +12,12 @@ from ._remote_reader import (
 from ._store_types import StoreLike
 from ._zarrista_utils import (
     _is_bytes_mapping,
+    _is_local_path,
     open_local_node,
     open_ozx_store,
-    use_zarrista_for,
 )
 from .multiscales import NgffMultiscales
 from .rfc9_zip import is_ozx_path, read_ozx_version
-
-zarr_version = packaging.version.parse(zarr.__version__)
-zarr_version_major = zarr_version.major
 
 # Supported remote URL schemes for storage
 REMOTE_URL_SCHEMES = ("s3://", "gs://", "azure://", "http://", "https://")
@@ -56,15 +50,17 @@ def _is_remote_store(store) -> bool:
     return not protocols.isdisjoint(REMOTE_FS_PROTOCOLS)
 
 
-def _remote_backend_import_error(store, original: ImportError) -> ImportError:
+def _remote_backend_import_error(store, original: ImportError | None) -> ImportError:
     """Build an actionable ImportError pointing at the ``[remote]`` extra."""
-    return ImportError(
+    message = (
         f"Reading from the remote store '{store}' requires additional "
         "packages that are not installed. Install them with:\n\n"
         '    pip install "ngff-zarr[remote]"\n\n'
-        "This provides the fsspec backends for http(s), S3, GCS, and Azure. "
-        f"Original error: {original}"
+        "This provides the obstore backend for http(s), S3, GCS, and Azure."
     )
+    if original is not None:
+        message += f" Original error: {original}"
+    return ImportError(message)
 
 
 class _NoValidZarrGroupError(ValueError):
@@ -100,55 +96,6 @@ def _array_at_root_error(store) -> ValueError:
         "but OME-Zarr requires a group structure with multiscale metadata. "
         "Single Zarr arrays cannot be directly converted to OME-Zarr format."
     )
-
-
-def _open_zarr_python_root(store, version: str | None):
-    """Open the root group with zarr-python (the legacy store-object branch).
-
-    Store objects the compat layer cannot handle -- user-supplied
-    zarr-python stores (``ZipStore``, ``FsspecStore``, ``MemoryStore``),
-    remote URL strings, and the ``.ozx`` fallback when zarrista is
-    unavailable -- keep the zarr-python engine here.
-    """
-    format_kwargs = {}
-    if version and zarr_version_major >= 3:
-        format_kwargs = (
-            {"zarr_format": 2}
-            if packaging.version.parse(version) < packaging.version.parse("0.5")
-            else {"zarr_format": 3}
-        )
-
-    def _open_group_with_helpful_errors(**open_kwargs):
-        try:
-            return zarr.open_group(store, mode="r", **open_kwargs)
-        except zarr.errors.GroupNotFoundError as e:
-            raise _group_not_found_error(store) from e
-        except zarr.errors.ContainsArrayError as e:
-            raise _array_at_root_error(store) from e
-        except ImportError as e:
-            # Reading a remote store (e.g. https://, s3://) goes through an
-            # fsspec filesystem backend such as aiohttp, requests, s3fs, gcsfs,
-            # or adlfs. When the relevant backend is missing, fsspec raises an
-            # ImportError. Rewrite it into an actionable message; re-raise any
-            # unrelated import failure unchanged. _is_remote_store also matches
-            # an FsspecStore, whose str() is not the original URL.
-            if _is_remote_store(store):
-                raise _remote_backend_import_error(store, e) from e
-            raise
-
-    root = _open_group_with_helpful_errors(**format_kwargs)
-    # When auto-detecting version (no explicit version provided) on zarr-python 3,
-    # zarr may prefer a spurious zarr.json (format 3) over .zgroup (format 2),
-    # which can yield an empty-root group. Retry the v2 open through the same
-    # helper so fallback errors get the same helpful wrapping.
-    if version is None and zarr_version_major >= 3 and not root.attrs:
-        root = _open_group_with_helpful_errors(zarr_format=2)
-    # resulting in empty root attributes. Fall back to zarr_format=2 in that case.
-    if not version and zarr_version_major >= 3:
-        root_attrs_check = root.attrs.asdict()
-        if not root_attrs_check:
-            root = zarr.open_group(store, mode="r", zarr_format=2)
-    return root
 
 
 def _open_local_root(store, version: str | None):
@@ -198,8 +145,8 @@ def _open_root_node(store, version: str | None):
 
     Local directory paths go through the zarrista compat layer (direct
     metadata-document reads), remote URL handles through zarrista's async
-    API over obstore, bytes mappings through the pure-Python v2 store
-    reader, and any other store object through zarr-python.
+    API over obstore, and bytes mappings through the pure-Python store
+    reader. Any other store object raises ``TypeError``.
     """
     if isinstance(store, RemoteZarrStore):
         return _open_remote_root(store, version)
@@ -213,57 +160,14 @@ def _open_root_node(store, version: str | None):
         if not isinstance(node, (V2Group, V3Group)):
             raise _array_at_root_error(store)
         return node
-    if use_zarrista_for(store):
+    if _is_local_path(store):
         return _open_local_root(store, version)
-    return _open_zarr_python_root(store, version)
-
-
-# -- blosc codec backward-compatibility -----------------------------------
-
-# Deprecated Blosc codec configuration keys that should be stripped on read.
-_DEPRECATED_BLOSC_KEYS: frozenset = frozenset({"nthreads", "blocksize"})
-
-
-def _apply_blosc_codec_compat() -> None:
-    """Monkey-patch BloscCodec.from_dict to strip deprecated nthreads/blocksize keys.
-
-    Older zarr v3 implementations wrote ``nthreads`` and ``blocksize`` into the
-    Blosc codec metadata.  These keys are no longer recognised and cause
-    ``BloscCodec.from_dict`` to raise.  This patch filters them out (both at
-    the top level of the codec dict and inside a nested ``"configuration"``
-    mapping) before passing control to the original method.
-    """
-    try:
-        from zarr.codecs.blosc import BloscCodec
-
-        _orig = BloscCodec.from_dict
-
-        @classmethod
-        def _patched(cls, data):
-            if isinstance(data, dict):
-                if any(k in _DEPRECATED_BLOSC_KEYS for k in data):
-                    data = {
-                        k: v for k, v in data.items() if k not in _DEPRECATED_BLOSC_KEYS
-                    }
-                if "configuration" in data and isinstance(data["configuration"], dict):
-                    cfg = data["configuration"]
-                    if any(k in _DEPRECATED_BLOSC_KEYS for k in cfg):
-                        data = {
-                            **data,
-                            "configuration": {
-                                k: v
-                                for k, v in cfg.items()
-                                if k not in _DEPRECATED_BLOSC_KEYS
-                            },
-                        }
-            return _orig.__func__(cls, data)
-
-        BloscCodec.from_dict = _patched
-    except ImportError:
-        pass
-
-
-_apply_blosc_codec_compat()
+    raise TypeError(
+        "ngff-zarr reads from local directory paths, remote URL strings, "
+        f"zip archive paths, and key-to-bytes mappings; got "
+        f"{type(store).__name__}. Pass a path instead of a zarr-python "
+        "store object."
+    )
 
 
 def from_ome_zarr(
@@ -341,34 +245,16 @@ def from_ome_zarr(
         # (zarr-python ZipStore only when zarrista is unavailable).
         store = open_ozx_store(store)
 
-    # Remote URL strings read through zarrista's async API over obstore when
-    # available (storage_options translated to obstore configuration);
-    # otherwise the legacy zarr-python/fsspec engine.
+    # Remote URL strings read through zarrista's async API over obstore
+    # (storage_options translated to obstore configuration).
     if isinstance(store, str) and store.startswith(REMOTE_URL_SCHEMES):
-        if remote_read_available():
-            store = RemoteZarrStore(store, storage_options=storage_options)
-        elif storage_options is not None:
-            # Legacy fallback: string URLs with storage options require
-            # zarr-python 3+ FsspecStore support.
-            if zarr_version_major >= 3 and hasattr(zarr.storage, "FsspecStore"):
-                try:
-                    store = zarr.storage.FsspecStore.from_url(
-                        store, storage_options=storage_options
-                    )
-                except ImportError as e:
-                    # Building the FsspecStore imports the fsspec backend
-                    # eagerly, so a missing backend surfaces here rather than
-                    # in _open_group_with_helpful_errors below.
-                    raise _remote_backend_import_error(store, e) from e
-            else:
-                raise RuntimeError(
-                    "storage_options parameter requires zarr-python 3+ with FsspecStore support. "
-                    f"Current zarr version: {zarr.__version__}"
-                )
+        if not remote_read_available():
+            raise _remote_backend_import_error(store, None)
+        store = RemoteZarrStore(store, storage_options=storage_options)
 
     # Open the root node with helpful error messages, dispatching on store
-    # type: local paths -> compat layer, bytes mappings -> v2 store reader,
-    # other store objects -> zarr-python.
+    # type: local paths -> compat layer, bytes mappings -> store reader,
+    # remote handles -> zarrista/obstore.
     root = _open_root_node(store, version)
 
     # Check root-level attributes first to see if this is an HCS plate

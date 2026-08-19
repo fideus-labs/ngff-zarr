@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 import zarr
-import zarr.storage
 from ngff_zarr import from_ome_zarr, to_ome_zarr
 from packaging import version
 
@@ -25,14 +24,14 @@ pytestmark = pytest.mark.skipif(
         ("0.6", "0.5"),
     ],
 )
-def test_conversion(input_version, output_version):
+def test_conversion(input_version, output_version, tmp_path):
     test_store = Path(__file__).parent / "data" / "input" / "v04" / "6001240.zarr"
     multiscales = from_ome_zarr(test_store, validate=True, version="0.4")
 
-    store = zarr.storage.MemoryStore()
+    store = tmp_path / "input.ome.zarr"
     to_ome_zarr(store, multiscales, version=input_version)
     from_ome_zarr(store, validate=True, version=input_version)
 
-    new_store = zarr.storage.MemoryStore()
+    new_store = tmp_path / "output.ome.zarr"
     to_ome_zarr(new_store, multiscales, version=output_version)
     from_ome_zarr(new_store, validate=True, version=output_version)

@@ -314,23 +314,34 @@ def test_write_to_new_store_matrix(tmp_path, source_version, target_version):
     np.testing.assert_array_equal(reloaded.images[0].data.compute(), data)
 
 
-def test_write_to_new_store_memory():
-    """Write-to-new-store also works store-to-store in memory (no filesystem)."""
-    multiscales, data = _synth_multiscales()
-    source = zarr.storage.MemoryStore()
-    to_ome_zarr(source, multiscales, version="0.4")
+def test_write_to_new_store_rejects_store_objects(tmp_path):
+    """zarr-python store objects are rejected with TypeError (breaking change).
 
-    target = zarr.storage.MemoryStore()
-    upgrade_ome_zarr(source, target, version="0.6")
+    Store-to-store upgrades through in-memory zarr-python stores are no longer
+    supported: only local paths, remote URLs, .ozx archives, and read-only
+    bytes mappings are accepted. Path-based write-to-new-store coverage lives
+    in test_write_to_new_store_matrix.
+    """
+    multiscales, _ = _synth_multiscales()
 
-    root_target = zarr.open_group(target, mode="r")
-    assert root_target.attrs["ome"]["version"] == "0.6.dev4"
-    reloaded = from_ome_zarr(target, version="0.6", validate=True)
-    np.testing.assert_array_equal(reloaded.images[0].data.compute(), data)
+    # Write side: to_ome_zarr no longer accepts store objects.
+    with pytest.raises(TypeError, match="no longer accepted"):
+        to_ome_zarr(zarr.storage.MemoryStore(), multiscales, version="0.4")
 
-    # Source still readable at its own version: never erased.
-    source_reloaded = from_ome_zarr(source, version="0.4", validate=True)
-    np.testing.assert_array_equal(source_reloaded.images[0].data.compute(), data)
+    source_path = str(tmp_path / "source.ome.zarr")
+    to_ome_zarr(source_path, multiscales, version="0.4")
+
+    # upgrade_ome_zarr rejects store objects as the source ...
+    with pytest.raises(TypeError, match="zarr-python store object"):
+        upgrade_ome_zarr(
+            zarr.storage.MemoryStore(),
+            str(tmp_path / "target.ome.zarr"),
+            version="0.6",
+        )
+
+    # ... and as the target.
+    with pytest.raises(TypeError, match="no longer accepted"):
+        upgrade_ome_zarr(source_path, zarr.storage.MemoryStore(), version="0.6")
 
 
 # --------------------------------------------------------------------------- #

@@ -25,12 +25,10 @@ Sharding vocabulary differs from zarr-python: the builder chunk grid is the
 ngff-zarr's ``chunks_per_shard`` multiplies ``chunks`` into the builder grid
 shape while ``chunks`` itself becomes the subchunk shape.
 
-zarrista requires Python >= 3.11 and is an optional dependency, so it is
-imported lazily inside each function.
+zarrista is imported lazily inside each function to keep module import cheap.
 """
 
 import ast
-import importlib.util
 import json
 import os
 import re
@@ -41,7 +39,6 @@ from pathlib import Path
 
 import dask.array
 import numpy as np
-import zarr.storage
 
 from ._v2_store_reader import AttrsDict
 from .rfc9_zip import ZipReadStore, is_ozx_path
@@ -64,7 +61,6 @@ __all__ = [
     "open_zip_lazy",
     "read_group_attributes",
     "resolve_store_path",
-    "use_zarrista_for",
     "write_dask_array",
     "zarrista_array_to_dask",
 ]
@@ -270,26 +266,12 @@ def _compressor_to_zarrista_codec(compressor, dtype: np.dtype):
     )
 
 
-_ZARRISTA_AVAILABLE: bool | None = None
+def _is_local_path(store) -> bool:
+    """Whether *store* is a local directory path zarrista can target directly.
 
-
-def _zarrista_available() -> bool:
-    global _ZARRISTA_AVAILABLE
-    if _ZARRISTA_AVAILABLE is None:
-        _ZARRISTA_AVAILABLE = importlib.util.find_spec("zarrista") is not None
-    return _ZARRISTA_AVAILABLE
-
-
-def use_zarrista_for(store) -> bool:
-    """Return True when writes targeting *store* should use zarrista.
-
-    This is the single backend-dispatch point: every write site branches
-    through it so the zarr-python fallback can later be removed in one place.
-    zarrista handles ``str``/``pathlib.Path``/``os.PathLike`` targets; store
-    objects and ``MutableMapping``s keep the zarr-python engine, as do
-    ``.zip``/``.ozx`` targets (zarrista can only read zip archives) and
-    remote URL strings (zarrista only writes local filesystem stores). Also
-    False when zarrista itself is unavailable (it requires Python >= 3.11).
+    True for ``str``/``pathlib.Path``/``os.PathLike`` targets that are neither
+    remote URL strings nor ``.zip``/``.ozx`` archive paths (zarrista can only
+    read zip archives); ``MutableMapping``s and store objects are excluded.
     """
     if not isinstance(store, (str, Path, os.PathLike)) or isinstance(
         store, MutableMapping
@@ -304,9 +286,7 @@ def use_zarrista_for(store) -> bool:
         if target.startswith(REMOTE_URL_SCHEMES):
             return False
     path = Path(target)
-    if path.suffix.lower() == ".zip" or is_ozx_path(path):
-        return False
-    return _zarrista_available()
+    return not (path.suffix.lower() == ".zip" or is_ozx_path(path))
 
 
 _FILESYSTEM_STORE_REPR = re.compile(r"\AFilesystemStore\(path=(.*)\)\Z", re.DOTALL)
@@ -321,8 +301,6 @@ def _zarrista_filesystem_store_path(store) -> Path | None:
     parsed with ``ast.literal_eval``. Tests pin the format so upstream drift
     surfaces as a failure rather than a silently unresolvable store.
     """
-    if not _zarrista_available():
-        return None
     from zarrista.store import FilesystemStore
 
     if not isinstance(store, FilesystemStore):
@@ -341,48 +319,47 @@ def resolve_store_path(store) -> Path | None:
     """Resolve *store* to the local directory path backing it, or ``None``.
 
     Accepts plain ``str``/``pathlib.Path``/``os.PathLike`` targets (e.g. the
-    default ``config.cache_store``), the directory-backed zarr-python stores
-    (``LocalStore``/``DirectoryStore``), and zarrista ``FilesystemStore``
-    handles. Returns ``None`` for stores with no local directory (in-memory
-    mappings, remote stores, ...), which must keep the zarr-python engine.
+    default ``config.cache_store``) and zarrista ``FilesystemStore`` handles.
+    Returns ``None`` for anything with no local directory (in-memory mappings,
+    remote URL strings, store objects, ...).
     """
-    local_store_cls = getattr(zarr.storage, "LocalStore", None)
-    if local_store_cls is not None and isinstance(store, local_store_cls):
-        return Path(store.root)
-    directory_store_cls = getattr(zarr.storage, "DirectoryStore", None)
-    if directory_store_cls is not None and isinstance(store, directory_store_cls):
-        return Path(store.path)
     zarrista_path = _zarrista_filesystem_store_path(store)
     if zarrista_path is not None:
         return zarrista_path
     if isinstance(store, (str, Path, os.PathLike)) and not isinstance(
         store, MutableMapping
     ):
-        return Path(os.fspath(store))
+        target = os.fspath(store)
+        if isinstance(target, str):
+            from .from_ngff_zarr import REMOTE_URL_SCHEMES
+
+            if target.startswith(REMOTE_URL_SCHEMES):
+                return None
+        return Path(target)
     return None
 
 
 def normalize_store(store) -> Path:
     """Normalize *store* to a local directory path zarrista can target.
 
-    Accepts ``str``/``pathlib.Path``/``os.PathLike`` and local zarr-python
-    stores that wrap a directory path. Raises ``TypeError`` for store objects
-    zarrista cannot handle (in-memory mappings, remote stores, ...) and
-    ``ValueError`` for zip targets, which zarrista can only read.
+    Accepts ``str``/``pathlib.Path``/``os.PathLike`` directory paths and
+    zarrista ``FilesystemStore`` handles. Raises ``TypeError`` for anything
+    else (in-memory mappings, remote URL strings, zarr store objects, ...)
+    and ``ValueError`` for zip targets, which zarrista can only read.
     """
     path = resolve_store_path(store)
     if path is None:
         raise TypeError(
-            "The zarrista compatibility layer requires a local path store; "
-            f"got {type(store).__name__}. Pass a str, pathlib.Path, or "
-            "os.PathLike directory path. In-memory mappings and other zarr "
-            "store objects must use the zarr-python engine."
+            "ngff-zarr writes to local directory paths; got "
+            f"{type(store).__name__}. Pass a str, pathlib.Path, or "
+            "os.PathLike directory path (write to a local directory and "
+            "upload afterwards for remote targets). In-memory mappings and "
+            "zarr-python store objects are no longer accepted."
         )
     if path.suffix.lower() == ".zip" or is_ozx_path(path):
         raise ValueError(
             "zarrista cannot write into zip archives (.zip/.ozx). Write to a "
-            "directory and zip it afterwards (see ngff_zarr.rfc9_zip), or use "
-            "the zarr-python engine."
+            "directory and zip it afterwards (see ngff_zarr.rfc9_zip)."
         )
     return path
 
@@ -758,8 +735,6 @@ def open_zarrista_array(path, component: str | None = None):
 
 def is_zarrista_array(obj) -> bool:
     """Whether *obj* is a raw ``zarrista.Array`` handle."""
-    if not _zarrista_available():
-        return False
     from zarrista import Array
 
     return isinstance(obj, Array)
@@ -786,15 +761,11 @@ def open_zarrista_lazy(path, component: str | None = None) -> dask.array.Array:
 def open_ozx_store(path):
     """Store handle for reading the zip archive (``.ozx``/``.zip``) at *path*.
 
-    A :class:`~.rfc9_zip.ZipReadStore` when zarrista is available: metadata
-    and group navigation go through the pure-Python mapping reader while
-    pixel data reads through zarrista's native zip store (see
-    :func:`open_zip_lazy`). Without zarrista the zarr-python ``ZipStore``
-    fallback engine is returned instead.
+    A :class:`~.rfc9_zip.ZipReadStore`: metadata and group navigation go
+    through the pure-Python mapping reader while pixel data reads through
+    zarrista's native zip store (see :func:`open_zip_lazy`).
     """
-    if _zarrista_available():
-        return ZipReadStore(path)
-    return zarr.storage.ZipStore(str(path), mode="r")
+    return ZipReadStore(path)
 
 
 def open_zip_lazy(store: ZipReadStore, component: str | None = None):
@@ -834,15 +805,13 @@ def _is_bytes_mapping(store) -> bool:
 def open_lazy_array(store, component: str | None = None) -> dask.array.Array:
     """Open the array at *component* within *store* as a lazy dask array.
 
-    The single read-dispatch point mirroring :func:`use_zarrista_for` on the
-    write side: zip-archive views read pixels through zarrista's zip store,
-    remote store handles through zarrista's async API over obstore, other
-    bytes mappings go through the pure-Python store reader (either zarr
-    format), local paths through zarrista, and every other store object
-    (zarr-python stores: ZipStore, FsspecStore, MemoryStore, ...) keeps the
-    zarr-python engine via ``dask.array.from_zarr``.
+    The single read-dispatch point: zip-archive views read pixels through
+    zarrista's zip store, remote store handles through zarrista's async API
+    over obstore, other bytes mappings go through the pure-Python store
+    reader (either zarr format), and local paths through zarrista. Any other
+    store object raises ``TypeError``.
     """
-    if isinstance(store, ZipReadStore) and _zarrista_available():
+    if isinstance(store, ZipReadStore):
         return open_zip_lazy(store, component)
     from ._remote_reader import RemoteZarrStore, open_remote_lazy
 
@@ -852,9 +821,14 @@ def open_lazy_array(store, component: str | None = None) -> dask.array.Array:
         from ._v2_store_reader import open_store_array
 
         return open_store_array(store, component).to_dask()
-    if use_zarrista_for(store):
+    if _is_local_path(store):
         return open_zarrista_lazy(store, component)
-    return dask.array.from_zarr(store, component=component)
+    raise TypeError(
+        "ngff-zarr reads from local directory paths, remote URL strings, "
+        f"zip archive paths, and key-to-bytes mappings; got "
+        f"{type(store).__name__}. Pass a path instead of a zarr-python "
+        "store object."
+    )
 
 
 def _load_local_doc(doc_path: Path) -> dict:

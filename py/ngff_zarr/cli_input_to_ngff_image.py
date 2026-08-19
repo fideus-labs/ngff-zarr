@@ -6,7 +6,7 @@ from pathlib import Path
 from dask.array.image import imread as daimread
 from rich import print
 
-from ._zarrista_utils import open_local_node, use_zarrista_for
+from ._zarrista_utils import open_local_node
 from .detect_cli_io_backend import ConversionBackend
 from .from_ngff_zarr import from_ome_zarr
 from .itk_image_to_ngff_image import itk_image_to_ngff_image
@@ -24,13 +24,7 @@ def cli_input_to_ngff_image(
     if backend is ConversionBackend.ZARR_ARRAY:
         # Backend detection fires on a .zarray document, so this is a local
         # zarr format 2 array directory: read it through the compat layer.
-        if use_zarrista_for(input[0]):
-            arr = open_local_node(input[0], zarr_format=2)
-        else:
-            # Legacy fallback when zarrista is unavailable (Python < 3.11).
-            import zarr
-
-            arr = zarr.open_array(input[0], mode="r")
+        arr = open_local_node(input[0], zarr_format=2)
         return to_ngff_image(arr)
     if backend is ConversionBackend.NIBABEL:
         try:

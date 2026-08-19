@@ -13,7 +13,6 @@ from ngff_zarr.parse_metadata import (
     _get_bioformats2raw_series,
     _is_bioformats2raw,
 )
-from zarr.storage import MemoryStore
 
 zarr_version = packaging.version.parse(zarr.__version__)
 zarr_version_major = zarr_version.major
@@ -157,7 +156,7 @@ def test_detect_version_malformed_multiscales_invalid_elements():
         _detect_version(root_attrs)
 
 
-def test_from_ngff_zarr_v04_auto_detect():
+def test_from_ngff_zarr_v04_auto_detect(tmp_path):
     """Test loading v0.4 OME-Zarr with automatic version detection."""
     # Create test data
     data = np.random.randint(0, 255, size=(64, 64), dtype=np.uint8)
@@ -165,7 +164,7 @@ def test_from_ngff_zarr_v04_auto_detect():
     multiscales = to_multiscales(image)
 
     # Write to v0.4 format
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     to_ngff_zarr(store, multiscales, version="0.4")
 
     # Load without specifying version (should auto-detect)
@@ -177,7 +176,7 @@ def test_from_ngff_zarr_v04_auto_detect():
 
 
 @pytest.mark.skipif(zarr_version_major < 3, reason="v0.5 format requires zarr-python 3")
-def test_from_ngff_zarr_v05_auto_detect():
+def test_from_ngff_zarr_v05_auto_detect(tmp_path):
     """Test loading v0.5 OME-Zarr with automatic version detection."""
     # Create test data
     data = np.random.randint(0, 255, size=(64, 64), dtype=np.uint8)
@@ -185,7 +184,7 @@ def test_from_ngff_zarr_v05_auto_detect():
     multiscales = to_multiscales(image)
 
     # Write to v0.5 format
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     to_ngff_zarr(store, multiscales, version="0.5")
 
     # Load without specifying version (should auto-detect)
@@ -196,14 +195,14 @@ def test_from_ngff_zarr_v05_auto_detect():
     assert loaded.images[0].data.shape == (64, 64)
 
 
-def test_from_ngff_zarr_v04_wrong_structure():
+def test_from_ngff_zarr_v04_wrong_structure(tmp_path):
     """Test that claiming v0.4 with v0.5 structure (ome key) gives helpful error.
 
     When a file has the 'ome' key (v0.5 structure) but we try to load it as v0.4,
     it should fail because v0.4 expects 'multiscales' at root level, not under 'ome'.
     """
     # Create a store with v0.5 structure (has 'ome' key)
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     # Use zarr_format=2 to match what from_ngff_zarr will use for v0.4
     # (zarr_format parameter only exists in zarr 3.x)
     if zarr_version_major >= 3:
@@ -237,10 +236,10 @@ def test_from_ngff_zarr_v04_wrong_structure():
 
 
 @pytest.mark.skipif(zarr_version_major < 3, reason="v0.5 format requires zarr-python 3")
-def test_from_ngff_zarr_v05_wrong_structure():
+def test_from_ngff_zarr_v05_wrong_structure(tmp_path):
     """Test that v0.5 format with wrong structure gives helpful error."""
     # Create a store with v0.4 structure
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     # Use zarr_format=3 to match what from_ngff_zarr will use for v0.5
     root = zarr.open_group(store, mode="w", zarr_format=3)
     # Create the array data that the metadata references
@@ -260,9 +259,9 @@ def test_from_ngff_zarr_v05_wrong_structure():
         from_ngff_zarr(store, version="0.5")
 
 
-def test_from_ngff_zarr_empty_multiscales():
+def test_from_ngff_zarr_empty_multiscales(tmp_path):
     """Test that empty multiscales list gives helpful error."""
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     # Use zarr_format=2 for v0.4 style
     # (zarr_format parameter only exists in zarr 3.x)
     if zarr_version_major >= 3:
@@ -317,9 +316,9 @@ def test_detect_version_v05_hcs_plate():
     assert version == NgffVersion.V05
 
 
-def test_from_ngff_zarr_hcs_plate_error():
+def test_from_ngff_zarr_hcs_plate_error(tmp_path):
     """Test that trying to load HCS plate with from_ngff_zarr gives helpful error."""
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     if zarr_version_major >= 3:
         root = zarr.open_group(store, mode="w", zarr_format=2)
     else:
@@ -339,13 +338,13 @@ def test_from_ngff_zarr_hcs_plate_error():
 
 
 @pytest.mark.skipif(zarr_version_major < 3, reason="v0.5 format requires zarr-python 3")
-def test_from_ngff_zarr_v05_ome_key_without_multiscales():
+def test_from_ngff_zarr_v05_ome_key_without_multiscales(tmp_path):
     """Test that v0.5 format with ome key but missing multiscales gives helpful error.
 
     This can happen with corrupted files or files with ome key containing other metadata
     but not the required multiscales.
     """
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     # Use zarr_format=3 for v0.5
     root = zarr.open_group(store, mode="w", zarr_format=3)
     # Create the array data
@@ -492,13 +491,13 @@ def test_is_bioformats2raw_false_for_v05_with_multiscales_and_bf2raw():
     assert _is_bioformats2raw(root_attrs) is False
 
 
-def test_from_ngff_zarr_bioformats2raw_single_image():
+def test_from_ngff_zarr_bioformats2raw_single_image(tmp_path):
     """Test loading a bioformats2raw container with a single image.
 
     When there is only one image subgroup, from_ngff_zarr should
     silently navigate into it and read the image data.
     """
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     if zarr_version_major >= 3:
         root = zarr.open_group(store, mode="w", zarr_format=2)
     else:
@@ -518,9 +517,9 @@ def test_from_ngff_zarr_bioformats2raw_single_image():
     assert loaded.images[0].data.shape == (64, 64)
 
 
-def test_from_ngff_zarr_bioformats2raw_multi_image_error():
+def test_from_ngff_zarr_bioformats2raw_multi_image_error(tmp_path):
     """Test that a bioformats2raw container with multiple images gives helpful error."""
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     if zarr_version_major >= 3:
         root = zarr.open_group(store, mode="w", zarr_format=2)
     else:
@@ -579,13 +578,13 @@ def test_from_ngff_zarr_bioformats2raw_with_explicit_subpath(tmp_path):
     np.testing.assert_array_equal(loaded.images[0].data.compute(), data1)
 
 
-def test_from_ngff_zarr_bioformats2raw_with_ome_series():
+def test_from_ngff_zarr_bioformats2raw_with_ome_series(tmp_path):
     """Test that OME subgroup series metadata is used for image enumeration.
 
     bioformats2raw stores image paths in OME/.zattrs under the 'series' key.
     This should be preferred over fallback enumeration.
     """
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     if zarr_version_major >= 3:
         root = zarr.open_group(store, mode="w", zarr_format=2)
     else:
@@ -611,13 +610,13 @@ def test_from_ngff_zarr_bioformats2raw_with_ome_series():
         from_ngff_zarr(store)
 
 
-def test_from_ngff_zarr_bioformats2raw_with_ome_series_single():
+def test_from_ngff_zarr_bioformats2raw_with_ome_series_single(tmp_path):
     """Test single-image bioformats2raw container with OME series metadata.
 
     When the OME series metadata lists a single image path, from_ngff_zarr
     should silently navigate into it.
     """
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     if zarr_version_major >= 3:
         root = zarr.open_group(store, mode="w", zarr_format=2)
     else:
@@ -639,9 +638,9 @@ def test_from_ngff_zarr_bioformats2raw_with_ome_series_single():
     assert loaded.images[0].data.shape == (64, 64)
 
 
-def test_from_ngff_zarr_bioformats2raw_empty_container():
+def test_from_ngff_zarr_bioformats2raw_empty_container(tmp_path):
     """Test that a bioformats2raw container with no images gives helpful error."""
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     if zarr_version_major >= 3:
         root = zarr.open_group(store, mode="w", zarr_format=2)
     else:
@@ -656,13 +655,13 @@ def test_from_ngff_zarr_bioformats2raw_empty_container():
         from_ngff_zarr(store)
 
 
-def test_get_bioformats2raw_series_fallback_enumeration():
+def test_get_bioformats2raw_series_fallback_enumeration(tmp_path):
     """Test that _get_bioformats2raw_series falls back to subgroup enumeration.
 
     When no OME subgroup or series metadata exists, the function should
     enumerate all non-OME subgroups and sort them.
     """
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     if zarr_version_major >= 3:
         root = zarr.open_group(store, mode="w", zarr_format=2)
     else:
@@ -681,12 +680,12 @@ def test_get_bioformats2raw_series_fallback_enumeration():
     assert series == ["0", "1", "2"]
 
 
-def test_get_bioformats2raw_series_ome_v05_format():
+def test_get_bioformats2raw_series_ome_v05_format(tmp_path):
     """Test reading series from OME subgroup in v0.5 format.
 
     In v0.5 format, the series is nested under the 'ome' key in OME/.zattrs.
     """
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     if zarr_version_major >= 3:
         root = zarr.open_group(store, mode="w", zarr_format=2)
     else:

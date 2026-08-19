@@ -26,8 +26,8 @@ requires_zarr_v3 = pytest.mark.skipif(
 )
 
 
-def check_valid_ngff(multiscale: NgffMultiscales):
-    store = zarr.storage.MemoryStore()
+def check_valid_ngff(multiscale: NgffMultiscales, tmp_path: Path):
+    store = tmp_path / "test.ome.zarr"
     version = "0.4"
     to_ngff_zarr(store, multiscale, version=version)
     format_kwargs = {}
@@ -42,11 +42,11 @@ def check_valid_ngff(multiscale: NgffMultiscales):
     from_ngff_zarr(store, validate=True, version=version)
 
 
-def test_y_x_valid_ngff():
+def test_y_x_valid_ngff(tmp_path):
     array = np.random.random((32, 16))
     multiscale = to_multiscales(array, [2, 4])
 
-    check_valid_ngff(multiscale)
+    check_valid_ngff(multiscale, tmp_path)
 
 
 def test_validate_0_1():
@@ -85,16 +85,15 @@ def test_validate_0_3_no_version():
     from_ngff_zarr(test_store, validate=True)
 
 
-def _write_valid_2d_store_v05() -> zarr.storage.MemoryStore:
+def _write_valid_2d_store_v05(store: Path) -> Path:
     """Write a valid 2D ``(y, x)`` two-level v0.5 multiscales to a store."""
-    store = zarr.storage.MemoryStore()
     array = np.random.random((32, 16)).astype("float32")
     to_ngff_zarr(store, to_multiscales(array, [2]), version="0.5")
     return store
 
 
 @requires_zarr_v3
-def test_validate_v05_wrapped_instance():
+def test_validate_v05_wrapped_instance(tmp_path):
     # The public ``validate`` entry point checks a v0.5 store against the v0.5
     # image schema, which requires the ``ome`` namespace wrapper. The full root
     # attributes (``{"ome": {...}}``) validate; the unwrapped ``ome`` content
@@ -102,7 +101,7 @@ def test_validate_v05_wrapped_instance():
     # vendored v0.5 schema -- not the v0.4 schema -- is what runs.
     jsonschema = pytest.importorskip("jsonschema")
 
-    store = _write_valid_2d_store_v05()
+    store = _write_valid_2d_store_v05(tmp_path / "v05.ome.zarr")
     root_attrs = zarr.open_group(store, mode="r").attrs.asdict()
 
     validate(root_attrs, version="0.5", model="image")
@@ -111,7 +110,7 @@ def test_validate_v05_wrapped_instance():
 
 
 @requires_zarr_v3
-def test_validate_v05_schema_active_on_read_path():
+def test_validate_v05_schema_active_on_read_path(tmp_path):
     # The read path validates the ``ome``-wrapped instance against the v0.5
     # image schema. A duplicate multiscale entry violates the schema's
     # ``uniqueItems`` constraint -- a pure schema concern the structural rules
@@ -119,7 +118,7 @@ def test_validate_v05_schema_active_on_read_path():
     # under ``validate=True`` and read silently under ``validate=False``.
     jsonschema = pytest.importorskip("jsonschema")
 
-    store = _write_valid_2d_store_v05()
+    store = _write_valid_2d_store_v05(tmp_path / "v05.ome.zarr")
     root = zarr.open_group(store, mode="r+")
     attrs = root.attrs.asdict()
     ome = attrs["ome"]
@@ -134,7 +133,7 @@ def test_validate_v05_schema_active_on_read_path():
 
 
 @requires_zarr_v3
-def test_read_path_schema_instance_by_version():
+def test_read_path_schema_instance_by_version(tmp_path):
     # The v0.4 and v0.5 image schemas share identical multiscale definitions and
     # differ only in the ``ome`` wrapper, so the rewire is behavior-neutral on
     # realistic inputs; this spy locks the wiring directly. The read path must
@@ -153,13 +152,15 @@ def test_read_path_schema_instance_by_version():
         return instance, version_arg
 
     # v0.5: wrapped under ``ome``, tagged "0.5".
-    v05_instance, v05_version = _schema_call(_write_valid_2d_store_v05())
+    v05_instance, v05_version = _schema_call(
+        _write_valid_2d_store_v05(tmp_path / "v05.ome.zarr")
+    )
     assert "ome" in v05_instance
     assert "multiscales" in v05_instance["ome"]
     assert v05_version == "0.5"
 
     # v0.4: bare root with top-level ``multiscales``, tagged "0.4".
-    store_v04 = zarr.storage.MemoryStore()
+    store_v04 = tmp_path / "v04.ome.zarr"
     array = np.random.random((32, 16)).astype("float32")
     to_ngff_zarr(store_v04, to_multiscales(array, [2]), version="0.4")
     v04_instance, v04_version = _schema_call(store_v04)

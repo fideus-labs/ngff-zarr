@@ -5,7 +5,6 @@ import pytest
 import zarr
 from ngff_zarr import Methods, to_multiscales, to_ngff_image, to_ngff_zarr
 from packaging import version
-from zarr.storage import MemoryStore
 
 from ._data import verify_against_baseline
 
@@ -25,7 +24,7 @@ except ImportError:
     pass
 
 
-def test_downsample_czyx():
+def test_downsample_czyx(tmp_path):
     data = np.random.randint(0, 256, 262144).reshape((2, 32, 64, 64)).astype(np.uint8)
     from rich import print
 
@@ -33,18 +32,18 @@ def test_downsample_czyx():
     print(image)
     multiscales = to_multiscales(image, scale_factors=[2, 4], chunks=32)
     print(multiscales)
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     to_ngff_zarr(store, multiscales)
     assert multiscales.images[0].dims[0] == "c"
     assert multiscales.images[1].data.shape[0] == 2
     assert multiscales.images[1].data.shape[1] == 16
 
 
-def test_downsample_zycx():
+def test_downsample_zycx(tmp_path):
     data = np.random.randint(0, 256, 262144).reshape((32, 64, 2, 64)).astype(np.uint8)
     image = to_ngff_image(data, dims=["z", "y", "c", "x"])
     multiscales = to_multiscales(image, scale_factors=[2, 4], chunks=32)
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     to_ngff_zarr(store, multiscales)
     assert multiscales.images[0].dims[0] == "c"
     assert multiscales.images[0].dims[1] == "z"
@@ -52,24 +51,24 @@ def test_downsample_zycx():
     assert multiscales.images[1].data.shape[1] == 16
 
 
-def test_downsample_cxyz():
+def test_downsample_cxyz(tmp_path):
     data = np.random.randint(0, 256, 262144).reshape((2, 64, 64, 32)).astype(np.uint8)
     image = to_ngff_image(data, dims=["c", "z", "y", "x"])
     multiscales = to_multiscales(image, scale_factors=[2, 4], chunks=32)
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     to_ngff_zarr(store, multiscales)
     assert multiscales.images[0].dims[0] == "c"
     assert multiscales.images[1].data.shape[0] == 2
     assert multiscales.images[1].data.shape[1] == 32
 
 
-def test_downsample_tczyx():
+def test_downsample_tczyx(tmp_path):
     data = (
         np.random.randint(0, 256, 524288).reshape((2, 2, 32, 64, 64)).astype(np.uint8)
     )
     image = to_ngff_image(data, dims=["t", "c", "z", "y", "x"])
     multiscales = to_multiscales(image, scale_factors=[2, 4], chunks=32)
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     to_ngff_zarr(store, multiscales)
     assert multiscales.images[0].dims[0] == "t"
     assert multiscales.images[0].dims[1] == "c"
@@ -78,11 +77,11 @@ def test_downsample_tczyx():
     assert multiscales.images[1].data.shape[2] == 16
 
 
-def test_downsample_tzycx():
+def test_downsample_tzycx(tmp_path):
     data = np.random.randint(0, 256, 524288).reshape((2, 32, 64, 2, 64))
     image = to_ngff_image(data, dims=["t", "z", "y", "c", "x"])
     multiscales = to_multiscales(image, scale_factors=[2, 4], chunks=32)
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     to_ngff_zarr(store, multiscales)
     assert multiscales.images[0].dims[0] == "t"
     assert multiscales.images[0].dims[1] == "c"
@@ -92,11 +91,11 @@ def test_downsample_tzycx():
     assert multiscales.images[1].data.shape[2] == 16
 
 
-def test_downsample_tcxyz():
+def test_downsample_tcxyz(tmp_path):
     data = np.random.randint(0, 256, 524288).reshape((2, 2, 64, 64, 32))
     image = to_ngff_image(data, dims=["t", "c", "z", "y", "x"])
     multiscales = to_multiscales(image, scale_factors=[2, 4], chunks=32)
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     to_ngff_zarr(store, multiscales)
     assert multiscales.images[0].dims[0] == "t"
     assert multiscales.images[0].dims[1] == "c"
@@ -105,7 +104,7 @@ def test_downsample_tcxyz():
     assert multiscales.images[1].data.shape[2] == 32
 
 
-def test_bin_shrink_tczyx():
+def test_bin_shrink_tczyx(tmp_path):
     data = (
         np.random.randint(0, 256, 524288).reshape((2, 2, 32, 64, 64)).astype(np.uint8)
     )
@@ -113,7 +112,7 @@ def test_bin_shrink_tczyx():
     multiscales = to_multiscales(
         image, scale_factors=[2, 4], chunks=32, method=Methods.ITKWASM_BIN_SHRINK
     )
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     to_ngff_zarr(store, multiscales)
     assert multiscales.images[0].dims[0] == "t"
     assert multiscales.images[0].dims[1] == "c"

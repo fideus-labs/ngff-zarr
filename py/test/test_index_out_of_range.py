@@ -128,8 +128,12 @@ def test_write_hcs_well_image_index_out_of_range():
 
 
 @pytest.mark.skipif(zarr_version < version.parse("3"), reason="zarr version < 3")
-def test_write_hcs_well_image_non_file_store():
-    """Test write_hcs_well_image with non-file store types."""
+def test_write_hcs_well_image_rejects_store_objects():
+    """The HCS write path rejects zarr-python store objects with TypeError.
+
+    Store-object support was removed as a breaking change: writes only
+    accept local directory paths, so in-memory zarr-python stores raise.
+    """
 
     from zarr.storage import MemoryStore
 
@@ -163,16 +167,15 @@ def test_write_hcs_well_image_non_file_store():
     )
     multiscales = to_multiscales(ngff_image)
 
-    # Test with memory store
     memory_store = MemoryStore()
 
-    # Create plate structure
+    # Creating the plate structure over a store object is rejected.
     hcs_plate = HCSPlate(memory_store, plate_metadata)
-    to_hcs_zarr(hcs_plate, memory_store)
+    with pytest.raises(TypeError, match="no longer accepted"):
+        to_hcs_zarr(hcs_plate, memory_store)
 
-    # This should work without errors - testing the main functionality
-    # The previous version would fail with non-file stores
-    try:
+    # Writing a well image into a store object is rejected too.
+    with pytest.raises(TypeError, match="no longer accepted"):
         write_hcs_well_image(
             store=memory_store,
             multiscales=multiscales,
@@ -181,7 +184,3 @@ def test_write_hcs_well_image_non_file_store():
             column_name="1",
             field_index=0,
         )
-        # If we get here, the function completed successfully
-        assert True, "Function completed successfully with memory store"
-    except Exception as e:
-        pytest.fail(f"write_hcs_well_image failed with memory store: {e}")

@@ -21,16 +21,12 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
 
-import zarr
-from packaging import version as pkg_version
-
 from ._remote_reader import RemoteZarrStore, remote_read_available
 from ._zarrista_utils import (
     create_zarrista_group,
     create_zarrista_subgroup,
     open_ozx_store,
     read_group_attributes,
-    use_zarrista_for,
 )
 from .from_ngff_zarr import REMOTE_URL_SCHEMES, _open_root_node, from_ome_zarr
 from .multiscales import NgffMultiscales
@@ -328,34 +324,16 @@ class HCSWell:
                 self._images[image_path] = from_ome_zarr(
                     self.store.with_prefix(image_path)
                 )
-            # For ZipStore (e.g., .ozx files), we need to access via subpath in the store
-            elif hasattr(zarr.storage, "ZipStore") and isinstance(
-                self.store, zarr.storage.ZipStore
-            ):
-                # For zarr v3, use StorePath to navigate to subpaths within the zip
-                from zarr.storage import StorePath
-
-                store_path = StorePath(self.store, path=image_path)
-                self._images[image_path] = from_ome_zarr(store_path)
             elif isinstance(self.store, (str, Path)):
                 # If store is a path string, append the image path
                 full_image_path = Path(self.store) / self.path / image_meta.path
                 self._images[image_path] = from_ome_zarr(str(full_image_path))
             else:
-                # For other store types, try StorePath approach
-                try:
-                    from zarr.storage import StorePath
-
-                    store_path = StorePath(self.store, path=image_path)
-                    self._images[image_path] = from_ome_zarr(store_path)
-                except (ImportError, Exception):
-                    # Fallback: try to convert to path
-                    if hasattr(self.store, "path"):
-                        base_path = self.store.path
-                    else:
-                        base_path = str(self.store)
-                    full_image_path = Path(base_path) / self.path / image_meta.path
-                    self._images[image_path] = from_ome_zarr(str(full_image_path))
+                raise TypeError(
+                    "HCS plates are read from local directory paths, remote "
+                    f"URL strings, and .ozx archives; got "
+                    f"{type(self.store).__name__}."
+                )
 
         return self._images[image_path]
 
@@ -620,16 +598,7 @@ def to_hcs_zarr(plate: HCSPlate, store) -> None:
 
     # Set root metadata
     root_attrs = {"ome": {"version": plate.metadata.version, "plate": plate_dict}}
-    if use_zarrista_for(store):
-        create_zarrista_group(store, root_attrs, zarr_format, overwrite=True)
-    else:
-        # Check zarr-python version for zarr_format parameter support
-        zarr_version = pkg_version.parse(zarr.__version__)
-        if zarr_version.major >= 3:
-            root = zarr.open_group(store, mode="w", zarr_format=zarr_format)
-        else:
-            root = zarr.open_group(store, mode="w")
-        root.attrs["ome"] = root_attrs["ome"]
+    create_zarrista_group(store, root_attrs, zarr_format, overwrite=True)
 
     # Note: This is a basic implementation that sets up the plate structure.
     # In a full implementation, you would also write the well groups and
@@ -940,33 +909,12 @@ def write_hcs_well_image(
     # Open or create the store
     # For NGFF version 0.4, use Zarr format 2; for 0.5+, use Zarr format 3
     zarr_format = 2 if version == "0.4" else 3
-    use_zarrista = use_zarrista_for(store)
 
-    # Check zarr-python version to determine if zarr_format parameter is supported
-    zarr_version = pkg_version.parse(zarr.__version__)
-
-    if use_zarrista:
-        # mode="a" semantics: create the root group only when absent, so
-        # concurrent well writes never rewrite the root documents.
-        if read_group_attributes(store, zarr_format=zarr_format) is None:
-            create_zarrista_group(store, None, zarr_format)
-        well_group = None
-        well_group_attrs = read_group_attributes(
-            store, well_path, zarr_format=zarr_format
-        )
-    else:
-        if zarr_version.major >= 3:
-            root = zarr.open_group(store, mode="a", zarr_format=zarr_format)
-        else:
-            root = zarr.open_group(store, mode="a")
-
-        # Create or update well group
-        if well_path in root:
-            well_group = root[well_path]
-            well_group_attrs = well_group.attrs.asdict()
-        else:
-            well_group = root.create_group(well_path)
-            well_group_attrs = None
+    # mode="a" semantics: create the root group only when absent, so
+    # concurrent well writes never rewrite the root documents.
+    if read_group_attributes(store, zarr_format=zarr_format) is None:
+        create_zarrista_group(store, None, zarr_format)
+    well_group_attrs = read_group_attributes(store, well_path, zarr_format=zarr_format)
 
     # Read existing well metadata if not provided
     if well_metadata is None and well_group_attrs is not None:
@@ -1031,58 +979,22 @@ def write_hcs_well_image(
     else:
         raise ValueError(f"Unsupported OME-Zarr version: {version}")
 
-    if use_zarrista:
-        # Creates the missing row group along the way, preserving the
-        # plate -> row -> column (well) hierarchy zarr-python built implicitly.
-        create_zarrista_subgroup(store, well_path, well_attr_updates, zarr_format)
-    else:
-        for key, value in well_attr_updates.items():
-            well_group.attrs[key] = value
+    # Creates the missing row group along the way, preserving the
+    # plate -> row -> column (well) hierarchy.
+    create_zarrista_subgroup(store, well_path, well_attr_updates, zarr_format)
 
     # Write the actual image data to the field path
     field_path = f"{well_path}/{field_index}"
+    field_store_path = Path(store) / field_path
+    field_store_path.mkdir(parents=True, exist_ok=True)
 
-    # Create the field directory path
-    if use_zarrista or isinstance(store, (str, Path)):
-        field_store_path = Path(store) / field_path
-        field_store_path.mkdir(parents=True, exist_ok=True)
-
-        # Write multiscales data directly to the field path
-        to_ome_zarr(
-            store=str(field_store_path),
-            multiscales=multiscales,
-            version=version,
-            overwrite=True,
-            **kwargs,
-        )
-    else:
-        # For non-file stores, we need to handle path information properly
-        # The approach differs between zarr 2.x and 3.x
-        if zarr_version.major >= 3:
-            # Zarr 3.x approach using StorePath
-            try:
-                from zarr.storage import StorePath
-
-                store_path = StorePath(store) / field_path
-                to_ome_zarr(
-                    store=store_path,
-                    multiscales=multiscales,
-                    version=version,
-                    overwrite=True,
-                    **kwargs,
-                )
-            except ImportError:
-                # Fallback if StorePath is not available even in zarr 3.x
-                raise NotImplementedError(
-                    "Non-file stores require zarr-python 3.x with StorePath support. "
-                    "Please update to a newer version of zarr-python or use file-based stores."
-                )
-        else:
-            # Zarr 2.x approach - simplified fallback
-            # For zarr 2.x, we recommend using file-based stores
-            raise NotImplementedError(
-                "Non-file stores with zarr-python 2.x are not fully supported. "
-                "Please use file-based stores (str or Path) or upgrade to zarr-python 3.x."
-            )
+    # Write multiscales data directly to the field path
+    to_ome_zarr(
+        store=str(field_store_path),
+        multiscales=multiscales,
+        version=version,
+        overwrite=True,
+        **kwargs,
+    )
 
     logging.info(f"Written field {field_index} to well {well_path} in HCS plate")

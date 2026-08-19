@@ -13,9 +13,6 @@ import zipfile
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 
-import zarr
-import zarr.storage
-
 
 class ZipReadStore(Mapping):
     """Read-only name-to-bytes view of an OME-Zarr zip archive (.ozx/.zip).
@@ -91,9 +88,8 @@ def _get_store_root_path(source_store) -> Path | None:
     """Return the filesystem root Path for a store, or None for non-filesystem stores.
 
     Delegates to the compat layer's resolver, which handles plain
-    ``str``/``Path``/``os.PathLike`` targets, directory-backed zarr-python
-    stores (``LocalStore``/``DirectoryStore``), and zarrista
-    ``FilesystemStore`` handles.
+    ``str``/``Path``/``os.PathLike`` targets and zarrista ``FilesystemStore``
+    handles.
     """
     # Imported lazily: _zarrista_utils imports is_ozx_path from this module.
     from ._zarrista_utils import resolve_store_path
@@ -144,7 +140,7 @@ def _write_rfc9_comment(zf: zipfile.ZipFile, version: str) -> None:
 
 
 def write_store_to_zip(
-    source_store: zarr.storage.StoreLike | str | Path,
+    source_store,
     zip_path: str | Path,
     version: str = "0.5",
     compression: int = zipfile.ZIP_STORED,
@@ -168,11 +164,10 @@ def write_store_to_zip(
 
     Parameters
     ----------
-    source_store : zarr.storage.StoreLike, str, or Path
+    source_store : str, Path, os.PathLike, Mapping, or zarrista FilesystemStore
         Source zarr store to write from. Can be a path (str, Path, or
-        os.PathLike) to a directory containing zarr data, a directory-backed
-        zarr-python store (LocalStore, DirectoryStore), or a zarrista
-        FilesystemStore handle.
+        os.PathLike) to a directory containing zarr data, a zarrista
+        FilesystemStore handle, or an in-memory key-to-bytes mapping.
     zip_path : str or Path
         Path to output .ozx file
     version : str, optional
@@ -196,17 +191,15 @@ def write_store_to_zip(
     if root_dir is not None:
         # Filesystem-backed store: enumerate files from disk
         all_files = _enumerate_fs_files(root_dir)
+    elif isinstance(source_store, Mapping):
+        # In-memory key-to-bytes mapping: keys are the file paths.
+        all_files = list(source_store)
     else:
-        # Non-filesystem store (e.g. MemoryStore): enumerate via async list()
-        import asyncio
-
-        async def get_all_files():
-            items = []
-            async for item in source_store.list():
-                items.append(item)
-            return items
-
-        all_files = asyncio.run(get_all_files())
+        raise TypeError(
+            "write_store_to_zip requires a local directory path, a zarrista "
+            f"FilesystemStore, or a key-to-bytes mapping; got "
+            f"{type(source_store).__name__}."
+        )
 
     if not all_files:
         raise ValueError(f"No files found in source store of type {type(source_store)}")
@@ -250,39 +243,14 @@ def write_store_to_zip(
                     )
                 zf.write(full_path, arcname=file_path)
         else:
-            # Non-filesystem store (e.g. MemoryStore): data is already in
-            # memory, so bulk-reading via asyncio.gather is fine.
-            import asyncio
-
-            from zarr.core.buffer import default_buffer_prototype
-
-            proto = default_buffer_prototype()
-
-            async def get_file_data(fp: str):
-                """Get data from store using zarr v3 async API."""
-                try:
-                    result = await source_store.get(fp, proto)
-                    if result:
-                        return result.to_bytes()
-                    return None
-                except (KeyError, FileNotFoundError):
-                    return None
-
-            async def get_all_file_data(file_paths):
-                results = await asyncio.gather(
-                    *(get_file_data(fp) for fp in file_paths)
-                )
-                return dict(zip(file_paths, results))
-
-            file_data = asyncio.run(get_all_file_data(ordered_files))
-
+            # In-memory mapping: data is already in memory.
             for file_path in ordered_files:
-                data = file_data[file_path]
+                data = source_store.get(file_path)
                 if data is None:
                     raise ValueError(
                         f"Could not read data for {file_path} from source store"
                     )
-                zf.writestr(file_path, data)
+                zf.writestr(file_path, bytes(data))
 
         _write_rfc9_comment(zf, version)
 

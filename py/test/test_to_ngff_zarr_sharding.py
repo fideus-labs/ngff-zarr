@@ -5,11 +5,9 @@ import tempfile
 
 import pytest
 import zarr
-import zarr.storage
 from dask_image import imread
 from ngff_zarr import Methods, config, to_multiscales, to_ngff_image, to_ngff_zarr
 from packaging import version
-from zarr.storage import MemoryStore
 
 from ._data import verify_against_baseline
 
@@ -21,7 +19,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_zarr_python_sharding(input_images):
+def test_path_store_sharding(input_images, tmp_path):
     dataset_name = "cthead1"
     image = input_images[dataset_name]
     baseline_name = "2_4_chunks64/RFC3_GAUSSIAN.zarr"
@@ -29,7 +27,7 @@ def test_zarr_python_sharding(input_images):
     multiscales = to_multiscales(
         image, [2, 4], chunks=chunks, method=Methods.ITKWASM_GAUSSIAN
     )
-    store = zarr.storage.MemoryStore()
+    store = tmp_path / "sharding_v04.zarr"
 
     chunks_per_shard = 2
     version = "0.4"
@@ -148,7 +146,7 @@ def test_zarrista_sharding(input_images):
 @pytest.mark.skipif(
     zarr_version < version.parse("3.0.0b1"), reason="zarr version < 3.0.0b1"
 )
-def test_large_image_serialization_with_sharding(input_images):
+def test_large_image_serialization_with_sharding(input_images, tmp_path):
     default_mem_target = config.memory_target
     config.memory_target = int(1e6)
 
@@ -164,7 +162,7 @@ def test_large_image_serialization_with_sharding(input_images):
     multiscales = to_multiscales(image)
     # baseline_name = "auto/memory_target_1e6.zarr"
     # store_new_multiscales(dataset_name, baseline_name, multiscales)
-    test_store = MemoryStore()
+    test_store = tmp_path / "large_image.zarr"
     chunks_per_shard = 1
     to_ngff_zarr(
         test_store, multiscales, version="0.5", chunks_per_shard=chunks_per_shard

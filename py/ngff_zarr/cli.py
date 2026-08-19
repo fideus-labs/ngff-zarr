@@ -13,8 +13,6 @@ import sys
 from pathlib import Path
 
 import dask.utils
-import zarr
-import zarr.storage
 from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
@@ -29,11 +27,6 @@ from rich.progress import (
 )
 from rich.spinner import Spinner
 from rich_argparse import RichHelpFormatter
-
-if hasattr(zarr.storage, "DirectoryStore"):
-    LocalStore = zarr.storage.DirectoryStore
-else:
-    LocalStore = zarr.storage.LocalStore
 
 from ._store_types import StoreLike
 from .cli_input_to_ngff_image import cli_input_to_ngff_image
@@ -296,7 +289,7 @@ def _series_output_target(
         output_path = Path(args.output)
         base = str(output_path.parent / output_path.stem)
     derived = f"{base}_{series_name}.ome.zarr"
-    return LocalStore(derived), derived
+    return derived, derived
 
 
 def _multiscales_to_ngff_zarr(
@@ -323,11 +316,6 @@ def _multiscales_to_ngff_zarr(
             "[yellow]Warning: --use-tensorstore is deprecated; "
             "using the zarrista backend."
         )
-        # The zarrista writer requires a path-like store
-        if hasattr(output_store, "root"):
-            output_store = output_store.root
-        else:
-            output_store = output_store.path
 
     codec_kwargs = {}
     if args.compression_level is not None and args.codec is None:
@@ -761,11 +749,8 @@ def _convert_main(argv: list[str] | None = None) -> None:
         )
     output_store = None
     if args.output and output_backend is ConversionBackend.NGFF_ZARR:
-        # Handle .ozx files - just pass the path, to_ngff_zarr will handle it
-        if args.output.endswith(".ozx"):
-            output_store = args.output
-        else:
-            output_store = LocalStore(args.output)
+        # Pass the path directly; to_ngff_zarr handles .ozx and directories.
+        output_store = args.output
 
     subtitle = "[red]generation"
     if not args.output:

@@ -11,23 +11,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import dask
 import numpy as np
-import zarr
 from dask.array.core import Array as DaskArray
 from numpy.typing import ArrayLike
-
-try:
-    from zarr.core import Array as ZarrArray
-except ImportError:
-    from zarr.core.array import Array as ZarrArray
-import zarr.storage
 
 from ._zarrista_utils import (
     create_zarrista_array,
     open_zarrista_lazy,
     resolve_store_path,
-    use_zarrista_for,
     write_dask_array,
 )
 from .config import config
@@ -59,18 +50,6 @@ from .v06.zarr_metadata import (
     TransformSequence,
     Translation,
 )
-
-# Legacy zarr-python cache-writer fallback, used only for configured cache
-# stores without a local directory; removed with the fallback branches in
-# _CacheTarget.
-try:
-    from zarr.api.synchronous import open_array
-
-    zarr_kwargs = {"chunk_key_encoding": {"name": "default", "separator": "/"}}
-except ImportError:
-    from zarr.creation import open_array
-
-    zarr_kwargs = {"dimension_separator": "/"}
 
 
 def _ngff_image_scale_factors(ngff_image, min_length, out_chunks):
@@ -131,68 +110,45 @@ _CACHE_COMPRESSION = {"name": "zstd", "configuration": {"level": 0, "checksum": 
 class _CacheTarget:
     """Destination for large-image cache arrays.
 
-    Bundles the configured cache store, the local directory backing it
-    (``None`` when it has no directory), and the write-engine dispatch. The
-    default ``config.cache_store`` is the cache directory path itself, so it
-    writes through zarrista; user-supplied store objects without a local
-    directory keep the zarr-python engine.
+    Wraps the local directory backing the configured cache store. The default
+    ``config.cache_store`` is the cache directory path itself; cache arrays
+    are written and read back through zarrista.
     """
 
-    store: Any
-    path: Path | None
-    use_zarrista: bool
+    path: Path
 
     @classmethod
     def from_config(cls) -> "_CacheTarget":
         store = config.cache_store
         path = resolve_store_path(store)
-        return cls(store, path, path is not None and use_zarrista_for(path))
+        if path is None:
+            raise TypeError(
+                "config.cache_store must be a local directory path; got "
+                f"{type(store).__name__}."
+            )
+        return cls(path)
 
     def create_array(self, component, shape, chunks, dtype):
         """Create the cache array at *component*, ready for region writes."""
-        if self.use_zarrista:
-            # The cache is written and read back only through zarrista, so it
-            # always uses zarr format 3, regardless of the zarr-python version.
-            return create_zarrista_array(
-                self.path,
-                component,
-                shape,
-                dtype,
-                chunks,
-                zarr_format=3,
-                compressors=[_CACHE_COMPRESSION],
-            )
-        return open_array(
-            shape=shape,
-            chunks=chunks,
-            dtype=dtype,
-            store=self.store,
-            path=component,
-            mode="a",
-            **zarr_kwargs,
+        # The cache is written and read back only through zarrista, so it
+        # always uses zarr format 3.
+        return create_zarrista_array(
+            self.path,
+            component,
+            shape,
+            dtype,
+            chunks,
+            zarr_format=3,
+            compressors=[_CACHE_COMPRESSION],
         )
 
-    def write_region(self, cache_array, arr_region, region, component):
+    def write_region(self, cache_array, arr_region, region):
         """Write *arr_region* into *region* of *cache_array*."""
-        if self.use_zarrista:
-            write_dask_array(arr_region, cache_array, region=region)
-        else:
-            dask.array.to_zarr(
-                arr_region,
-                cache_array,
-                region=region,
-                component=component,
-                overwrite=False,
-                compute=True,
-                return_stored=False,
-                **zarr_kwargs,
-            )
+        write_dask_array(arr_region, cache_array, region=region)
 
     def read_lazy(self, component):
         """Open the cache array at *component* as a lazy dask array."""
-        if self.use_zarrista:
-            return open_zarrista_lazy(self.path, component=component)
-        return dask.array.from_zarr(self.store, component=component)
+        return open_zarrista_lazy(self.path, component=component)
 
 
 def _large_image_serialization(
@@ -207,12 +163,9 @@ def _large_image_serialization(
     def remove_from_cache_store(sig_id, frame):
         nonlocal base_path_removed
         if not base_path_removed:
-            if cache.path is not None:
-                full_path = cache.path / base_path
-                if full_path.exists():
-                    shutil.rmtree(full_path, ignore_errors=True)
-            else:
-                zarr.storage.rmdir(cache.store, base_path)
+            full_path = cache.path / base_path
+            if full_path.exists():
+                shutil.rmtree(full_path, ignore_errors=True)
             base_path_removed = True
 
     atexit.register(remove_from_cache_store, None, None)
@@ -286,7 +239,7 @@ def _large_image_serialization(
             )
             region = tuple(region)
             arr_region = slabs[region]
-            cache.write_region(zarr_array, arr_region, region, path)
+            cache.write_region(zarr_array, arr_region, region)
         data = cache.read_lazy(path)
         if optimized_chunks < data.shape[z_index] and slab_slices < optimized_chunks:
             rechunks[z_index] = optimized_chunks
@@ -318,7 +271,7 @@ def _large_image_serialization(
                 )
                 region = tuple(region)
                 arr_region = data[region]
-                cache.write_region(zarr_array, arr_region, region, path)
+                cache.write_region(zarr_array, arr_region, region)
             data = cache.read_lazy(path)
         else:
             data = data.rechunk(rechunks)
@@ -375,7 +328,7 @@ def _cache_2d_strips(data, dims, rechunks, cache, base_path, progress):
     n_strips = int(np.ceil(data.shape[strip_dim_index] / strip_size))
 
     # Ensure zarr chunks match the strip size to avoid dask rechunking
-    # during dask.array.to_zarr region writes (gh-issue-487).
+    # during cache region writes (gh-issue-487).
     adjusted_rechunks = dict(rechunks)
     adjusted_rechunks[strip_dim_index] = strip_size
 
@@ -403,7 +356,7 @@ def _cache_2d_strips(data, dims, rechunks, cache, base_path, progress):
         )
         region = tuple(region)
         arr_region = slabs[region]
-        cache.write_region(zarr_array, arr_region, region, path)
+        cache.write_region(zarr_array, arr_region, region)
 
     return cache.read_lazy(path)
 
@@ -433,7 +386,7 @@ def _cache_1d_segments(data, dims, rechunks, cache, base_path, progress):
     n_segments = int(np.ceil(data.shape[x_index] / segment_size))
 
     # Ensure zarr chunks match the segment size to avoid dask rechunking
-    # during dask.array.to_zarr region writes (gh-issue-487).
+    # during cache region writes (gh-issue-487).
     adjusted_rechunks = dict(rechunks)
     adjusted_rechunks[x_index] = segment_size
 
@@ -460,13 +413,13 @@ def _cache_1d_segments(data, dims, rechunks, cache, base_path, progress):
         )
         region = tuple(region)
         arr_region = slabs[region]
-        cache.write_region(zarr_array, arr_region, region, path)
+        cache.write_region(zarr_array, arr_region, region)
 
     return cache.read_lazy(path)
 
 
 def to_multiscales(
-    data: NgffImage | ArrayLike | MutableMapping | str | ZarrArray,
+    data: NgffImage | ArrayLike | MutableMapping | str,
     scale_factors: int | Sequence[dict[str, int] | int] = 128,
     method: Methods | None = None,
     chunks: int
@@ -482,7 +435,7 @@ def to_multiscales(
     Generate multiple resolution scales for the OME-NGFF standard data model.
 
     :param  data: Multi-dimensional array that provides the image pixel values, or image pixel values + image metadata when an NgffImage.
-    :type   data: NgffImage, ArrayLike, ZarrArray, MutableMapping, str
+    :type   data: NgffImage, ArrayLike, MutableMapping, str
 
     :param scale_factors: If a single integer, scale factors in spatial dimensions will be increased by a factor of two until this minimum length is reached.
         If a list, integer scale factors to apply uniformly across all spatial dimensions or

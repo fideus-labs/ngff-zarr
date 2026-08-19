@@ -160,10 +160,13 @@ def test_write_hcs_well_image_invalid_indices():
             )
 
 
-def test_write_hcs_well_image_memory_store():
-    """Test write_hcs_well_image with non-file store (MemoryStore)."""
+def test_write_hcs_well_image_path_store(tmp_path):
+    """Test write_hcs_well_image writes and reads back through a path store.
+
+    Formerly exercised zarr-python MemoryStore objects, which are no longer
+    accepted; the generic behavior is now verified against a directory path.
+    """
     import zarr
-    from packaging import version
 
     columns = [PlateColumn(name="1"), PlateColumn(name="2")]
     rows = [PlateRow(name="A"), PlateRow(name="B")]
@@ -178,7 +181,7 @@ def test_write_hcs_well_image_memory_store():
         columns=columns,
         rows=rows,
         wells=wells,
-        name="Memory Store Test Plate",
+        name="Path Store Test Plate",
         field_count=1,
     )
 
@@ -192,68 +195,34 @@ def test_write_hcs_well_image_memory_store():
     )
     multiscales = nz.to_multiscales(ngff_image)
 
-    # Test with memory store (non-file store)
-    try:
-        from zarr.storage import MemoryStore
-
-        memory_store = MemoryStore()
-    except (AttributeError, ImportError):
-        # MemoryStore not available in this zarr version
-        pytest.skip("MemoryStore not available in this zarr version")
+    store_path = str(tmp_path / "path_store_plate.ome.zarr")
 
     # Create plate structure
-    hcs_plate = HCSPlate(memory_store, plate_metadata)
-    to_hcs_zarr(hcs_plate, memory_store)
+    hcs_plate = HCSPlate(store_path, plate_metadata)
+    to_hcs_zarr(hcs_plate, store_path)
 
-    # Check zarr version to determine expected behavior
-    zarr_version = version.parse(zarr.__version__)
+    write_hcs_well_image(
+        store=store_path,
+        multiscales=multiscales,
+        plate_metadata=plate_metadata,
+        row_name="A",
+        column_name="1",
+        field_index=0,
+    )
 
-    if zarr_version.major >= 3:
-        # Zarr 3.x should work with StorePath
-        try:
-            # Write well image - should work with fixed non-file store handling
-            write_hcs_well_image(
-                store=memory_store,
-                multiscales=multiscales,
-                plate_metadata=plate_metadata,
-                row_name="A",
-                column_name="1",
-                field_index=0,
-            )
+    # Verify the data was written to the correct location
+    # write_hcs_well_image defaults to version="0.4" (zarr format 2)
+    root = zarr.open_group(store_path, mode="r", zarr_format=2)
+    assert "A" in root, "Row group 'A' not found"
+    assert "1" in root["A"], "Column group '1' not found in row 'A'"
+    assert "0" in root["A/1"], "Field group '0' not found in well 'A/1'"
 
-            # Verify the data was written to the correct location
-            # write_hcs_well_image defaults to version="0.4" (zarr format 2)
-            root = zarr.open_group(memory_store, mode="r", zarr_format=2)
-            assert "A" in root, "Row group 'A' not found"
-            assert "1" in root["A"], "Column group '1' not found in row 'A'"
-            assert "0" in root["A/1"], "Field group '0' not found in well 'A/1'"
+    # Check that the multiscales metadata exists
+    field_group = root["A/1/0"]
+    assert "multiscales" in field_group.attrs, "NgffMultiscales metadata not found"
 
-            # Check that the multiscales metadata exists
-            field_group = root["A/1/0"]
-            assert "multiscales" in field_group.attrs, (
-                "NgffMultiscales metadata not found"
-            )
-
-            # Just check that the field group exists (data was written successfully)
-            assert field_group is not None, "Field group should exist after writing"
-
-        except ImportError:
-            # StorePath not available even in zarr 3.x
-            pytest.skip("StorePath not available in this zarr 3.x version")
-    else:
-        # Zarr 2.x should raise NotImplementedError
-        with pytest.raises(
-            NotImplementedError,
-            match="Non-file stores with zarr-python 2.x are not fully supported",
-        ):
-            write_hcs_well_image(
-                store=memory_store,
-                multiscales=multiscales,
-                plate_metadata=plate_metadata,
-                row_name="A",
-                column_name="1",
-                field_index=0,
-            )
+    # Just check that the field group exists (data was written successfully)
+    assert field_group is not None, "Field group should exist after writing"
 
 
 def test_write_hcs_well_image_multiple_fields():

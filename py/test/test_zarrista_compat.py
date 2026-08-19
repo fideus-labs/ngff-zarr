@@ -16,6 +16,7 @@ import pytest
 import zarr
 import zarr.storage
 from ngff_zarr._zarrista_utils import (
+    _is_local_path,
     consolidate_metadata,
     create_zarrista_array,
     create_zarrista_group,
@@ -23,7 +24,6 @@ from ngff_zarr._zarrista_utils import (
     has_consolidated_metadata,
     normalize_store,
     open_zarrista_lazy,
-    use_zarrista_for,
     write_dask_array,
 )
 from packaging import version
@@ -218,54 +218,43 @@ def test_normalize_store_paths_and_rejections(tmp_path):
     assert normalize_store(str(target)) == target
     assert normalize_store(target) == target
 
+    # Store objects are no longer accepted: writes require a path.
+    with pytest.raises(TypeError, match="directory path"):
+        normalize_store({})
+    with pytest.raises(TypeError, match="directory path"):
+        normalize_store(zarr.storage.MemoryStore())
     local_store_cls = getattr(zarr.storage, "LocalStore", None)
     if local_store_cls is not None:
-        assert normalize_store(local_store_cls(target)) == target
-    directory_store_cls = getattr(zarr.storage, "DirectoryStore", None)
-    if directory_store_cls is not None:
-        assert normalize_store(directory_store_cls(str(target))) == target
-
-    with pytest.raises(TypeError, match="local path"):
-        normalize_store({})
-    with pytest.raises(TypeError, match="local path"):
-        normalize_store(zarr.storage.MemoryStore())
+        with pytest.raises(TypeError, match="directory path"):
+            normalize_store(local_store_cls(target))
+    with pytest.raises(TypeError, match="directory path"):
+        normalize_store("s3://bucket/image.ome.zarr")
     with pytest.raises(ValueError, match="zip"):
         normalize_store(tmp_path / "archive.zip")
     with pytest.raises(ValueError, match="zip"):
         normalize_store(tmp_path / "archive.ozx")
 
 
-def test_use_zarrista_for_path_targets(tmp_path):
-    pytest.importorskip("zarrista")
+def test_is_local_path_targets(tmp_path):
     target = tmp_path / "store.zarr"
-    assert use_zarrista_for(str(target))
-    assert use_zarrista_for(target)
+    assert _is_local_path(str(target))
+    assert _is_local_path(target)
 
     class _PathLikeTarget:
         def __fspath__(self):
             return str(target)
 
-    assert use_zarrista_for(_PathLikeTarget())
+    assert _is_local_path(_PathLikeTarget())
 
-
-def test_use_zarrista_for_legacy_targets(tmp_path, monkeypatch):
-    assert not use_zarrista_for({})
-    assert not use_zarrista_for(zarr.storage.MemoryStore())
+    # Mappings, store objects, zip archives, and remote URLs are not local
+    # directory paths.
+    assert not _is_local_path({})
+    assert not _is_local_path(zarr.storage.MemoryStore())
     local_store_cls = getattr(zarr.storage, "LocalStore", None)
     if local_store_cls is not None:
-        assert not use_zarrista_for(local_store_cls(tmp_path))
-    directory_store_cls = getattr(zarr.storage, "DirectoryStore", None)
-    if directory_store_cls is not None:
-        assert not use_zarrista_for(directory_store_cls(str(tmp_path)))
-
-    # zarrista can only read zip archives, so zip targets keep zarr-python
-    assert not use_zarrista_for(tmp_path / "archive.zip")
-    assert not use_zarrista_for(str(tmp_path / "archive.ozx"))
-
-    import ngff_zarr._zarrista_utils as zarrista_utils
-
-    monkeypatch.setattr(zarrista_utils, "_ZARRISTA_AVAILABLE", False)
-    assert not use_zarrista_for(tmp_path / "store.zarr")
+        assert not _is_local_path(local_store_cls(tmp_path))
+    assert not _is_local_path(tmp_path / "archive.zip")
+    assert not _is_local_path(str(tmp_path / "archive.ozx"))
 
 
 @pytest.mark.parametrize("zarr_format", [2, 3])
@@ -368,57 +357,30 @@ def test_consolidate_metadata_matches_zarr_python(tmp_path, sample_data, zarr_fo
     assert not DeepDiff(theirs, ours, ignore_order=True)
 
 
-def _assert_stores_identical(zarrista_path, legacy_path):
-    """Assert two on-disk stores have identical file sets and metadata docs."""
-    from deepdiff import DeepDiff
-
-    zarrista_files = sorted(
-        p.relative_to(zarrista_path).as_posix()
-        for p in zarrista_path.rglob("*")
-        if p.is_file()
-    )
-    legacy_files = sorted(
-        p.relative_to(legacy_path).as_posix()
-        for p in legacy_path.rglob("*")
-        if p.is_file()
-    )
-    assert zarrista_files == legacy_files
-
-    metadata_names = {".zgroup", ".zattrs", ".zarray", ".zmetadata", "zarr.json"}
-    for name in legacy_files:
-        if name.rsplit("/", 1)[-1] not in metadata_names:
-            continue
-        legacy_doc = json.loads((legacy_path / name).read_text())
-        zarrista_doc = json.loads((zarrista_path / name).read_text())
-        assert not DeepDiff(legacy_doc, zarrista_doc, ignore_order=True), name
-
-
 def _assert_engines_equivalent(tmp_path, multiscales, ngff_version, **write_kwargs):
-    """Write via both engines and assert the stores are indistinguishable.
+    """Write via zarrista and assert zarr-python reads back identical pixels.
 
-    A path-like store dispatches to zarrista; a store-object target keeps the
-    legacy zarr-python engine. File sets, parsed metadata documents, and pixel
-    values must all agree.
+    zarr-python readability of zarrista-written stores is the compatibility
+    contract: every scale's values must agree between the ngff-zarr reader
+    and zarr-python, and the consolidated metadata must be usable.
     """
     from ngff_zarr import from_ngff_zarr, to_ngff_zarr
 
     zarrista_path = tmp_path / "zarrista.ome.zarr"
     to_ngff_zarr(str(zarrista_path), multiscales, version=ngff_version, **write_kwargs)
 
-    legacy_path = tmp_path / "legacy.ome.zarr"
-    to_ngff_zarr(
-        zarr.storage.LocalStore(legacy_path),
-        multiscales,
-        version=ngff_version,
-        **write_kwargs,
-    )
-
-    _assert_stores_identical(zarrista_path, legacy_path)
-
     zarrista_read = from_ngff_zarr(str(zarrista_path))
-    legacy_read = from_ngff_zarr(str(legacy_path))
-    for ours, theirs in zip(zarrista_read.images, legacy_read.images):
-        np.testing.assert_array_equal(np.asarray(ours.data), np.asarray(theirs.data))
+    zgroup = zarr.open_consolidated(str(zarrista_path))
+    root_attrs = zgroup.attrs.asdict()
+    if ngff_version == "0.4":
+        datasets = root_attrs["multiscales"][0]["datasets"]
+    else:
+        datasets = root_attrs["ome"]["multiscales"][0]["datasets"]
+    assert len(datasets) == len(zarrista_read.images)
+    for ours, dataset in zip(zarrista_read.images, datasets):
+        np.testing.assert_array_equal(
+            np.asarray(ours.data), np.asarray(zgroup[dataset["path"]][:])
+        )
 
 
 def _sample_multiscales(dtype=np.uint8, shape=(2, 64, 64), chunks=32):
@@ -480,8 +442,8 @@ def test_engine_equivalence_v3_codec_compressors(tmp_path, chunks_per_shard):
 )
 @pytest.mark.parametrize("ngff_version", ["0.4", "0.5"])
 def test_engine_equivalence_numcodecs_compressor(tmp_path, ngff_version):
-    """A numcodecs compressor object maps through _numcodecs_to_zarr_v3_codec
-    (format 3) or verbatim numcodecs config (format 2) on both engines."""
+    """A numcodecs compressor object maps to the stored codec configuration
+    for both zarr formats."""
     pytest.importorskip("zarrista")
     numcodecs = pytest.importorskip("numcodecs")
     compressor = numcodecs.Blosc(cname="lz4", clevel=5)
@@ -547,17 +509,6 @@ def test_engine_equivalence_memory_constrained(
         config.memory_target = saved_target
 
 
-def _to_multiscales_module():
-    # ``ngff_zarr.to_multiscales`` names the function; fetch the module.
-    import importlib
-
-    return importlib.import_module("ngff_zarr.to_multiscales")
-
-
-def _fail_open_array(*args, **kwargs):
-    raise AssertionError("cache write used the legacy zarr-python engine")
-
-
 @pytest.mark.parametrize(
     ("dims", "shape", "memory_target"),
     [
@@ -571,17 +522,15 @@ def _fail_open_array(*args, **kwargs):
 def test_multiscales_cache_uses_zarrista(
     tmp_path, monkeypatch, dims, shape, memory_target
 ):
-    """The to_multiscales disk cache writes through zarrista for a
-    directory-backed cache store, across all cache layouts: z-slabs (with a
-    partial final slab), the optimized-chunks second pass, 2D strips, and 1D
-    segments. Pixel values must round-trip exactly."""
+    """The to_multiscales disk cache writes through zarrista into the cache
+    directory, across all cache layouts: z-slabs (with a partial final slab),
+    the optimized-chunks second pass, 2D strips, and 1D segments. Pixel
+    values must round-trip exactly."""
     pytest.importorskip("zarrista")
     import dask.array
     from ngff_zarr import config, to_multiscales, to_ngff_image
 
-    tm = _to_multiscales_module()
-    monkeypatch.setattr(tm, "open_array", _fail_open_array)
-    monkeypatch.setattr(config, "cache_store", zarr.storage.LocalStore(tmp_path))
+    monkeypatch.setattr(config, "cache_store", tmp_path)
     monkeypatch.setattr(config, "memory_target", memory_target)
 
     rng = np.random.default_rng(7)
@@ -594,46 +543,25 @@ def test_multiscales_cache_uses_zarrista(
     np.testing.assert_array_equal(np.asarray(multiscales.images[0].data), data)
 
 
-def test_multiscales_cache_store_object_keeps_legacy_engine(monkeypatch):
-    """A user-supplied cache store without a local directory (here a
-    MemoryStore) keeps the zarr-python cache engine."""
+def test_multiscales_cache_store_object_rejected(monkeypatch):
+    """A cache store without a local directory (here a MemoryStore) is
+    rejected with a clear TypeError: the cache always writes through
+    zarrista into a directory path."""
     import dask.array
     from ngff_zarr import config, to_multiscales, to_ngff_image
 
-    tm = _to_multiscales_module()
-    legacy_calls = []
-    real_open_array = tm.open_array
-
-    def spy_open_array(*args, **kwargs):
-        legacy_calls.append(kwargs.get("path"))
-        return real_open_array(*args, **kwargs)
-
-    monkeypatch.setattr(tm, "open_array", spy_open_array)
     monkeypatch.setattr(config, "cache_store", zarr.storage.MemoryStore())
     monkeypatch.setattr(config, "memory_target", 4096)
 
     rng = np.random.default_rng(7)
     data = rng.integers(0, 255, size=(256, 96), dtype=np.uint8)
     image = to_ngff_image(dask.array.from_array(data, chunks=32), dims=("y", "x"))
-    multiscales = to_multiscales(image, scale_factors=[], cache=True)
-
-    assert legacy_calls, "MemoryStore cache should use the legacy engine"
-    np.testing.assert_array_equal(np.asarray(multiscales.images[0].data), data)
-
-    # Run the cache cleanup now, while a rmdir stub is in place: zarr-python 3
-    # dropped ``zarr.storage.rmdir``, which the (pre-existing) store-object
-    # cleanup fallback still calls; firing the computed callbacks here marks
-    # the cache removed so the atexit hook does not spew at interpreter exit.
-    monkeypatch.setattr(zarr.storage, "rmdir", lambda *args: None, raising=False)
-    for image in multiscales.images:
-        for callback in image.computed_callbacks:
-            callback()
-        image.computed_callbacks = []
+    with pytest.raises(TypeError, match="cache_store"):
+        to_multiscales(image, scale_factors=[], cache=True)
 
 
 def test_resolve_store_path(tmp_path):
-    """LocalStore/DirectoryStore and path-likes resolve to their directory;
-    stores without one resolve to None."""
+    """Path-likes resolve to their directory; store objects resolve to None."""
     from ngff_zarr._zarrista_utils import resolve_store_path
 
     assert resolve_store_path(str(tmp_path)) == tmp_path
@@ -641,11 +569,9 @@ def test_resolve_store_path(tmp_path):
     assert resolve_store_path({}) is None
     if hasattr(zarr.storage, "LocalStore"):
         store = zarr.storage.LocalStore(tmp_path)
-        assert resolve_store_path(store) == tmp_path
-    if hasattr(zarr.storage, "DirectoryStore"):
-        store = zarr.storage.DirectoryStore(str(tmp_path))
-        assert resolve_store_path(store) == tmp_path
+        assert resolve_store_path(store) is None
     assert resolve_store_path(zarr.storage.MemoryStore()) is None
+    assert resolve_store_path("s3://bucket/image.ome.zarr") is None
 
 
 def test_resolve_store_path_zarrista_store(tmp_path):
@@ -723,37 +649,16 @@ def _write_sample_hcs_plate(store, ngff_version, multiscales):
         )
 
 
-@pytest.mark.skipif(
-    zarr_version < version.parse("3.0.0b2"),
-    reason="the legacy-engine comparison requires zarr-python >= 3",
-)
 @pytest.mark.parametrize("ngff_version", ["0.4", "0.5"])
-def test_hcs_write_path_store_matches_zarr_python(tmp_path, monkeypatch, ngff_version):
-    """HCS plate writes via zarrista match the legacy engine's store exactly.
-
-    Both plates target path stores through the identical hcs.py code path;
-    the reference run forces the backend-dispatch helper off so the legacy
-    zarr-python engine writes it.
-    """
+def test_hcs_write_path_store_readable(tmp_path, ngff_version):
+    """HCS plate writes via zarrista read back through both ngff-zarr and
+    zarr-python (the compatibility contract)."""
     pytest.importorskip("zarrista")
-    import importlib
-
-    import ngff_zarr.hcs as hcs_module
     from ngff_zarr.hcs import from_hcs_zarr
-
-    # The package re-export shadows the module name, so importlib is needed.
-    to_ngff_zarr_module = importlib.import_module("ngff_zarr.to_ngff_zarr")
 
     multiscales = _sample_multiscales(shape=(2, 32, 32), chunks=16)
     zarrista_path = tmp_path / "zarrista.ome.zarr"
     _write_sample_hcs_plate(str(zarrista_path), ngff_version, multiscales)
-
-    monkeypatch.setattr(hcs_module, "use_zarrista_for", lambda _store: False)
-    monkeypatch.setattr(to_ngff_zarr_module, "use_zarrista_for", lambda _store: False)
-    legacy_path = tmp_path / "legacy.ome.zarr"
-    _write_sample_hcs_plate(str(legacy_path), ngff_version, multiscales)
-
-    _assert_stores_identical(zarrista_path, legacy_path)
 
     plate = from_hcs_zarr(str(zarrista_path))
     well = plate.get_well("A", "1")
@@ -763,13 +668,31 @@ def test_hcs_write_path_store_matches_zarr_python(tmp_path, monkeypatch, ngff_ve
         np.asarray(image.images[0].data), np.asarray(multiscales.images[0].data)
     )
 
+    # zarr-python reads the plate hierarchy and the well pixels back.
+    zgroup = zarr.open_group(str(zarrista_path), mode="r")
+    plate_attrs = zgroup.attrs.asdict()["ome"]["plate"]
+    assert [well_entry["path"] for well_entry in plate_attrs["wells"]] == [
+        "A/1",
+        "A/2",
+    ]
+    field = zarr.open_group(str(zarrista_path / "A" / "1" / "1"), mode="r")
+    field_attrs = field.attrs.asdict()
+    field_multiscales = (
+        field_attrs["multiscales"]
+        if ngff_version == "0.4"
+        else field_attrs["ome"]["multiscales"]
+    )
+    scale0 = field_multiscales[0]["datasets"][0]["path"]
+    np.testing.assert_array_equal(
+        np.asarray(field[scale0][:]), np.asarray(multiscales.images[0].data)
+    )
 
-def test_hcs_plate_writer_ozx_uses_path_engine(tmp_path):
-    """The .ozx flow writes its temp store through the path (zarrista) engine:
-    no hcs.py write may fall back to zarr-python group APIs."""
+
+def test_hcs_plate_writer_ozx_layout(tmp_path):
+    """The .ozx flow writes its temp store through the zarrista path engine
+    and produces the RFC-9 ordering."""
     pytest.importorskip("zarrista")
     import zipfile
-    from unittest.mock import patch
 
     from ngff_zarr.hcs import HCSPlateWriter
     from ngff_zarr.v04.zarr_metadata import Plate, PlateColumn, PlateRow, PlateWell
@@ -785,17 +708,13 @@ def test_hcs_plate_writer_ozx_uses_path_engine(tmp_path):
     multiscales = _sample_multiscales(shape=(2, 32, 32), chunks=16)
     ozx_path = tmp_path / "plate.ozx"
 
-    def _fail_open_group(*args, **kwargs):
-        raise AssertionError("legacy zarr.open_group used for a path store")
-
-    with patch("ngff_zarr.hcs.zarr.open_group", side_effect=_fail_open_group):
-        with HCSPlateWriter(str(ozx_path), plate_metadata) as writer:
-            writer.write_well_image(
-                multiscales=multiscales,
-                row_name="A",
-                column_name="1",
-                field_index=0,
-            )
+    with HCSPlateWriter(str(ozx_path), plate_metadata) as writer:
+        writer.write_well_image(
+            multiscales=multiscales,
+            row_name="A",
+            column_name="1",
+            field_index=0,
+        )
 
     with zipfile.ZipFile(ozx_path) as zf:
         names = zf.namelist()
@@ -809,72 +728,42 @@ def test_hcs_plate_writer_ozx_uses_path_engine(tmp_path):
 # --------------------------------------------------------------------------- #
 
 
-def _upgrade_module():
-    import importlib
-
-    # The package re-export shadows the module name, so importlib is needed.
-    return importlib.import_module("ngff_zarr.upgrade_ome_zarr")
-
-
-def _upgrade_both_engines(tmp_path, monkeypatch, source_path, **upgrade_kwargs):
-    """Upgrade two copies of *source_path* in place, one per write engine.
-
-    Both runs target path stores through the identical upgrade code path; the
-    reference run forces the backend-dispatch helper off so the legacy
-    zarr-python engine writes it. The resulting stores must have identical
-    file sets and parsed metadata documents.
-    """
+def _upgrade_in_place_copy(tmp_path, source_path, **upgrade_kwargs):
+    """Upgrade a copy of *source_path* in place via zarrista and return it."""
     from ngff_zarr import upgrade_ome_zarr
 
     zarrista_path = tmp_path / "zarrista.ome.zarr"
-    legacy_path = tmp_path / "legacy.ome.zarr"
     shutil.copytree(source_path, zarrista_path)
-    shutil.copytree(source_path, legacy_path)
-
     upgrade_ome_zarr(str(zarrista_path), **upgrade_kwargs)
-
-    monkeypatch.setattr(_upgrade_module(), "use_zarrista_for", lambda _store: False)
-    upgrade_ome_zarr(str(legacy_path), **upgrade_kwargs)
-    monkeypatch.undo()
-
-    _assert_stores_identical(zarrista_path, legacy_path)
-    return zarrista_path, legacy_path
+    return zarrista_path
 
 
-@pytest.mark.skipif(
-    zarr_version < version.parse("3.0.0b2"),
-    reason="the legacy-engine comparison requires zarr-python >= 3",
-)
 @pytest.mark.parametrize(
     "source_version, target_version", [("0.5", "0.6"), ("0.6", "0.5")]
 )
-def test_upgrade_in_place_matches_zarr_python(
-    tmp_path, monkeypatch, source_version, target_version
-):
-    """Same-format in-place upgrades rewrite the root metadata via zarrista."""
+def test_upgrade_in_place_readable(tmp_path, source_version, target_version):
+    """Same-format in-place upgrades rewrite the root metadata via zarrista;
+    the upgraded store reads back with the target version and zarr-python."""
     pytest.importorskip("zarrista")
     from ngff_zarr import from_ome_zarr, to_ngff_zarr
 
     source = tmp_path / "source.ome.zarr"
     to_ngff_zarr(str(source), _sample_multiscales(), version=source_version)
 
-    zarrista_path, legacy_path = _upgrade_both_engines(
-        tmp_path, monkeypatch, source, version=target_version
-    )
+    zarrista_path = _upgrade_in_place_copy(tmp_path, source, version=target_version)
 
     zarrista_read = from_ome_zarr(str(zarrista_path), version=target_version)
-    legacy_read = from_ome_zarr(str(legacy_path), version=target_version)
+    source_read = from_ome_zarr(str(source), version=source_version)
     np.testing.assert_array_equal(
         np.asarray(zarrista_read.images[0].data),
-        np.asarray(legacy_read.images[0].data),
+        np.asarray(source_read.images[0].data),
     )
+    # zarr-python still opens the upgraded store.
+    zgroup = zarr.open_group(str(zarrista_path), mode="r")
+    assert "ome" in zgroup.attrs.asdict()
 
 
-@pytest.mark.skipif(
-    zarr_version < version.parse("3.0.0b2"),
-    reason="the legacy-engine comparison requires zarr-python >= 3",
-)
-def test_upgrade_in_place_unconsolidated_stays_unconsolidated(tmp_path, monkeypatch):
+def test_upgrade_in_place_unconsolidated_stays_unconsolidated(tmp_path):
     """A source without consolidated metadata gains none from the upgrade."""
     pytest.importorskip("zarrista")
 
@@ -904,22 +793,16 @@ def test_upgrade_in_place_unconsolidated_stays_unconsolidated(tmp_path, monkeypa
     }
     assert "consolidated_metadata" not in json.loads((source / "zarr.json").read_text())
 
-    zarrista_path, _legacy_path = _upgrade_both_engines(
-        tmp_path, monkeypatch, source, version="0.6"
-    )
+    zarrista_path = _upgrade_in_place_copy(tmp_path, source, version="0.6")
     assert "consolidated_metadata" not in json.loads(
         (zarrista_path / "zarr.json").read_text()
     )
 
 
-@pytest.mark.skipif(
-    zarr_version < version.parse("3.0.0b2"),
-    reason="the legacy-engine comparison requires zarr-python >= 3",
-)
 @pytest.mark.parametrize("separator", ["/", "."])
-def test_upgrade_cross_format_matches_zarr_python(tmp_path, monkeypatch, separator):
+def test_upgrade_cross_format_preserves_chunks(tmp_path, separator):
     """In-place 0.4 -> 0.5 rewrites arrays and groups to Zarr v3 via zarrista,
-    preserving every chunk binary and matching the legacy engine's store."""
+    preserving every chunk binary; zarr-python reads the result."""
     pytest.importorskip("zarrista")
     import numcodecs
     from ngff_zarr import from_ome_zarr, to_ngff_zarr
@@ -972,31 +855,36 @@ def test_upgrade_cross_format_matches_zarr_python(tmp_path, monkeypatch, separat
     }
     assert chunk_files
 
-    zarrista_path, legacy_path = _upgrade_both_engines(
-        tmp_path, monkeypatch, source, version="0.5"
-    )
+    original_read = from_ome_zarr(str(source), version="0.4")
+    original_values = np.asarray(original_read.images[0].data)
+
+    zarrista_path = _upgrade_in_place_copy(tmp_path, source, version="0.5")
 
     # The zarrista rewrite preserved every chunk binary byte-for-byte.
     for rel, payload_bytes in chunk_files.items():
         assert (zarrista_path / rel).read_bytes() == payload_bytes, rel
 
     zarrista_read = from_ome_zarr(str(zarrista_path), version="0.5", validate=True)
-    legacy_read = from_ome_zarr(str(legacy_path), version="0.5", validate=True)
     np.testing.assert_array_equal(
-        np.asarray(zarrista_read.images[0].data),
-        np.asarray(legacy_read.images[0].data),
+        np.asarray(zarrista_read.images[0].data), original_values
+    )
+    # zarr-python reads the upgraded Zarr v3 array with preserved chunk keys.
+    zgroup = zarr.open_group(str(zarrista_path), mode="r", zarr_format=3)
+    datasets = zgroup.attrs.asdict()["ome"]["multiscales"][0]["datasets"]
+    np.testing.assert_array_equal(
+        np.asarray(zgroup[datasets[0]["path"]][:]), original_values
     )
 
 
-def test_use_zarrista_for_remote_urls():
-    """Remote URL strings keep the zarr-python engine: zarrista writes only
-    local filesystem stores."""
+def test_is_local_path_remote_urls():
+    """Remote URL strings are not local paths: zarrista writes only local
+    filesystem stores."""
     for url in (
         "s3://bucket/image.ome.zarr",
         "gs://bucket/image.ome.zarr",
         "https://example.com/image.ome.zarr",
     ):
-        assert not use_zarrista_for(url)
+        assert not _is_local_path(url)
 
 
 def test_has_consolidated_metadata(tmp_path):

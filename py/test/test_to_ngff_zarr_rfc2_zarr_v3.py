@@ -5,7 +5,6 @@ import tempfile
 import numpy as np
 import pytest
 import zarr
-import zarr.storage
 from ngff_zarr import Methods, NgffImage, from_ngff_zarr, to_multiscales, to_ngff_zarr
 from packaging import version
 
@@ -19,12 +18,12 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_gaussian_isotropic_scale_factors(input_images):
+def test_gaussian_isotropic_scale_factors(input_images, tmp_path):
     dataset_name = "cthead1"
     image = input_images[dataset_name]
     baseline_name = "2_4/RFC3_GAUSSIAN.zarr"
     multiscales = to_multiscales(image, [2, 4], method=Methods.ITKWASM_GAUSSIAN)
-    store = zarr.storage.MemoryStore()
+    store = str(tmp_path / "test.zarr")
 
     version = "0.5"
     to_ngff_zarr(store, multiscales, version=version)
