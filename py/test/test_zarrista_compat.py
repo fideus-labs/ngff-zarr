@@ -20,6 +20,7 @@ from ngff_zarr._zarrista_utils import (
     create_zarrista_array,
     create_zarrista_group,
     create_zarrista_subgroup,
+    has_consolidated_metadata,
     normalize_store,
     open_zarrista_lazy,
     use_zarrista_for,
@@ -782,3 +783,221 @@ def test_hcs_plate_writer_ozx_uses_path_engine(tmp_path):
     assert names[0] == "zarr.json"  # RFC-9: root metadata first
     assert "A/1/zarr.json" in names
     assert "A/1/0/zarr.json" in names
+
+
+# --------------------------------------------------------------------------- #
+# upgrade_ome_zarr write paths (in-place metadata rewrites)
+# --------------------------------------------------------------------------- #
+
+
+def _upgrade_module():
+    import importlib
+
+    # The package re-export shadows the module name, so importlib is needed.
+    return importlib.import_module("ngff_zarr.upgrade_ome_zarr")
+
+
+def _upgrade_both_engines(tmp_path, monkeypatch, source_path, **upgrade_kwargs):
+    """Upgrade two copies of *source_path* in place, one per write engine.
+
+    Both runs target path stores through the identical upgrade code path; the
+    reference run forces the backend-dispatch helper off so the legacy
+    zarr-python engine writes it. The resulting stores must have identical
+    file sets and parsed metadata documents.
+    """
+    from ngff_zarr import upgrade_ome_zarr
+
+    zarrista_path = tmp_path / "zarrista.ome.zarr"
+    legacy_path = tmp_path / "legacy.ome.zarr"
+    shutil.copytree(source_path, zarrista_path)
+    shutil.copytree(source_path, legacy_path)
+
+    upgrade_ome_zarr(str(zarrista_path), **upgrade_kwargs)
+
+    monkeypatch.setattr(_upgrade_module(), "use_zarrista_for", lambda _store: False)
+    upgrade_ome_zarr(str(legacy_path), **upgrade_kwargs)
+    monkeypatch.undo()
+
+    _assert_stores_identical(zarrista_path, legacy_path)
+    return zarrista_path, legacy_path
+
+
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="the legacy-engine comparison requires zarr-python >= 3",
+)
+@pytest.mark.parametrize(
+    "source_version, target_version", [("0.5", "0.6"), ("0.6", "0.5")]
+)
+def test_upgrade_in_place_matches_zarr_python(
+    tmp_path, monkeypatch, source_version, target_version
+):
+    """Same-format in-place upgrades rewrite the root metadata via zarrista."""
+    pytest.importorskip("zarrista")
+    from ngff_zarr import from_ome_zarr, to_ngff_zarr
+
+    source = tmp_path / "source.ome.zarr"
+    to_ngff_zarr(str(source), _sample_multiscales(), version=source_version)
+
+    zarrista_path, legacy_path = _upgrade_both_engines(
+        tmp_path, monkeypatch, source, version=target_version
+    )
+
+    zarrista_read = from_ome_zarr(str(zarrista_path), version=target_version)
+    legacy_read = from_ome_zarr(str(legacy_path), version=target_version)
+    np.testing.assert_array_equal(
+        np.asarray(zarrista_read.images[0].data),
+        np.asarray(legacy_read.images[0].data),
+    )
+
+
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="the legacy-engine comparison requires zarr-python >= 3",
+)
+def test_upgrade_in_place_unconsolidated_stays_unconsolidated(tmp_path, monkeypatch):
+    """A source without consolidated metadata gains none from the upgrade."""
+    pytest.importorskip("zarrista")
+
+    source = tmp_path / "source.ome.zarr"
+    group = zarr.open_group(str(source), mode="w", zarr_format=3)
+    arr = group.create_array(name="0", shape=(4, 8, 8), chunks=(1, 8, 8), dtype="uint8")
+    arr[:] = np.arange(4 * 8 * 8, dtype="uint8").reshape(4, 8, 8)
+    group.attrs["ome"] = {
+        "version": "0.5",
+        "multiscales": [
+            {
+                "axes": [
+                    {"name": "z", "type": "space"},
+                    {"name": "y", "type": "space"},
+                    {"name": "x", "type": "space"},
+                ],
+                "datasets": [
+                    {
+                        "path": "0",
+                        "coordinateTransformations": [
+                            {"type": "scale", "scale": [1.0, 1.0, 1.0]}
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    assert "consolidated_metadata" not in json.loads((source / "zarr.json").read_text())
+
+    zarrista_path, _legacy_path = _upgrade_both_engines(
+        tmp_path, monkeypatch, source, version="0.6"
+    )
+    assert "consolidated_metadata" not in json.loads(
+        (zarrista_path / "zarr.json").read_text()
+    )
+
+
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="the legacy-engine comparison requires zarr-python >= 3",
+)
+@pytest.mark.parametrize("separator", ["/", "."])
+def test_upgrade_cross_format_matches_zarr_python(tmp_path, monkeypatch, separator):
+    """In-place 0.4 -> 0.5 rewrites arrays and groups to Zarr v3 via zarrista,
+    preserving every chunk binary and matching the legacy engine's store."""
+    pytest.importorskip("zarrista")
+    import numcodecs
+    from ngff_zarr import from_ome_zarr, to_ngff_zarr
+
+    source = tmp_path / "source.ome.zarr"
+    if separator == "/":
+        # A store shaped as ngff-zarr writes it: zstd, "/" keys, scaleN groups.
+        to_ngff_zarr(str(source), _sample_multiscales(), version="0.4")
+    else:
+        # A legacy-tool-shaped store: "." keys, blosc, array attributes, and a
+        # nonzero fill value exercise the compat layer's new array parameters.
+        group = zarr.open_group(str(source), mode="w", zarr_format=2)
+        payload = np.arange(2 * 16 * 16, dtype="uint16").reshape(2, 16, 16)
+        arr = group.create_array(
+            name="0",
+            shape=payload.shape,
+            chunks=(1, 16, 16),
+            dtype="uint16",
+            fill_value=7,
+            compressors=numcodecs.Blosc(cname="lz4", clevel=5, shuffle=1),
+            chunk_key_encoding={"name": "v2", "separator": "."},
+        )
+        arr[:] = payload
+        arr.attrs["provenance"] = "synthesized"
+        group.attrs["multiscales"] = [
+            {
+                "version": "0.4",
+                "name": "image",
+                "axes": [
+                    {"name": "z", "type": "space"},
+                    {"name": "y", "type": "space"},
+                    {"name": "x", "type": "space"},
+                ],
+                "datasets": [
+                    {
+                        "path": "0",
+                        "coordinateTransformations": [
+                            {"type": "scale", "scale": [1.0, 1.0, 1.0]}
+                        ],
+                    }
+                ],
+            }
+        ]
+
+    metadata_names = {".zarray", ".zattrs", ".zgroup", ".zmetadata", "zarr.json"}
+    chunk_files = {
+        p.relative_to(source).as_posix(): p.read_bytes()
+        for p in source.rglob("*")
+        if p.is_file() and p.name not in metadata_names
+    }
+    assert chunk_files
+
+    zarrista_path, legacy_path = _upgrade_both_engines(
+        tmp_path, monkeypatch, source, version="0.5"
+    )
+
+    # The zarrista rewrite preserved every chunk binary byte-for-byte.
+    for rel, payload_bytes in chunk_files.items():
+        assert (zarrista_path / rel).read_bytes() == payload_bytes, rel
+
+    zarrista_read = from_ome_zarr(str(zarrista_path), version="0.5", validate=True)
+    legacy_read = from_ome_zarr(str(legacy_path), version="0.5", validate=True)
+    np.testing.assert_array_equal(
+        np.asarray(zarrista_read.images[0].data),
+        np.asarray(legacy_read.images[0].data),
+    )
+
+
+def test_use_zarrista_for_remote_urls():
+    """Remote URL strings keep the zarr-python engine: zarrista writes only
+    local filesystem stores."""
+    for url in (
+        "s3://bucket/image.ome.zarr",
+        "gs://bucket/image.ome.zarr",
+        "https://example.com/image.ome.zarr",
+    ):
+        assert not use_zarrista_for(url)
+
+
+def test_has_consolidated_metadata(tmp_path):
+    """Detects the inline v3 block and the v2 .zmetadata sidecar."""
+    v3 = tmp_path / "v3.zarr"
+    v3.mkdir()
+    doc = {"zarr_format": 3, "node_type": "group", "attributes": {}}
+    (v3 / "zarr.json").write_text(json.dumps(doc))
+    assert not has_consolidated_metadata(v3, zarr_format=3)
+    doc["consolidated_metadata"] = {
+        "kind": "inline",
+        "must_understand": False,
+        "metadata": {},
+    }
+    (v3 / "zarr.json").write_text(json.dumps(doc))
+    assert has_consolidated_metadata(v3, zarr_format=3)
+
+    v2 = tmp_path / "v2.zarr"
+    v2.mkdir()
+    (v2 / ".zgroup").write_text('{"zarr_format": 2}')
+    assert not has_consolidated_metadata(v2, zarr_format=2)
+    (v2 / ".zmetadata").write_text('{"metadata": {}, "zarr_consolidated_format": 1}')
+    assert has_consolidated_metadata(v2, zarr_format=2)

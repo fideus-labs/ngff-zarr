@@ -51,6 +51,16 @@ import zarr.storage
 
 from ._supported_versions import NgffVersion
 from ._zarr_types import StoreLike
+from ._zarrista_utils import (
+    consolidate_metadata as _zarrista_consolidate_metadata,
+)
+from ._zarrista_utils import (
+    create_zarrista_array,
+    create_zarrista_group,
+    create_zarrista_subgroup,
+    has_consolidated_metadata,
+    use_zarrista_for,
+)
 from .from_ngff_zarr import (
     REMOTE_URL_SCHEMES,
     _is_remote_store,
@@ -60,6 +70,7 @@ from .from_ngff_zarr import (
 from .to_ngff_zarr import (
     _numcodecs_to_zarr_v3_codec,
     _pop_metadata_optionals,
+    _root_ome_attrs,
     _write_root_ome_attrs,
     to_ome_zarr,
 )
@@ -251,13 +262,13 @@ def _upgrade_in_place(
 ) -> None:
     """Rewrite only the root-group metadata of ``store`` to ``target_version``.
 
-    Opens the existing root group for read/write (``mode="a"``) so the array
-    chunks are never rewritten -- the crux of the issue #219 fix. Calling
-    ``to_ome_zarr(..., overwrite=True)`` on the source instead would erase those
-    arrays.
+    The array chunks are never rewritten -- the crux of the issue #219 fix.
+    Path stores update the root group document through the zarrista compat
+    layer, refreshing any consolidated metadata alongside it exactly as
+    zarr-python does; store objects open the existing root for read/write
+    (``mode="a"``). Calling ``to_ome_zarr(..., overwrite=True)`` on the source
+    instead would erase those arrays.
     """
-    root = zarr.open_group(store, mode="a", zarr_format=target_zarr_format)
-
     # Convert the already-read metadata to the target version, preserving the
     # existing ``type``/``metadata``/``omero`` fields. ``_prepare_metadata`` is
     # deliberately avoided: it resets ``type``/``metadata`` to ``None`` for any
@@ -267,6 +278,18 @@ def _upgrade_in_place(
     metadata_dict = _pop_metadata_optionals(metadata_dict)
     metadata_dict["@type"] = "ngff:Image"
 
+    if use_zarrista_for(store):
+        refresh_consolidated = has_consolidated_metadata(store, target_zarr_format)
+        create_zarrista_group(
+            store,
+            _root_ome_attrs(metadata_dict, target_version),
+            target_zarr_format,
+        )
+        if refresh_consolidated:
+            _zarrista_consolidate_metadata(store, target_zarr_format)
+        return
+
+    root = zarr.open_group(store, mode="a", zarr_format=target_zarr_format)
     _write_root_ome_attrs(root, metadata_dict, target_version)
 
 
@@ -418,6 +441,38 @@ def _rewrite_v2_group_to_v3(
             group_attrs[group_path] = {}
 
     # --- Write phase: materialize the Zarr v3 hierarchy. Chunks are untouched. ---
+    metadata_dict = asdict(new_metadata)
+    metadata_dict = _pop_metadata_optionals(metadata_dict)
+    metadata_dict["@type"] = "ngff:Image"
+
+    if use_zarrista_for(store):
+        for group_path in group_paths:
+            create_zarrista_subgroup(store, group_path, group_attrs[group_path], 3)
+        for spec in array_specs:
+            create_zarrista_array(
+                store,
+                spec["path"],
+                shape=spec["shape"],
+                dtype=spec["dtype"],
+                chunks=spec["chunks"],
+                zarr_format=3,
+                compressors=spec["compressors"],
+                dimension_names=dim_names,
+                fill_value=spec["fill_value"],
+                attributes=spec["attrs"],
+                chunk_key_encoding={
+                    "name": "v2",
+                    "configuration": {"separator": spec["separator"]},
+                },
+            )
+        # Root OME attributes, exactly as to_ome_zarr / _upgrade_in_place emit.
+        create_zarrista_group(store, _root_ome_attrs(metadata_dict, target_version), 3)
+        # Drop the now-obsolete Zarr v2 sidecars; chunk files are left in place.
+        _delete_v2_sidecars(store)
+        # Consolidate so the store matches a freshly written Zarr v3 store.
+        _zarrista_consolidate_metadata(store, 3)
+        return
+
     root = zarr.open_group(store, mode="a", zarr_format=3)
 
     for group_path in group_paths:
@@ -444,9 +499,6 @@ def _rewrite_v2_group_to_v3(
             array.attrs[key] = value
 
     # Root OME attributes, exactly as to_ome_zarr / _upgrade_in_place emit them.
-    metadata_dict = asdict(new_metadata)
-    metadata_dict = _pop_metadata_optionals(metadata_dict)
-    metadata_dict["@type"] = "ngff:Image"
     _write_root_ome_attrs(root, metadata_dict, target_version)
 
     # Drop the now-obsolete Zarr v2 sidecars; chunk files are left in place.

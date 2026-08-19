@@ -48,6 +48,7 @@ __all__ = [
     "create_zarrista_array",
     "create_zarrista_group",
     "create_zarrista_subgroup",
+    "has_consolidated_metadata",
     "normalize_store",
     "open_zarrista_array",
     "open_zarrista_lazy",
@@ -246,14 +247,23 @@ def use_zarrista_for(store) -> bool:
     through it so the zarr-python fallback can later be removed in one place.
     zarrista handles ``str``/``pathlib.Path``/``os.PathLike`` targets; store
     objects and ``MutableMapping``s keep the zarr-python engine, as do
-    ``.zip``/``.ozx`` targets (zarrista can only read zip archives). Also
+    ``.zip``/``.ozx`` targets (zarrista can only read zip archives) and
+    remote URL strings (zarrista only writes local filesystem stores). Also
     False when zarrista itself is unavailable (it requires Python >= 3.11).
     """
     if not isinstance(store, (str, Path, os.PathLike)) or isinstance(
         store, MutableMapping
     ):
         return False
-    path = Path(os.fspath(store))
+    target = os.fspath(store)
+    if isinstance(target, str):
+        # Imported lazily: from_ngff_zarr must stay importable without pulling
+        # in the write stack this module belongs to.
+        from .from_ngff_zarr import REMOTE_URL_SCHEMES
+
+        if target.startswith(REMOTE_URL_SCHEMES):
+            return False
+    path = Path(target)
     if path.suffix.lower() == ".zip" or is_ozx_path(path):
         return False
     return _zarrista_available()
@@ -338,6 +348,25 @@ def read_group_attributes(store, group_path=None, *, zarr_format: int) -> dict |
     if loaded.get("node_type") != "group":
         raise ValueError(f"An array node already exists at {path}")
     return dict(loaded.get("attributes") or {})
+
+
+def has_consolidated_metadata(store, zarr_format: int) -> bool:
+    """Whether the store at *store* carries consolidated metadata.
+
+    Checks the root ``zarr.json`` for an inline ``consolidated_metadata``
+    block (zarr format 3) or for a ``.zmetadata`` sidecar (format 2), so
+    in-place metadata rewrites can refresh consolidation exactly when
+    zarr-python would.
+    """
+    path = normalize_store(store)
+    if zarr_format == 2:
+        return (path / ".zmetadata").exists()
+    if zarr_format != 3:
+        raise ValueError(f"Unsupported zarr format: {zarr_format}")
+    doc = path / "zarr.json"
+    if not doc.exists():
+        return False
+    return "consolidated_metadata" in json.loads(doc.read_text())
 
 
 def _existing_group_attributes(path: Path, zarr_format: int) -> dict:
@@ -474,6 +503,9 @@ def create_zarrista_array(
     dimension_separator: str = "/",
     compressors=None,
     shards: tuple[int, ...] | None = None,
+    fill_value=None,
+    attributes: dict | None = None,
+    chunk_key_encoding: dict | None = None,
 ):
     """Create a zarr array under the store at *path* and return it.
 
@@ -485,9 +517,13 @@ def create_zarrista_array(
     an empty sequence means no compression. Sharding (format 3 only) is
     requested either via ``chunks_per_shard`` — an int or per-dimension tuple
     of chunks per shard, matching ``to_ngff_zarr`` — or via ``shards``, the
-    explicit outer shard shape whose subchunks are *chunks*. The metadata is
-    stored immediately; the returned ``zarrista.Array`` is ready for chunk
-    writes.
+    explicit outer shard shape whose subchunks are *chunks*. *fill_value*
+    ``None`` means the dtype's zero, matching zarr-python. *attributes* are
+    the array's user attributes. *chunk_key_encoding* (format 3 only) is the
+    zarr v3 metadata form (e.g. ``{"name": "v2", "configuration":
+    {"separator": "/"}}``), used by in-place v2->v3 upgrades to keep existing
+    chunk keys resolvable. The metadata is stored immediately; the returned
+    ``zarrista.Array`` is ready for chunk writes.
     """
     path = normalize_store(path)
     path.mkdir(parents=True, exist_ok=True)
@@ -499,6 +535,11 @@ def create_zarrista_array(
     chunks = tuple(int(c) for c in chunks)
     if len(chunks) != len(shape):
         raise ValueError(f"chunks must have {len(shape)} dimensions, got {chunks}")
+    fill_scalar = (
+        np.zeros((), dtype=dtype)
+        if fill_value is None
+        else np.asarray(fill_value, dtype=dtype)
+    )
 
     from zarrista import Array, ArrayBuilder, ChunkGrid, DataType, FillValue
     from zarrista.store import FilesystemStore
@@ -515,24 +556,30 @@ def create_zarrista_array(
                 "compressors (a zarr v3 codec chain) requires zarr format 3; "
                 "pass a single compressor for zarr format 2"
             )
+        if chunk_key_encoding is not None:
+            raise ValueError(
+                "chunk_key_encoding requires zarr format 3; pass "
+                "dimension_separator for zarr format 2"
+            )
         metadata = {
             "zarr_format": 2,
             "shape": list(shape),
             "chunks": list(chunks),
             "dtype": dtype.str,
             "compressor": _compressor_to_v2_config(compressor, dtype),
-            "fill_value": np.zeros((), dtype=dtype).item(),
+            "fill_value": fill_scalar.item(),
             "order": "C",
             "filters": None,
             "dimension_separator": dimension_separator,
         }
         arr = Array.from_metadata(metadata, store, node_path)
         arr.store_metadata()
-        _normalize_array_metadata_doc(
-            path.joinpath(*node_path.strip("/").split("/"), ".zarray"),
-            zarr_format,
-            dtype.itemsize,
-        )
+        node_dir = path.joinpath(*node_path.strip("/").split("/"))
+        _normalize_array_metadata_doc(node_dir / ".zarray", zarr_format, dtype.itemsize)
+        if attributes:
+            zattrs_path = node_dir / ".zattrs"
+            merged = {**json.loads(zattrs_path.read_text()), **attributes}
+            zattrs_path.write_text(json.dumps(merged, indent=4))
         return arr
 
     if zarr_format != 3:
@@ -562,10 +609,19 @@ def create_zarrista_array(
 
     grid = ChunkGrid.regular(list(shape), chunk_shape=list(grid_chunk_shape))
     data_type = DataType.from_string(_numpy_to_zarr_dtype(dtype))
-    fill_value = FillValue(np.zeros((), dtype=dtype).tobytes())
-    builder = ArrayBuilder(grid, data_type, fill_value)
+    builder = ArrayBuilder(
+        grid, data_type, FillValue(_native_contiguous(fill_scalar).tobytes())
+    )
     if chunks_per_shard is not None or shards is not None:
         builder = builder.subchunk_shape(list(chunks))
+    if chunk_key_encoding is not None:
+        from zarrista import ChunkKeyEncoding
+
+        builder = builder.chunk_key_encoding(
+            ChunkKeyEncoding.from_metadata(chunk_key_encoding)
+        )
+    if attributes:
+        builder = builder.attrs(dict(attributes))
     if compressors is not None:
         codecs = [
             codec
