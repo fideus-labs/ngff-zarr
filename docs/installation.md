@@ -38,7 +38,7 @@ Optional extras dependencies include:
 `itk` : Support multiscale generation with [itk] [methods](./methods.md).
 
 `remote` : Read OME-Zarr from remote stores -- http(s), S3, Google Cloud
-Storage, and Azure -- via the [obstore] backend (requires Python >= 3.11).
+Storage, and Azure -- via the [obstore] backend.
 Remote writes are not supported: write to a local directory and upload
 afterwards. See
 [Network Storage and Authentication](./faq.md#network-storage-and-authentication).

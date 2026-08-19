@@ -15,6 +15,12 @@ import pytest
 import zarr
 from ngff_zarr import to_ngff_image
 from ngff_zarr._zarrista_utils import LocalZarrGroup, open_local_node
+from packaging import version
+
+pytestmark = pytest.mark.skipif(
+    version.parse(zarr.__version__).major < 3,
+    reason="fixtures are authored as zarr format 3 with the zarr-python 3 API",
+)
 
 
 def _open_group(path) -> LocalZarrGroup:

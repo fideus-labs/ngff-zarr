@@ -40,7 +40,7 @@ The main Python package provides:
 - Process extremely large datasets
 - Conversion of most bioimaging file formats
 - Multiple downscaling methods
-- Supports Python>=3.10
+- Supports Python>=3.11
 - Reads OME-Zarr v0.1 to v0.6 into simple Python data classes with Dask arrays
 - Optional OME-Zarr data model validation during reading
 - Writes OME-Zarr v0.4 to v0.6

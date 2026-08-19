@@ -18,6 +18,7 @@ from ngff_zarr.v04.zarr_metadata import (
     PlateRow,
     PlateWell,
 )
+from packaging import version
 
 
 @pytest.fixture
@@ -96,6 +97,10 @@ def test_to_hcs_zarr_uses_correct_zarr_format_v04(basic_plate_metadata):
         assert attrs["ome"]["version"] == "0.4"
 
 
+@pytest.mark.skipif(
+    version.parse(zarr.__version__).major < 3,
+    reason="reading the zarr format 3 output requires zarr-python 3",
+)
 def test_to_hcs_zarr_uses_correct_zarr_format_v05(basic_plate_metadata):
     """Test that to_hcs_zarr uses zarr format 3 for NGFF version 0.5."""
     basic_plate_metadata.version = "0.5"
@@ -107,10 +112,8 @@ def test_to_hcs_zarr_uses_correct_zarr_format_v05(basic_plate_metadata):
         # Call the function
         to_hcs_zarr(plate, str(output_path))
 
-        # For zarr-python >= 3, zarr format 3 creates zarr.json
-        # For zarr-python < 3, it still uses .zgroup/.zattrs
-        # We check that the function was called with the right parameters
-        # by inspecting the metadata structure which should follow v0.5 conventions
+        # NGFF 0.5 always writes zarr format 3 (zarr.json); verify the
+        # metadata structure follows the v0.5 conventions.
 
         root = zarr.open_group(str(output_path), mode="r")
         attrs = root.attrs.asdict()

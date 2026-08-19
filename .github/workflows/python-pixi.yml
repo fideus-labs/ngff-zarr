@@ -15,9 +15,10 @@ jobs:
       matrix:
         # macos-26 is Apple Silicon (arm64); ubuntu-24.04 is x86_64.
         os: [ubuntu-24.04, macos-26]
-        # One pixi environment per supported Python version. The unpinned
+        # One pixi environment per supported Python version, plus the
+        # zarr-python 2.x reference-reader leg (test-zarr2). The unpinned
         # `test` environment tracks the latest (currently 3.14).
-        environment: [test-py310, test-py311, test-py312, test-py313, test]
+        environment: [test-py311, test-py312, test-py313, test-zarr2, test]
         include:
           # Keep a single Intel macOS smoke test on the latest Python.
           - os: macos-26-intel

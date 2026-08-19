@@ -211,8 +211,14 @@ def test_write_hcs_well_image_path_store(tmp_path):
     )
 
     # Verify the data was written to the correct location
-    # write_hcs_well_image defaults to version="0.4" (zarr format 2)
-    root = zarr.open_group(store_path, mode="r", zarr_format=2)
+    # write_hcs_well_image defaults to version="0.4" (zarr format 2);
+    # zarr-python 2.x reads v2 stores without the zarr_format keyword.
+    from packaging import version
+
+    open_kwargs = (
+        {"zarr_format": 2} if version.parse(zarr.__version__).major >= 3 else {}
+    )
+    root = zarr.open_group(store_path, mode="r", **open_kwargs)
     assert "A" in root, "Row group 'A' not found"
     assert "1" in root["A"], "Column group '1' not found in row 'A'"
     assert "0" in root["A/1"], "Field group '0' not found in well 'A/1'"

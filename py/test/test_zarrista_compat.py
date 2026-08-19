@@ -654,6 +654,8 @@ def test_hcs_write_path_store_readable(tmp_path, ngff_version):
     """HCS plate writes via zarrista read back through both ngff-zarr and
     zarr-python (the compatibility contract)."""
     pytest.importorskip("zarrista")
+    if ngff_version == "0.5" and zarr_version < version.parse("3.0.0b2"):
+        pytest.skip("zarr version >= 3.0.0b2 required to read zarr format 3")
     from ngff_zarr.hcs import from_hcs_zarr
 
     multiscales = _sample_multiscales(shape=(2, 32, 32), chunks=16)
@@ -741,6 +743,10 @@ def _upgrade_in_place_copy(tmp_path, source_path, **upgrade_kwargs):
 @pytest.mark.parametrize(
     "source_version, target_version", [("0.5", "0.6"), ("0.6", "0.5")]
 )
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="zarr version >= 3.0.0b2 required to read zarr format 3",
+)
 def test_upgrade_in_place_readable(tmp_path, source_version, target_version):
     """Same-format in-place upgrades rewrite the root metadata via zarrista;
     the upgraded store reads back with the target version and zarr-python."""
@@ -763,6 +769,10 @@ def test_upgrade_in_place_readable(tmp_path, source_version, target_version):
     assert "ome" in zgroup.attrs.asdict()
 
 
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="fixture is authored with the zarr-python 3 API",
+)
 def test_upgrade_in_place_unconsolidated_stays_unconsolidated(tmp_path):
     """A source without consolidated metadata gains none from the upgrade."""
     pytest.importorskip("zarrista")
@@ -800,6 +810,10 @@ def test_upgrade_in_place_unconsolidated_stays_unconsolidated(tmp_path):
 
 
 @pytest.mark.parametrize("separator", ["/", "."])
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="zarr version >= 3.0.0b2 required to read zarr format 3",
+)
 def test_upgrade_cross_format_preserves_chunks(tmp_path, separator):
     """In-place 0.4 -> 0.5 rewrites arrays and groups to Zarr v3 via zarrista,
     preserving every chunk binary; zarr-python reads the result."""
@@ -971,6 +985,10 @@ def test_open_local_node(tmp_path):
     assert np.array_equal(np.asarray(open_lazy_array(store_path, "0")), data)
 
 
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="fixture is authored with the zarr-python 3 API",
+)
 def test_open_lazy_array_mapping_dispatch(tmp_path):
     """open_lazy_array routes bytes mappings through the v2 store reader."""
     from ngff_zarr._zarrista_utils import open_lazy_array

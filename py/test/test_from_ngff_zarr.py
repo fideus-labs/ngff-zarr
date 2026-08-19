@@ -157,6 +157,10 @@ def test_from_ngff_zarr_remote_missing_backend_helpful_error(url):
     assert url in message
 
 
+@pytest.mark.skipif(
+    zarr_version_major < 3,
+    reason="zarr-python 2.x stores are MutableMappings, a supported input form",
+)
 def test_from_ngff_zarr_rejects_zarr_python_store_objects():
     """Passing a zarr-python store object raises a helpful TypeError.
 

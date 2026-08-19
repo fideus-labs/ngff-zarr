@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: MIT
 """Tests for the internal zarr format 2 MutableMapping store reader.
 
-Fixtures are authored with zarr-python (still installed during the
-migration) into a temporary directory and loaded into a plain in-memory
-``dict[str, bytes]``, the store form the reader targets (zip archives,
-tifffile's aszarr store, in-memory mappings).
+Fixtures are authored with zarr-python (a test-only dependency) into a
+temporary directory and loaded into a plain in-memory ``dict[str, bytes]``,
+the store form the reader targets (zip archives, tifffile's aszarr store,
+in-memory mappings).
 """
 
 from pathlib import Path
@@ -24,6 +24,12 @@ from ngff_zarr._v2_store_reader import (
     open_v2,
     open_v2_array,
     open_v2_group,
+)
+from packaging import version
+
+pytestmark = pytest.mark.skipif(
+    version.parse(zarr.__version__).major < 3,
+    reason="fixtures are authored with the zarr-python 3 API",
 )
 
 
