@@ -8,12 +8,14 @@ from pathlib import Path
 
 import pooch
 import pytest
+
+# zarr-python is a test-only dependency: the reference reader used to verify
+# round-trip compatibility of zarrista-written stores.
 import zarr
 from deepdiff import DeepDiff
 from itkwasm_image_io import imread
 from ngff_zarr import itk_image_to_ngff_image, to_ngff_zarr
 from packaging import version
-from zarr.storage import MemoryStore
 
 test_data_ipfs_cid = "bafybeifqibhcomn4u42aqrgvttyfteysbspvzez5sbezcqj5yylzzafpma"
 test_data_sha256 = "525dfae8fe52df4a18dc19de97f018e667e161bc83dc0584144c16d872349705"
@@ -143,21 +145,10 @@ async def async_store_contents(store, keys):
     return {k: (await store.get(k)).to_bytes() for k in keys}
 
 
-async def async_memory_store_contents(store, keys):
-    from zarr.core.buffer import default_buffer_prototype
-
-    return {
-        k: (await store.get(k, default_buffer_prototype())).to_bytes() for k in keys
-    }
-
-
 def store_contents(store, keys):
     zarr_version = version.parse(zarr.__version__)
     if zarr_version >= version.parse("3.0.0b1"):
-        if isinstance(store, MemoryStore):
-            contents = asyncio.run(async_memory_store_contents(store, keys))
-        else:
-            contents = asyncio.run(async_store_contents(store, keys))
+        contents = asyncio.run(async_store_contents(store, keys))
     else:
         contents = {k: store[k] for k in keys}
     return contents
