@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 import copy
+import os
 import sys
 import tempfile
 import warnings
@@ -222,17 +223,15 @@ def _write_with_zarrista(
     internal_chunk_shape=None,
     full_array_shape=None,
     create_dataset=True,
-    compressor=None,
     compression_chain=None,
     **kwargs,
 ) -> None:
     """Write array using the zarrista backend.
 
     *store_path* addresses the array node itself (``<store>/<path>``).
-    ``compressor`` carries a single legacy codec (zarr format 2 metadata).
-    ``compression_chain`` carries the ordered zarr v3 bytes-to-bytes codec
-    chain: ``None`` requests the default compression, an empty sequence
-    requests no compression.
+    ``compression_chain`` carries the ordered compression codec chain (for
+    zarr format 2 metadata only its first entry is stored): ``None`` requests
+    the engine default, an empty sequence requests no compression.
     """
     from ._zarrista_utils import (
         _native_contiguous,
@@ -252,18 +251,15 @@ def _write_with_zarrista(
     if create_dataset:
         create_kwargs = {}
         if zarr_format == 2:
-            if compressor is None:
-                # The TensorStore backend this replaces compressed with its
-                # driver default (blosc) when no compressor was configured;
-                # resolve the driver's "auto" shuffle to a concrete per-dtype
-                # value so the stored metadata is explicit.
-                compressor = {
-                    "id": "blosc",
-                    "cname": "lz4",
-                    "clevel": 5,
-                    "shuffle": 2 if array.dtype.itemsize == 1 else 1,
-                    "blocksize": 0,
-                }
+            if compression_chain is None:
+                # Mirror zarr-python's zarr format 2 default compressor so the
+                # zarrista engine's output is indistinguishable from what the
+                # legacy engine wrote.
+                compressor = {"id": "zstd", "level": 0}
+            elif compression_chain:
+                compressor = compression_chain[0]
+            else:
+                compressor = None
             create_kwargs["compressor"] = compressor
         elif zarr_format == 3:
             default_compression = {
@@ -557,27 +553,40 @@ def _write_array_with_zarrista(
     **kwargs,
 ) -> None:
     """Write an array using the zarrista backend."""
-    # Extract compressor and other conflicting parameters from kwargs to avoid conflicts
-    compressor = kwargs.pop("compressor", None)
-    # The public API takes ``compressors`` (plural); without this a supplied
-    # codec is dropped and the backend silently writes its default. The full
-    # chain is preserved in order; only the array-to-bytes ("bytes") codec is
-    # dropped since the writer always leads with one. ``None`` — absent or
-    # explicit — selects no compression only when explicitly passed, matching
-    # zarr-python, so the unset case is detected with a sentinel.
+    # Translate the public compression kwargs into a single ordered chain:
+    # ``None`` selects the engine default and an empty chain selects no
+    # compression. Mirroring the legacy engine's kwargs handling, an explicit
+    # ``compressor=None`` disables compression while ``compressors=None`` is
+    # indistinguishable from unset (default compression); the unset cases are
+    # detected with a sentinel. Only the array-to-bytes ("bytes") codec is
+    # dropped from a supplied chain since the writer always leads with one.
+    filters = kwargs.pop("filters", None)
+    if filters:
+        raise ValueError(
+            "filters are not supported by the zarrista write engine; pass a "
+            "zarr store object as the target to use the zarr-python engine"
+        )
     _unset = object()
-    compressors = kwargs.pop("compressors", _unset)
-    if compressors is _unset:
-        compression_chain = [compressor] if compressor is not None else None
-    elif compressors is None:
-        compression_chain = []
-    elif isinstance(compressors, (list, tuple)):
-        compression_chain = [c for c in compressors if not _is_bytes_codec(c)]
+    compressor = kwargs.pop("compressor", _unset)
+    compressors = kwargs.pop("compressors", None)
+    if compressors is not None:
+        if isinstance(compressors, (list, tuple)):
+            compression_chain = [c for c in compressors if not _is_bytes_codec(c)]
+        else:
+            compression_chain = [compressors]
+    elif compressor is not _unset:
+        compression_chain = [] if compressor is None else [compressor]
     else:
-        compression_chain = [compressors]
-    if compressor is None and compression_chain:
-        # zarr format 2 metadata carries a single compressor.
-        compressor = compression_chain[0]
+        compression_chain = None
+    if zarr_format == 3 and compression_chain:
+        # numcodecs compressor objects go through the same zarr v3 codec
+        # conversion as the legacy engine so both write identical metadata.
+        compression_chain = [
+            (_numcodecs_to_zarr_v3_codec(codec) or codec)
+            if getattr(codec, "codec_id", None) is not None
+            else codec
+            for codec in compression_chain
+        ]
     kwargs.pop("chunks", None)  # Remove chunks from kwargs since it's a positional arg
 
     scale_path = f"{store_path}/{path}"
@@ -591,7 +600,6 @@ def _write_array_with_zarrista(
             dimension_names=dimension_names,
             full_array_shape=full_array_shape,
             create_dataset=create_dataset,
-            compressor=compressor,
             compression_chain=compression_chain,
             **kwargs,
         )
@@ -606,7 +614,6 @@ def _write_array_with_zarrista(
             internal_chunk_shape=internal_chunk_shape,
             full_array_shape=full_array_shape,
             create_dataset=create_dataset,
-            compressor=compressor,
             compression_chain=compression_chain,
             **kwargs,
         )
@@ -831,7 +838,7 @@ def _handle_large_array_writing(
     zarr_kwargs: dict,
     format_kwargs: dict,
     dimension_names_kwargs: dict,
-    use_tensorstore: bool,
+    use_zarrista: bool,
     store_path: str | None,
     zarr_format: int,
     dimension_names: tuple[str, ...],
@@ -992,6 +999,11 @@ def _handle_large_array_writing(
         # For region computation, use the optimized shard shape (actual zarr chunk shape)
         zarr_chunk_shape = optimized_shard_shape
 
+        # The zarrista engine creates the array from these values; use the
+        # optimized shapes so both engines produce identical chunk grids.
+        chunks = optimized_shard_shape
+        shards = optimized_shard_shape
+
         # Clean up remaining kwargs (remove chunk_shape since we're setting it explicitly)
         remaining_kwargs = {
             k: v
@@ -1067,19 +1079,24 @@ def _handle_large_array_writing(
             if user_filters is not None:
                 zarr_kwargs["filters"] = user_filters
 
-    zarr_array = open_array(
-        shape=arr.shape,
-        dtype=arr.dtype,
-        store=store,
-        path=path,
-        mode="a",
-        **chunk_kwargs,
-        **sharding_kwargs_clean,
-        **zarr_kwargs,
-        **codecs_kwargs,
-        **dimension_names_kwargs,
-        **format_kwargs,
-    )
+    # The zarrista engine creates the array itself on the first region write;
+    # opening through zarr-python here would write the array metadata with the
+    # legacy engine first.
+    zarr_array = None
+    if not use_zarrista:
+        zarr_array = open_array(
+            shape=arr.shape,
+            dtype=arr.dtype,
+            store=store,
+            path=path,
+            mode="a",
+            **chunk_kwargs,
+            **sharding_kwargs_clean,
+            **zarr_kwargs,
+            **codecs_kwargs,
+            **dimension_names_kwargs,
+            **format_kwargs,
+        )
 
     shape = image.data.shape
     x_index = dims.index("x")
@@ -1106,7 +1123,7 @@ def _handle_large_array_writing(
             meta=arr_region,
         )
 
-        if use_tensorstore:
+        if use_zarrista:
             _write_array_with_zarrista(
                 store_path,
                 path,
@@ -1585,7 +1602,7 @@ def _to_ngff_zarr_impl(
         image.computed_callbacks = list(image.computed_callbacks)
 
     # Setup and validation
-    store_path = str(store) if isinstance(store, (str, Path)) else None
+    store_path = os.fspath(store) if isinstance(store, (str, os.PathLike)) else None
 
     _validate_ngff_parameters(version, chunks_per_shard, use_tensorstore, store)
     metadata, dimension_names, dimension_names_kwargs = _prepare_metadata(
@@ -1595,10 +1612,10 @@ def _to_ngff_zarr_impl(
     metadata_dict = _pop_metadata_optionals(metadata_dict)
     metadata_dict["@type"] = "ngff:Image"
 
-    # Route group/attribute metadata writes through the zarrista compat layer
-    # for path-like stores; store objects, mappings, and split chunk_store
-    # setups keep the zarr-python engine.
-    zarrista_metadata = chunk_store is None and use_zarrista_for(store)
+    # Route all writes — group/attribute metadata and arrays — through the
+    # zarrista compat layer for path-like stores; store objects, mappings, and
+    # split chunk_store setups keep the zarr-python engine.
+    use_zarrista = chunk_store is None and use_zarrista_for(store)
 
     # Create Zarr root
     root = _create_zarr_root(
@@ -1607,7 +1624,7 @@ def _to_ngff_zarr_impl(
         version,
         overwrite,
         metadata_dict,
-        use_zarrista=zarrista_metadata,
+        use_zarrista=use_zarrista,
     )
 
     # Format parameters
@@ -1641,7 +1658,7 @@ def _to_ngff_zarr_impl(
 
         # Create parent groups if needed
         if parent not in (".", "/"):
-            if zarrista_metadata:
+            if use_zarrista:
                 create_zarrista_subgroup(
                     store,
                     parent,
@@ -1667,11 +1684,26 @@ def _to_ngff_zarr_impl(
             arr, chunks_per_shard, dims, kwargs.copy()
         )
 
-        # Get the chunks - these are now the shards if sharding is enabled
-        chunks = tuple([c[0] for c in arr.chunks])
+        # Get the chunks - these are now the shards if sharding is enabled.
+        # Use the canonical per-dim max (``chunksize``): a sliced input can
+        # carry a smaller partial leading chunk which must not become the
+        # stored chunk shape (gh-issue-488).
+        chunks = arr.chunksize
 
-        # For the zarrista writer, shards are the same as chunks when sharding is enabled
-        shards = chunks if chunks_per_shard is not None else None
+        # For the zarrista writer, shards are the same as chunks when sharding
+        # is enabled. Use the true shard grid from _configure_sharding: dask's
+        # rechunk clamps arr.chunks to the array shape, but the stored shard
+        # shape may exceed it (a partial final shard), and the inner chunk
+        # shape must divide the stored shard shape evenly.
+        if chunks_per_shard is not None:
+            shards = tuple(
+                sharding_kwargs.get("_shard_shape")
+                or sharding_kwargs.get("shards")
+                or chunks
+            )
+            chunks = shards
+        else:
+            shards = None
 
         # Determine write method based on memory requirements
         if memory_usage(image) > config.memory_target:
@@ -1687,7 +1719,7 @@ def _to_ngff_zarr_impl(
                 _zarr_kwargs,
                 format_kwargs,
                 dimension_names_kwargs,
-                use_tensorstore,
+                use_tensorstore or use_zarrista,
                 store_path,
                 zarr_format,
                 dimension_names,
@@ -1706,7 +1738,7 @@ def _to_ngff_zarr_impl(
 
             # For small arrays, write in one go
             region = tuple([slice(arr.shape[i]) for i in range(arr.ndim)])
-            if use_tensorstore:
+            if use_tensorstore or use_zarrista:
                 _write_array_with_zarrista(
                     store_path,
                     path,
@@ -1754,7 +1786,7 @@ def _to_ngff_zarr_impl(
         image.computed_callbacks = []
 
     # Consolidate metadata
-    if zarrista_metadata:
+    if use_zarrista:
         _zarrista_consolidate_metadata(store, zarr_format)
     elif IS_ZARR_V3_PLUS:
         with warnings.catch_warnings():

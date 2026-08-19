@@ -367,31 +367,25 @@ def test_consolidate_metadata_matches_zarr_python(tmp_path, sample_data, zarr_fo
     assert not DeepDiff(theirs, ours, ignore_order=True)
 
 
-@pytest.mark.skipif(
-    zarr_version < version.parse("3.0.0b2"),
-    reason="the legacy-engine comparison requires zarr-python >= 3 (LocalStore)",
-)
-@pytest.mark.parametrize("ngff_version", ["0.4", "0.5"])
-def test_to_ngff_zarr_path_store_matches_zarr_python(tmp_path, ngff_version):
-    """A path-like store (dispatched to zarrista) must produce a store
-    indistinguishable from a store-object target (legacy zarr-python)."""
-    pytest.importorskip("zarrista")
-    from deepdiff import DeepDiff
-    from ngff_zarr import to_multiscales, to_ngff_image, to_ngff_zarr
+def _assert_engines_equivalent(tmp_path, multiscales, ngff_version, **write_kwargs):
+    """Write via both engines and assert the stores are indistinguishable.
 
-    rng = np.random.default_rng(11)
-    data = rng.integers(0, 255, size=(2, 64, 64), dtype=np.uint8)
-    image = to_ngff_image(
-        data, dims=("z", "y", "x"), scale={"z": 2.0, "y": 0.5, "x": 0.5}
-    )
-    multiscales = to_multiscales(image, scale_factors=[2], chunks=32)
+    A path-like store dispatches to zarrista; a store-object target keeps the
+    legacy zarr-python engine. File sets, parsed metadata documents, and pixel
+    values must all agree.
+    """
+    from deepdiff import DeepDiff
+    from ngff_zarr import from_ngff_zarr, to_ngff_zarr
 
     zarrista_path = tmp_path / "zarrista.ome.zarr"
-    to_ngff_zarr(str(zarrista_path), multiscales, version=ngff_version)
+    to_ngff_zarr(str(zarrista_path), multiscales, version=ngff_version, **write_kwargs)
 
     legacy_path = tmp_path / "legacy.ome.zarr"
     to_ngff_zarr(
-        zarr.storage.LocalStore(legacy_path), multiscales, version=ngff_version
+        zarr.storage.LocalStore(legacy_path),
+        multiscales,
+        version=ngff_version,
+        **write_kwargs,
     )
 
     zarrista_files = sorted(
@@ -413,3 +407,134 @@ def test_to_ngff_zarr_path_store_matches_zarr_python(tmp_path, ngff_version):
         legacy_doc = json.loads((legacy_path / name).read_text())
         zarrista_doc = json.loads((zarrista_path / name).read_text())
         assert not DeepDiff(legacy_doc, zarrista_doc, ignore_order=True), name
+
+    zarrista_read = from_ngff_zarr(str(zarrista_path))
+    legacy_read = from_ngff_zarr(str(legacy_path))
+    for ours, theirs in zip(zarrista_read.images, legacy_read.images):
+        np.testing.assert_array_equal(np.asarray(ours.data), np.asarray(theirs.data))
+
+
+def _sample_multiscales(dtype=np.uint8, shape=(2, 64, 64), chunks=32):
+    from ngff_zarr import to_multiscales, to_ngff_image
+
+    rng = np.random.default_rng(11)
+    info = np.iinfo(dtype)
+    data = rng.integers(info.min, info.max, size=shape, dtype=dtype)
+    image = to_ngff_image(
+        data, dims=("z", "y", "x"), scale={"z": 2.0, "y": 0.5, "x": 0.5}
+    )
+    return to_multiscales(image, scale_factors=[2], chunks=chunks)
+
+
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="the legacy-engine comparison requires zarr-python >= 3 (LocalStore)",
+)
+@pytest.mark.parametrize("ngff_version", ["0.4", "0.5"])
+def test_to_ngff_zarr_path_store_matches_zarr_python(tmp_path, ngff_version):
+    pytest.importorskip("zarrista")
+    _assert_engines_equivalent(tmp_path, _sample_multiscales(), ngff_version)
+
+
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="the legacy-engine comparison requires zarr-python >= 3 (LocalStore)",
+)
+def test_engine_equivalence_sharded(tmp_path):
+    """chunks_per_shard writes: identical shard grids and sharding codecs.
+
+    The 96-px axes make the second scale (48 px) smaller than the 64-px shard,
+    exercising the partial-final-shard geometry."""
+    pytest.importorskip("zarrista")
+    multiscales = _sample_multiscales(shape=(2, 96, 96))
+    _assert_engines_equivalent(tmp_path, multiscales, "0.5", chunks_per_shard=2)
+
+
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="the legacy-engine comparison requires zarr-python >= 3 (LocalStore)",
+)
+@pytest.mark.parametrize("chunks_per_shard", [None, 2])
+def test_engine_equivalence_v3_codec_compressors(tmp_path, chunks_per_shard):
+    """A user-supplied zarr v3 codec chain maps to identical stored codecs."""
+    pytest.importorskip("zarrista")
+    compressors = zarr.codecs.BloscCodec(
+        cname="zlib", clevel=5, shuffle=zarr.codecs.BloscShuffle.shuffle
+    )
+    kwargs = {"compressors": compressors}
+    if chunks_per_shard is not None:
+        kwargs["chunks_per_shard"] = chunks_per_shard
+    _assert_engines_equivalent(tmp_path, _sample_multiscales(), "0.5", **kwargs)
+
+
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="the legacy-engine comparison requires zarr-python >= 3 (LocalStore)",
+)
+@pytest.mark.parametrize("ngff_version", ["0.4", "0.5"])
+def test_engine_equivalence_numcodecs_compressor(tmp_path, ngff_version):
+    """A numcodecs compressor object maps through _numcodecs_to_zarr_v3_codec
+    (format 3) or verbatim numcodecs config (format 2) on both engines."""
+    pytest.importorskip("zarrista")
+    numcodecs = pytest.importorskip("numcodecs")
+    compressor = numcodecs.Blosc(cname="lz4", clevel=5)
+    _assert_engines_equivalent(
+        tmp_path, _sample_multiscales(), ngff_version, compressor=compressor
+    )
+
+
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="the legacy-engine comparison requires zarr-python >= 3 (LocalStore)",
+)
+@pytest.mark.parametrize("ngff_version", ["0.4", "0.5"])
+def test_engine_equivalence_explicit_no_compression(tmp_path, ngff_version):
+    """An explicit compressor=None disables compression on both engines."""
+    pytest.importorskip("zarrista")
+    _assert_engines_equivalent(
+        tmp_path, _sample_multiscales(), ngff_version, compressor=None
+    )
+
+
+def test_path_store_rejects_filters(tmp_path):
+    """The zarrista engine cannot write zarr filters; it must refuse loudly
+    rather than silently drop them from the output."""
+    pytest.importorskip("zarrista")
+    numcodecs = pytest.importorskip("numcodecs")
+    from ngff_zarr import to_ngff_zarr
+
+    with pytest.raises(ValueError, match="filters are not supported"):
+        to_ngff_zarr(
+            str(tmp_path / "filtered.ome.zarr"),
+            _sample_multiscales(),
+            version="0.4",
+            filters=[numcodecs.Delta(dtype="uint8")],
+        )
+
+
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="the legacy-engine comparison requires zarr-python >= 3 (LocalStore)",
+)
+@pytest.mark.parametrize("ngff_version", ["0.4", "0.5"])
+@pytest.mark.parametrize("chunks_per_shard", [None, 2])
+def test_engine_equivalence_memory_constrained(
+    tmp_path, ngff_version, chunks_per_shard
+):
+    """Slab (region) writes under a small memory target produce the same
+    chunk grids and payload as the legacy engine."""
+    pytest.importorskip("zarrista")
+    from ngff_zarr import config
+
+    if ngff_version == "0.4" and chunks_per_shard is not None:
+        pytest.skip("sharding requires OME-Zarr >= 0.5")
+    multiscales = _sample_multiscales(dtype=np.uint16, shape=(8, 128, 128))
+    kwargs = {}
+    if chunks_per_shard is not None:
+        kwargs["chunks_per_shard"] = chunks_per_shard
+    saved_target = config.memory_target
+    try:
+        config.memory_target = 64 * 1024
+        _assert_engines_equivalent(tmp_path, multiscales, ngff_version, **kwargs)
+    finally:
+        config.memory_target = saved_target

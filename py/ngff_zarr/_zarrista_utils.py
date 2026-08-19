@@ -69,6 +69,17 @@ def _native_contiguous(value) -> np.ndarray:
     value = np.ascontiguousarray(value)
     if not value.dtype.isnative:
         value = value.astype(value.dtype.newbyteorder("="))
+    # numpy's C_CONTIGUOUS flag ignores the strides of size-1 dimensions, so
+    # ascontiguousarray can return a view whose singleton-dim strides still
+    # point into a larger parent array. DLPack consumers (zarrs) validate the
+    # raw strides and reject such views; copy to canonical strides.
+    expected_strides = []
+    stride = value.itemsize
+    for dim in reversed(value.shape):
+        expected_strides.append(stride)
+        stride *= dim
+    if value.strides != tuple(reversed(expected_strides)):
+        value = value.copy()
     return value
 
 
@@ -356,6 +367,48 @@ def create_zarrista_subgroup(store, group_path, attributes: dict | None, zarr_fo
     return create_zarrista_group(root.joinpath(*parts), attributes, zarr_format)
 
 
+def _normalize_array_metadata_doc(doc_path: Path, zarr_format: int, itemsize: int):
+    """Rewrite a zarrista-written array metadata document for engine parity.
+
+    zarrs' serialization differs from zarr-python's in ways that are spec-legal
+    but break byte-level store equivalence: it stamps ``node_type`` into v2
+    ``.zarray`` docs and a ``_zarrs`` provenance attribute into v3 docs, omits
+    the always-materialized ``storage_transformers``/``attributes`` fields, and
+    writes an explicit ``endian`` for the ``bytes`` codec even for single-byte
+    dtypes (where zarr-python omits the configuration). Only the document is
+    rewritten; the already-open zarrista array keeps its in-memory metadata.
+    """
+
+    def _strip_bytes_endian(codecs: list) -> None:
+        for codec in codecs:
+            if not isinstance(codec, dict):
+                continue
+            if codec.get("name") == "bytes":
+                codec.pop("configuration", None)
+            elif codec.get("name") == "sharding_indexed":
+                # The inner chain encodes the same dtype; the index codecs
+                # encode uint64 offsets and keep their endian.
+                _strip_bytes_endian(codec.get("configuration", {}).get("codecs", []))
+
+    doc = json.loads(doc_path.read_text())
+    if zarr_format == 2:
+        doc.pop("node_type", None)
+        # zarrs stamps its provenance into a sibling ``.zattrs``; zarr-python
+        # writes an empty one.
+        zattrs_path = doc_path.with_name(".zattrs")
+        zattrs = json.loads(zattrs_path.read_text()) if zattrs_path.exists() else {}
+        zattrs.pop("_zarrs", None)
+        zattrs_path.write_text(json.dumps(zattrs, indent=4))
+    else:
+        attributes = dict(doc.get("attributes") or {})
+        attributes.pop("_zarrs", None)
+        doc["attributes"] = attributes
+        doc.setdefault("storage_transformers", [])
+        if itemsize == 1:
+            _strip_bytes_endian(doc.get("codecs", []))
+    doc_path.write_text(json.dumps(doc, indent=4))
+
+
 def create_zarrista_array(
     path,
     name: str,
@@ -423,6 +476,11 @@ def create_zarrista_array(
         }
         arr = Array.from_metadata(metadata, store, node_path)
         arr.store_metadata()
+        _normalize_array_metadata_doc(
+            path.joinpath(*node_path.strip("/").split("/"), ".zarray"),
+            zarr_format,
+            dtype.itemsize,
+        )
         return arr
 
     if zarr_format != 3:
@@ -471,7 +529,13 @@ def create_zarrista_array(
         builder = builder.compressors(codecs)
     if dimension_names is not None:
         builder = builder.dimension_names(list(dimension_names))
-    return builder.create(store, node_path)
+    arr = builder.create(store, node_path)
+    _normalize_array_metadata_doc(
+        path.joinpath(*node_path.strip("/").split("/"), "zarr.json"),
+        zarr_format,
+        dtype.itemsize,
+    )
+    return arr
 
 
 def write_dask_array(darr, zarrista_array, region=None) -> None:
