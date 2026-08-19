@@ -28,7 +28,8 @@ implementation.
 - Writes OME-Zarr v0.4 to v0.6
 - v0.6 adds RFC-5 coordinate systems and transformations
 - [Sharded Zarr] stores
-- Optional writing via zarr-python 2, zarr-python 3, [zarrista] or zarrita (TypeScript)
+- Writing backed by [zarrista] (Python) or zarrita (TypeScript); outputs stay
+  readable by zarr-python 2 and 3
 - [Anatomical orientation metadata][rfc4] (RFC-4)
 - **OME-Zarr Zip (.ozx) file support** for single-file OME-Zarr datasets (RFC-9)
 - **High Content Screening (HCS) support** for plate and well data

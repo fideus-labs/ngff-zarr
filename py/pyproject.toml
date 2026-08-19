@@ -34,13 +34,16 @@ dependencies = [
   "importlib_resources",
   "itkwasm >= 1.0b183",
   "itkwasm-downsample >= 2.0.2",
+  # Chunk decoding for the pure-Python v2/bytes-mapping store reader
+  # (was previously a transitive dependency of zarr-python).
+  "numcodecs",
   "numpy",
+  "packaging",
   "platformdirs",
   "psutil; sys_platform != \"emscripten\"",
   "rich",
   "rich-argparse",
   "typing_extensions",
-  "zarr",
   "zarrista; python_version >= \"3.11\"",
 ]
 dynamic = ["version"]
@@ -75,21 +78,17 @@ cli = [
 ]
 remote = [
   # Remote URL reads route through zarrista's async API backed by obstore
-  # (Python >= 3.11). The fsspec backends below remain for remote writes
-  # (to_ngff_zarr / upgrade_ome_zarr URL targets) and for the Python 3.10 /
-  # zarr-python fallback read engine.
+  # (Python >= 3.11). Remote writes are not supported: write to a local
+  # directory and upload afterwards.
   "obstore; python_version >= \"3.11\"",
-  "fsspec",
-  "aiohttp",
-  "requests",
-  "s3fs",
-  "gcsfs",
-  "adlfs",
 ]
 test = [
   "pytest >=6",
   "pooch",
-  "deepdiff"
+  "deepdiff",
+  # zarr-python is a test-only dependency: it verifies round-trip
+  # compatibility of zarrista-written stores with the reference reader.
+  "zarr",
 ]
 validate = [
   "jsonschema"

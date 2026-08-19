@@ -279,8 +279,8 @@ const field2 = await fromOmeZarr(`${store}/${(transform as { path: string }).pat
 
 ## Compatibility
 
-The v0.6 data model requires a Zarr v3 store, so writing `version="0.6"` needs
-zarr-python >= 3.0.0b1. Reading v0.1–v0.5 stores is unchanged; on read, older
+The v0.6 data model requires a Zarr v3 store; the zarrista-backed writer
+produces these natively. Reading v0.1–v0.5 stores is unchanged; on read, older
 metadata is converted into the v0.6 data model (a single `intrinsic` coordinate
 system with per-dataset scale/translation sequences).
 

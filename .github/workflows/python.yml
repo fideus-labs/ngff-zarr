@@ -12,6 +12,9 @@ jobs:
       max-parallel: 5
       matrix:
         os: [ubuntu-22.04, ubuntu-24.04-arm, windows-2022, macos-26-intel]
+        # zarr-python installs via the test extra as the read-verification
+        # reference: 3.10 resolves zarr-python 2.x, 3.11+ resolve 3.x, so
+        # zarrista-written stores are checked against both reader majors.
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:

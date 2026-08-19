@@ -35,97 +35,61 @@ intelligent task graph optimization.
 
 ### How do I read from network stores like S3, GCS, or other remote storage?
 
-ngff-zarr can read from any network store that provides a Zarr Python compatible
-interface. This includes stores from
-[fsspec](https://filesystem-spec.readthedocs.io/en/latest/), which supports many
-protocols including S3, Google Cloud Storage, Azure Blob Storage, and more.
+ngff-zarr reads remote OME-Zarr stores directly from their URLs through
+zarrista's async API, backed by
+[obstore](https://developmentseed.org/obstore/latest/). Supported protocols:
+http(s), S3, Google Cloud Storage, and Azure Blob Storage.
 
-You can construct network stores with authentication options and pass them
-directly to ngff-zarr functions.
-
-The following examples require fsspec backends, which are installed with the
-`remote` extra:
+The remote backend requires Python >= 3.11 and is installed with the `remote`
+extra:
 
 ```bash
 pip install "ngff-zarr[remote]"
 ```
 
-This provides backends for http(s), S3 (`s3fs`), Google Cloud Storage
-(`gcsfs`), and Azure (`adlfs`). Alternatively, install only the backend you
-need, for example `pip install fsspec s3fs` for S3.
+Pass the URL directly to ngff-zarr functions; authentication and other
+filesystem options go in `storage_options`:
 
 ```python
-import zarr
 from ngff_zarr import from_ngff_zarr
 
-# S3 example with authentication using FsspecStore
-s3_store = zarr.storage.FsspecStore.from_url(
+# S3 example with authentication
+multiscales = from_ngff_zarr(
     "s3://my-bucket/my-dataset.zarr",
     storage_options={
         "key": "your-access-key",
         "secret": "your-secret-key",
-        "region_name": "us-west-2"
-    }
+        "region_name": "us-west-2",
+    },
 )
-
-# Read from the S3 store
-multiscales = from_ngff_zarr(s3_store)
 ```
 
-For public datasets, you can omit authentication:
+For public datasets, use anonymous access:
 
 ```python
 # Example using OME-Zarr Open Science Vis Datasets
-s3_store = zarr.storage.FsspecStore.from_url(
-    "s3://ome-zarr-scivis/v0.5/96x2/carp.ome.zarr",
-    storage_options={"anon": True}  # Anonymous access for public data
-)
-
-multiscales = from_ngff_zarr(s3_store)
-```
-
-You can also pass S3 URLs directly to ngff-zarr functions, which will create the
-appropriate store automatically:
-
-```python
-# Direct URL access for public datasets
 multiscales = from_ngff_zarr(
     "s3://ome-zarr-scivis/v0.5/96x2/carp.ome.zarr",
-    storage_options={"anon": True}
+    storage_options={"anon": True},  # Anonymous access for public data
 )
 ```
 
-For more control over the underlying filesystem, you can use S3FileSystem
-directly:
-
-```python
-import zarr
-from s3fs import S3FileSystem
-
-# Using S3FileSystem with Zarr
-fs = S3FileSystem(
-    key="your-access-key",
-    secret="your-secret-key",
-    region_name="us-west-2"
-)
-store = zarr.storage.FsspecStore(fs=fs, path="my-bucket/my-dataset.zarr")
-
-multiscales = from_ngff_zarr(store)
-```
+fsspec-style option names (`key`, `secret`, `anon`, `token`, `endpoint_url`,
+`region_name`, ...) are accepted and translated to their obstore equivalents;
+obstore-native option names also work and are passed through as-is.
 
 **Authentication Options:**
 
-In addition to specification of credentials explicitly,
-[there are other options](https://s3fs.readthedocs.io/en/latest/#credentials).
-
 - **Environment variables**: Set `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
   etc.
-- **IAM roles**: Use EC2 instance profiles or assume roles
-- **Configuration files**: Use `~/.aws/credentials` or similar
-- **Direct parameters**: Pass credentials directly to the store constructor
+- **IAM roles**: Use EC2 instance profiles via the instance metadata service
+- **Direct parameters**: Pass credentials in `storage_options`
 
-The same patterns work for other cloud providers (GCS, Azure) by using their
-respective fsspec implementations (e.g., `gcsfs`, `adlfs`).
+The same patterns work for other cloud providers (GCS, Azure) with their
+respective `storage_options`.
+
+**Remote writes** are not supported: write to a local directory and upload
+afterwards (for example with `aws s3 sync` or `rclone`).
 
 ## File Formats
 
