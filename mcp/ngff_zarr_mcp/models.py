@@ -63,7 +63,9 @@ class ConversionOptions(BaseModel):
         None, description="Compression codec (gzip, lz4, zstd, blosc)"
     )
     compression_level: int | None = Field(None, description="Compression level")
-    use_tensorstore: bool = Field(False, description="Use TensorStore for I/O")
+    use_tensorstore: bool = Field(
+        False, description="Deprecated: uses the zarrista backend for I/O"
+    )
 
     # Performance options
     use_local_cluster: bool = Field(

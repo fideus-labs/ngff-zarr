@@ -3,10 +3,10 @@
 """MCP tools for ngff-zarr image conversion."""
 
 import tempfile
+import warnings
 from pathlib import Path
 from typing import Any
 
-import zarr
 from ngff_zarr import (  # type: ignore[import-untyped]
     Methods,
     cli_input_to_ngff_image,
@@ -40,9 +40,11 @@ from .models import (
 )
 from .utils import (
     analyze_zarr_store,
+    detect_ome_zarr_version,
     is_url,
     is_zarr_store,
     prepare_input_files,
+    read_root_attrs,
     setup_dask_config,
     validate_conversion_options,
 )
@@ -194,7 +196,7 @@ async def convert_to_ome_zarr(
             output_path = Path(options.output_path)
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Use zarr.open_group for zarr v3 compatibility
+            # to_ome_zarr writes through the zarrista backend to a local path
             output_store = str(output_path)
 
             # Setup chunks per shard if specified
@@ -218,14 +220,23 @@ async def convert_to_ome_zarr(
                     options.compression_codec, options.compression_level
                 )
 
-            to_ome_zarr(
-                output_store,
-                multiscales_obj,
-                version=options.ome_zarr_version,
-                chunks_per_shard=chunks_per_shard,
-                use_tensorstore=options.use_tensorstore,
-                **kwargs,
-            )
+            with warnings.catch_warnings():
+                # use_tensorstore is a deprecated alias for the always-on
+                # zarrista backend; keep MCP responses clean for agent
+                # callers that still pass it.
+                warnings.filterwarnings(
+                    "ignore",
+                    message="use_tensorstore is deprecated",
+                    category=DeprecationWarning,
+                )
+                to_ome_zarr(
+                    output_store,
+                    multiscales_obj,
+                    version=options.ome_zarr_version,
+                    chunks_per_shard=chunks_per_shard,
+                    use_tensorstore=options.use_tensorstore,
+                    **kwargs,
+                )
 
             # Analyze the created store
             store_info = analyze_zarr_store(str(output_path))
@@ -358,26 +369,20 @@ async def validate_ome_zarr(store_path: str) -> ValidationResult:
                 elif image.data.size == 0:
                     warnings.append(f"Scale {i} has empty data")
 
-            # Determine version
+            # Determine version from the root metadata documents
+            root_attrs: dict = {}
             try:
-                root = zarr.open(store_path, mode="r")
-                if "multiscales" in root.attrs:
-                    multiscales_attr = root.attrs["multiscales"]
-                    if isinstance(multiscales_attr, list) and len(multiscales_attr) > 0:
-                        ms_attrs = multiscales_attr[0]
-                        if isinstance(ms_attrs, dict):
-                            version_attr = ms_attrs.get("version", "0.4")
-                            if isinstance(version_attr, str):
-                                version = version_attr
+                root_attrs = read_root_attrs(store_path)
+                detected = detect_ome_zarr_version(root_attrs)
+                if detected is not None:
+                    version = detected
             except Exception:
                 version = "0.4"  # Default assumption
 
             # Try ngff-zarr schema validation if available. ngff_zarr.validate
             # expects the parsed NGFF metadata dict, not a store path.
             try:
-                root = zarr.open(store_path, mode="r")
-                ngff_metadata = dict(root.attrs)
-                validate_ngff(ngff_metadata, version=version or "0.4")
+                validate_ngff(root_attrs, version=version or "0.4")
             except Exception as validation_error:
                 warnings.append(f"NGFF validation warning: {str(validation_error)}")
 
