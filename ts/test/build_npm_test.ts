@@ -2,16 +2,24 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * Tests for the npm build's import rewriting.
+ * Tests for the npm build's import rewriting and declared dependencies.
  *
  * `rewriteImports` runs over every source file on its way into the npm
  * package, so a regex that over- or under-matches silently ships a broken
  * build. These pin the specifier forms this repo actually uses.
+ *
+ * The dependency tests guard the other half of the published package: the
+ * version ranges written into package.json.
  */
 
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertNotEquals } from "@std/assert";
+import { format, parse, parseRange, satisfies } from "@std/semver";
 
-import { rewriteImports } from "../scripts/build_npm.ts";
+import {
+  NPM_DEPENDENCIES,
+  NPM_DEV_DEPENDENCIES,
+  rewriteImports,
+} from "../scripts/build_npm.ts";
 
 // ---------------------------------------------------------------------------
 // Relative .ts → .js
@@ -246,4 +254,182 @@ Deno.test("rewriteImports is idempotent", () => {
 
   const once = rewriteImports(source);
   assertEquals(rewriteImports(once), once);
+});
+
+// ---------------------------------------------------------------------------
+// Published dependency ranges vs. the versions we actually test
+// ---------------------------------------------------------------------------
+
+/**
+ * The published package.json declares its own dependency ranges, separate from
+ * the `deno.json` import map. Nothing in the build wires the two together, so
+ * bumping one and forgetting the other is silent: `deno task test` keeps
+ * passing against the locked version while npm consumers resolve a version the
+ * suite never exercised. These tests pin the invariant instead.
+ */
+
+/**
+ * Packages published as npm dependencies that this repo resolves only from
+ * JSR. Their npm range is checked against the JSR-resolved version, which
+ * holds only because these packages publish the same version to both
+ * registries. Adding to this list weakens the check — prefer an npm
+ * resolution when one exists.
+ */
+const JSR_RESOLVED_DEPENDENCIES = new Set(["@zarrita/storage"]);
+
+/**
+ * Resolved versions from `deno.lock`, keyed by bare package name, kept
+ * separate per registry.
+ *
+ * npm and JSR are independent registries: `jsr:@scope/pkg@1.2.3` and
+ * `npm:@scope/pkg@1.2.3` are different artifacts that need not agree. Merging
+ * them would let a JSR version vouch for an npm dependency range.
+ */
+function lockedVersions(): {
+  npm: Map<string, Set<string>>;
+  jsr: Map<string, Set<string>>;
+} {
+  // Resolved against this module, not the cwd, so the test works under
+  // `deno test` from either the repo root or ts/.
+  const lockPath = new URL("../deno.lock", import.meta.url);
+  const lock = JSON.parse(Deno.readTextFileSync(lockPath)) as {
+    specifiers?: Record<string, string>;
+  };
+  const resolved = {
+    npm: new Map<string, Set<string>>(),
+    jsr: new Map<string, Set<string>>(),
+  };
+
+  for (const [specifier, version] of Object.entries(lock.specifiers ?? {})) {
+    const match = /^(npm|jsr):(.+)$/.exec(specifier);
+    if (!match) continue;
+    const [, registry, bare] = match;
+
+    // "@scope/pkg@^1.2.3" -> "@scope/pkg"; "pkg@~1.2.3" -> "pkg"
+    const at = bare.lastIndexOf("@");
+    if (at <= 0) continue;
+    const name = bare.slice(0, at);
+    // A peer-dependency suffix ("2.1.0_zarrita@0.6.1") is not part of the
+    // version.
+    const [plain] = version.split("_");
+
+    // Every distinct resolution is kept. Collapsing them (say, to the highest)
+    // could let a version the source never builds against satisfy the check.
+    const bucket = resolved[registry as "npm" | "jsr"];
+    const versions = bucket.get(name) ?? new Set<string>();
+    versions.add(plain);
+    bucket.set(name, versions);
+  }
+
+  return resolved;
+}
+
+/** Every locked version a published dependency's range is checked against. */
+function lockedVersionsFor(
+  name: string,
+  resolved: ReturnType<typeof lockedVersions>,
+): Set<string> | undefined {
+  return resolved.npm.get(name) ??
+    (JSR_RESOLVED_DEPENDENCIES.has(name) ? resolved.jsr.get(name) : undefined);
+}
+
+Deno.test("every published dependency resolves in deno.lock", () => {
+  const resolved = lockedVersions();
+  const missing = Object.keys(NPM_DEPENDENCIES).filter(
+    (n) => lockedVersionsFor(n, resolved) === undefined,
+  );
+
+  assertEquals(
+    missing,
+    [],
+    `package.json declares dependencies absent from deno.lock: ${
+      missing.join(", ")
+    }. They are published to consumers but never resolved here, so nothing ` +
+      `tests them.`,
+  );
+});
+
+Deno.test("JSR-resolved exceptions really are absent from npm resolution", () => {
+  // Each exception weakens the check above, so it has to keep earning its
+  // place: once a package resolves from npm, drop it from the set.
+  const resolved = lockedVersions();
+  const stale = [...JSR_RESOLVED_DEPENDENCIES].filter((n) =>
+    resolved.npm.has(n)
+  );
+
+  assertEquals(
+    stale,
+    [],
+    `${stale.join(", ")} now resolves from npm in deno.lock; remove it from ` +
+      `JSR_RESOLVED_DEPENDENCIES so its npm version is checked directly.`,
+  );
+});
+
+Deno.test("published dependency ranges are satisfied by locked versions", () => {
+  const resolved = lockedVersions();
+
+  // A range may sit *below* the locked version on purpose — publishing a
+  // lower supported floor. What it must never do is require a version this
+  // repo has not resolved and tested. When a package is locked at several
+  // versions, every one of them must qualify: picking a single "winner" would
+  // let a version the source never builds against carry the check.
+  const violations: string[] = [];
+  for (const [name, range] of Object.entries(NPM_DEPENDENCIES)) {
+    const locked = lockedVersionsFor(name, resolved);
+    if (!locked) continue; // reported by the test above
+
+    const unsatisfied = [...locked]
+      .filter((v) => !satisfies(parse(v), parseRange(range)))
+      .map((v) => format(parse(v)));
+
+    if (unsatisfied.length > 0) {
+      violations.push(
+        `${name}: package.json requires "${range}" but deno.lock pins ` +
+          unsatisfied.join(", "),
+      );
+    }
+  }
+
+  assertEquals(violations, [], violations.join("\n"));
+});
+
+Deno.test("dependency ranges are well-formed semver ranges", () => {
+  for (
+    const [name, range] of [
+      ...Object.entries(NPM_DEPENDENCIES),
+      ...Object.entries(NPM_DEV_DEPENDENCIES),
+    ]
+  ) {
+    // parseRange throws on a malformed range; a typo'd range would otherwise
+    // only surface at `npm install` time in a consumer's project.
+    parseRange(range);
+    assertEquals(typeof range, "string", `${name} range must be a string`);
+  }
+});
+
+Deno.test("first-party @fideus-labs packages stay in lockstep", () => {
+  // fizarrita re-exports worker-pool's types; a split-major pair puts two
+  // incompatible copies in a consumer's tree.
+  const fizarrita = NPM_DEPENDENCIES["@fideus-labs/fizarrita"];
+  const workerPool = NPM_DEPENDENCIES["@fideus-labs/worker-pool"];
+
+  // Assert presence first, so dropping both does not pass as undefined ===
+  // undefined.
+  assertNotEquals(
+    fizarrita,
+    undefined,
+    "NPM_DEPENDENCIES must declare @fideus-labs/fizarrita",
+  );
+  assertNotEquals(
+    workerPool,
+    undefined,
+    "NPM_DEPENDENCIES must declare @fideus-labs/worker-pool",
+  );
+
+  assertEquals(
+    fizarrita,
+    workerPool,
+    `@fideus-labs/fizarrita ("${fizarrita}") and @fideus-labs/worker-pool ` +
+      `("${workerPool}") must be bumped together`,
+  );
 });
