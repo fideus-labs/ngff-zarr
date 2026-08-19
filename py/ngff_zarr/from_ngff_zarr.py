@@ -57,10 +57,19 @@ def _remote_backend_import_error(store, original: ImportError) -> ImportError:
     )
 
 
+class _NoValidZarrGroupError(ValueError):
+    """No zarr group exists in the store (any format, any backend).
+
+    A ``ValueError`` subclass so existing callers are unaffected; typed so
+    callers that treat "no group here" as an empty result (e.g. the upgrade
+    module's root-attribute probe) need not match on the message text.
+    """
+
+
 def _group_not_found_error(store) -> ValueError:
     """The shared no-group-here error, identical across read backends."""
     store_path = str(store)
-    return ValueError(
+    return _NoValidZarrGroupError(
         f"No valid Zarr group found at '{store_path}'. "
         "This error typically occurs when:\n"
         "  1. The path does not contain a valid Zarr store\n"
@@ -165,13 +174,13 @@ def _open_root_node(store, version: str | None):
     reader, and any other store object through zarr-python.
     """
     if _is_bytes_mapping(store):
-        from ._v2_store_reader import V2Group, open_v2
+        from ._v2_store_reader import V2Group, V3Group, open_store_node
 
         try:
-            node = open_v2(store)
+            node = open_store_node(store)
         except KeyError as e:
             raise _group_not_found_error(store) from e
-        if not isinstance(node, V2Group):
+        if not isinstance(node, (V2Group, V3Group)):
             raise _array_at_root_error(store)
         return node
     if use_zarrista_for(store):

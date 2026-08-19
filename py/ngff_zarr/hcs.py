@@ -30,7 +30,7 @@ from ._zarrista_utils import (
     read_group_attributes,
     use_zarrista_for,
 )
-from .from_ngff_zarr import from_ome_zarr
+from .from_ngff_zarr import _open_root_node, from_ome_zarr
 from .multiscales import NgffMultiscales
 from .rfc9_zip import is_ozx_path, write_store_to_zip
 from .to_ngff_zarr import to_ome_zarr
@@ -237,7 +237,10 @@ class HCSWell:
         image_cache_size: int | None = None,
     ) -> "HCSWell":
         """Load a well from a zarr store."""
-        root = zarr.open_group(store, mode="r")
+        # Dispatches on store type: local paths read through the compat
+        # layer, bytes mappings through the v2 store reader, other store
+        # objects (e.g. ZipStore for .ozx) through zarr-python.
+        root = _open_root_node(store, None)
         well_group = root[well_path]
         well_attrs = well_group.attrs.asdict()
 
@@ -396,7 +399,7 @@ def from_hcs_zarr(
         # For zarr v3, create ZipStore directly with the path
         store = zarr.storage.ZipStore(str(store), mode="r")
 
-    root = zarr.open_group(store, mode="r")
+    root = _open_root_node(store, None)
     root_attrs = root.attrs.asdict()
 
     if validate:

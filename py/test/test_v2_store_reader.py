@@ -15,8 +15,12 @@ import numpy as np
 import pytest
 import zarr
 from ngff_zarr._v2_store_reader import (
+    AsyncStoreMapping,
     V2Array,
     V2Group,
+    V3Array,
+    V3Group,
+    open_store_node,
     open_v2,
     open_v2_array,
     open_v2_group,
@@ -264,3 +268,151 @@ def test_lazy_reads_do_not_touch_chunks(tmp_path):
     # Graph culling: a sliced compute only fetches the covered chunk.
     np.testing.assert_array_equal(darr[0:2, 0:2].compute(), data[0:2, 0:2])
     assert chunk_keys() == ["image/0.0"]
+
+
+# -- zarr format 3 mapping reader -------------------------------------------
+
+
+def _write_v3_array(tmp_path, data, compressors, chunks=(2, 3)):
+    root = zarr.open_group(tmp_path / "test.zarr", mode="w", zarr_format=3)
+    root.attrs["hello"] = "world"
+    arr = root.create_array(
+        "image",
+        shape=data.shape,
+        dtype=data.dtype,
+        chunks=chunks,
+        compressors=compressors,
+        attributes={"units": "mm"},
+    )
+    arr[:] = data
+    return _store_to_dict(tmp_path / "test.zarr")
+
+
+@pytest.mark.parametrize(
+    "compressors",
+    [
+        None,
+        [{"name": "gzip", "configuration": {"level": 5}}],
+        [{"name": "zstd", "configuration": {"level": 3, "checksum": False}}],
+        [
+            {
+                "name": "blosc",
+                "configuration": {
+                    "cname": "lz4",
+                    "clevel": 5,
+                    "shuffle": "shuffle",
+                    "typesize": 2,
+                },
+            }
+        ],
+    ],
+    ids=["uncompressed", "gzip", "zstd", "blosc"],
+)
+def test_v3_round_trip_group(tmp_path, compressors):
+    data = np.arange(5 * 7, dtype="uint16").reshape(5, 7)
+    store = _write_v3_array(tmp_path, data, compressors)
+
+    root = open_store_node(store)
+    assert isinstance(root, V3Group)
+    assert root.attrs.asdict() == {"hello": "world"}
+    assert root.keys() == ["image"]
+    assert "image" in root
+
+    node = root["image"]
+    assert isinstance(node, V3Array)
+    assert node.shape == (5, 7)
+    assert node.chunks == (2, 3)
+    assert node.attrs.asdict() == {"units": "mm"}
+
+    darr = node.to_dask()
+    assert darr.chunks == ((2, 2, 1), (3, 3, 1))
+    np.testing.assert_array_equal(darr.compute(), data)
+
+
+def test_v3_missing_chunk_fill_value(tmp_path):
+    data = np.arange(4 * 4, dtype="float64").reshape(4, 4)
+    root = zarr.open_group(tmp_path / "test.zarr", mode="w", zarr_format=3)
+    arr = root.create_array(
+        "image", shape=data.shape, dtype=data.dtype, chunks=(2, 2), fill_value=np.nan
+    )
+    arr[:] = data
+    store = _store_to_dict(tmp_path / "test.zarr")
+    removed = [key for key in store if key.startswith("image/c/1/")]
+    assert removed
+    for key in removed:
+        del store[key]
+
+    values = open_store_node(store)["image"].to_dask().compute()
+    np.testing.assert_array_equal(values[:2], data[:2])
+    assert np.isnan(values[2:]).all()
+
+
+def test_v3_big_endian_bytes_codec(tmp_path):
+    data = np.arange(4 * 4, dtype=">u2").reshape(4, 4)
+    root = zarr.open_group(tmp_path / "test.zarr", mode="w", zarr_format=3)
+    arr = root.create_array("image", shape=data.shape, dtype=data.dtype, chunks=(2, 2))
+    arr[:] = data
+    store = _store_to_dict(tmp_path / "test.zarr")
+
+    node = open_store_node(store)["image"]
+    np.testing.assert_array_equal(node.to_dask().compute(), data)
+
+
+def test_v3_sharded_store_rejected(tmp_path):
+    data = np.arange(8 * 8, dtype="uint16").reshape(8, 8)
+    root = zarr.open_group(tmp_path / "test.zarr", mode="w", zarr_format=3)
+    arr = root.create_array(
+        "image", shape=data.shape, dtype=data.dtype, chunks=(2, 2), shards=(4, 4)
+    )
+    arr[:] = data
+    store = _store_to_dict(tmp_path / "test.zarr")
+
+    with pytest.raises(ValueError, match="zarrista"):
+        open_store_node(store)["image"]
+
+
+def test_open_store_node_auto_detects_format(tmp_path):
+    data = np.arange(6, dtype="uint8").reshape(2, 3)
+    v2_root = zarr.open_group(tmp_path / "v2.zarr", mode="w", zarr_format=2)
+    arr = v2_root.create_array("image", shape=data.shape, dtype=data.dtype)
+    arr[:] = data
+
+    node = open_store_node(_store_to_dict(tmp_path / "v2.zarr"))
+    assert isinstance(node, V2Group)
+    np.testing.assert_array_equal(node["image"].to_dask().compute(), data)
+
+    with pytest.raises(KeyError):
+        open_store_node({})
+
+
+# -- tifffile aszarr through AsyncStoreMapping -------------------------------
+
+
+def test_async_store_mapping_tifffile_single_level(tmp_path):
+    tifffile = pytest.importorskip("tifffile")
+    data = np.arange(32 * 32, dtype="uint16").reshape(32, 32)
+    path = tmp_path / "single.tif"
+    tifffile.imwrite(path, data, tile=(16, 16))
+
+    store = tifffile.imread(path, aszarr=True)
+    node = open_store_node(AsyncStoreMapping(store))
+    assert isinstance(node, V3Array)
+    darr = node.to_dask()
+    assert darr.chunksize == (16, 16)
+    np.testing.assert_array_equal(darr.compute(), data)
+
+
+def test_async_store_mapping_tifffile_pyramid(tmp_path):
+    tifffile = pytest.importorskip("tifffile")
+    data = np.arange(32 * 32, dtype="uint16").reshape(32, 32)
+    path = tmp_path / "pyramid.tif"
+    with tifffile.TiffWriter(path) as writer:
+        writer.write(data, tile=(16, 16), subifds=1)
+        writer.write(data[::2, ::2], tile=(16, 16), subfiletype=1)
+
+    store = tifffile.imread(path, aszarr=True)
+    root = open_store_node(AsyncStoreMapping(store))
+    assert isinstance(root, V3Group)
+    assert root.array_keys() == ["0", "1"]
+    np.testing.assert_array_equal(root["0"].to_dask().compute(), data)
+    np.testing.assert_array_equal(root["1"].to_dask().compute(), data[::2, ::2])

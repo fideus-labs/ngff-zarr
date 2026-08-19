@@ -54,6 +54,7 @@ __all__ = [
     "create_zarrista_group",
     "create_zarrista_subgroup",
     "has_consolidated_metadata",
+    "is_zarrista_array",
     "normalize_store",
     "open_lazy_array",
     "open_local_node",
@@ -63,6 +64,7 @@ __all__ = [
     "resolve_store_path",
     "use_zarrista_for",
     "write_dask_array",
+    "zarrista_array_to_dask",
 ]
 
 _BLOSC_SHUFFLE_TO_INT = {"noshuffle": 0, "shuffle": 1, "bitshuffle": 2}
@@ -749,18 +751,31 @@ def open_zarrista_array(path, component: str | None = None):
     return Array.open(FilesystemStore(path), node_path)
 
 
-def open_zarrista_lazy(path, component: str | None = None) -> dask.array.Array:
-    """Open the array at *component* within *path* as a lazy dask array.
+def is_zarrista_array(obj) -> bool:
+    """Whether *obj* is a raw ``zarrista.Array`` handle."""
+    if not _zarrista_available():
+        return False
+    from zarrista import Array
+
+    return isinstance(obj, Array)
+
+
+def zarrista_array_to_dask(arr) -> dask.array.Array:
+    """Wrap zarrista ``Array`` *arr* as a lazy dask array.
 
     Chunks follow the stored chunk grid, using the subchunk (inner chunk)
     shape for sharded arrays so reads stay at the efficient granularity.
     """
-    arr = open_zarrista_array(path, component)
     if arr.is_sharded:
         chunks = tuple(arr.subchunk_shape)
     else:
         chunks = tuple(arr.chunk_shape([0] * arr.ndim))
     return dask.array.from_array(_ZarristaArrayAdapter(arr), chunks=chunks)
+
+
+def open_zarrista_lazy(path, component: str | None = None) -> dask.array.Array:
+    """Open the array at *component* within *path* as a lazy dask array."""
+    return zarrista_array_to_dask(open_zarrista_array(path, component))
 
 
 def _is_bytes_mapping(store) -> bool:
@@ -779,15 +794,15 @@ def open_lazy_array(store, component: str | None = None) -> dask.array.Array:
     """Open the array at *component* within *store* as a lazy dask array.
 
     The single read-dispatch point mirroring :func:`use_zarrista_for` on the
-    write side: bytes mappings go through the pure-Python v2 store reader,
-    local paths through zarrista, and every other store object (zarr-python
-    stores: ZipStore, FsspecStore, MemoryStore, ...) keeps the zarr-python
-    engine via ``dask.array.from_zarr``.
+    write side: bytes mappings go through the pure-Python store reader
+    (either zarr format), local paths through zarrista, and every other
+    store object (zarr-python stores: ZipStore, FsspecStore, MemoryStore,
+    ...) keeps the zarr-python engine via ``dask.array.from_zarr``.
     """
     if _is_bytes_mapping(store):
-        from ._v2_store_reader import open_v2_array
+        from ._v2_store_reader import open_store_array
 
-        return open_v2_array(store, component).to_dask()
+        return open_store_array(store, component).to_dask()
     if use_zarrista_for(store):
         return open_zarrista_lazy(store, component)
     return dask.array.from_zarr(store, component=component)
@@ -843,6 +858,7 @@ class LocalZarrArray:
         self.path = path
         self.zarr_format = zarr_format
         self.shape = tuple(int(s) for s in doc.get("shape", ()))
+        self.ndim = len(self.shape)
         dirpath = store_root.joinpath(*path.split("/")) if path else store_root
         self.attrs = _local_node_attrs(dirpath, doc, zarr_format)
 

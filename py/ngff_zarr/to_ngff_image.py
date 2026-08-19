@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+import math
 from collections.abc import Hashable, Mapping, MutableMapping, Sequence
 
 import dask
@@ -15,17 +16,29 @@ except ImportError:
     from zarr.core import Array as ZarrArray
     from zarr.hierarchy import Group as ZarrGroup
 
+from ._v2_store_reader import V2Group, V3Group
+from ._zarrista_utils import (
+    LocalZarrGroup,
+    is_zarrista_array,
+    open_lazy_array,
+    zarrista_array_to_dask,
+)
 from .methods._support import _spatial_dims
 from .ngff_image import NgffImage
 from .v04.zarr_metadata import SupportedDims, Units
 
+# Group node types across the read backends: zarr-python, the compat-layer
+# local reader, and the pure-Python mapping-store reader.
+_group_types = (ZarrGroup, LocalZarrGroup, V2Group, V3Group)
 
-def _extract_array_from_group(group: ZarrGroup):
-    """Extract the full-resolution array from a zarr Group.
+
+def _extract_array_from_group(group):
+    """Extract the full-resolution array from a zarr group node.
 
     For multi-level TIFFs (e.g., pyramidal OME-TIFF), tifffile returns a zarr
-    Group containing multiple arrays (one per resolution level). This function
+    group containing multiple arrays (one per resolution level). This function
     extracts the full-resolution array, using multiscales metadata if available.
+    Accepts any backend's group node (see ``_group_types``).
     """
     # Try using multiscales metadata (OME-NGFF style)
     if "multiscales" in group.attrs:
@@ -43,8 +56,9 @@ def _extract_array_from_group(group: ZarrGroup):
     largest_size = 0
     for key in group.keys():
         item = group[key]
-        if isinstance(item, ZarrArray) and item.size > largest_size:
-            largest_size = item.size
+        shape = getattr(item, "shape", None)
+        if shape is not None and math.prod(shape) > largest_size:
+            largest_size = math.prod(shape)
             largest_key = key
 
     if largest_key is not None:
@@ -54,6 +68,29 @@ def _extract_array_from_group(group: ZarrGroup):
         "Cannot convert zarr.Group to NgffImage: no arrays found. "
         "Pass a specific array from the Group instead."
     )
+
+
+def _as_dask_array(data) -> DaskArray:
+    """Convert *data* to a dask array, lazily for every array-handle form.
+
+    The read counterpart of the write-side engine dispatch: compat-layer
+    ``LocalZarrArray`` and v2-reader ``V2Array`` nodes expose ``to_dask()``,
+    raw zarrista arrays wrap through the adapter, and ``str``/mapping stores
+    dispatch through :func:`~._zarrista_utils.open_lazy_array`. zarr-python
+    array objects keep the legacy ``dask.array.from_zarr`` engine; anything
+    else is treated as an in-memory array.
+    """
+    if isinstance(data, DaskArray):
+        return data
+    if hasattr(data, "to_dask"):
+        return data.to_dask()
+    if is_zarrista_array(data):
+        return zarrista_array_to_dask(data)
+    if isinstance(data, ZarrArray):
+        return dask.array.from_zarr(data)
+    if isinstance(data, (str, MutableMapping)):
+        return open_lazy_array(data)
+    return dask.array.from_array(data)
 
 
 def to_ngff_image(
@@ -105,8 +142,8 @@ def to_ngff_image(
     :rtype: NgffImage
     """
 
-    # Handle zarr Groups from multi-level TIFFs (e.g., pyramidal OME-TIFF)
-    if isinstance(data, ZarrGroup):
+    # Handle zarr groups from multi-level TIFFs (e.g., pyramidal OME-TIFF)
+    if isinstance(data, _group_types):
         data = _extract_array_from_group(data)
 
     ndim = data.ndim
@@ -131,11 +168,7 @@ def to_ngff_image(
     if translation is None:
         translation = {dim: 0.0 for dim in dims if dim in _spatial_dims}
 
-    if not isinstance(data, DaskArray):
-        if isinstance(data, (ZarrArray, str, MutableMapping)):
-            data = dask.array.from_zarr(data)
-        else:
-            data = dask.array.from_array(data)
+    data = _as_dask_array(data)
 
     return NgffImage(
         data=data,

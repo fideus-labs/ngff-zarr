@@ -40,13 +40,13 @@ Write an upgraded copy to a new store:
 
 from __future__ import annotations
 
+import os
 from dataclasses import asdict
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
 import packaging.version
 import zarr
-import zarr.errors
 import zarr.storage
 
 from ._supported_versions import NgffVersion
@@ -59,11 +59,14 @@ from ._zarrista_utils import (
     create_zarrista_group,
     create_zarrista_subgroup,
     has_consolidated_metadata,
+    read_group_attributes,
     use_zarrista_for,
 )
 from .from_ngff_zarr import (
     REMOTE_URL_SCHEMES,
     _is_remote_store,
+    _NoValidZarrGroupError,
+    _open_root_node,
     from_ome_zarr,
     zarr_version_major,
 )
@@ -165,10 +168,13 @@ def _resolve_write_store(store: StoreLike, storage_options: dict | None) -> Stor
 def _read_root_attrs(store: StoreLike, storage_options: dict | None) -> dict:
     """Read the root-group attributes of ``store`` without loading arrays.
 
-    Mirrors the auto-detection (and Zarr v2 fallback) that ``from_ome_zarr``
-    performs internally: a Zarr v2 (OME-Zarr 0.4) store opened without an
-    explicit format on zarr-python 3 yields an empty root, so it is retried as
-    Zarr v2. Used for both source-version detection and HCS/container rejection.
+    Dispatches through the shared read entry point (compat layer for local
+    paths, v2 store reader for bytes mappings, zarr-python for store objects),
+    which already performs the Zarr v2 fallback a v0.4 store needs on
+    zarr-python 3. "No group here" degrades to empty attributes so version
+    detection reports the real problem, while a genuinely missing local store
+    surfaces as ``FileNotFoundError``, matching zarr-python's behavior. Used
+    for both source-version detection and HCS/container rejection.
     """
     open_store = store
     if (
@@ -182,23 +188,13 @@ def _read_root_attrs(store: StoreLike, storage_options: dict | None) -> dict:
             store, storage_options=storage_options
         )
 
-    def _attrs(**kwargs) -> dict:
-        try:
-            return zarr.open_group(open_store, mode="r", **kwargs).attrs.asdict()
-        except zarr.errors.GroupNotFoundError:
-            # No group in the requested Zarr format -- e.g. a Zarr v2 (OME-Zarr
-            # 0.4) store opened without an explicit format on zarr-python 3.
-            # Signal "not found in this format" so the caller can retry as Zarr
-            # v2; genuine failures (missing, corrupt, or permission-restricted
-            # stores) propagate instead of being masked as an empty-attrs
-            # version-detection error.
-            return {}
-
-    root_attrs = _attrs()
-    if not root_attrs and zarr_version_major >= 3:
-        root_attrs = _attrs(zarr_format=2)
-
-    return root_attrs
+    if use_zarrista_for(open_store) and not Path(os.fspath(open_store)).exists():
+        raise FileNotFoundError(f"No such file or directory: '{open_store}'")
+    try:
+        root = _open_root_node(open_store, None)
+    except _NoValidZarrGroupError:
+        return {}
+    return root.attrs.asdict()
 
 
 def _read_source_version(store: StoreLike, storage_options: dict | None) -> str:
@@ -352,6 +348,87 @@ def _delete_v2_sidecars(store: StoreLike) -> None:
         ) from exc
 
 
+def _reject_unrepresentable_v2_encoding(path: str, order, filters) -> None:
+    """Reject Zarr v2 array encodings an in-place v3 rewrite cannot keep.
+
+    Shared by both read backends so the guidance toward write-to-new-store is
+    identical whichever engine read the metadata.
+    """
+    if order == "F":
+        raise ValueError(
+            f"Array '{path}' uses Fortran ('F') memory order, which an "
+            "in-place Zarr v2->v3 metadata rewrite cannot preserve without "
+            "rewriting chunks. Pass an `output` store to write a new upgraded "
+            "copy instead."
+        )
+    if filters:
+        raise ValueError(
+            f"Array '{path}' declares Zarr v2 filters ({filters!r}) that have "
+            "no faithful Zarr v3 codec equivalent for an in-place rewrite. "
+            "Pass an `output` store to write a new upgraded copy instead."
+        )
+
+
+# Compressors the zarrista compatibility layer can express as Zarr v3 codecs
+# (see _zarrista_utils._compressor_to_zarrista_codec).
+_ZARRISTA_V3_COMPRESSOR_IDS = ("blosc", "gzip", "zstd")
+
+
+def _read_v2_array_specs_local(store: StoreLike, array_paths: list[str]) -> list[dict]:
+    """Read the Zarr v2 array metadata under a local path store directly.
+
+    The compat-layer read phase of :func:`_rewrite_v2_group_to_v3`: the
+    ``.zarray``/``.zattrs`` documents are parsed straight from disk, with the
+    same faithfulness checks (memory order, filters, compressor coverage) as
+    the zarr-python read phase. Compressors stay in their numcodecs config
+    dict form, which ``create_zarrista_array`` accepts directly.
+    """
+    import json
+
+    from ._v2_store_reader import _decode_dtype, _parse_fill_value
+    from ._zarrista_utils import normalize_store
+
+    root = normalize_store(store)
+    array_specs: list[dict] = []
+    for path in array_paths:
+        node_dir = root.joinpath(*PurePosixPath(path).parts)
+        meta = json.loads((node_dir / ".zarray").read_text())
+
+        _reject_unrepresentable_v2_encoding(
+            path, meta.get("order", "C"), meta.get("filters") or None
+        )
+
+        compressor = meta.get("compressor")
+        if compressor is None:
+            # No compression: emit only the (implicit) bytes codec.
+            compressors = None
+        elif compressor.get("id") in _ZARRISTA_V3_COMPRESSOR_IDS:
+            compressors = [compressor]
+        else:
+            raise ValueError(
+                f"Array '{path}' uses compressor {compressor!r}, which has no "
+                "faithful Zarr v3 codec equivalent. Pass an `output` store to "
+                "write a new upgraded copy instead."
+            )
+
+        dtype = _decode_dtype(meta["dtype"])
+        attrs_doc = node_dir / ".zattrs"
+        attrs = json.loads(attrs_doc.read_text()) if attrs_doc.exists() else {}
+        array_specs.append(
+            {
+                "path": path,
+                "shape": tuple(meta["shape"]),
+                "chunks": tuple(meta["chunks"]),
+                "dtype": dtype,
+                "fill_value": _parse_fill_value(meta.get("fill_value"), dtype),
+                "separator": meta.get("dimension_separator") or ".",
+                "compressors": compressors,
+                "attrs": attrs if isinstance(attrs, dict) else {},
+            }
+        )
+    return array_specs
+
+
 def _rewrite_v2_group_to_v3(
     store: StoreLike,
     new_metadata,
@@ -375,77 +452,75 @@ def _rewrite_v2_group_to_v3(
 
     dim_names = list(new_metadata.dimension_names)
     array_paths = [dataset.path for dataset in new_metadata.datasets]
+    group_paths = _parent_group_paths(array_paths)
+    use_zarrista = use_zarrista_for(store)
 
     # --- Read phase: capture all Zarr v2 metadata before writing anything. ---
-    array_specs: list[dict] = []
-    for path in array_paths:
-        source = zarr.open_array(store, path=path, mode="r", zarr_format=2)
-        meta = source.metadata
-
-        order = getattr(meta, "order", "C")
-        if order == "F":
-            raise ValueError(
-                f"Array '{path}' uses Fortran ('F') memory order, which an "
-                "in-place Zarr v2->v3 metadata rewrite cannot preserve without "
-                "rewriting chunks. Pass an `output` store to write a new upgraded "
-                "copy instead."
-            )
-
-        filters = getattr(meta, "filters", None)
-        if filters:
-            raise ValueError(
-                f"Array '{path}' declares Zarr v2 filters ({filters!r}) that have "
-                "no faithful Zarr v3 codec equivalent for an in-place rewrite. "
-                "Pass an `output` store to write a new upgraded copy instead."
-            )
-
-        compressor = getattr(meta, "compressor", None)
-        if compressor is None:
-            # No compression: emit only the (implicit) bytes codec. Passing
-            # ``compressors=None`` avoids create_array's default zstd, which
-            # would misread the raw chunk bytes.
-            compressors = None
-        else:
-            v3_codec = _numcodecs_to_zarr_v3_codec(compressor)
-            if v3_codec is None:
-                raise ValueError(
-                    f"Array '{path}' uses compressor {compressor!r}, which has no "
-                    "faithful Zarr v3 codec equivalent. Pass an `output` store to "
-                    "write a new upgraded copy instead."
-                )
-            compressors = [v3_codec]
-
-        separator = getattr(meta, "dimension_separator", None) or "."
-        array_specs.append(
-            {
-                "path": path,
-                "shape": source.shape,
-                "chunks": source.chunks,
-                "dtype": source.dtype,
-                "fill_value": meta.fill_value,
-                "separator": separator,
-                "compressors": compressors,
-                "attrs": dict(source.attrs),
-            }
-        )
-
-    group_paths = _parent_group_paths(array_paths)
     group_attrs: dict[str, dict] = {}
-    for group_path in group_paths:
-        try:
-            source_group = zarr.open_group(
-                store, path=group_path, mode="r", zarr_format=2
+    if use_zarrista:
+        array_specs = _read_v2_array_specs_local(store, array_paths)
+        for group_path in group_paths:
+            try:
+                group_attrs[group_path] = (
+                    read_group_attributes(store, group_path, zarr_format=2) or {}
+                )
+            except Exception:
+                group_attrs[group_path] = {}
+    else:
+        array_specs = []
+        for path in array_paths:
+            source = zarr.open_array(store, path=path, mode="r", zarr_format=2)
+            meta = source.metadata
+
+            _reject_unrepresentable_v2_encoding(
+                path, getattr(meta, "order", "C"), getattr(meta, "filters", None)
             )
-            group_attrs[group_path] = dict(source_group.attrs)
-        except Exception:
-            group_attrs[group_path] = {}
+
+            compressor = getattr(meta, "compressor", None)
+            if compressor is None:
+                # No compression: emit only the (implicit) bytes codec. Passing
+                # ``compressors=None`` avoids create_array's default zstd, which
+                # would misread the raw chunk bytes.
+                compressors = None
+            else:
+                v3_codec = _numcodecs_to_zarr_v3_codec(compressor)
+                if v3_codec is None:
+                    raise ValueError(
+                        f"Array '{path}' uses compressor {compressor!r}, which "
+                        "has no faithful Zarr v3 codec equivalent. Pass an "
+                        "`output` store to write a new upgraded copy instead."
+                    )
+                compressors = [v3_codec]
+
+            separator = getattr(meta, "dimension_separator", None) or "."
+            array_specs.append(
+                {
+                    "path": path,
+                    "shape": source.shape,
+                    "chunks": source.chunks,
+                    "dtype": source.dtype,
+                    "fill_value": meta.fill_value,
+                    "separator": separator,
+                    "compressors": compressors,
+                    "attrs": dict(source.attrs),
+                }
+            )
+
+        for group_path in group_paths:
+            try:
+                source_group = zarr.open_group(
+                    store, path=group_path, mode="r", zarr_format=2
+                )
+                group_attrs[group_path] = dict(source_group.attrs)
+            except Exception:
+                group_attrs[group_path] = {}
 
     # --- Write phase: materialize the Zarr v3 hierarchy. Chunks are untouched. ---
     metadata_dict = asdict(new_metadata)
     metadata_dict = _pop_metadata_optionals(metadata_dict)
     metadata_dict["@type"] = "ngff:Image"
 
-    if use_zarrista_for(store):
+    if use_zarrista:
         for group_path in group_paths:
             create_zarrista_subgroup(store, group_path, group_attrs[group_path], 3)
         for spec in array_specs:

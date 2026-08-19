@@ -50,7 +50,7 @@ from .ngff_image import NgffImage
 from .rfc4 import AnatomicalOrientation, orientation_from_name
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
 from .task_count import task_count
-from .to_ngff_image import to_ngff_image
+from .to_ngff_image import _as_dask_array, to_ngff_image
 from .v06.zarr_metadata import (
     Axis,
     CoordinateSystem,
@@ -579,11 +579,7 @@ def to_multiscales(
     if "t" in ngff_image.dims:
         default_chunks["t"] = 1
 
-    if not isinstance(ngff_image.data, DaskArray):
-        if isinstance(ngff_image.data, (ZarrArray, str, MutableMapping)):
-            ngff_image.data = dask.array.from_zarr(ngff_image.data)
-        else:
-            ngff_image.data = dask.array.from_array(ngff_image.data)
+    ngff_image.data = _as_dask_array(ngff_image.data)
 
     # OME-Zarr orders axes time, then channel, then space. Channel-last input
     # (the TIFF S axis, ITK component images, the 4-D/5-D default dims) is
