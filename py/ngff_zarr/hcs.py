@@ -24,6 +24,12 @@ from typing import Optional
 import zarr
 from packaging import version as pkg_version
 
+from ._zarrista_utils import (
+    create_zarrista_group,
+    create_zarrista_subgroup,
+    read_group_attributes,
+    use_zarrista_for,
+)
 from .from_ngff_zarr import from_ome_zarr
 from .multiscales import NgffMultiscales
 from .rfc9_zip import is_ozx_path, write_store_to_zip
@@ -545,14 +551,6 @@ def to_hcs_zarr(plate: HCSPlate, store) -> None:
     # For NGFF version 0.4, use Zarr format 2; for 0.5+, use Zarr format 3
     zarr_format = 2 if plate.metadata.version == "0.4" else 3
 
-    # Check zarr-python version to determine if zarr_format parameter is supported
-    zarr_version = pkg_version.parse(zarr.__version__)
-
-    if zarr_version.major >= 3:
-        root = zarr.open_group(store, mode="w", zarr_format=zarr_format)
-    else:
-        root = zarr.open_group(store, mode="w")
-
     # Build plate metadata dictionary
     plate_dict = {
         "columns": [{"name": col.name} for col in plate.metadata.columns],
@@ -594,7 +592,17 @@ def to_hcs_zarr(plate: HCSPlate, store) -> None:
         plate_dict["name"] = plate.metadata.name
 
     # Set root metadata
-    root.attrs["ome"] = {"version": plate.metadata.version, "plate": plate_dict}
+    root_attrs = {"ome": {"version": plate.metadata.version, "plate": plate_dict}}
+    if use_zarrista_for(store):
+        create_zarrista_group(store, root_attrs, zarr_format, overwrite=True)
+    else:
+        # Check zarr-python version for zarr_format parameter support
+        zarr_version = pkg_version.parse(zarr.__version__)
+        if zarr_version.major >= 3:
+            root = zarr.open_group(store, mode="w", zarr_format=zarr_format)
+        else:
+            root = zarr.open_group(store, mode="w")
+        root.attrs["ome"] = root_attrs["ome"]
 
     # Note: This is a basic implementation that sets up the plate structure.
     # In a full implementation, you would also write the well groups and
@@ -706,18 +714,14 @@ class HCSPlateWriter:
     def __enter__(self):
         """Initialize the plate structure and return the writer."""
         if self.is_ozx:
-            # For .ozx files, create a temporary zarr store
+            # For .ozx files, write to a temporary directory and zip it on
+            # exit. The plain path is passed as the working store so well
+            # writes dispatch through the default (path-store) write engine;
+            # write_store_to_zip accepts the path directly.
             import tempfile
 
-            # Use LocalStore (zarr v3) or DirectoryStore (zarr v2)
-            if hasattr(zarr.storage, "DirectoryStore"):
-                LocalStore = zarr.storage.DirectoryStore
-            else:
-                LocalStore = zarr.storage.LocalStore
-
             self._temp_dir = tempfile.mkdtemp()
-            # LocalStore takes the directory path directly, not a subdirectory
-            self._temp_store = LocalStore(self._temp_dir)
+            self._temp_store = self._temp_dir
             working_store = self._temp_store
         else:
             # For regular stores, use the target store directly
@@ -909,46 +913,58 @@ def write_hcs_well_image(
     # Open or create the store
     # For NGFF version 0.4, use Zarr format 2; for 0.5+, use Zarr format 3
     zarr_format = 2 if version == "0.4" else 3
+    use_zarrista = use_zarrista_for(store)
 
     # Check zarr-python version to determine if zarr_format parameter is supported
     zarr_version = pkg_version.parse(zarr.__version__)
 
-    if zarr_version.major >= 3:
-        root = zarr.open_group(store, mode="a", zarr_format=zarr_format)
+    if use_zarrista:
+        # mode="a" semantics: create the root group only when absent, so
+        # concurrent well writes never rewrite the root documents.
+        if read_group_attributes(store, zarr_format=zarr_format) is None:
+            create_zarrista_group(store, None, zarr_format)
+        well_group = None
+        well_group_attrs = read_group_attributes(
+            store, well_path, zarr_format=zarr_format
+        )
     else:
-        root = zarr.open_group(store, mode="a")
+        if zarr_version.major >= 3:
+            root = zarr.open_group(store, mode="a", zarr_format=zarr_format)
+        else:
+            root = zarr.open_group(store, mode="a")
 
-    # Create or update well group
-    well_group_path = well_path
-    if well_group_path in root:
-        well_group = root[well_group_path]
-        # Read existing well metadata if not provided
-        if well_metadata is None:
-            existing_well_attrs = None
+        # Create or update well group
+        if well_path in root:
+            well_group = root[well_path]
             well_group_attrs = well_group.attrs.asdict()
+        else:
+            well_group = root.create_group(well_path)
+            well_group_attrs = None
 
-            # Check for v0.5 format (ome wrapper) or v0.4 format (direct well)
-            if "ome" in well_group_attrs and "well" in well_group_attrs["ome"]:
-                existing_well_attrs = well_group_attrs["ome"]["well"]
-            elif "well" in well_group_attrs:
-                existing_well_attrs = well_group_attrs["well"]
+    # Read existing well metadata if not provided
+    if well_metadata is None and well_group_attrs is not None:
+        existing_well_attrs = None
 
-            if existing_well_attrs is not None:
-                existing_images = []
-                if "images" in existing_well_attrs:
-                    for img_dict in existing_well_attrs["images"]:
-                        existing_images.append(
-                            WellImage(
-                                path=img_dict["path"],
-                                acquisition=img_dict.get("acquisition", 0),
-                            )
+        # Check for v0.5 format (ome wrapper) or v0.4 format (direct well)
+        if "ome" in well_group_attrs and "well" in well_group_attrs["ome"]:
+            existing_well_attrs = well_group_attrs["ome"]["well"]
+        elif "well" in well_group_attrs:
+            existing_well_attrs = well_group_attrs["well"]
+
+        if existing_well_attrs is not None:
+            existing_images = []
+            if "images" in existing_well_attrs:
+                for img_dict in existing_well_attrs["images"]:
+                    existing_images.append(
+                        WellImage(
+                            path=img_dict["path"],
+                            acquisition=img_dict.get("acquisition", 0),
                         )
-                well_metadata = Well(
-                    images=existing_images,
-                    version=existing_well_attrs.get("version", version),
-                )
-    else:
-        well_group = root.create_group(well_group_path)
+                    )
+            well_metadata = Well(
+                images=existing_images,
+                version=existing_well_attrs.get("version", version),
+            )
 
     # Create or update well metadata
     if well_metadata is None:
@@ -981,18 +997,26 @@ def write_hcs_well_image(
         "version": well_metadata.version or version,
     }
     if version == "0.4":
-        well_group.attrs["well"] = well_dict
+        well_attr_updates = {"well": well_dict}
     elif version == "0.5":
         well_dict.pop("version", None)  # version goes at top level in 0.5
-        well_group.attrs["ome"] = {"well": well_dict, "version": version}
+        well_attr_updates = {"ome": {"well": well_dict, "version": version}}
     else:
         raise ValueError(f"Unsupported OME-Zarr version: {version}")
+
+    if use_zarrista:
+        # Creates the missing row group along the way, preserving the
+        # plate -> row -> column (well) hierarchy zarr-python built implicitly.
+        create_zarrista_subgroup(store, well_path, well_attr_updates, zarr_format)
+    else:
+        for key, value in well_attr_updates.items():
+            well_group.attrs[key] = value
 
     # Write the actual image data to the field path
     field_path = f"{well_path}/{field_index}"
 
     # Create the field directory path
-    if isinstance(store, (str, Path)):
+    if use_zarrista or isinstance(store, (str, Path)):
         field_store_path = Path(store) / field_path
         field_store_path.mkdir(parents=True, exist_ok=True)
 

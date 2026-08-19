@@ -367,26 +367,9 @@ def test_consolidate_metadata_matches_zarr_python(tmp_path, sample_data, zarr_fo
     assert not DeepDiff(theirs, ours, ignore_order=True)
 
 
-def _assert_engines_equivalent(tmp_path, multiscales, ngff_version, **write_kwargs):
-    """Write via both engines and assert the stores are indistinguishable.
-
-    A path-like store dispatches to zarrista; a store-object target keeps the
-    legacy zarr-python engine. File sets, parsed metadata documents, and pixel
-    values must all agree.
-    """
+def _assert_stores_identical(zarrista_path, legacy_path):
+    """Assert two on-disk stores have identical file sets and metadata docs."""
     from deepdiff import DeepDiff
-    from ngff_zarr import from_ngff_zarr, to_ngff_zarr
-
-    zarrista_path = tmp_path / "zarrista.ome.zarr"
-    to_ngff_zarr(str(zarrista_path), multiscales, version=ngff_version, **write_kwargs)
-
-    legacy_path = tmp_path / "legacy.ome.zarr"
-    to_ngff_zarr(
-        zarr.storage.LocalStore(legacy_path),
-        multiscales,
-        version=ngff_version,
-        **write_kwargs,
-    )
 
     zarrista_files = sorted(
         p.relative_to(zarrista_path).as_posix()
@@ -407,6 +390,29 @@ def _assert_engines_equivalent(tmp_path, multiscales, ngff_version, **write_kwar
         legacy_doc = json.loads((legacy_path / name).read_text())
         zarrista_doc = json.loads((zarrista_path / name).read_text())
         assert not DeepDiff(legacy_doc, zarrista_doc, ignore_order=True), name
+
+
+def _assert_engines_equivalent(tmp_path, multiscales, ngff_version, **write_kwargs):
+    """Write via both engines and assert the stores are indistinguishable.
+
+    A path-like store dispatches to zarrista; a store-object target keeps the
+    legacy zarr-python engine. File sets, parsed metadata documents, and pixel
+    values must all agree.
+    """
+    from ngff_zarr import from_ngff_zarr, to_ngff_zarr
+
+    zarrista_path = tmp_path / "zarrista.ome.zarr"
+    to_ngff_zarr(str(zarrista_path), multiscales, version=ngff_version, **write_kwargs)
+
+    legacy_path = tmp_path / "legacy.ome.zarr"
+    to_ngff_zarr(
+        zarr.storage.LocalStore(legacy_path),
+        multiscales,
+        version=ngff_version,
+        **write_kwargs,
+    )
+
+    _assert_stores_identical(zarrista_path, legacy_path)
 
     zarrista_read = from_ngff_zarr(str(zarrista_path))
     legacy_read = from_ngff_zarr(str(legacy_path))
@@ -639,3 +645,140 @@ def test_resolve_store_path(tmp_path):
         store = zarr.storage.DirectoryStore(str(tmp_path))
         assert resolve_store_path(store) == tmp_path
     assert resolve_store_path(zarr.storage.MemoryStore()) is None
+
+
+def test_read_group_attributes(tmp_path):
+    """Absent group -> None, empty group -> {}, attributes round-trip; an
+    array node raises like zarr-python's group-over-array refusal."""
+    pytest.importorskip("zarrista")
+    from ngff_zarr._zarrista_utils import read_group_attributes
+
+    for zarr_format in (2, 3):
+        store_path = tmp_path / f"v{zarr_format}.zarr"
+        assert read_group_attributes(store_path, zarr_format=zarr_format) is None
+        create_zarrista_group(store_path, {"root": True}, zarr_format)
+        assert read_group_attributes(store_path, zarr_format=zarr_format) == {
+            "root": True
+        }
+        assert (
+            read_group_attributes(store_path, "absent", zarr_format=zarr_format) is None
+        )
+        create_zarrista_subgroup(store_path, "a/b", None, zarr_format)
+        assert read_group_attributes(store_path, "a/b", zarr_format=zarr_format) == {}
+        create_zarrista_array(store_path, "img", (4, 4), np.uint8, (2, 2), zarr_format)
+        with pytest.raises(ValueError, match="array node"):
+            read_group_attributes(store_path, "img", zarr_format=zarr_format)
+
+
+def _write_sample_hcs_plate(store, ngff_version, multiscales):
+    """Write a small plate: two wells in one row, two fields in well A/1."""
+    from ngff_zarr.hcs import HCSPlate, to_hcs_zarr, write_hcs_well_image
+    from ngff_zarr.v04.zarr_metadata import Plate, PlateColumn, PlateRow, PlateWell
+
+    plate_metadata = Plate(
+        columns=[PlateColumn(name="1"), PlateColumn(name="2")],
+        rows=[PlateRow(name="A")],
+        wells=[
+            PlateWell(path="A/1", rowIndex=0, columnIndex=0),
+            PlateWell(path="A/2", rowIndex=0, columnIndex=1),
+        ],
+        name="Engine Equivalence Plate",
+        field_count=2,
+        version=ngff_version,
+    )
+    to_hcs_zarr(HCSPlate(None, plate_metadata), store)
+    for row_name, column_name, field_index in (
+        ("A", "1", 0),
+        ("A", "1", 1),  # second field exercises the existing-well attrs merge
+        ("A", "2", 0),
+    ):
+        write_hcs_well_image(
+            store=store,
+            multiscales=multiscales,
+            plate_metadata=plate_metadata,
+            row_name=row_name,
+            column_name=column_name,
+            field_index=field_index,
+            version=ngff_version,
+        )
+
+
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="the legacy-engine comparison requires zarr-python >= 3",
+)
+@pytest.mark.parametrize("ngff_version", ["0.4", "0.5"])
+def test_hcs_write_path_store_matches_zarr_python(tmp_path, monkeypatch, ngff_version):
+    """HCS plate writes via zarrista match the legacy engine's store exactly.
+
+    Both plates target path stores through the identical hcs.py code path;
+    the reference run forces the backend-dispatch helper off so the legacy
+    zarr-python engine writes it.
+    """
+    pytest.importorskip("zarrista")
+    import importlib
+
+    import ngff_zarr.hcs as hcs_module
+    from ngff_zarr.hcs import from_hcs_zarr
+
+    # The package re-export shadows the module name, so importlib is needed.
+    to_ngff_zarr_module = importlib.import_module("ngff_zarr.to_ngff_zarr")
+
+    multiscales = _sample_multiscales(shape=(2, 32, 32), chunks=16)
+    zarrista_path = tmp_path / "zarrista.ome.zarr"
+    _write_sample_hcs_plate(str(zarrista_path), ngff_version, multiscales)
+
+    monkeypatch.setattr(hcs_module, "use_zarrista_for", lambda _store: False)
+    monkeypatch.setattr(to_ngff_zarr_module, "use_zarrista_for", lambda _store: False)
+    legacy_path = tmp_path / "legacy.ome.zarr"
+    _write_sample_hcs_plate(str(legacy_path), ngff_version, multiscales)
+
+    _assert_stores_identical(zarrista_path, legacy_path)
+
+    plate = from_hcs_zarr(str(zarrista_path))
+    well = plate.get_well("A", "1")
+    assert [img.path for img in well.images] == ["0", "1"]
+    image = well.get_image(1)
+    np.testing.assert_array_equal(
+        np.asarray(image.images[0].data), np.asarray(multiscales.images[0].data)
+    )
+
+
+def test_hcs_plate_writer_ozx_uses_path_engine(tmp_path):
+    """The .ozx flow writes its temp store through the path (zarrista) engine:
+    no hcs.py write may fall back to zarr-python group APIs."""
+    pytest.importorskip("zarrista")
+    import zipfile
+    from unittest.mock import patch
+
+    from ngff_zarr.hcs import HCSPlateWriter
+    from ngff_zarr.v04.zarr_metadata import Plate, PlateColumn, PlateRow, PlateWell
+
+    plate_metadata = Plate(
+        columns=[PlateColumn(name="1")],
+        rows=[PlateRow(name="A")],
+        wells=[PlateWell(path="A/1", rowIndex=0, columnIndex=0)],
+        name="OZX Plate",
+        field_count=1,
+        version="0.5",
+    )
+    multiscales = _sample_multiscales(shape=(2, 32, 32), chunks=16)
+    ozx_path = tmp_path / "plate.ozx"
+
+    def _fail_open_group(*args, **kwargs):
+        raise AssertionError("legacy zarr.open_group used for a path store")
+
+    with patch("ngff_zarr.hcs.zarr.open_group", side_effect=_fail_open_group):
+        with HCSPlateWriter(str(ozx_path), plate_metadata) as writer:
+            writer.write_well_image(
+                multiscales=multiscales,
+                row_name="A",
+                column_name="1",
+                field_index=0,
+            )
+
+    with zipfile.ZipFile(ozx_path) as zf:
+        names = zf.namelist()
+    assert names[0] == "zarr.json"  # RFC-9: root metadata first
+    assert "A/1/zarr.json" in names
+    assert "A/1/0/zarr.json" in names

@@ -33,6 +33,7 @@ import importlib.util
 import json
 import os
 import shutil
+import threading
 from collections.abc import MutableMapping
 from pathlib import Path
 
@@ -50,6 +51,7 @@ __all__ = [
     "normalize_store",
     "open_zarrista_array",
     "open_zarrista_lazy",
+    "read_group_attributes",
     "resolve_store_path",
     "use_zarrista_for",
     "write_dask_array",
@@ -304,27 +306,56 @@ def normalize_store(store) -> Path:
     return path
 
 
-def _existing_group_attributes(path: Path, zarr_format: int) -> dict:
-    """Attributes of the group already at *path*, or ``{}`` when absent.
+def read_group_attributes(store, group_path=None, *, zarr_format: int) -> dict | None:
+    """Attributes of the group at *group_path* within *store*.
 
-    Raises ``ValueError`` when *path* holds an array node, mirroring
-    zarr-python's refusal to open a group over an existing array.
+    Returns ``None`` when no group node exists there and ``{}`` for a group
+    with no attributes, so callers can distinguish "absent" from "empty"
+    (the compat-layer equivalent of a zarr-python membership test plus
+    ``attrs.asdict()``). Raises ``ValueError`` when the path holds an array
+    node, mirroring zarr-python's refusal to open a group over an array.
     """
+    path = normalize_store(store)
+    if group_path is not None:
+        parts = [p for p in str(group_path).split("/") if p not in ("", ".")]
+        path = path.joinpath(*parts)
     if zarr_format == 2:
         if (path / ".zarray").exists():
             raise ValueError(f"An array node already exists at {path}")
+        if not (path / ".zgroup").exists():
+            return None
         doc = path / ".zattrs"
         if not doc.exists():
             return {}
         loaded = json.loads(doc.read_text())
         return loaded if isinstance(loaded, dict) else {}
+    if zarr_format != 3:
+        raise ValueError(f"Unsupported zarr format: {zarr_format}")
     doc = path / "zarr.json"
     if not doc.exists():
-        return {}
+        return None
     loaded = json.loads(doc.read_text())
     if loaded.get("node_type") != "group":
         raise ValueError(f"An array node already exists at {path}")
     return dict(loaded.get("attributes") or {})
+
+
+def _existing_group_attributes(path: Path, zarr_format: int) -> dict:
+    """Attributes of the group already at *path*, or ``{}`` when absent."""
+    attributes = read_group_attributes(path, zarr_format=zarr_format)
+    return {} if attributes is None else attributes
+
+
+def _write_group_doc(path: Path, doc: dict) -> None:
+    """Serialize *doc* to *path* atomically (temp file + rename).
+
+    Group documents on shared ancestors (e.g. an HCS row group) can be read
+    and rewritten by concurrent well/field writers; the atomic replace keeps
+    readers from ever observing a truncated document.
+    """
+    tmp = path.with_name(f"{path.name}.{os.getpid()}-{threading.get_ident()}.tmp")
+    tmp.write_text(json.dumps(doc, indent=4))
+    os.replace(tmp, path)
 
 
 def create_zarrista_group(
@@ -353,15 +384,15 @@ def create_zarrista_group(
         **(attributes or {}),
     }
     if zarr_format == 2:
-        (path / ".zgroup").write_text(json.dumps({"zarr_format": 2}, indent=4))
-        (path / ".zattrs").write_text(json.dumps(attributes, indent=4))
+        _write_group_doc(path / ".zgroup", {"zarr_format": 2})
+        _write_group_doc(path / ".zattrs", attributes)
     elif zarr_format == 3:
         metadata = {
             "zarr_format": 3,
             "node_type": "group",
             "attributes": attributes,
         }
-        (path / "zarr.json").write_text(json.dumps(metadata, indent=4))
+        _write_group_doc(path / "zarr.json", metadata)
     else:
         raise ValueError(f"Unsupported zarr format: {zarr_format}")
     return Group.open(FilesystemStore(path), "/")
@@ -380,7 +411,11 @@ def create_zarrista_subgroup(store, group_path, attributes: dict | None, zarr_fo
     if not parts:
         raise ValueError(f"Invalid group path: {group_path!r}")
     for depth in range(1, len(parts)):
-        create_zarrista_group(root.joinpath(*parts[:depth]), None, zarr_format)
+        ancestor = root.joinpath(*parts[:depth])
+        # Leave existing ancestors untouched so concurrent writers sharing
+        # them (e.g. HCS wells in one row) never rewrite the same document.
+        if read_group_attributes(ancestor, zarr_format=zarr_format) is None:
+            create_zarrista_group(ancestor, None, zarr_format)
     return create_zarrista_group(root.joinpath(*parts), attributes, zarr_format)
 
 
