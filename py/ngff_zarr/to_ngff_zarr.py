@@ -27,6 +27,14 @@ from ._supported_versions import NgffVersion
 from ._zarr_kwargs import zarr_kwargs
 from ._zarr_open_array import open_array
 from ._zarr_types import StoreLike
+from ._zarrista_utils import (
+    consolidate_metadata as _zarrista_consolidate_metadata,
+)
+from ._zarrista_utils import (
+    create_zarrista_group,
+    create_zarrista_subgroup,
+    use_zarrista_for,
+)
 from .config import config
 from .memory_usage import memory_usage
 from .methods._support import _dim_scale_factors
@@ -398,16 +406,14 @@ def _prepare_metadata(
     return metadata, dimension_names, dimension_names_kwargs
 
 
-def _write_root_ome_attrs(root: zarr.Group, metadata_dict: dict, version: str) -> None:
-    """Serialize the OME-Zarr root-group attributes for ``metadata_dict``.
+def _root_ome_attrs(metadata_dict: dict, version: str) -> dict:
+    """Build the OME-Zarr root-group attribute entries for ``metadata_dict``.
 
-    Sets ``ome``/``multiscales`` (and hoists ``omero`` to its version-specific
-    location) on an already-open ``zarr.Group``, exactly as the writer does --
+    Returns the ``ome``/``multiscales`` attribute mapping (hoisting ``omero``
+    to its version-specific location) exactly as the writer persists it --
     including mapping the API version ``"0.6"`` to the ``"0.6.dev4"`` string
-    persisted on disk. Shared by :func:`_create_zarr_root` and
-    :func:`ngff_zarr.upgrade_ome_zarr` so both emit byte-identical root
-    metadata. ``metadata_dict`` is mutated in place: its ``omero`` entry is
-    popped so it lives only in its hoisted location, matching historical
+    stored on disk. ``metadata_dict`` is mutated in place: its ``omero`` entry
+    is popped so it lives only in its hoisted location, matching historical
     behavior.
     """
     if version != "0.4":
@@ -417,12 +423,25 @@ def _write_root_ome_attrs(root: zarr.Group, metadata_dict: dict, version: str) -
         ome_dict = {"version": version, "multiscales": [metadata_dict]}
         if "omero" in metadata_dict:
             ome_dict["omero"] = metadata_dict.pop("omero")
-        root.attrs["ome"] = ome_dict
-    else:
-        # v0.4 - omero is at root level
-        if "omero" in metadata_dict:
-            root.attrs["omero"] = metadata_dict.pop("omero")
-        root.attrs["multiscales"] = [metadata_dict]
+        return {"ome": ome_dict}
+    # v0.4 - omero is at root level
+    attrs = {}
+    if "omero" in metadata_dict:
+        attrs["omero"] = metadata_dict.pop("omero")
+    attrs["multiscales"] = [metadata_dict]
+    return attrs
+
+
+def _write_root_ome_attrs(root: zarr.Group, metadata_dict: dict, version: str) -> None:
+    """Serialize the OME-Zarr root-group attributes for ``metadata_dict``.
+
+    Sets the :func:`_root_ome_attrs` entries on an already-open
+    ``zarr.Group``. Shared by :func:`_create_zarr_root` and
+    :func:`ngff_zarr.upgrade_ome_zarr` so both emit byte-identical root
+    metadata.
+    """
+    for key, value in _root_ome_attrs(metadata_dict, version).items():
+        root.attrs[key] = value
 
 
 def _create_zarr_root(
@@ -431,31 +450,35 @@ def _create_zarr_root(
     version: str,
     overwrite: bool,
     metadata_dict: dict,
-) -> zarr.Group:
-    """Create and configure the root Zarr group with proper attributes."""
+    use_zarrista: bool = False,
+):
+    """Create and configure the root Zarr group with proper attributes.
+
+    With ``use_zarrista`` the group metadata is written through the zarrista
+    compatibility layer and the returned handle is a ``zarrista.Group``;
+    otherwise it is a ``zarr.Group`` opened by zarr-python.
+    """
     zarr_format = 2 if version == "0.4" else 3
+    if version != "0.4" and not IS_ZARR_V3_PLUS:
+        raise ValueError(
+            "zarr-python version >= 3.0.0b2 required for OME-Zarr version >= 0.5"
+        )
+
+    if use_zarrista:
+        return create_zarrista_group(
+            store,
+            _root_ome_attrs(metadata_dict, version),
+            zarr_format,
+            overwrite=overwrite,
+        )
+
     format_kwargs = {"zarr_format": zarr_format} if IS_ZARR_V3_PLUS else {}
-
-    if version == "0.4":
-        root = zarr.open_group(
-            store,
-            mode="w" if overwrite else "a",
-            chunk_store=chunk_store,
-            **format_kwargs,
-        )
-    else:
-        if not IS_ZARR_V3_PLUS:
-            raise ValueError(
-                "zarr-python version >= 3.0.0b2 required for OME-Zarr version >= 0.5"
-            )
-        # For version >= 0.5, open root with Zarr v3
-        root = zarr.open_group(
-            store,
-            mode="w" if overwrite else "a",
-            chunk_store=chunk_store,
-            **format_kwargs,
-        )
-
+    root = zarr.open_group(
+        store,
+        mode="w" if overwrite else "a",
+        chunk_store=chunk_store,
+        **format_kwargs,
+    )
     _write_root_ome_attrs(root, metadata_dict, version)
 
     return root
@@ -1572,8 +1595,20 @@ def _to_ngff_zarr_impl(
     metadata_dict = _pop_metadata_optionals(metadata_dict)
     metadata_dict["@type"] = "ngff:Image"
 
+    # Route group/attribute metadata writes through the zarrista compat layer
+    # for path-like stores; store objects, mappings, and split chunk_store
+    # setups keep the zarr-python engine.
+    zarrista_metadata = chunk_store is None and use_zarrista_for(store)
+
     # Create Zarr root
-    root = _create_zarr_root(store, chunk_store, version, overwrite, metadata_dict)
+    root = _create_zarr_root(
+        store,
+        chunk_store,
+        version,
+        overwrite,
+        metadata_dict,
+        use_zarrista=zarrista_metadata,
+    )
 
     # Format parameters
     zarr_format = 2 if version == "0.4" else 3
@@ -1606,8 +1641,16 @@ def _to_ngff_zarr_impl(
 
         # Create parent groups if needed
         if parent not in (".", "/"):
-            array_dims_group = root.create_group(parent)
-            array_dims_group.attrs["_ARRAY_DIMENSIONS"] = image.dims
+            if zarrista_metadata:
+                create_zarrista_subgroup(
+                    store,
+                    parent,
+                    {"_ARRAY_DIMENSIONS": list(image.dims)},
+                    zarr_format,
+                )
+            else:
+                array_dims_group = root.create_group(parent)
+                array_dims_group.attrs["_ARRAY_DIMENSIONS"] = image.dims
 
         # Calculate dimension factors
         if index > 0 and index < nscales - 1 and multiscales.scale_factors:
@@ -1711,7 +1754,9 @@ def _to_ngff_zarr_impl(
         image.computed_callbacks = []
 
     # Consolidate metadata
-    if IS_ZARR_V3_PLUS:
+    if zarrista_metadata:
+        _zarrista_consolidate_metadata(store, zarr_format)
+    elif IS_ZARR_V3_PLUS:
         with warnings.catch_warnings():
             # Ignore consolidated metadata warning
             warnings.filterwarnings("ignore", category=UserWarning)

@@ -32,6 +32,7 @@ imported lazily inside each function.
 import importlib.util
 import json
 import os
+import shutil
 from collections.abc import MutableMapping
 from pathlib import Path
 
@@ -45,6 +46,7 @@ __all__ = [
     "consolidate_metadata",
     "create_zarrista_array",
     "create_zarrista_group",
+    "create_zarrista_subgroup",
     "normalize_store",
     "open_zarrista_array",
     "open_zarrista_lazy",
@@ -274,20 +276,54 @@ def normalize_store(store) -> Path:
     return path
 
 
-def create_zarrista_group(path, attributes: dict | None, zarr_format: int):
+def _existing_group_attributes(path: Path, zarr_format: int) -> dict:
+    """Attributes of the group already at *path*, or ``{}`` when absent.
+
+    Raises ``ValueError`` when *path* holds an array node, mirroring
+    zarr-python's refusal to open a group over an existing array.
+    """
+    if zarr_format == 2:
+        if (path / ".zarray").exists():
+            raise ValueError(f"An array node already exists at {path}")
+        doc = path / ".zattrs"
+        if not doc.exists():
+            return {}
+        loaded = json.loads(doc.read_text())
+        return loaded if isinstance(loaded, dict) else {}
+    doc = path / "zarr.json"
+    if not doc.exists():
+        return {}
+    loaded = json.loads(doc.read_text())
+    if loaded.get("node_type") != "group":
+        raise ValueError(f"An array node already exists at {path}")
+    return dict(loaded.get("attributes") or {})
+
+
+def create_zarrista_group(
+    path, attributes: dict | None, zarr_format: int, *, overwrite: bool = False
+):
     """Create group metadata at *path* and return the opened zarrista group.
 
     zarrista has no group-create API, so the metadata documents are written
     directly: ``.zgroup`` + ``.zattrs`` for zarr format 2, ``zarr.json`` for
-    format 3. The returned ``zarrista.Group`` reads them back, hiding the
-    hand-written JSON from callers.
+    format 3. With ``overwrite`` any existing content below *path* is removed
+    first, matching ``zarr.open_group(mode="w")``; otherwise an existing
+    group's attributes are preserved and updated with *attributes*, matching
+    ``mode="a"`` followed by per-key attribute assignment. The returned
+    ``zarrista.Group`` reads the documents back, hiding the hand-written JSON
+    from callers.
     """
     from zarrista import Group
     from zarrista.store import FilesystemStore
 
     path = normalize_store(path)
+    if overwrite and path.exists():
+        shutil.rmtree(path)
     path.mkdir(parents=True, exist_ok=True)
-    attributes = attributes or {}
+    attributes = {
+        **_existing_group_attributes(path, zarr_format),
+        **(attributes or {}),
+    }
     if zarr_format == 2:
         (path / ".zgroup").write_text(json.dumps({"zarr_format": 2}, indent=4))
         (path / ".zattrs").write_text(json.dumps(attributes, indent=4))
@@ -301,6 +337,23 @@ def create_zarrista_group(path, attributes: dict | None, zarr_format: int):
     else:
         raise ValueError(f"Unsupported zarr format: {zarr_format}")
     return Group.open(FilesystemStore(path), "/")
+
+
+def create_zarrista_subgroup(store, group_path, attributes: dict | None, zarr_format):
+    """Create the group at *group_path* within the store at *store*.
+
+    Missing ancestor groups along *group_path* are created with empty
+    attributes, matching zarr-python's implicit-parent creation; an existing
+    leaf group keeps its other attributes (see :func:`create_zarrista_group`).
+    Returns the zarrista group for the leaf.
+    """
+    root = normalize_store(store)
+    parts = [part for part in str(group_path).split("/") if part not in ("", ".")]
+    if not parts:
+        raise ValueError(f"Invalid group path: {group_path!r}")
+    for depth in range(1, len(parts)):
+        create_zarrista_group(root.joinpath(*parts[:depth]), None, zarr_format)
+    return create_zarrista_group(root.joinpath(*parts), attributes, zarr_format)
 
 
 def create_zarrista_array(
@@ -479,33 +532,58 @@ def consolidate_metadata(path, zarr_format: int) -> None:
 
     zarrista cannot write zarr format 2 consolidated metadata, so
     ``.zmetadata`` is hand-written by aggregating the per-node JSON documents
-    (what OME-Zarr 0.4 stores carry). Format 3 consolidation is inlined into
-    the root ``zarr.json`` through zarrista's native API, matching
-    ``zarr.consolidate_metadata``.
+    (what OME-Zarr 0.4 stores carry). Format 3 consolidation is likewise
+    hand-inlined into the root ``zarr.json``: routing it through zarrista's
+    consolidation API would re-serialize the child documents with zarrs
+    conventions (e.g. the bare-string shorthand for configuration-less codecs)
+    that zarr-python's reader rejects, so the raw documents are embedded
+    verbatim instead, matching ``zarr.consolidate_metadata``.
     """
+
+    def _empty_consolidated() -> dict:
+        # zarr-python's consolidation marks every non-root child group entry
+        # as (vacuously) consolidated; mirror it so consolidated output is
+        # indistinguishable from zarr-python's.
+        return {"kind": "inline", "must_understand": False, "metadata": {}}
+
     path = normalize_store(path)
     if zarr_format == 2:
         metadata = {}
         for doc in sorted(path.rglob(".z*")):
             if doc.name not in (".zgroup", ".zattrs", ".zarray"):
                 continue
-            metadata[doc.relative_to(path).as_posix()] = json.loads(doc.read_text())
+            key = doc.relative_to(path).as_posix()
+            entry = json.loads(doc.read_text())
+            if doc.name == ".zarray":
+                # zarrs stamps a non-standard node_type into v2 array
+                # metadata; zarr-python's consolidation drops it.
+                entry.pop("node_type", None)
+            elif doc.name == ".zgroup" and key != ".zgroup":
+                entry["consolidated_metadata"] = _empty_consolidated()
+            metadata[key] = entry
         consolidated = {"metadata": metadata, "zarr_consolidated_format": 1}
         (path / ".zmetadata").write_text(json.dumps(consolidated, indent=4))
     elif zarr_format == 3:
-        from zarrista import Group
-        from zarrista.store import FilesystemStore
-
         metadata = {}
         for doc in sorted(path.rglob("zarr.json")):
             if doc == path / "zarr.json":
                 continue
             key = doc.parent.relative_to(path).as_posix()
-            metadata[key] = json.loads(doc.read_text())
-        group = Group.open(FilesystemStore(path), "/")
-        group = group.with_consolidated_metadata(
-            {"kind": "inline", "must_understand": False, "metadata": metadata}
-        )
-        group.store_metadata()
+            entry = json.loads(doc.read_text())
+            # zarr-python's consolidation re-serializes entries through its
+            # metadata model, which always materializes these optional fields.
+            entry.setdefault("attributes", {})
+            if entry.get("node_type") == "group":
+                entry["consolidated_metadata"] = _empty_consolidated()
+            else:
+                entry.setdefault("storage_transformers", [])
+            metadata[key] = entry
+        root_doc = json.loads((path / "zarr.json").read_text())
+        root_doc["consolidated_metadata"] = {
+            "kind": "inline",
+            "must_understand": False,
+            "metadata": metadata,
+        }
+        (path / "zarr.json").write_text(json.dumps(root_doc, indent=4))
     else:
         raise ValueError(f"Unsupported zarr format: {zarr_format}")

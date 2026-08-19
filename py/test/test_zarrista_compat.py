@@ -8,6 +8,7 @@ tests that exercise it skip via ``pytest.importorskip`` where it is absent.
 """
 
 import json
+import shutil
 
 import dask.array as da
 import numpy as np
@@ -18,6 +19,7 @@ from ngff_zarr._zarrista_utils import (
     consolidate_metadata,
     create_zarrista_array,
     create_zarrista_group,
+    create_zarrista_subgroup,
     normalize_store,
     open_zarrista_lazy,
     use_zarrista_for,
@@ -263,3 +265,151 @@ def test_use_zarrista_for_legacy_targets(tmp_path, monkeypatch):
 
     monkeypatch.setattr(zarrista_utils, "_ZARRISTA_AVAILABLE", False)
     assert not use_zarrista_for(tmp_path / "store.zarr")
+
+
+@pytest.mark.parametrize("zarr_format", [2, 3])
+def test_create_group_overwrite_and_merge(tmp_path, zarr_format):
+    pytest.importorskip("zarrista")
+
+    store_path = tmp_path / "store.zarr"
+    create_zarrista_group(store_path, {"a": 1, "keep": True}, zarr_format)
+    stale = store_path / "stale.txt"
+    stale.write_text("stale")
+
+    # Append mode merges with existing attributes and keeps other content,
+    # matching zarr.open_group(mode="a") followed by attribute assignment.
+    group = create_zarrista_group(store_path, {"a": 2}, zarr_format)
+    assert group.attrs == {"a": 2, "keep": True}
+    assert stale.exists()
+
+    # Overwrite clears prior content, matching zarr.open_group(mode="w").
+    group = create_zarrista_group(store_path, {"b": 3}, zarr_format, overwrite=True)
+    assert group.attrs == {"b": 3}
+    assert not stale.exists()
+
+
+@pytest.mark.parametrize("zarr_format", [2, 3])
+def test_create_group_refuses_array_node(tmp_path, zarr_format):
+    pytest.importorskip("zarrista")
+
+    store_path = tmp_path / "store.zarr"
+    create_zarrista_group(store_path, {}, zarr_format)
+    create_zarrista_array(store_path, "0", (4,), np.uint8, (2,), zarr_format)
+    with pytest.raises(ValueError, match="array node"):
+        create_zarrista_group(store_path / "0", {}, zarr_format)
+
+
+@pytest.mark.parametrize("zarr_format", [2, 3])
+def test_create_zarrista_subgroup_nested(tmp_path, zarr_format):
+    pytest.importorskip("zarrista")
+    if zarr_format == 3 and zarr_version < version.parse("3.0.0b2"):
+        pytest.skip("zarr version >= 3.0.0b2 required to read zarr format 3")
+
+    store_path = tmp_path / "store.zarr"
+    create_zarrista_group(store_path, {"root": True}, zarr_format)
+    dims = {"_ARRAY_DIMENSIONS": ["y", "x"]}
+    create_zarrista_subgroup(store_path, "a/b", dims, zarr_format)
+
+    # Ancestor groups gain their own metadata documents.
+    if zarr_format == 2:
+        assert json.loads((store_path / "a" / ".zgroup").read_text()) == {
+            "zarr_format": 2
+        }
+        leaf_attrs = json.loads((store_path / "a" / "b" / ".zattrs").read_text())
+    else:
+        ancestor = json.loads((store_path / "a" / "zarr.json").read_text())
+        assert ancestor["node_type"] == "group"
+        leaf = json.loads((store_path / "a" / "b" / "zarr.json").read_text())
+        leaf_attrs = leaf["attributes"]
+    assert leaf_attrs == dims
+
+    zgroup = zarr.open_group(str(store_path), mode="r")
+    assert zgroup["a/b"].attrs["_ARRAY_DIMENSIONS"] == ["y", "x"]
+
+
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="comparison target zarr.consolidate_metadata(zarr_format=...) "
+    "requires zarr-python >= 3",
+)
+@pytest.mark.parametrize("zarr_format", [2, 3])
+def test_consolidate_metadata_matches_zarr_python(tmp_path, sample_data, zarr_format):
+    pytest.importorskip("zarrista")
+    import warnings
+
+    from deepdiff import DeepDiff
+
+    store_path = tmp_path / "ours.zarr"
+    create_zarrista_group(store_path, {"root": True}, zarr_format)
+    create_zarrista_subgroup(
+        store_path, "scale0", {"_ARRAY_DIMENSIONS": ["y", "x"]}, zarr_format
+    )
+    arr = create_zarrista_array(
+        store_path,
+        "scale0/image",
+        sample_data.shape,
+        sample_data.dtype,
+        (8, 16),
+        zarr_format,
+    )
+    write_dask_array(da.from_array(sample_data, chunks=(8, 16)), arr)
+
+    reference = tmp_path / "zarr-python.zarr"
+    shutil.copytree(store_path, reference)
+    consolidate_metadata(store_path, zarr_format)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        zarr.consolidate_metadata(str(reference), zarr_format=zarr_format)
+
+    doc_name = ".zmetadata" if zarr_format == 2 else "zarr.json"
+    ours = json.loads((store_path / doc_name).read_text())
+    theirs = json.loads((reference / doc_name).read_text())
+    assert not DeepDiff(theirs, ours, ignore_order=True)
+
+
+@pytest.mark.skipif(
+    zarr_version < version.parse("3.0.0b2"),
+    reason="the legacy-engine comparison requires zarr-python >= 3 (LocalStore)",
+)
+@pytest.mark.parametrize("ngff_version", ["0.4", "0.5"])
+def test_to_ngff_zarr_path_store_matches_zarr_python(tmp_path, ngff_version):
+    """A path-like store (dispatched to zarrista) must produce a store
+    indistinguishable from a store-object target (legacy zarr-python)."""
+    pytest.importorskip("zarrista")
+    from deepdiff import DeepDiff
+    from ngff_zarr import to_multiscales, to_ngff_image, to_ngff_zarr
+
+    rng = np.random.default_rng(11)
+    data = rng.integers(0, 255, size=(2, 64, 64), dtype=np.uint8)
+    image = to_ngff_image(
+        data, dims=("z", "y", "x"), scale={"z": 2.0, "y": 0.5, "x": 0.5}
+    )
+    multiscales = to_multiscales(image, scale_factors=[2], chunks=32)
+
+    zarrista_path = tmp_path / "zarrista.ome.zarr"
+    to_ngff_zarr(str(zarrista_path), multiscales, version=ngff_version)
+
+    legacy_path = tmp_path / "legacy.ome.zarr"
+    to_ngff_zarr(
+        zarr.storage.LocalStore(legacy_path), multiscales, version=ngff_version
+    )
+
+    zarrista_files = sorted(
+        p.relative_to(zarrista_path).as_posix()
+        for p in zarrista_path.rglob("*")
+        if p.is_file()
+    )
+    legacy_files = sorted(
+        p.relative_to(legacy_path).as_posix()
+        for p in legacy_path.rglob("*")
+        if p.is_file()
+    )
+    assert zarrista_files == legacy_files
+
+    metadata_names = {".zgroup", ".zattrs", ".zarray", ".zmetadata", "zarr.json"}
+    for name in legacy_files:
+        if name.rsplit("/", 1)[-1] not in metadata_names:
+            continue
+        legacy_doc = json.loads((legacy_path / name).read_text())
+        zarrista_doc = json.loads((zarrista_path / name).read_text())
+        assert not DeepDiff(legacy_doc, zarrista_doc, ignore_order=True), name
