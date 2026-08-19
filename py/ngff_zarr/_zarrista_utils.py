@@ -29,9 +29,11 @@ zarrista requires Python >= 3.11 and is an optional dependency, so it is
 imported lazily inside each function.
 """
 
+import ast
 import importlib.util
 import json
 import os
+import re
 import shutil
 import threading
 from collections.abc import MutableMapping
@@ -269,14 +271,43 @@ def use_zarrista_for(store) -> bool:
     return _zarrista_available()
 
 
+_FILESYSTEM_STORE_REPR = re.compile(r"\AFilesystemStore\(path=(.*)\)\Z", re.DOTALL)
+
+
+def _zarrista_filesystem_store_path(store) -> Path | None:
+    """Root path of a zarrista ``FilesystemStore``, or ``None`` otherwise.
+
+    zarrista's stores are pyo3 classes with no Python-visible attributes; the
+    only channel for the root path is the round-trippable ``repr``
+    (``FilesystemStore(path='...')``, quoted per Python's string ``repr``),
+    parsed with ``ast.literal_eval``. Tests pin the format so upstream drift
+    surfaces as a failure rather than a silently unresolvable store.
+    """
+    if not _zarrista_available():
+        return None
+    from zarrista.store import FilesystemStore
+
+    if not isinstance(store, FilesystemStore):
+        return None
+    match = _FILESYSTEM_STORE_REPR.match(repr(store))
+    if match is None:
+        return None
+    try:
+        path = ast.literal_eval(match.group(1))
+    except (ValueError, SyntaxError):
+        return None
+    return Path(path) if isinstance(path, str) else None
+
+
 def resolve_store_path(store) -> Path | None:
     """Resolve *store* to the local directory path backing it, or ``None``.
 
-    Accepts plain ``str``/``pathlib.Path``/``os.PathLike`` targets and the
+    Accepts plain ``str``/``pathlib.Path``/``os.PathLike`` targets, the
     directory-backed zarr-python stores (``LocalStore``/``DirectoryStore``,
-    e.g. the default ``config.cache_store``). Returns ``None`` for stores
-    with no local directory (in-memory mappings, remote stores, ...), which
-    must keep the zarr-python engine.
+    e.g. the default ``config.cache_store``), and zarrista
+    ``FilesystemStore`` handles. Returns ``None`` for stores with no local
+    directory (in-memory mappings, remote stores, ...), which must keep the
+    zarr-python engine.
     """
     local_store_cls = getattr(zarr.storage, "LocalStore", None)
     if local_store_cls is not None and isinstance(store, local_store_cls):
@@ -284,6 +315,9 @@ def resolve_store_path(store) -> Path | None:
     directory_store_cls = getattr(zarr.storage, "DirectoryStore", None)
     if directory_store_cls is not None and isinstance(store, directory_store_cls):
         return Path(store.path)
+    zarrista_path = _zarrista_filesystem_store_path(store)
+    if zarrista_path is not None:
+        return zarrista_path
     if isinstance(store, (str, Path, os.PathLike)) and not isinstance(
         store, MutableMapping
     ):

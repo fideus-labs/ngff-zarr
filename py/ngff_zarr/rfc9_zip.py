@@ -33,18 +33,17 @@ def is_ozx_path(path: str | Path) -> bool:
 
 
 def _get_store_root_path(source_store) -> Path | None:
-    """Return the filesystem root Path for a store, or None for non-filesystem stores."""
-    if isinstance(source_store, (str, Path)):
-        return Path(source_store)
-    if hasattr(zarr.storage, "LocalStore") and isinstance(
-        source_store, zarr.storage.LocalStore
-    ):
-        return Path(source_store.root)
-    if hasattr(zarr.storage, "DirectoryStore") and isinstance(
-        source_store, zarr.storage.DirectoryStore
-    ):
-        return Path(source_store.dir_path())
-    return None
+    """Return the filesystem root Path for a store, or None for non-filesystem stores.
+
+    Delegates to the compat layer's resolver, which handles plain
+    ``str``/``Path``/``os.PathLike`` targets, directory-backed zarr-python
+    stores (``LocalStore``/``DirectoryStore``), and zarrista
+    ``FilesystemStore`` handles.
+    """
+    # Imported lazily: _zarrista_utils imports is_ozx_path from this module.
+    from ._zarrista_utils import resolve_store_path
+
+    return resolve_store_path(source_store)
 
 
 def _enumerate_fs_files(root_dir: Path) -> list[str]:
@@ -115,8 +114,10 @@ def write_store_to_zip(
     Parameters
     ----------
     source_store : zarr.storage.StoreLike, str, or Path
-        Source zarr store to write from. Can be a store object (LocalStore, DirectoryStore)
-        or a path string to a directory containing zarr data.
+        Source zarr store to write from. Can be a path (str, Path, or
+        os.PathLike) to a directory containing zarr data, a directory-backed
+        zarr-python store (LocalStore, DirectoryStore), or a zarrista
+        FilesystemStore handle.
     zip_path : str or Path
         Path to output .ozx file
     version : str, optional

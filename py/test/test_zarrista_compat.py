@@ -648,6 +648,25 @@ def test_resolve_store_path(tmp_path):
     assert resolve_store_path(zarr.storage.MemoryStore()) is None
 
 
+def test_resolve_store_path_zarrista_store(tmp_path):
+    """zarrista FilesystemStore handles resolve to their root directory.
+
+    The store is a pyo3 class with no Python-visible attributes; resolution
+    goes through its round-trippable repr, so this also pins the repr format
+    (including the quote-switching for paths containing a single quote).
+    """
+    zarrista = pytest.importorskip("zarrista")
+    from ngff_zarr._zarrista_utils import resolve_store_path
+
+    store = zarrista.store.FilesystemStore(tmp_path)
+    assert resolve_store_path(store) == tmp_path
+
+    awkward = tmp_path / "it's here"
+    assert resolve_store_path(zarrista.store.FilesystemStore(str(awkward))) == awkward
+
+    assert resolve_store_path(zarrista.store.MemoryStore()) is None
+
+
 def test_read_group_attributes(tmp_path):
     """Absent group -> None, empty group -> {}, attributes round-trip; an
     array node raises like zarr-python's group-over-array refusal."""
