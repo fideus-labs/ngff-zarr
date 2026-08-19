@@ -50,6 +50,7 @@ __all__ = [
     "normalize_store",
     "open_zarrista_array",
     "open_zarrista_lazy",
+    "resolve_store_path",
     "use_zarrista_for",
     "write_dask_array",
 ]
@@ -256,6 +257,28 @@ def use_zarrista_for(store) -> bool:
     return _zarrista_available()
 
 
+def resolve_store_path(store) -> Path | None:
+    """Resolve *store* to the local directory path backing it, or ``None``.
+
+    Accepts plain ``str``/``pathlib.Path``/``os.PathLike`` targets and the
+    directory-backed zarr-python stores (``LocalStore``/``DirectoryStore``,
+    e.g. the default ``config.cache_store``). Returns ``None`` for stores
+    with no local directory (in-memory mappings, remote stores, ...), which
+    must keep the zarr-python engine.
+    """
+    local_store_cls = getattr(zarr.storage, "LocalStore", None)
+    if local_store_cls is not None and isinstance(store, local_store_cls):
+        return Path(store.root)
+    directory_store_cls = getattr(zarr.storage, "DirectoryStore", None)
+    if directory_store_cls is not None and isinstance(store, directory_store_cls):
+        return Path(store.path)
+    if isinstance(store, (str, Path, os.PathLike)) and not isinstance(
+        store, MutableMapping
+    ):
+        return Path(os.fspath(store))
+    return None
+
+
 def normalize_store(store) -> Path:
     """Normalize *store* to a local directory path zarrista can target.
 
@@ -264,20 +287,14 @@ def normalize_store(store) -> Path:
     zarrista cannot handle (in-memory mappings, remote stores, ...) and
     ``ValueError`` for zip targets, which zarrista can only read.
     """
-    local_store_cls = getattr(zarr.storage, "LocalStore", None)
-    if local_store_cls is not None and isinstance(store, local_store_cls):
-        store = store.root
-    directory_store_cls = getattr(zarr.storage, "DirectoryStore", None)
-    if directory_store_cls is not None and isinstance(store, directory_store_cls):
-        store = store.path
-    if not isinstance(store, (str, Path, os.PathLike)):
+    path = resolve_store_path(store)
+    if path is None:
         raise TypeError(
             "The zarrista compatibility layer requires a local path store; "
             f"got {type(store).__name__}. Pass a str, pathlib.Path, or "
             "os.PathLike directory path. In-memory mappings and other zarr "
             "store objects must use the zarr-python engine."
         )
-    path = Path(os.fspath(store))
     if path.suffix.lower() == ".zip" or is_ozx_path(path):
         raise ValueError(
             "zarrista cannot write into zip archives (.zip/.ozx). Write to a "

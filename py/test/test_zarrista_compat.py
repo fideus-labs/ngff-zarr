@@ -538,3 +538,104 @@ def test_engine_equivalence_memory_constrained(
         _assert_engines_equivalent(tmp_path, multiscales, ngff_version, **kwargs)
     finally:
         config.memory_target = saved_target
+
+
+def _to_multiscales_module():
+    # ``ngff_zarr.to_multiscales`` names the function; fetch the module.
+    import importlib
+
+    return importlib.import_module("ngff_zarr.to_multiscales")
+
+
+def _fail_open_array(*args, **kwargs):
+    raise AssertionError("cache write used the legacy zarr-python engine")
+
+
+@pytest.mark.parametrize(
+    ("dims", "shape", "memory_target"),
+    [
+        (("z", "y", "x"), (7, 64, 64), 8192),
+        (("z", "y", "x"), (600, 32, 32), 8192),
+        (("y", "x"), (250, 96), 4096),
+        (("x",), (1000,), 256),
+    ],
+    ids=["z-slabs", "z-optimized-rechunk", "2d-strips", "1d-segments"],
+)
+def test_multiscales_cache_uses_zarrista(
+    tmp_path, monkeypatch, dims, shape, memory_target
+):
+    """The to_multiscales disk cache writes through zarrista for a
+    directory-backed cache store, across all cache layouts: z-slabs (with a
+    partial final slab), the optimized-chunks second pass, 2D strips, and 1D
+    segments. Pixel values must round-trip exactly."""
+    pytest.importorskip("zarrista")
+    import dask.array
+    from ngff_zarr import config, to_multiscales, to_ngff_image
+
+    tm = _to_multiscales_module()
+    monkeypatch.setattr(tm, "open_array", _fail_open_array)
+    monkeypatch.setattr(config, "cache_store", zarr.storage.LocalStore(tmp_path))
+    monkeypatch.setattr(config, "memory_target", memory_target)
+
+    rng = np.random.default_rng(7)
+    data = rng.integers(0, 255, size=shape, dtype=np.uint8)
+    image = to_ngff_image(dask.array.from_array(data, chunks=32), dims=dims)
+    multiscales = to_multiscales(image, scale_factors=[], cache=True)
+
+    cache_dirs = list(tmp_path.glob("*-cache-*"))
+    assert cache_dirs, "cache was not written under the resolved directory path"
+    np.testing.assert_array_equal(np.asarray(multiscales.images[0].data), data)
+
+
+def test_multiscales_cache_store_object_keeps_legacy_engine(monkeypatch):
+    """A user-supplied cache store without a local directory (here a
+    MemoryStore) keeps the zarr-python cache engine."""
+    import dask.array
+    from ngff_zarr import config, to_multiscales, to_ngff_image
+
+    tm = _to_multiscales_module()
+    legacy_calls = []
+    real_open_array = tm.open_array
+
+    def spy_open_array(*args, **kwargs):
+        legacy_calls.append(kwargs.get("path"))
+        return real_open_array(*args, **kwargs)
+
+    monkeypatch.setattr(tm, "open_array", spy_open_array)
+    monkeypatch.setattr(config, "cache_store", zarr.storage.MemoryStore())
+    monkeypatch.setattr(config, "memory_target", 4096)
+
+    rng = np.random.default_rng(7)
+    data = rng.integers(0, 255, size=(256, 96), dtype=np.uint8)
+    image = to_ngff_image(dask.array.from_array(data, chunks=32), dims=("y", "x"))
+    multiscales = to_multiscales(image, scale_factors=[], cache=True)
+
+    assert legacy_calls, "MemoryStore cache should use the legacy engine"
+    np.testing.assert_array_equal(np.asarray(multiscales.images[0].data), data)
+
+    # Run the cache cleanup now, while a rmdir stub is in place: zarr-python 3
+    # dropped ``zarr.storage.rmdir``, which the (pre-existing) store-object
+    # cleanup fallback still calls; firing the computed callbacks here marks
+    # the cache removed so the atexit hook does not spew at interpreter exit.
+    monkeypatch.setattr(zarr.storage, "rmdir", lambda *args: None, raising=False)
+    for image in multiscales.images:
+        for callback in image.computed_callbacks:
+            callback()
+        image.computed_callbacks = []
+
+
+def test_resolve_store_path(tmp_path):
+    """LocalStore/DirectoryStore and path-likes resolve to their directory;
+    stores without one resolve to None."""
+    from ngff_zarr._zarrista_utils import resolve_store_path
+
+    assert resolve_store_path(str(tmp_path)) == tmp_path
+    assert resolve_store_path(tmp_path) == tmp_path
+    assert resolve_store_path({}) is None
+    if hasattr(zarr.storage, "LocalStore"):
+        store = zarr.storage.LocalStore(tmp_path)
+        assert resolve_store_path(store) == tmp_path
+    if hasattr(zarr.storage, "DirectoryStore"):
+        store = zarr.storage.DirectoryStore(str(tmp_path))
+        assert resolve_store_path(store) == tmp_path
+    assert resolve_store_path(zarr.storage.MemoryStore()) is None
