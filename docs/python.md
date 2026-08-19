@@ -215,6 +215,19 @@ To read an OME-Zarr file, use [`from_ngff_zarr`], which returns the
 
 OME-Zarr version 0.1 to 0.6 is supported. Version 0.6 adds RFC-5 coordinate systems and transformations.
 
+The `store` argument accepts:
+
+- A local directory path (`str`, `pathlib.Path`, or `os.PathLike`)
+- A remote URL string (`s3://`, `gs://`, `azure://`, `http://`, `https://`)
+  with the `remote` extra installed -- see
+  [Network Storage and Authentication](./faq.md#network-storage-and-authentication)
+- A `.ozx` / `.zip` archive path
+- An in-memory key-to-bytes `MutableMapping` (e.g. a plain `dict` of a store's
+  contents), read through a pure-Python reader (Zarr v2, or unsharded Zarr v3)
+
+zarr-python store objects (`LocalStore`, `MemoryStore`, ...) are no longer
+accepted -- pass the path they wrap instead.
+
 ## OME-Zarr Zip (.ozx) files
 
 [RFC-9](https://ngff.openmicroscopy.org/rfc/9/index.html) introduces support for OME-Zarr Zip (.ozx) files, which package an entire OME-Zarr hierarchy into a single ZIP archive. This format provides several benefits:
@@ -259,11 +272,9 @@ For direct store-to-ZIP conversion without reprocessing the data, use `write_sto
 
 ```python
 >>> from ngff_zarr.rfc9_zip import write_store_to_zip
->>> from zarr.storage import LocalStore
 >>>
->>> # Direct conversion of existing store to .ozx
->>> source_store = LocalStore('cthead1.ome.zarr')
->>> write_store_to_zip(source_store, 'cthead1.ozx', version='0.5')
+>>> # Direct conversion of an existing store directory to .ozx
+>>> write_store_to_zip('cthead1.ome.zarr', 'cthead1.ozx', version='0.5')
 ```
 
 This is more efficient for large datasets as it copies the store contents directly without recomputing arrays.
@@ -296,26 +307,29 @@ nz.to_ngff_zarr('cthead1.ome.zarr', multiscales)
 
 Use the `.ome.zarr` extension for local directory stores by convention.
 
-Any other
-[Zarr store type](https://zarr.readthedocs.io/en/stable/api/storage.html) can
-also be used.
+Writing targets a local directory path (`str`, `pathlib.Path`, or
+`os.PathLike`), or a `.ozx` path for a
+[zipped OME-Zarr archive](#ome-zarr-zip-ozx-files). Remote URLs, in-memory
+mappings, and zarr-python store objects are not write targets -- write to a
+local directory and upload or convert afterwards.
 
 The multiscales will be computed and written out-of-core, limiting memory usage.
 
-### Fast direct writing with zarrista
+### The zarrista backend
 
-The [zarrista] backend, included with ngff-zarr on Python 3.11+, provides a
-fast direct-write path for local, path-like stores.
+Writing (and local reading) is backed by [zarrista], a Python Zarr
+implementation built on the Rust [zarrs] library, which writes arrays through
+a fast direct-write path. Outputs remain fully spec-compliant: OME-Zarr 0.4
+(Zarr v2) and 0.5+ (Zarr v3) stores stay readable by zarr-python 2 and 3 and
+by other OME-Zarr implementations.
 
-```python
-nz.to_ngff_zarr('cthead1.ome.zarr', multiscales, use_tensorstore=True)
-```
+The `use_tensorstore` keyword is a deprecated no-op kept for backwards
+compatibility: the fast direct-write path it used to enable (first via
+tensorstore, then via zarrista) is now the only write path. Passing
+`use_tensorstore=True` raises a `DeprecationWarning`; remove it from your
+calls.
 
-The `use_tensorstore` keyword is a deprecated name kept for backwards
-compatibility -- it now enables the zarrista writer, which replaced the
-previous tensorstore backend.
-
-The zarrista backend uses the same dtype canonicalization, including for
+The zarrista backend applies dtype canonicalization, including for
 big-endian NumPy arrays written to Zarr v3 stores.
 
 ### Write a sharded OME-Zarr store
@@ -362,15 +376,8 @@ The resulting shard shape will be the product of the chunk shape and the
 `chunks_per_shard` shape. In this case the shard shape will be `(256, 128, 128)`
 for a chunk shape of `(64, 64, 64)`.
 
-The zarrista writer can also be used with sharded OME-Zarr stores.
-
-```python
-nz.to_ngff_zarr('lightsheet.ome.zarr',
-                multiscales,
-                chunks_per_shard={'z':4, 'y':2, 'x':2},
-                use_tensorstore=True,
-                version=version)
-```
+Sharded stores are written through the same zarrista direct-write path as
+regular stores; no extra options are required.
 
 ## TIFF and OME-TIFF Files
 
@@ -605,3 +612,4 @@ example `plate.ome.zarr/A/1/0`).
 [`from_hcs_zarr`]: ./apidocs/ngff_zarr/ngff_zarr.hcs.md
 [Sharded Zarr]: https://zarr.dev/zeps/accepted/ZEP0002.html
 [zarrista]: https://github.com/developmentseed/zarrista
+[zarrs]: https://zarrs.dev/

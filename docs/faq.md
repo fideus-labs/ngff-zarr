@@ -91,6 +91,52 @@ respective `storage_options`.
 **Remote writes** are not supported: write to a local directory and upload
 afterwards (for example with `aws s3 sync` or `rclone`).
 
+## Zarr Backend and zarr-python Compatibility
+
+### Does ngff-zarr require zarr-python?
+
+No. ngff-zarr reads and writes Zarr through
+[zarrista](https://github.com/developmentseed/zarrista), a Python Zarr
+implementation built on the Rust [zarrs](https://zarrs.dev/) library.
+zarr-python is not a dependency of ngff-zarr, and the two can be installed
+side by side without conflict.
+
+The stores ngff-zarr writes are standard OME-Zarr: version 0.4 uses the Zarr
+v2 format and versions 0.5+ use Zarr v3. They remain readable by zarr-python
+2 and 3 and by the other OME-Zarr implementations; ngff-zarr's test suite
+verifies round-trips against both zarr-python majors.
+
+### Why does passing a zarr-python store object raise `TypeError`?
+
+Store objects from zarr-python (`LocalStore`, `DirectoryStore`,
+`MemoryStore`, ...) are no longer accepted as inputs. Pass the path or URL a
+store wraps instead:
+
+```python
+# Before
+from zarr.storage import LocalStore
+multiscales = from_ngff_zarr(LocalStore("image.ome.zarr"))
+
+# After
+multiscales = from_ngff_zarr("image.ome.zarr")
+```
+
+Writing targets local directory paths (or `.ozx` archive paths); reading
+additionally accepts remote URLs and in-memory key-to-bytes mappings (a
+plain `dict` works). See
+[Read an OME-Zarr](./python.md#read-an-ome-zarr) for the full list of
+accepted store types.
+
+### Why can't ngff-zarr read a Zarr v3 store with `nthreads` in its blosc codec metadata?
+
+Some tools wrote deprecated `nthreads`/`blocksize` keys into the blosc codec
+configuration of Zarr v3 array metadata. When these keys appear in a store's
+*consolidated* metadata (the root `zarr.json`), ngff-zarr tolerates and
+ignores them. When they appear in an individual array's `zarr.json`, the
+zarrista backend rejects the store as out-of-spec. To repair such a store,
+remove the two keys from the `blosc` codec `configuration` object in each
+array-level `zarr.json` document.
+
 ## File Formats
 
 ### Where can I find documentation for specific file formats like TIFF or LIF?

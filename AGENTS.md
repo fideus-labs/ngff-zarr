@@ -305,9 +305,11 @@ import { fromNgffZarr, toNgffZarr } from "./io/from_ngff_zarr.ts";
 ### Zarr Store Handling
 
 ```python
-# Python: Auto-detects zarr v2/v3, uses appropriate store type
-from zarr.storage import DirectoryStore, LocalStore  # v2 vs v3
-store = zarr.open.v2() if zarr_v2 else zarr.open()
+# Python: I/O is backed by zarrista (Rust zarrs); zarr-python is a test-only
+# dependency used to verify round-trip compatibility of written stores.
+# Pass paths, not store objects (zarr-python store objects raise TypeError):
+to_ngff_zarr("image.ome.zarr", multiscales)  # local directory or .ozx path
+from_ngff_zarr("image.ome.zarr")  # also: remote URLs, .zip/.ozx, dict mappings
 
 # TypeScript: Auto-detects HTTP vs local paths
 import { FetchStore, FileSystemStore } from "@zarrita/storage";
@@ -391,15 +393,16 @@ export class NgffImage {
 
 ### Common Issues
 
-1. **"Node not found: v3 array"** → Use `zarr.open.v2()` for zarr format 2
+1. **`TypeError` on store inputs** → Pass a path (str/Path), not a
+   zarr-python store object; writes require local directory or `.ozx` paths
 2. **Memory errors** → Check `config.memory_target`, enable caching
 3. **TypeScript import errors** → Use relative imports with `.ts` extension
 4. **Test fixture failures** → Ensure test data downloaded via pooch
 
 ### Performance Optimization
 
-- Enable the zarrista fast direct-write path with `use_tensorstore=True`
-  (deprecated keyword name) for very large datasets
+- Writes always use zarrista's fast direct-write path; `use_tensorstore` is a
+  deprecated no-op kept for backwards compatibility (raises DeprecationWarning)
 - Use `chunks_per_shard` for zarr v3 sharding
 - Set appropriate `chunks` parameter for your use case
 
