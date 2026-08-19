@@ -24,6 +24,7 @@ from typing import Optional
 import zarr
 from packaging import version as pkg_version
 
+from ._remote_reader import RemoteZarrStore, remote_read_available
 from ._zarrista_utils import (
     create_zarrista_group,
     create_zarrista_subgroup,
@@ -31,7 +32,7 @@ from ._zarrista_utils import (
     read_group_attributes,
     use_zarrista_for,
 )
-from .from_ngff_zarr import _open_root_node, from_ome_zarr
+from .from_ngff_zarr import REMOTE_URL_SCHEMES, _open_root_node, from_ome_zarr
 from .multiscales import NgffMultiscales
 from .rfc9_zip import ZipReadStore, is_ozx_path, write_store_to_zip
 from .to_ngff_zarr import to_ome_zarr
@@ -315,7 +316,13 @@ class HCSWell:
 
         # Cache images to avoid reloading
         if image_path not in self._images:
-            if isinstance(self.store, ZipReadStore):
+            if isinstance(self.store, RemoteZarrStore):
+                # A view of the same remote store narrowed to this field's
+                # sub-hierarchy, sharing the obstore client.
+                self._images[image_path] = from_ome_zarr(
+                    self.store.with_prefix(image_path)
+                )
+            elif isinstance(self.store, ZipReadStore):
                 # A view of the same archive narrowed to this field's
                 # sub-hierarchy; from_ome_zarr reads it as a mapping store.
                 self._images[image_path] = from_ome_zarr(
@@ -406,6 +413,15 @@ def from_hcs_zarr(
         # Read the archive through the zarrista-backed zip store handle
         # (zarr-python ZipStore only when zarrista is unavailable).
         store = open_ozx_store(store)
+
+    # Remote plate URLs read through zarrista's async API over obstore
+    # (the zarr-python/fsspec engine remains the fallback).
+    if (
+        isinstance(store, str)
+        and store.startswith(REMOTE_URL_SCHEMES)
+        and remote_read_available()
+    ):
+        store = RemoteZarrStore(store)
 
     root = _open_root_node(store, None)
     root_attrs = root.attrs.asdict()

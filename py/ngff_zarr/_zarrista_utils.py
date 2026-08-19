@@ -114,6 +114,10 @@ class _ZarristaArrayAdapter:
         self.dtype = np.dtype(arr.dtype.name)
         self.ndim = arr.ndim
 
+    def _fetch(self, selection) -> np.ndarray:
+        """Materialize *selection*; the async remote adapter overrides this."""
+        return np.asarray(self._arr[selection])
+
     def __getitem__(self, selection):
         # zarrista treats an integer index like a length-1 slice, keeping the
         # axis; dask's fused getters rely on numpy semantics where integer
@@ -137,7 +141,7 @@ class _ZarristaArrayAdapter:
                 drop_axes.append(axis)
             else:
                 normalized.append(index)
-        result = np.asarray(self._arr[tuple(normalized)])
+        result = self._fetch(tuple(normalized))
         if drop_axes:
             result = np.squeeze(result, axis=tuple(drop_axes))
         return result
@@ -833,13 +837,18 @@ def open_lazy_array(store, component: str | None = None) -> dask.array.Array:
 
     The single read-dispatch point mirroring :func:`use_zarrista_for` on the
     write side: zip-archive views read pixels through zarrista's zip store,
-    other bytes mappings go through the pure-Python store reader (either
-    zarr format), local paths through zarrista, and every other store
-    object (zarr-python stores: ZipStore, FsspecStore, MemoryStore, ...)
-    keeps the zarr-python engine via ``dask.array.from_zarr``.
+    remote store handles through zarrista's async API over obstore, other
+    bytes mappings go through the pure-Python store reader (either zarr
+    format), local paths through zarrista, and every other store object
+    (zarr-python stores: ZipStore, FsspecStore, MemoryStore, ...) keeps the
+    zarr-python engine via ``dask.array.from_zarr``.
     """
     if isinstance(store, ZipReadStore) and _zarrista_available():
         return open_zip_lazy(store, component)
+    from ._remote_reader import RemoteZarrStore, open_remote_lazy
+
+    if isinstance(store, RemoteZarrStore):
+        return open_remote_lazy(store, component)
     if _is_bytes_mapping(store):
         from ._v2_store_reader import open_store_array
 

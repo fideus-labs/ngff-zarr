@@ -74,6 +74,11 @@ cli = [
   "ngff-zarr[remote]",
 ]
 remote = [
+  # Remote URL reads route through zarrista's async API backed by obstore
+  # (Python >= 3.11). The fsspec backends below remain for remote writes
+  # (to_ngff_zarr / upgrade_ome_zarr URL targets) and for the Python 3.10 /
+  # zarr-python fallback read engine.
+  "obstore; python_version >= \"3.11\"",
   "fsspec",
   "aiohttp",
   "requests",

@@ -7,6 +7,11 @@ import zarr
 import zarr.errors
 import zarr.storage
 
+from ._remote_reader import (
+    RemoteZarrStore,
+    open_remote_node,
+    remote_read_available,
+)
 from ._zarr_types import StoreLike
 from ._zarrista_utils import (
     _is_bytes_mapping,
@@ -172,13 +177,32 @@ def _open_local_root(store, version: str | None):
     return node
 
 
+def _open_remote_root(store: RemoteZarrStore, version: str | None):
+    """Open the root group of a remote store via zarrista's async API.
+
+    zarrista auto-detects the zarr format (preferring format 3, with the
+    spurious-``zarr.json`` v2 attribute fallback handled inside
+    :func:`~._remote_reader.open_remote_node`), so an explicit *version*
+    needs no format pinning here.
+    """
+    node = open_remote_node(store)
+    if node is None:
+        raise _group_not_found_error(store)
+    if hasattr(node, "shape"):
+        raise _array_at_root_error(store)
+    return node
+
+
 def _open_root_node(store, version: str | None):
     """Open the root node of *store* for reading via the best backend.
 
     Local directory paths go through the zarrista compat layer (direct
-    metadata-document reads), bytes mappings through the pure-Python v2 store
+    metadata-document reads), remote URL handles through zarrista's async
+    API over obstore, bytes mappings through the pure-Python v2 store
     reader, and any other store object through zarr-python.
     """
+    if isinstance(store, RemoteZarrStore):
+        return _open_remote_root(store, version)
     if _is_bytes_mapping(store):
         from ._v2_store_reader import V2Group, V3Group, open_store_node
 
@@ -276,7 +300,10 @@ def from_ome_zarr(
     storage_options : dict, optional
         Storage options to pass to the store if store is a string URL.
         For S3 URLs, this can include authentication credentials and other
-        options for the underlying filesystem.
+        options for the underlying filesystem. fsspec-style option names
+        are accepted; when the zarrista/obstore remote engine handles the
+        read they are translated to the obstore equivalents, warning on
+        (and ignoring) options with no translation.
 
     Returns
     -------
@@ -314,9 +341,15 @@ def from_ome_zarr(
         # (zarr-python ZipStore only when zarrista is unavailable).
         store = open_ozx_store(store)
 
-    # Handle string URLs with storage options (zarr-python 3+ only)
-    if isinstance(store, str) and storage_options is not None:
-        if store.startswith(REMOTE_URL_SCHEMES):
+    # Remote URL strings read through zarrista's async API over obstore when
+    # available (storage_options translated to obstore configuration);
+    # otherwise the legacy zarr-python/fsspec engine.
+    if isinstance(store, str) and store.startswith(REMOTE_URL_SCHEMES):
+        if remote_read_available():
+            store = RemoteZarrStore(store, storage_options=storage_options)
+        elif storage_options is not None:
+            # Legacy fallback: string URLs with storage options require
+            # zarr-python 3+ FsspecStore support.
             if zarr_version_major >= 3 and hasattr(zarr.storage, "FsspecStore"):
                 try:
                     store = zarr.storage.FsspecStore.from_url(

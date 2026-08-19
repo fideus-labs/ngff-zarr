@@ -97,11 +97,22 @@ def test_from_ngff_zarr_with_storage_options(input_images):
     zarr_version_major < 3, reason="storage_options requires zarr-python 3"
 )
 def test_from_ngff_zarr_string_url_with_storage_options():
-    """Test that string URLs with storage_options create appropriate stores."""
+    """String URLs with storage_options build an FsspecStore on the legacy engine.
+
+    Remote URLs normally read through zarrista/obstore now; this pins the
+    zarr-python/fsspec fallback used when that engine is unavailable
+    (Python 3.10, or obstore not installed).
+    """
     from unittest.mock import MagicMock, patch
 
+    remote_unavailable = patch(
+        "ngff_zarr.from_ngff_zarr.remote_read_available", return_value=False
+    )
     # Mock the FsspecStore.from_url method
-    with patch("zarr.storage.FsspecStore.from_url") as mock_from_url:
+    with (
+        remote_unavailable,
+        patch("zarr.storage.FsspecStore.from_url") as mock_from_url,
+    ):
         mock_store = MagicMock()
         mock_from_url.return_value = mock_store
 
@@ -153,14 +164,24 @@ def test_from_ngff_zarr_string_url_with_storage_options():
     ],
 )
 def test_from_ngff_zarr_remote_missing_backend_helpful_error(url):
-    """A missing fsspec backend for any remote scheme yields an actionable error."""
+    """A missing fsspec backend for any remote scheme yields an actionable error.
+
+    Applies to the legacy zarr-python/fsspec engine, reached when the
+    zarrista/obstore remote reader is unavailable.
+    """
     from unittest.mock import patch
 
+    remote_unavailable = patch(
+        "ngff_zarr.from_ngff_zarr.remote_read_available", return_value=False
+    )
     # Simulate fsspec failing to import its filesystem backend (aiohttp,
     # requests, s3fs, gcsfs, adlfs, ...).
-    with patch(
-        "zarr.open_group",
-        side_effect=ModuleNotFoundError("No module named 'a_backend'"),
+    with (
+        remote_unavailable,
+        patch(
+            "zarr.open_group",
+            side_effect=ModuleNotFoundError("No module named 'a_backend'"),
+        ),
     ):
         with pytest.raises(ImportError) as exc_info:
             from_ngff_zarr(url)
@@ -208,9 +229,13 @@ def test_from_ngff_zarr_remote_https_read_smoke():
     """
     import os
 
+    from ngff_zarr._remote_reader import remote_read_available
+
     if not os.environ.get("NGFF_ZARR_NETWORK_TESTS"):
         pytest.skip("live remote read is opt-in; set NGFF_ZARR_NETWORK_TESTS=1 to run")
-    pytest.importorskip("aiohttp", reason="aiohttp required to read https stores")
+    if not remote_read_available():
+        # Legacy zarr-python/fsspec engine (Python 3.10 or no obstore).
+        pytest.importorskip("aiohttp", reason="aiohttp required to read https stores")
 
     url = "https://s3.embl.de/i2k-2020/platy-raw.ome.zarr"
     try:
@@ -218,6 +243,13 @@ def test_from_ngff_zarr_remote_https_read_smoke():
     except OSError as exc:
         # Connection refused / DNS / timeout: clearly the network, not the code.
         pytest.skip(f"remote store unavailable: {exc!r}")
+    except Exception as exc:
+        # zarrista folds transport failures into its own exception types;
+        # store-absence instead surfaces as the group-not-found ValueError,
+        # which must keep failing the test.
+        if type(exc).__module__.startswith("zarrista"):
+            pytest.skip(f"remote store unavailable: {exc!r}")
+        raise
 
     # Metadata is read eagerly; pixel data stays lazy, so this stays cheap.
     assert len(multiscales.images) > 0
