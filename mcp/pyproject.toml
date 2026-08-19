@@ -35,7 +35,7 @@ dependencies = [
     # json_response support (MCP specification revision 2025-03-26);
     # < 2 because mcp 2.0 removed the mcp.server.fastmcp module.
     "mcp >= 1.8.0, < 2",
-    "ngff-zarr[cli,tensorstore] >= 0.15.2",
+    "ngff-zarr[cli] >= 0.15.2",
     "pydantic >= 2.0",
     "httpx",
     "aiofiles",
@@ -150,7 +150,7 @@ pytest-asyncio = ">=1.0.0,<2"
 
 [tool.pixi.feature.dev.pypi-dependencies]
 ngff-zarr-mcp = { path = ".", editable = true, extras = ["dev"] }
-ngff-zarr = { path = "../py", editable = true, extras = ["cli", "tensorstore"] }
+ngff-zarr = { path = "../py", editable = true, extras = ["cli"] }
 
 [tool.pixi.feature.dev.tasks]
 test = "pytest tests/"
