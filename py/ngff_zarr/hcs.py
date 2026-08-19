@@ -27,12 +27,13 @@ from packaging import version as pkg_version
 from ._zarrista_utils import (
     create_zarrista_group,
     create_zarrista_subgroup,
+    open_ozx_store,
     read_group_attributes,
     use_zarrista_for,
 )
 from .from_ngff_zarr import _open_root_node, from_ome_zarr
 from .multiscales import NgffMultiscales
-from .rfc9_zip import is_ozx_path, write_store_to_zip
+from .rfc9_zip import ZipReadStore, is_ozx_path, write_store_to_zip
 from .to_ngff_zarr import to_ome_zarr
 from .v04.zarr_metadata import (
     Plate,
@@ -238,8 +239,8 @@ class HCSWell:
     ) -> "HCSWell":
         """Load a well from a zarr store."""
         # Dispatches on store type: local paths read through the compat
-        # layer, bytes mappings through the v2 store reader, other store
-        # objects (e.g. ZipStore for .ozx) through zarr-python.
+        # layer, bytes mappings (including ZipReadStore for .ozx) through
+        # the store reader, other store objects through zarr-python.
         root = _open_root_node(store, None)
         well_group = root[well_path]
         well_attrs = well_group.attrs.asdict()
@@ -314,8 +315,14 @@ class HCSWell:
 
         # Cache images to avoid reloading
         if image_path not in self._images:
+            if isinstance(self.store, ZipReadStore):
+                # A view of the same archive narrowed to this field's
+                # sub-hierarchy; from_ome_zarr reads it as a mapping store.
+                self._images[image_path] = from_ome_zarr(
+                    self.store.with_prefix(image_path)
+                )
             # For ZipStore (e.g., .ozx files), we need to access via subpath in the store
-            if hasattr(zarr.storage, "ZipStore") and isinstance(
+            elif hasattr(zarr.storage, "ZipStore") and isinstance(
                 self.store, zarr.storage.ZipStore
             ):
                 # For zarr v3, use StorePath to navigate to subpaths within the zip
@@ -396,8 +403,9 @@ def from_hcs_zarr(
 
     # RFC-9: Handle .ozx (zipped OME-Zarr) files
     if isinstance(store, (str, Path)) and is_ozx_path(store):
-        # For zarr v3, create ZipStore directly with the path
-        store = zarr.storage.ZipStore(str(store), mode="r")
+        # Read the archive through the zarrista-backed zip store handle
+        # (zarr-python ZipStore only when zarrista is unavailable).
+        store = open_ozx_store(store)
 
     root = _open_root_node(store, None)
     root_attrs = root.attrs.asdict()

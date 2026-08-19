@@ -8,7 +8,12 @@ import zarr.errors
 import zarr.storage
 
 from ._zarr_types import StoreLike
-from ._zarrista_utils import _is_bytes_mapping, open_local_node, use_zarrista_for
+from ._zarrista_utils import (
+    _is_bytes_mapping,
+    open_local_node,
+    open_ozx_store,
+    use_zarrista_for,
+)
 from .multiscales import NgffMultiscales
 from .rfc9_zip import is_ozx_path, read_ozx_version
 
@@ -95,9 +100,10 @@ def _array_at_root_error(store) -> ValueError:
 def _open_zarr_python_root(store, version: str | None):
     """Open the root group with zarr-python (the legacy store-object branch).
 
-    Store objects the compat layer cannot handle -- ``ZipStore`` for
-    ``.ozx``, ``FsspecStore`` for remote URLs, ``MemoryStore``, remote URL
-    strings, ... -- keep the zarr-python engine here.
+    Store objects the compat layer cannot handle -- user-supplied
+    zarr-python stores (``ZipStore``, ``FsspecStore``, ``MemoryStore``),
+    remote URL strings, and the ``.ozx`` fallback when zarrista is
+    unavailable -- keep the zarr-python engine here.
     """
     format_kwargs = {}
     if version and zarr_version_major >= 3:
@@ -304,8 +310,9 @@ def from_ome_zarr(
             if version is None:
                 version = "0.5"  # Default to 0.5 for .ozx files
 
-        # For zarr v3, create ZipStore directly with the path
-        store = zarr.storage.ZipStore(str(store), mode="r")
+        # Read the archive through the zarrista-backed zip store handle
+        # (zarr-python ZipStore only when zarrista is unavailable).
+        store = open_ozx_store(store)
 
     # Handle string URLs with storage options (zarr-python 3+ only)
     if isinstance(store, str) and storage_options is not None:

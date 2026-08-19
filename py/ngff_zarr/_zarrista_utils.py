@@ -44,7 +44,7 @@ import numpy as np
 import zarr.storage
 
 from ._v2_store_reader import AttrsDict
-from .rfc9_zip import is_ozx_path
+from .rfc9_zip import ZipReadStore, is_ozx_path
 
 __all__ = [
     "LocalZarrArray",
@@ -58,8 +58,10 @@ __all__ = [
     "normalize_store",
     "open_lazy_array",
     "open_local_node",
+    "open_ozx_store",
     "open_zarrista_array",
     "open_zarrista_lazy",
+    "open_zip_lazy",
     "read_group_attributes",
     "resolve_store_path",
     "use_zarrista_for",
@@ -778,6 +780,42 @@ def open_zarrista_lazy(path, component: str | None = None) -> dask.array.Array:
     return zarrista_array_to_dask(open_zarrista_array(path, component))
 
 
+def open_ozx_store(path):
+    """Store handle for reading the zip archive (``.ozx``/``.zip``) at *path*.
+
+    A :class:`~.rfc9_zip.ZipReadStore` when zarrista is available: metadata
+    and group navigation go through the pure-Python mapping reader while
+    pixel data reads through zarrista's native zip store (see
+    :func:`open_zip_lazy`). Without zarrista the zarr-python ``ZipStore``
+    fallback engine is returned instead.
+    """
+    if _zarrista_available():
+        return ZipReadStore(path)
+    return zarr.storage.ZipStore(str(path), mode="r")
+
+
+def open_zip_lazy(store: ZipReadStore, component: str | None = None):
+    """Open the array at *component* within zip-archive *store* lazily.
+
+    Routes through zarrista's read-only zip store rather than the mapping
+    reader because ``.ozx`` archives hold sharded zarr v3 arrays by default,
+    which only zarrista can decode. The node path combines the store's
+    prefix (HCS well/field views) with *component*.
+    """
+    from zarrista import Array
+    from zarrista.store import FilesystemStore, ZipStore
+
+    zip_store = ZipStore(FilesystemStore(store.path.parent), store.path.name)
+    parts = [
+        part
+        for source in (store.prefix, component)
+        if source
+        for part in str(source).split("/")
+        if part not in ("", ".")
+    ]
+    return zarrista_array_to_dask(Array.open(zip_store, "/" + "/".join(parts)))
+
+
 def _is_bytes_mapping(store) -> bool:
     """Whether *store* is a key-to-bytes mapping for the pure-Python reader.
 
@@ -794,11 +832,14 @@ def open_lazy_array(store, component: str | None = None) -> dask.array.Array:
     """Open the array at *component* within *store* as a lazy dask array.
 
     The single read-dispatch point mirroring :func:`use_zarrista_for` on the
-    write side: bytes mappings go through the pure-Python store reader
-    (either zarr format), local paths through zarrista, and every other
-    store object (zarr-python stores: ZipStore, FsspecStore, MemoryStore,
-    ...) keeps the zarr-python engine via ``dask.array.from_zarr``.
+    write side: zip-archive views read pixels through zarrista's zip store,
+    other bytes mappings go through the pure-Python store reader (either
+    zarr format), local paths through zarrista, and every other store
+    object (zarr-python stores: ZipStore, FsspecStore, MemoryStore, ...)
+    keeps the zarr-python engine via ``dask.array.from_zarr``.
     """
+    if isinstance(store, ZipReadStore) and _zarrista_available():
+        return open_zip_lazy(store, component)
     if _is_bytes_mapping(store):
         from ._v2_store_reader import open_store_array
 

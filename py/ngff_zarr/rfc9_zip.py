@@ -8,11 +8,66 @@ in ZIP archives according to RFC-9 specification.
 """
 
 import json
+import posixpath
 import zipfile
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 
 import zarr
 import zarr.storage
+
+
+class ZipReadStore(Mapping):
+    """Read-only name-to-bytes view of an OME-Zarr zip archive (.ozx/.zip).
+
+    The ``Mapping[str, bytes]`` surface feeds the pure-Python store reader
+    for metadata parsing and group navigation, while the retained archive
+    *path* lets the compat layer route pixel reads through zarrista's native
+    zip store — required for the sharded arrays ``.ozx`` archives hold by
+    default, which the mapping reader cannot decode. A *prefix* narrows the
+    view to a sub-hierarchy (HCS well/field access): keys are resolved
+    relative to it and iteration yields only the keys below it.
+    """
+
+    def __init__(self, path: str | Path, prefix: str = ""):
+        self.path = Path(path)
+        self.prefix = "/".join(
+            part for part in str(prefix).split("/") if part not in ("", ".")
+        )
+        self._zipfile = zipfile.ZipFile(self.path, mode="r")
+        self._names = frozenset(
+            name for name in self._zipfile.namelist() if not name.endswith("/")
+        )
+
+    def with_prefix(self, prefix: str) -> "ZipReadStore":
+        """A view of the same archive narrowed to *prefix* (joined to any
+        existing prefix)."""
+        return ZipReadStore(self.path, posixpath.join(self.prefix, str(prefix)))
+
+    def _full_key(self, key: str) -> str:
+        return f"{self.prefix}/{key}" if self.prefix else key
+
+    def __getitem__(self, key: str) -> bytes:
+        name = self._full_key(key)
+        if name not in self._names:
+            raise KeyError(key)
+        return self._zipfile.read(name)
+
+    def __iter__(self) -> Iterator[str]:
+        if not self.prefix:
+            yield from self._names
+            return
+        start = f"{self.prefix}/"
+        for name in self._names:
+            if name.startswith(start):
+                yield name[len(start) :]
+
+    def __len__(self) -> int:
+        return sum(1 for _ in self)
+
+    def __str__(self) -> str:
+        # Error messages built from the store display the archive path.
+        return str(self.path if not self.prefix else self.path / self.prefix)
 
 
 def is_ozx_path(path: str | Path) -> bool:

@@ -238,6 +238,66 @@ def test_hcs_local_path_read_bypasses_zarr_python(tmp_path, version):
     assert plate.get_well("A", "1") is well
 
 
+def _no_zarr_python_zipstore():
+    return patch(
+        "zarr.storage.ZipStore", side_effect=AssertionError("zarr-python used")
+    )
+
+
+def test_ozx_read_bypasses_zarr_python(tmp_path):
+    ozx_path = tmp_path / "image.ozx"
+    multiscales = to_multiscales(
+        to_ngff_image(_DATA, dims=["y", "x"]), scale_factors=[2], chunks=8
+    )
+    # The .ozx default (chunks_per_shard=2) shards the arrays, so pixel
+    # reads must resolve through zarrista's native zip store.
+    to_ngff_zarr(str(ozx_path), multiscales, version="0.5")
+
+    with no_zarr_python_reads(), _no_zarr_python_zipstore():
+        read = from_ngff_zarr(str(ozx_path))
+
+        assert len(read.images) == 2
+        data = read.images[0].data
+        assert isinstance(data, dask.array.Array)
+        # Lazy chunking follows the stored inner-chunk grid, not the shard.
+        assert data.chunksize == (8, 8)
+        np.testing.assert_array_equal(np.asarray(data), _DATA)
+
+
+def test_hcs_ozx_read_bypasses_zarr_python(tmp_path):
+    from ngff_zarr.hcs import HCSPlateWriter
+
+    ozx_path = tmp_path / "plate.ozx"
+    plate_metadata = Plate(
+        columns=[PlateColumn(name="1")],
+        rows=[PlateRow(name="A")],
+        wells=[PlateWell(path="A/1", rowIndex=0, columnIndex=0)],
+        version="0.5",
+    )
+    multiscales = to_multiscales(
+        to_ngff_image(_DATA, dims=["y", "x"]), scale_factors=[2], chunks=8
+    )
+    with HCSPlateWriter(str(ozx_path), plate_metadata) as writer:
+        writer.write_well_image(
+            multiscales=multiscales, row_name="A", column_name="1", field_index=0
+        )
+
+    with no_zarr_python_reads(), _no_zarr_python_zipstore():
+        plate = from_hcs_zarr(str(ozx_path))
+        assert len(plate.wells) == 1
+        well = plate.get_well("A", "1")
+        image = well.get_image(0)
+        assert image is not None
+        np.testing.assert_array_equal(np.asarray(image.images[0].data), _DATA)
+        # The image/well caches stay in play across repeat access.
+        assert well.get_image(0) is image
+        assert plate.get_well("A", "1") is well
+
+        # The well/field sub-path form dispatches through the same route.
+        field = from_ngff_zarr(f"{ozx_path}/A/1/0")
+        np.testing.assert_array_equal(np.asarray(field.images[0].data), _DATA)
+
+
 @pytest.mark.parametrize(
     ("source_version", "target_version"),
     [("0.4", "0.6"), ("0.5", "0.6")],
