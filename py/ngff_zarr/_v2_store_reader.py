@@ -26,6 +26,7 @@ import asyncio
 import base64
 import concurrent.futures
 import json
+import math
 from collections.abc import Iterator, Mapping
 
 import dask
@@ -231,6 +232,10 @@ class _LazyChunkedArray:
     ``_read_chunk(chunk_index) -> np.ndarray`` returning the in-bounds extent
     at that grid position.
     """
+
+    @property
+    def size(self) -> int:
+        return math.prod(self.shape)
 
     def _trim_edge_chunk(
         self, chunk: np.ndarray, chunk_index: tuple[int, ...]

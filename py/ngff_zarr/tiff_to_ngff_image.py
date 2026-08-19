@@ -22,8 +22,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import dask.array as da
-import zarr
 
+from ._v2_store_reader import AsyncStoreMapping, V2Group, V3Group, open_store_node
 from .methods._support import _canonical_axis_order
 from .ngff_image import NgffImage
 from .to_ngff_image import to_ngff_image
@@ -856,29 +856,26 @@ def _build_multiscales_from_pyramid(
     from .multiscales import NgffMultiscales
     from .v04.zarr_metadata import Axis, Dataset, Metadata, Scale, Translation
 
-    try:
-        from zarr.core import Array as ZarrArray
-    except ImportError:
-        from zarr.core.array import Array as ZarrArray
-
-    # Open the full zarr store (all levels) for this series
+    # Open the full zarr store (all levels) for this series with the
+    # pure-Python store reader; tifffile serves the zarr documents through
+    # the async zarr-store interface.
     store = tif.aszarr(series=series_idx)
-    root = zarr.open(store, mode="r")
+    root = open_store_node(AsyncStoreMapping(store))
 
     # Get TIFF axis mapping
     tiff_axes = tiff_series.axes if tiff_series.axes else None
 
     # Get ordered dataset paths from multiscales metadata
     paths: list[str] = []
-    if isinstance(root, zarr.Group) and "multiscales" in root.attrs:
+    if isinstance(root, (V2Group, V3Group)) and "multiscales" in root.attrs:
         multiscales_meta = root.attrs["multiscales"]
         if multiscales_meta:
             datasets = multiscales_meta[0].get("datasets", [])
             paths = [d["path"] for d in datasets if d["path"] in root]
 
-    if not paths and isinstance(root, zarr.Group):
+    if not paths and isinstance(root, (V2Group, V3Group)):
         # Fallback: sort arrays by size (largest first = full resolution)
-        items = [(k, root[k]) for k in root.keys() if isinstance(root[k], ZarrArray)]
+        items = [(k, root[k]) for k in root.array_keys()]
         items.sort(key=lambda x: x[1].size, reverse=True)
         paths = [k for k, _ in items]
 
@@ -1006,7 +1003,7 @@ def _build_multiscales_from_pyramid(
                     level_translation[dim] = base_translation[dim]
 
         # Convert to dask array first
-        level_data = da.from_zarr(arr)
+        level_data = arr.to_dask()
 
         # Apply the same axis mapping and channel reshaping that was applied to level 0
         # Pyramid levels have the same axis structure as the original TIFF,
@@ -1381,7 +1378,7 @@ def _read_tiff_series(
             # Get the zarr store for this series, using level=0 for base resolution
             # This ensures we always get an Array, not a Group, for pyramidal TIFFs
             store = tif.aszarr(series=idx, level=0)
-            root = zarr.open(store, mode="r")
+            root = open_store_node(AsyncStoreMapping(store))
 
             # Get dims from the series axes with proper mapping
             # TIFF axes like 'S' (sample/RGB) need to be mapped to NGFF 'c' (channel)

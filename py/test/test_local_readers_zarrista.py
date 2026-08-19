@@ -106,6 +106,47 @@ def test_cli_tifffile_reads_through_store_reader(tmp_path):
         np.testing.assert_array_equal(np.asarray(image.data), _DATA)
 
 
+def test_tiff_backend_reads_through_store_reader(tmp_path):
+    tifffile = pytest.importorskip("tifffile")
+    from ngff_zarr import tiff_file_to_ngff_images
+
+    tif_path = tmp_path / "image.tif"
+    tifffile.imwrite(tif_path, _DATA, tile=(16, 16))
+
+    with no_zarr_python_reads():
+        results = tiff_file_to_ngff_images(tif_path)
+
+        assert len(results) == 1
+        _, image = results[0]
+        assert isinstance(image.data, dask.array.Array)
+        np.testing.assert_array_equal(np.asarray(image.data), _DATA)
+
+
+def test_tiff_pyramid_reads_through_store_reader(tmp_path):
+    tifffile = pytest.importorskip("tifffile")
+    from ngff_zarr import tiff_file_to_ngff_images
+    from ngff_zarr.multiscales import NgffMultiscales
+
+    level0 = np.arange(64 * 64, dtype="uint16").reshape(64, 64)
+    level1 = level0[::2, ::2]
+    tif_path = tmp_path / "pyramid.ome.tif"
+    with tifffile.TiffWriter(tif_path, ome=True) as tif:
+        tif.write(level0, metadata={"axes": "YX"}, tile=(32, 32), subifds=1)
+        tif.write(level1, metadata={"axes": "YX"}, tile=(32, 32), subfiletype=1)
+
+    with no_zarr_python_reads():
+        results = tiff_file_to_ngff_images(tif_path, reuse_existing_pyramids=True)
+
+        assert len(results) == 1
+        _, multiscales = results[0]
+        assert isinstance(multiscales, NgffMultiscales)
+        assert len(multiscales.images) == 2
+        for image in multiscales.images:
+            assert isinstance(image.data, dask.array.Array)
+        np.testing.assert_array_equal(np.asarray(multiscales.images[0].data), level0)
+        np.testing.assert_array_equal(np.asarray(multiscales.images[1].data), level1)
+
+
 def test_to_ngff_image_accepts_compat_layer_nodes(tmp_path):
     from ngff_zarr._zarrista_utils import open_local_node, open_zarrista_array
 
