@@ -11,8 +11,13 @@ keeps them from drifting: a value added to one and not the others would let
 then rejects.
 """
 
+import pytest
 from ngff_zarr.rfc4 import AnatomicalOrientationValues
-from ngff_zarr.rfc4_validation import _ANATOMICAL_AXIS_OF, load_rfc4_orientation_schema
+from ngff_zarr.rfc4_validation import (
+    _ANATOMICAL_AXIS_OF,
+    load_rfc4_orientation_schema,
+    validate_rfc4_orientation,
+)
 
 _EXPECTED_COUNT = 24
 
@@ -43,5 +48,26 @@ def test_every_anatomical_axis_carries_exactly_two_directions():
     per_axis: dict[str, list[str]] = {}
     for value, axis in _ANATOMICAL_AXIS_OF.items():
         per_axis.setdefault(axis, []).append(value)
-    assert {axis: len(values) for axis, values in per_axis.items() if len(values) != 2} == {}
+    assert {
+        axis: len(values) for axis, values in per_axis.items() if len(values) != 2
+    } == {}
     assert len(per_axis) == _EXPECTED_COUNT // 2
+
+
+@pytest.mark.parametrize("value", [[], {"a": 1}, 42, None, True])
+def test_a_non_string_value_takes_the_documented_error_path(value):
+    """The vocabulary lookup is a dict lookup, so an unhashable value would
+    raise TypeError instead of the ValidationError the function documents."""
+    pytest.importorskip("jsonschema")
+    from jsonschema import ValidationError
+
+    axes = [
+        {
+            "name": "y",
+            "type": "space",
+            "orientation": {"type": "anatomical", "value": value},
+        },
+        {"name": "x", "type": "space"},
+    ]
+    with pytest.raises(ValidationError, match="Invalid orientation value"):
+        validate_rfc4_orientation(axes)

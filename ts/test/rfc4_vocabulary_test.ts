@@ -17,13 +17,34 @@ import { ANATOMICAL_AXIS_OF } from "../src/utils/rfc4_validation.ts";
 
 const EXPECTED_COUNT = 24;
 
+/**
+ * The schema's own list of values.
+ *
+ * The export is annotated as a `ZodType` over the value union, which hides the
+ * `options` a `z.enum` carries at runtime; reading it back is what lets the set
+ * be compared in both directions rather than only table-to-schema.
+ */
+function schemaValues(): Set<string> {
+  const { options } = AnatomicalOrientationValuesSchema as unknown as {
+    options: readonly string[];
+  };
+  return new Set(options);
+}
+
 Deno.test("the enum and the pair table hold the same values", () => {
   const fromEnum = new Set<string>(Object.values(AnatomicalOrientationValues));
   const fromTable = new Set(Object.keys(ANATOMICAL_AXIS_OF));
   assertEquals([...fromEnum].sort(), [...fromTable].sort());
 });
 
-Deno.test("the schema accepts every value of the pair table", () => {
+Deno.test("the schema holds exactly the values of the pair table", () => {
+  // Both directions: a value added to the schema alone would otherwise pass,
+  // and validateRfc4Orientation would accept it before looking it up as an
+  // undefined axis key. Mirrors the Python twin's set comparison.
+  assertEquals(
+    [...schemaValues()].sort(),
+    Object.keys(ANATOMICAL_AXIS_OF).sort(),
+  );
   for (const value of Object.keys(ANATOMICAL_AXIS_OF)) {
     assertEquals(
       AnatomicalOrientationValuesSchema.safeParse(value).success,
@@ -43,6 +64,7 @@ Deno.test("the vocabulary has not changed size", () => {
     EXPECTED_COUNT,
   );
   assertEquals(Object.keys(ANATOMICAL_AXIS_OF).length, EXPECTED_COUNT);
+  assertEquals(schemaValues().size, EXPECTED_COUNT);
 });
 
 Deno.test("every anatomical axis carries exactly two directions", () => {

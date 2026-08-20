@@ -132,9 +132,15 @@ def validate_rfc4_orientation(axes: list[dict[str, Any]]) -> None:
                     f"'{axis['name']}' has type '{orientation_type}'."
                 )
 
-            # Check that the orientation value is in the controlled vocabulary
+            # Check that the orientation value is in the controlled vocabulary.
+            # The membership test is a dict lookup, so a list or object value
+            # would raise TypeError rather than the documented ValidationError;
+            # a non-string is not in the vocabulary either way.
             orientation_value = orientation.get("value")
-            if orientation_value not in _ANATOMICAL_AXIS_OF:
+            if (
+                not isinstance(orientation_value, str)
+                or orientation_value not in _ANATOMICAL_AXIS_OF
+            ):
                 from jsonschema import ValidationError
 
                 raise ValidationError(
