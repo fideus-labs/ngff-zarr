@@ -654,7 +654,7 @@ result = await convert_images_to_ome_zarr(
     ome_zarr_version="0.4",
     scale_factors=[2, 4, 8],
     method="itkwasm_gaussian",
-    compression_codec="zstd"
+    compression_codec="zstd",
 )
 ```
 
@@ -668,7 +668,7 @@ result = await convert_images_to_ome_zarr(
     scale={"z": 2.0, "y": 0.5, "x": 0.5},
     units={"z": "micrometer", "y": "micrometer", "x": "micrometer"},
     name="Brain MRI",
-    scale_factors=[2, 4]
+    scale_factors=[2, 4],
 )
 ```
 
@@ -679,7 +679,7 @@ result = await optimize_ome_zarr_store(
     input_path="large.ome.zarr",
     output_path="optimized.ome.zarr",
     compression_codec="blosc:zstd",
-    chunks=[64, 64, 64]
+    chunks=[64, 64, 64],
 )
 ```
 
