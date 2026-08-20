@@ -8,6 +8,7 @@ with it verifies that other zarr implementations can decode zarrista output.
 
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -41,7 +42,7 @@ def _read_first_scale(output_path: Path) -> np.ndarray:
     zarrista wrote.
     """
     group = zarr.open(str(output_path), mode="r")
-    attrs = dict(group.attrs)
+    attrs: dict[str, Any] = dict(group.attrs)
     metadata = attrs["ome"] if "ome" in attrs else attrs
     dataset_path = metadata["multiscales"][0]["datasets"][0]["path"]
     return np.asarray(group[dataset_path])
