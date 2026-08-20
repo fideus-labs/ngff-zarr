@@ -39,6 +39,11 @@ library.
 
 ### Advanced Features
 
+- **Rust-Backed Zarr I/O**: All Zarr reads and writes go through the
+  [zarrista](https://github.com/developmentseed/zarrista) backend (Python
+  bindings for the Rust [zarrs](https://zarrs.dev/) implementation) — no
+  zarr-python runtime dependency, and outputs stay readable by zarr-python 2
+  and 3
 - **RFC 4 - Anatomical Orientation**: Support for medical imaging orientation
   systems (LPS, RAS)
 - **Method Metadata**: Enhanced multiscale metadata with downsampling method
@@ -59,7 +64,7 @@ library.
 
 ### Requirements
 
-- Python >= 3.10
+- Python >= 3.11
 - Cursor, Windsurf, Claude Desktop, VS Code, or another MCP Client
 
 ### Quick Install
@@ -708,6 +713,16 @@ print(f"Dimensions: {info.dimensions}")
 
 ## Performance Options
 
+### Zarr I/O Backend
+
+Zarr reads and writes always use the fast
+[zarrista](https://github.com/developmentseed/zarrista) backend (Python
+bindings for the Rust [zarrs](https://zarrs.dev/) implementation) — no
+configuration is needed. The `use_tensorstore` parameter of
+`convert_images_to_ome_zarr` is deprecated and has no effect; it is accepted
+only for backward compatibility with existing agent configurations, and I/O
+goes through zarrista either way.
+
 ### Memory Management
 
 - Set memory targets to control RAM usage
@@ -788,7 +803,8 @@ ruff check .
 ### Core
 
 - mcp: Model Context Protocol implementation
-- ngff-zarr: Core image conversion functionality
+- ngff-zarr: Core image conversion functionality (Zarr I/O via the zarrista /
+  Rust zarrs backend)
 - pydantic: Data validation
 - httpx: HTTP client for remote files
 - aiofiles: Async file operations
@@ -804,7 +820,7 @@ ruff check .
 <details>
 <summary><b>Python Version Issues</b></summary>
 
-The ngff-zarr-mcp server requires Python 3.10 or higher. If you encounter version
+The ngff-zarr-mcp server requires Python 3.11 or higher. If you encounter version
 errors:
 
 ```bash
