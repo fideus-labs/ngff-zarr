@@ -7,6 +7,7 @@ if __name__ == "__main__" and __package__ is None:
 
 import argparse
 import atexit
+import json
 import re
 import signal
 import sys
@@ -49,6 +50,36 @@ from .rich_dask_progress import NgffProgress, NgffProgressCallback
 from .to_multiscales import to_multiscales
 from .to_ngff_zarr import to_ome_zarr
 from .v04.zarr_metadata import Omero, OmeroChannel, OmeroWindow, is_unit_supported
+
+_REMOTE_SCHEMES = ("s3://", "gs://", "az://", "azure://", "http://", "https://")
+
+
+def _parse_storage_options(value: str) -> dict[str, object]:
+    """Parse fsspec storage options supplied as a JSON object."""
+    try:
+        options = json.loads(value)
+    except json.JSONDecodeError as error:
+        raise argparse.ArgumentTypeError(
+            f"storage options must be valid JSON: {error.msg}"
+        ) from error
+    if not isinstance(options, dict):
+        raise argparse.ArgumentTypeError("storage options must be a JSON object")
+    return options
+
+
+def _resolve_cli_input_store(
+    input_path: str, storage_options: dict[str, object] | None
+) -> tuple[StoreLike, dict[str, object] | None]:
+    """Normalize a remote input URL and apply the CLI storage-option defaults."""
+    scheme, separator, remainder = input_path.partition("://")
+    normalized_scheme = f"{scheme.lower()}{separator}"
+    if separator and normalized_scheme in _REMOTE_SCHEMES:
+        input_path = f"{normalized_scheme}{remainder}"
+
+    if storage_options is None and input_path.startswith("s3://"):
+        storage_options = {"anon": True}
+
+    return input_path, storage_options
 
 
 class _ReplacingTextIO:
@@ -615,6 +646,17 @@ def _convert_main(argv: list[str] | None = None) -> None:
         choices=conversion_backends_values,
         help="Input conversion backend",
     )
+    processing_group.add_argument(
+        "--storage-options",
+        type=_parse_storage_options,
+        metavar="JSON",
+        help=(
+            "JSON object of storage options for remote inputs, such as "
+            '\'{"anon": false, "region_name": "us-west-2"}\'. fsspec-style '
+            "names are translated to their obstore equivalents. S3 inputs "
+            "default to anonymous access when this option is omitted."
+        ),
+    )
     processing_group.add_argument("--memory-target", help="Memory limit, e.g. 4GB")
     processing_group.add_argument(
         "--cache-dir", help="Directory to use for caching with large datasets"
@@ -638,8 +680,6 @@ def _convert_main(argv: list[str] | None = None) -> None:
     )
 
     args = parser.parse_args(argv)
-
-    _REMOTE_SCHEMES = ("s3://", "gs://", "az://", "azure://", "http://", "https://")
 
     def _is_remote(path_str: str) -> bool:
         lower = path_str.lower()
@@ -947,7 +987,10 @@ def _convert_main(argv: list[str] | None = None) -> None:
 
         if input_backend is ConversionBackend.NGFF_ZARR:
             # Pass the path directly to from_ome_zarr to let it handle .ozx files
-            multiscales = from_ome_zarr(args.input[0])
+            input_store, storage_options = _resolve_cli_input_store(
+                args.input[0], args.storage_options
+            )
+            multiscales = from_ome_zarr(input_store, storage_options=storage_options)
             _multiscales_to_ngff_zarr(
                 live,
                 args,

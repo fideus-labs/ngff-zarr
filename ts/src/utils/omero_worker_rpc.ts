@@ -14,6 +14,11 @@
 
 import type { Chunk, DataType, TypedArrayConstructor } from "zarrita";
 import type { CodecChunkMeta } from "@fideus-labs/fizarrita";
+import type {
+  WorkerErrorEventLike,
+  WorkerLike,
+  WorkerMessageEventLike,
+} from "@fideus-labs/worker-pool";
 import type { ChannelStatisticsAccumulator } from "./compute_omero-shared.ts";
 
 // Local typed array constructor lookup (avoids depending on fizarrita internals
@@ -55,12 +60,12 @@ class WorkerDispatcher {
   /** Tracks which metaIds have been sent to this worker. */
   private sentMetas = new Set<number>();
 
-  constructor(private worker: Worker) {
+  constructor(private worker: WorkerLike) {
     worker.addEventListener("message", this.onMessage);
     worker.addEventListener("error", this.onError);
   }
 
-  private onMessage = (event: MessageEvent): void => {
+  private onMessage = (event: WorkerMessageEventLike): void => {
     const { id } = event.data;
     const req = this.pending.get(id);
     if (!req) return;
@@ -73,7 +78,7 @@ class WorkerDispatcher {
     }
   };
 
-  private onError = (err: ErrorEvent): void => {
+  private onError = (err: WorkerErrorEventLike): void => {
     const error = new Error(err.message ?? "Worker error");
     for (const req of this.pending.values()) {
       req.reject(error);
@@ -102,9 +107,9 @@ class WorkerDispatcher {
 }
 
 /** Map from Worker to its dispatcher. WeakMap so dispatchers are GC'd with workers. */
-const dispatchers = new WeakMap<Worker, WorkerDispatcher>();
+const dispatchers = new WeakMap<WorkerLike, WorkerDispatcher>();
 
-function getDispatcher(worker: Worker): WorkerDispatcher {
+function getDispatcher(worker: WorkerLike): WorkerDispatcher {
   let d = dispatchers.get(worker);
   if (!d) {
     d = new WorkerDispatcher(worker);
@@ -193,16 +198,18 @@ interface DecodeAndStatsResponse {
  * @param nChannels - Number of channels in the image
  * @param cIndex - Index of the channel dimension (-1 if no channel dim)
  * @param actualChunkShape - Edge chunk shape correction (optional)
+ * @param cOffset - Absolute index of this chunk's first channel
  * @returns The decoded chunk and per-channel accumulators
  */
 export async function workerDecodeAndStats<D extends DataType>(
-  worker: Worker,
+  worker: WorkerLike,
   bytes: Uint8Array,
   metaId: number,
   meta: CodecChunkMeta,
   nChannels: number,
   cIndex: number,
   actualChunkShape?: number[],
+  cOffset = 0,
 ): Promise<{
   chunk: Chunk<D>;
   accumulators: ChannelStatisticsAccumulator[];
@@ -227,6 +234,7 @@ export async function workerDecodeAndStats<D extends DataType>(
       actualChunkShape,
       nChannels,
       cIndex,
+      cOffset,
     },
     [transferBuffer],
   )) as DecodeAndStatsResponse;

@@ -22,9 +22,120 @@ const STAGING_DIR = "./npm/src";
 const NPM_DIR = "./npm";
 
 /**
- * Rewrite imports in a TypeScript file from Deno-style to Node-style.
+ * Strip the `npm:` prefix and version range from an npm module specifier,
+ * leaving the bare package name and any subpath.
+ *
+ *     "npm:zarrita@^0.6.1"                   -> "zarrita"
+ *     "npm:@scope/pkg@1.2.3/internals/util"  -> "@scope/pkg/internals/util"
+ *
+ * Returns the literal unchanged when it is not an `npm:` specifier.
  */
-function rewriteImports(content: string): string {
+function stripNpmPrefix(literal: string): string {
+  return literal.replace(
+    /^(["'])npm:((?:@[^/"']+\/)?[^@/"']+)(?:@[^/"']*)?((?:\/[^"']*)?)(["'])$/,
+    "$1$2$3$4",
+  );
+}
+
+/**
+ * Whether a run of code immediately preceding a string literal puts that
+ * literal in module-specifier position: `from "…"`, a bare side-effect
+ * `import "…"`, or `import("…")`.
+ */
+function isSpecifierPosition(precedingCode: string): boolean {
+  return /(?:^|[\s;{}()])(?:from|import)\s*\(?\s*$/.test(precedingCode);
+}
+
+/**
+ * Rewrite `npm:` module specifiers to bare package names.
+ *
+ * Source files use the explicit `npm:` form where Deno would otherwise
+ * resolve a bare specifier to a different registry (e.g.
+ * `jsr:@zarrita/zarrita` vs `npm:zarrita`); in the npm build there is only
+ * ever the npm copy.
+ *
+ * Scans rather than pattern-matches, because a bare regex also fires inside
+ * comments and unrelated string literals — `// import "npm:pkg@1.0.0"` and
+ * `const t = 'from "npm:pkg@1.0.0"'` both look like specifiers to it. That
+ * matters here in particular: several source comments discuss `npm:` versus
+ * `jsr:` resolution, so quoting one is a realistic way to silently corrupt
+ * the generated package.
+ *
+ * This is a lexer, not a parser: it tracks comments and string literals well
+ * enough to know whether a quote opens a real specifier. A full TypeScript
+ * AST would also be correct, but it would add a parser dependency to the
+ * build for a rule that only ever inspects the token immediately before a
+ * string literal.
+ */
+function rewriteNpmSpecifiers(content: string): string {
+  // Longest prefix that `isSpecifierPosition` can match, plus slack.
+  const LOOKBEHIND = 32;
+
+  let out = "";
+  let code = ""; // Code seen since the last comment or string literal.
+  let i = 0;
+
+  while (i < content.length) {
+    const ch = content[i];
+    const next = content[i + 1];
+
+    // Line comment — copy through to the newline. A comment stands in for
+    // whitespace rather than clearing the preceding code: JS treats the two
+    // the same, so `import /* c */ "npm:pkg"` is still an import. Only a
+    // placeholder space is recorded, never the comment's own text, so words
+    // inside a comment cannot fake a specifier position.
+    if (ch === "/" && next === "/") {
+      const end = content.indexOf("\n", i);
+      const stop = end === -1 ? content.length : end;
+      out += content.slice(i, stop);
+      i = stop;
+      code = (code + " ").slice(-LOOKBEHIND);
+      continue;
+    }
+
+    // Block comment — copy through to the terminator.
+    if (ch === "/" && next === "*") {
+      const end = content.indexOf("*/", i + 2);
+      const stop = end === -1 ? content.length : end + 2;
+      out += content.slice(i, stop);
+      i = stop;
+      code = (code + " ").slice(-LOOKBEHIND);
+      continue;
+    }
+
+    // String or template literal — rewrite only in specifier position.
+    if (ch === '"' || ch === "'" || ch === "`") {
+      let j = i + 1;
+      while (j < content.length) {
+        if (content[j] === "\\") {
+          j += 2;
+          continue;
+        }
+        if (content[j] === ch) break;
+        j++;
+      }
+      const literal = content.slice(i, Math.min(j + 1, content.length));
+      out += isSpecifierPosition(code) ? stripNpmPrefix(literal) : literal;
+      i = j + 1;
+      code = "";
+      continue;
+    }
+
+    out += ch;
+    code = (code + ch).slice(-LOOKBEHIND);
+    i++;
+  }
+
+  return out;
+}
+
+/**
+ * Rewrite imports in a TypeScript file from Deno-style to Node-style.
+ *
+ * Exported for `test/build_npm_test.ts`; the build itself calls it via
+ * {@link copyAndTransformSources}.
+ */
+export function rewriteImports(content: string): string {
   // Replace .ts extensions with .js in relative imports
   content = content.replace(/(from\s+["'])(\.[^"']+)\.ts(["'])/g, "$1$2.js$3");
 
@@ -49,6 +160,8 @@ function rewriteImports(content: string): string {
     /(new\s+URL\s*\(\s*["'])(\.[^"']+)\.ts(["'])/g,
     "$1$2.js$3",
   );
+
+  content = rewriteNpmSpecifiers(content);
 
   // Replace jsr: imports with node-style module imports
   content = content.replace(
@@ -195,10 +308,12 @@ async function createPackageJson(): Promise<void> {
     },
     files: ["esm/", "README.md", "LICENSE.txt"],
     dependencies: {
-      "@fideus-labs/fizarrita": "^1.3.0",
-      "@fideus-labs/worker-pool": "^1.0.0",
+      "@fideus-labs/fizarrita": "^2.0.0",
+      "@fideus-labs/worker-pool": "^2.0.0",
       "@itk-wasm/downsample": "^2.0.0",
-      "itk-wasm": "^1.0.0-b.196",
+      // Floor at b.201: b.200 shipped without its `dist/` directory, which
+      // breaks the browser bundle with unresolved "itk-wasm" imports.
+      "itk-wasm": "^1.0.0-b.201",
       "@zarrita/storage": "^0.1.4",
       zod: "^4.0.2",
       zarrita: "^0.6.1",
@@ -275,25 +390,28 @@ async function cleanup(): Promise<void> {
   }
 }
 
-// Main build process
-console.log("[build] Starting npm build with tsc...");
+// Main build process. Guarded so that importing a helper from this module
+// (e.g. rewriteImports in test/build_npm_test.ts) does not run a full build.
+if (import.meta.main) {
+  console.log("[build] Starting npm build with tsc...");
 
-console.log("[build] Copying and transforming sources...");
-await copyAndTransformSources();
+  console.log("[build] Copying and transforming sources...");
+  await copyAndTransformSources();
 
-console.log("[build] Creating tsconfig.json...");
-await createTsConfig();
+  console.log("[build] Creating tsconfig.json...");
+  await createTsConfig();
 
-console.log("[build] Creating package.json...");
-await createPackageJson();
+  console.log("[build] Creating package.json...");
+  await createPackageJson();
 
-console.log("[build] Installing dependencies and compiling...");
-await installAndBuild();
+  console.log("[build] Installing dependencies and compiling...");
+  await installAndBuild();
 
-console.log("[build] Copying static files...");
-await copyStaticFiles();
+  console.log("[build] Copying static files...");
+  await copyStaticFiles();
 
-console.log("[build] Cleaning up...");
-await cleanup();
+  console.log("[build] Cleaning up...");
+  await cleanup();
 
-console.log("[build] Complete!");
+  console.log("[build] Complete!");
+}
