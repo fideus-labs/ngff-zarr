@@ -144,6 +144,37 @@ def _parse_hcs_path(store_path: str) -> tuple[str, str | None]:
     return store_path, None
 
 
+def _raw_axes(multiscales_entry: dict) -> list:
+    """The raw axis entries of one ``multiscales`` entry, at any version.
+
+    v0.4 and v0.5 carry a flat ``axes`` list on the entry. From v0.6 (RFC-5)
+    the axes live in a coordinate system, so they are read from
+    ``coordinateSystems[0].axes``: the first entry is the intrinsic system, as
+    written by :func:`~ngff_zarr.to_ngff_zarr.to_ngff_zarr` and as the
+    TypeScript reader takes it.
+
+    Returns the list as found, without filtering: an axis may legally be a
+    dict, and a malformed entry is left for the caller to classify. Returns an
+    empty list when the entry carries neither shape.
+
+    Every caller that needs the axes of a raw metadata document goes through
+    here, so a version that moves them again is a one-line change rather than
+    a silently skipped check (the v0.6 move is what left the RFC-4 checks
+    unreachable in both the reader and the conformance report).
+    """
+    if not isinstance(multiscales_entry, dict):
+        return []
+    axes = multiscales_entry.get("axes")
+    if isinstance(axes, list):
+        return axes
+    systems = multiscales_entry.get("coordinateSystems")
+    if isinstance(systems, list) and systems and isinstance(systems[0], dict):
+        intrinsic_axes = systems[0].get("axes")
+        if isinstance(intrinsic_axes, list):
+            return intrinsic_axes
+    return []
+
+
 def _is_hcs_plate(root_attrs: dict) -> bool:
     """Check if root attributes indicate an HCS plate structure.
 
