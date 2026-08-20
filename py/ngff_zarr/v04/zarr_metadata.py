@@ -427,7 +427,7 @@ class Metadata:
         from ..ngff_image import NgffImage
         from ..parse_metadata import _parse_omero, _raw_axes
         from ..rfc4_validation import (
-            has_rfc4_orientation_metadata,
+            has_any_rfc4_orientation,
             validate_rfc4_orientation,
         )
         from ..validate import validate as validate_ngff
@@ -470,7 +470,7 @@ class Metadata:
                 for axis in _raw_axes(root_attrs["multiscales"][0])
                 if isinstance(axis, dict)
             ]
-            if axes_dicts and has_rfc4_orientation_metadata(axes_dicts):
+            if axes_dicts and has_any_rfc4_orientation(axes_dicts):
                 validate_rfc4_orientation(axes_dicts)
 
         omero = _parse_omero(root_attrs.get("omero"))
