@@ -33,7 +33,7 @@ time axis should be `t`.
 
 ## Support in ngff-zarr
 
-RFC-3 is scoped to **OME-Zarr `1.0-DEV`**. Versions 0.4, 0.5 and 0.6 keep the
+RFC-3 is scoped to **OME-Zarr `0.9.dev1`**. Versions 0.4, 0.5 and 0.6 keep the
 existing restrictions: their bundled `axes` schemas all cap the axis count at 5
 and require 2-3 `space` axes, so v0.6 is RFC-5, not RFC-3.
 
@@ -41,7 +41,7 @@ The in-memory model is unrestricted; only serialization is gated:
 
 - the **in-memory model** is free-form at every version;
 - **writing** is version-gated -- serializing an RFC-3 axis model to 0.4, 0.5 or
-  0.6 raises, naming the offending axes and pointing at `1.0-DEV`;
+  0.6 raises, naming the offending axes and pointing at `0.9.dev1`;
 - **reading** stays permissive, so a non-conformant store can still be loaded
   and inspected.
 
@@ -50,13 +50,13 @@ import ngff_zarr
 
 ngff_zarr.to_ngff_zarr("out.ome.zarr", six_axis_multiscales, version="0.5")
 # ValueError: Cannot write OME-Zarr version="0.5": this axis model violates
-# that version's [axis-count] rule ... Pass version="1.0-DEV" to write it.
+# that version's [axis-count] rule ... Pass version="0.9.dev1" to write it.
 
-ngff_zarr.to_ngff_zarr("out.ome.zarr", six_axis_multiscales, version="1.0-DEV")
+ngff_zarr.to_ngff_zarr("out.ome.zarr", six_axis_multiscales, version="0.9.dev1")
 ```
 
-`1.0-DEV` is opt-in: `NgffVersion.LATEST` remains `0.6.dev4`, so no caller's
-default target changes. OME publishes no `1.0-DEV` JSON Schema, so none is
+`0.9.dev1` is opt-in: `NgffVersion.LATEST` remains `0.6.dev4`, so no caller's
+default target changes. OME publishes no `0.9.dev1` JSON Schema, so none is
 bundled and `validate=True` reports that explicitly; `validate_structural()`
 carries the structural rules.
 
@@ -107,13 +107,13 @@ validator; an opt-in driver, `py/test/rfc3_conformance.py`, checks these dataset
 against an authored manifest (`--data-dir`; never run by the default test suite,
 never downloads).
 
-On a copy retagged `1.0-DEV`, `ecg_1d` (1-D), `astronaut_xcy` (non-TCZYX
+On a copy retagged `0.9.dev1`, `ecg_1d` (1-D), `astronaut_xcy` (non-TCZYX
 order), and `ramp_6d` (6-D, type-less axes) all read at full dimensionality,
 validate, and preserve axis order. The raw datasets do not read at all: they
 declare `0.5+rfc3`, a **version string** no specification defines and which
 ngff-zarr rejects.
 
-The driver reports a separate pass over a copy retagged `1.0-DEV`. At `1.0-DEV`
+The driver reports a separate pass over a copy retagged `0.9.dev1`. At `0.9.dev1`
 those axis models are conformant, whereas 0.5 rejects a 6-D image outright, so
 declaring `0.5` would claim conformance to a version the data violates.
 

@@ -29,8 +29,8 @@ concerns are not conflated:
 - ``storage`` -- an unrelated Zarr/storage-access error.
 
 When the only faithful-read failure is that version string, a labelled retagged
-pass (a temp copy declaring ``1.0-DEV``) characterises the axis behaviour
-separately, so version and axis concerns stay distinct. ``1.0-DEV`` is the
+pass (a temp copy declaring ``0.9.dev1``) characterises the axis behaviour
+separately, so version and axis concerns stay distinct. ``0.9.dev1`` is the
 version that adopts RFC-3: a 6-D axis model is conformant there, and rejected
 at 0.5.
 """
@@ -223,10 +223,10 @@ def _patch_group_version(root: Path, version: str) -> None:
             zmetadata.write_text(json.dumps(doc))
 
 
-#: The version an RFC-3 dataset declares. 6-D axes are conformant at 1.0-DEV
+#: The version an RFC-3 dataset declares. 6-D axes are conformant at 0.9.dev1
 #: and rejected at 0.5, so retagging makes the reference data valid, not just
 #: readable.
-RFC3_VERSION = "1.0-DEV"
+RFC3_VERSION = "0.9.dev1"
 
 
 def _version_normalized(
