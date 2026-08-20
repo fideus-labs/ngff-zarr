@@ -71,14 +71,14 @@ violation, in canonical spec-MUST order.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .v04.zarr_metadata import Axis, Dataset, Metadata, Plate, Transform, Well
 
 
-class SpecRule(str, Enum):
+class SpecRule(StrEnum):
     """Stable, kebab-case identifiers for the structural spec rules.
 
     Inheriting from :class:`str` makes the kebab-case identifier the member's
@@ -103,7 +103,7 @@ class SpecRule(str, Enum):
     WELL_ACQUISITION_MISSING = "well-acquisition-missing"
 
 
-class ValidationLevel(str, Enum):
+class ValidationLevel(StrEnum):
     """How much validation :func:`validate_structural` performs.
 
     ``STRICT`` is the default and runs every structural image/multiscales rule
