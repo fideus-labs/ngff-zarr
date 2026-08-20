@@ -504,3 +504,54 @@ def test_read_ozx_json_first_missing(tmp_path):
             {"ome": {"zipFile": {"centralDirectory": {"jsonFirst": True}}}}
         ).encode("utf-8")
     assert read_ozx_json_first(zip_json_first_true) is True
+
+
+def test_zip_read_store_views_share_one_archive_handle(tmp_path):
+    """Prefixed views must reuse the handle, not open the archive again.
+
+    ``from_hcs_zarr`` builds one view per well and per field and the plate
+    caches keep them alive, so a handle per view would accumulate open file
+    descriptors across a large plate.
+    """
+    import os
+    import zipfile
+
+    from ngff_zarr.rfc9_zip import ZipReadStore
+
+    archive = tmp_path / "plate.ozx"
+    with zipfile.ZipFile(archive, "w") as handle:
+        for well in range(40):
+            handle.writestr(f"A/{well}/zarr.json", b"{}")
+
+    store = ZipReadStore(archive)
+    before = (
+        len(os.listdir("/proc/self/fd")) if Path("/proc/self/fd").exists() else None
+    )
+
+    views = [store.with_prefix(f"A/{well}") for well in range(40)]
+    assert len({id(view._zipfile) for view in views}) == 1
+    if before is not None:
+        after = len(os.listdir("/proc/self/fd"))
+        assert after == before, f"{after - before} extra file descriptors"
+
+    # Views still resolve keys relative to their own prefix.
+    assert views[7]["zarr.json"] == b"{}"
+
+    store.close()
+    with pytest.raises(ValueError):
+        views[0]["zarr.json"]
+
+
+def test_zip_read_store_is_a_context_manager(tmp_path):
+    import zipfile
+
+    from ngff_zarr.rfc9_zip import ZipReadStore
+
+    archive = tmp_path / "plate.ozx"
+    with zipfile.ZipFile(archive, "w") as handle:
+        handle.writestr("zarr.json", b"{}")
+
+    with ZipReadStore(archive) as store:
+        assert store["zarr.json"] == b"{}"
+    with pytest.raises(ValueError):
+        store["zarr.json"]

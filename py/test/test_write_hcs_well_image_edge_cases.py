@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 """Test for edge cases in write_hcs_well_image function."""
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -289,3 +290,104 @@ def test_write_hcs_well_image_multiple_fields():
         for i, img in enumerate(well_attrs["images"]):
             assert img["path"] == str(i), f"Image {i} path should be '{i}'"
             assert img["acquisition"] == 0, f"Image {i} acquisition should be 0"
+
+
+def test_concurrent_fields_in_one_well_keep_every_image(tmp_path):
+    """Threads writing distinct fields of one well must not drop entries.
+
+    ``write_hcs_well_image`` reads the well's image list, appends the new
+    field, and writes it back. Without per-well serialization two threads can
+    read the same prior list and the later write drops the earlier field.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    store = tmp_path / "plate.ome.zarr"
+    plate_metadata = Plate(
+        columns=[PlateColumn(name="1")],
+        rows=[PlateRow(name="A")],
+        wells=[PlateWell(path="A/1", rowIndex=0, columnIndex=0)],
+        version="0.5",
+    )
+    multiscales = nz.to_multiscales(
+        np.zeros((16, 16), dtype=np.uint8), scale_factors=[]
+    )
+
+    n_fields = 8
+
+    def write(field_index):
+        write_hcs_well_image(
+            store=str(store),
+            multiscales=multiscales,
+            plate_metadata=plate_metadata,
+            row_name="A",
+            column_name="1",
+            field_index=field_index,
+            version="0.5",
+        )
+
+    with ThreadPoolExecutor(max_workers=n_fields) as executor:
+        list(executor.map(write, range(n_fields)))
+
+    well_attrs = json.loads((store / "A" / "1" / "zarr.json").read_text())
+    images = well_attrs["attributes"]["ome"]["well"]["images"]
+    assert sorted(int(image["path"]) for image in images) == list(range(n_fields))
+
+
+def test_to_hcs_zarr_overwrite_false_preserves_existing_wells(tmp_path):
+    """``overwrite=False`` must merge into an existing plate, not erase it."""
+    store = tmp_path / "plate.ome.zarr"
+    plate_metadata = Plate(
+        columns=[PlateColumn(name="1")],
+        rows=[PlateRow(name="A")],
+        wells=[PlateWell(path="A/1", rowIndex=0, columnIndex=0)],
+        version="0.5",
+    )
+    multiscales = nz.to_multiscales(
+        np.zeros((16, 16), dtype=np.uint8), scale_factors=[]
+    )
+    write_hcs_well_image(
+        store=str(store),
+        multiscales=multiscales,
+        plate_metadata=plate_metadata,
+        row_name="A",
+        column_name="1",
+        field_index=0,
+        version="0.5",
+    )
+    assert (store / "A" / "1" / "0").exists()
+
+    to_hcs_zarr(
+        HCSPlate(store=str(store), plate_metadata=plate_metadata),
+        str(store),
+        overwrite=False,
+    )
+    assert (store / "A" / "1" / "0").exists(), "existing well data was erased"
+
+    # The default still replaces the hierarchy.
+    to_hcs_zarr(HCSPlate(store=str(store), plate_metadata=plate_metadata), str(store))
+    assert not (store / "A" / "1" / "0").exists()
+
+
+def test_plate_writer_overwrite_false_keeps_prior_plate(tmp_path):
+    """``HCSPlateWriter(overwrite=False)`` must forward the flag."""
+    store = tmp_path / "plate.ome.zarr"
+    plate_metadata = Plate(
+        columns=[PlateColumn(name="1")],
+        rows=[PlateRow(name="A")],
+        wells=[PlateWell(path="A/1", rowIndex=0, columnIndex=0)],
+        version="0.5",
+    )
+    multiscales = nz.to_multiscales(
+        np.zeros((16, 16), dtype=np.uint8), scale_factors=[]
+    )
+    with nz.HCSPlateWriter(str(store), plate_metadata, version="0.5") as writer:
+        writer.write_well_image(multiscales, "A", "1", field_index=0)
+    assert (store / "A" / "1" / "0").exists()
+
+    with nz.HCSPlateWriter(
+        str(store), plate_metadata, version="0.5", overwrite=False
+    ) as writer:
+        writer.write_well_image(multiscales, "A", "1", field_index=1)
+
+    assert (store / "A" / "1" / "0").exists(), "resumed write erased the first field"
+    assert (store / "A" / "1" / "1").exists()

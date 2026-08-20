@@ -17,6 +17,7 @@ Memory Management:
 """
 
 import logging
+import threading
 from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
@@ -541,7 +542,7 @@ def from_hcs_zarr(
     )
 
 
-def to_hcs_zarr(plate: HCSPlate, store) -> None:
+def to_hcs_zarr(plate: HCSPlate, store, overwrite: bool = True) -> None:
     """
     Write an HCS plate to an OME-Zarr NGFF store.
 
@@ -551,6 +552,11 @@ def to_hcs_zarr(plate: HCSPlate, store) -> None:
         The HCS plate to write.
     store
         Store or path to directory in file system.
+    overwrite : bool, optional
+        If True (default), remove any existing content below the store path
+        before writing the plate documents. If False, keep existing content
+        and merge the plate metadata into the root group's attributes, so an
+        interrupted acquisition can be resumed without discarding wells.
     """
 
     # For NGFF version 0.4, use Zarr format 2; for 0.5+, use Zarr format 3
@@ -598,7 +604,7 @@ def to_hcs_zarr(plate: HCSPlate, store) -> None:
 
     # Set root metadata
     root_attrs = {"ome": {"version": plate.metadata.version, "plate": plate_dict}}
-    create_zarrista_group(store, root_attrs, zarr_format, overwrite=True)
+    create_zarrista_group(store, root_attrs, zarr_format, overwrite=overwrite)
 
     # Note: This is a basic implementation that sets up the plate structure.
     # In a full implementation, you would also write the well groups and
@@ -684,6 +690,10 @@ class HCSPlateWriter:
     >>> with HCSPlateWriter("plate.ozx", plate_metadata) as writer:
     ...     with ThreadPoolExecutor(max_workers=4) as executor:
     ...         executor.map(lambda wd: write_well(writer, wd), well_data_list)
+
+    Threads may write different fields of the same well: updates to a well's
+    image list are serialized per well within the process. Writers in
+    *separate processes* are not coordinated and must target distinct wells.
     """
 
     def __init__(
@@ -725,7 +735,7 @@ class HCSPlateWriter:
 
         # Create the plate structure
         hcs_plate = HCSPlate(store=working_store, plate_metadata=self.plate_metadata)
-        to_hcs_zarr(hcs_plate, working_store)
+        to_hcs_zarr(hcs_plate, working_store, overwrite=self.overwrite)
 
         return self
 
@@ -793,6 +803,23 @@ class HCSPlateWriter:
             version=self.version,
             **kwargs,
         )
+
+
+_WELL_METADATA_LOCKS: dict[tuple[str, str], threading.Lock] = {}
+_WELL_METADATA_LOCKS_GUARD = threading.Lock()
+
+
+def _well_metadata_lock(store, well_path: str) -> threading.Lock:
+    """The lock serializing well-attribute updates for *well_path* in *store*.
+
+    Locks are per (store, well) so writers targeting different wells, the
+    parallel pattern :class:`HCSPlateWriter` documents, still run
+    concurrently. This guards threads within one process; concurrent writers
+    in separate processes must still target distinct wells.
+    """
+    key = (str(store), well_path)
+    with _WELL_METADATA_LOCKS_GUARD:
+        return _WELL_METADATA_LOCKS.setdefault(key, threading.Lock())
 
 
 def write_hcs_well_image(
@@ -914,74 +941,82 @@ def write_hcs_well_image(
     # concurrent well writes never rewrite the root documents.
     if read_group_attributes(store, zarr_format=zarr_format) is None:
         create_zarrista_group(store, None, zarr_format)
-    well_group_attrs = read_group_attributes(store, well_path, zarr_format=zarr_format)
-
-    # Read existing well metadata if not provided
-    if well_metadata is None and well_group_attrs is not None:
-        existing_well_attrs = None
-
-        # Check for v0.5 format (ome wrapper) or v0.4 format (direct well)
-        if "ome" in well_group_attrs and "well" in well_group_attrs["ome"]:
-            existing_well_attrs = well_group_attrs["ome"]["well"]
-        elif "well" in well_group_attrs:
-            existing_well_attrs = well_group_attrs["well"]
-
-        if existing_well_attrs is not None:
-            existing_images = []
-            if "images" in existing_well_attrs:
-                for img_dict in existing_well_attrs["images"]:
-                    existing_images.append(
-                        WellImage(
-                            path=img_dict["path"],
-                            acquisition=img_dict.get("acquisition", 0),
-                        )
-                    )
-            well_metadata = Well(
-                images=existing_images,
-                version=existing_well_attrs.get("version", version),
-            )
-
-    # Create or update well metadata
-    if well_metadata is None:
-        # Create default well metadata with single image
-        well_images = [WellImage(path=str(field_index), acquisition=acquisition_id)]
-        well_metadata = Well(images=well_images, version=version)
-    else:
-        # Check if the field already exists in well metadata
-        field_exists = False
-        for img in well_metadata.images:
-            if img.path == str(field_index) and img.acquisition == acquisition_id:
-                field_exists = True
-                break
-
-        # Add the field if it doesn't exist
-        if not field_exists:
-            well_metadata.images.append(
-                WellImage(path=str(field_index), acquisition=acquisition_id)
-            )
-
-    # Set well metadata
-    well_dict = {
-        "images": [
-            {
-                "path": img.path,
-                "acquisition": img.acquisition,
-            }
-            for img in well_metadata.images
-        ],
-        "version": well_metadata.version or version,
-    }
-    if version == "0.4":
-        well_attr_updates = {"well": well_dict}
-    elif version == "0.5":
-        well_dict.pop("version", None)  # version goes at top level in 0.5
-        well_attr_updates = {"ome": {"well": well_dict, "version": version}}
-    else:
+    if version not in ("0.4", "0.5"):
         raise ValueError(f"Unsupported OME-Zarr version: {version}")
 
-    # Creates the missing row group along the way, preserving the
-    # plate -> row -> column (well) hierarchy.
-    create_zarrista_subgroup(store, well_path, well_attr_updates, zarr_format)
+    # The well's image list is read, appended to, and written back. Hold the
+    # well's lock across all three so two threads writing different fields of
+    # one well cannot both start from the same list and drop an entry. Other
+    # wells stay parallel, and the pixel write below is outside the lock.
+    with _well_metadata_lock(store, well_path):
+        well_group_attrs = read_group_attributes(
+            store, well_path, zarr_format=zarr_format
+        )
+
+        # Read existing well metadata if not provided
+        if well_metadata is None and well_group_attrs is not None:
+            existing_well_attrs = None
+
+            # Check for v0.5 format (ome wrapper) or v0.4 format (direct well)
+            if "ome" in well_group_attrs and "well" in well_group_attrs["ome"]:
+                existing_well_attrs = well_group_attrs["ome"]["well"]
+            elif "well" in well_group_attrs:
+                existing_well_attrs = well_group_attrs["well"]
+
+            if existing_well_attrs is not None:
+                existing_images = []
+                if "images" in existing_well_attrs:
+                    for img_dict in existing_well_attrs["images"]:
+                        existing_images.append(
+                            WellImage(
+                                path=img_dict["path"],
+                                acquisition=img_dict.get("acquisition", 0),
+                            )
+                        )
+                well_metadata = Well(
+                    images=existing_images,
+                    version=existing_well_attrs.get("version", version),
+                )
+
+        # Create or update well metadata
+        if well_metadata is None:
+            # Create default well metadata with single image
+            well_images = [WellImage(path=str(field_index), acquisition=acquisition_id)]
+            well_metadata = Well(images=well_images, version=version)
+        else:
+            # Check if the field already exists in well metadata
+            field_exists = False
+            for img in well_metadata.images:
+                if img.path == str(field_index) and img.acquisition == acquisition_id:
+                    field_exists = True
+                    break
+
+            # Add the field if it doesn't exist
+            if not field_exists:
+                well_metadata.images.append(
+                    WellImage(path=str(field_index), acquisition=acquisition_id)
+                )
+
+        # Set well metadata
+        well_dict = {
+            "images": [
+                {
+                    "path": img.path,
+                    "acquisition": img.acquisition,
+                }
+                for img in well_metadata.images
+            ],
+            "version": well_metadata.version or version,
+        }
+        if version == "0.4":
+            well_attr_updates = {"well": well_dict}
+        else:
+            well_dict.pop("version", None)  # version goes at top level in 0.5
+            well_attr_updates = {"ome": {"well": well_dict, "version": version}}
+
+        # Creates the missing row group along the way, preserving the
+        # plate -> row -> column (well) hierarchy.
+        create_zarrista_subgroup(store, well_path, well_attr_updates, zarr_format)
 
     # Write the actual image data to the field path
     field_path = f"{well_path}/{field_index}"

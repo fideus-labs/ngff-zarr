@@ -116,7 +116,12 @@ def _open_local_root(store, version: str | None):
     else:
         node = open_local_node(store, zarr_format=3)
         if node is None or (not hasattr(node, "shape") and not node.attrs):
-            node = open_local_node(store, zarr_format=2)
+            # Only take the format 2 node when one is actually there: a
+            # format 3 group whose attributes are empty is still valid, and
+            # overwriting it with None would report "group not found".
+            fallback = open_local_node(store, zarr_format=2)
+            if fallback is not None:
+                node = fallback
     if node is None:
         raise _group_not_found_error(store)
     if hasattr(node, "shape"):

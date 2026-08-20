@@ -170,3 +170,24 @@ def test_from_ngff_zarr(input_images):
         version = "0.4"
         to_ngff_zarr(tmpdir, multiscales, use_tensorstore=True, version=version)
         multiscales = from_ngff_zarr(tmpdir, version=version, validate=True)
+
+
+def test_v3_group_with_empty_attributes_is_not_discarded(tmp_path):
+    """A format 3 group with no attributes must survive the format 2 retry.
+
+    Auto-detection retries at format 2 when the format 3 node has empty
+    attributes (the spurious-``zarr.json`` case). When no format 2 node
+    exists that retry returns ``None``, which must not erase the valid
+    format 3 group and turn into a "group not found" error.
+    """
+    from ngff_zarr.from_ngff_zarr import _open_local_root
+
+    store = tmp_path / "empty_attrs.zarr"
+    store.mkdir()
+    (store / "zarr.json").write_text(
+        json.dumps({"zarr_format": 3, "node_type": "group", "attributes": {}})
+    )
+
+    node = _open_local_root(store, None)
+    assert node is not None
+    assert node.attrs == {}

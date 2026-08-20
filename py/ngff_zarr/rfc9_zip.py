@@ -9,6 +9,7 @@ in ZIP archives according to RFC-9 specification.
 
 import json
 import posixpath
+import threading
 import zipfile
 from collections.abc import Iterator, Mapping
 from pathlib import Path
@@ -24,22 +25,50 @@ class ZipReadStore(Mapping):
     default, which the mapping reader cannot decode. A *prefix* narrows the
     view to a sub-hierarchy (HCS well/field access): keys are resolved
     relative to it and iteration yields only the keys below it.
+
+    Every view produced by :meth:`with_prefix` shares the archive handle,
+    name set, and read lock of the store it came from, so navigating a large
+    plate does not open one file descriptor (and re-parse the central
+    directory) per well and field. :meth:`close` releases the shared handle
+    for all of them; the store is also usable as a context manager.
     """
 
-    def __init__(self, path: str | Path, prefix: str = ""):
+    def __init__(self, path: str | Path, prefix: str = "", _shared=None):
         self.path = Path(path)
         self.prefix = "/".join(
             part for part in str(prefix).split("/") if part not in ("", ".")
         )
-        self._zipfile = zipfile.ZipFile(self.path, mode="r")
-        self._names = frozenset(
-            name for name in self._zipfile.namelist() if not name.endswith("/")
-        )
+        if _shared is None:
+            archive = zipfile.ZipFile(self.path, mode="r")
+            _shared = (
+                archive,
+                threading.Lock(),
+                frozenset(
+                    name for name in archive.namelist() if not name.endswith("/")
+                ),
+            )
+        self._shared = _shared
+        self._zipfile, self._lock, self._names = _shared
 
     def with_prefix(self, prefix: str) -> "ZipReadStore":
         """A view of the same archive narrowed to *prefix* (joined to any
-        existing prefix)."""
-        return ZipReadStore(self.path, posixpath.join(self.prefix, str(prefix)))
+        existing prefix), sharing this store's open archive handle."""
+        return ZipReadStore(
+            self.path,
+            posixpath.join(self.prefix, str(prefix)),
+            _shared=self._shared,
+        )
+
+    def close(self) -> None:
+        """Close the archive handle shared by this store and its views."""
+        self._zipfile.close()
+
+    def __enter__(self) -> "ZipReadStore":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        self.close()
+        return False
 
     def _full_key(self, key: str) -> str:
         return f"{self.prefix}/{key}" if self.prefix else key
@@ -48,7 +77,10 @@ class ZipReadStore(Mapping):
         name = self._full_key(key)
         if name not in self._names:
             raise KeyError(key)
-        return self._zipfile.read(name)
+        # One ZipFile handle now backs every view, and a shared handle has a
+        # single seek position, so concurrent reads must be serialized.
+        with self._lock:
+            return self._zipfile.read(name)
 
     def __iter__(self) -> Iterator[str]:
         if not self.prefix:
