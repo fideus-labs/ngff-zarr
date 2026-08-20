@@ -485,6 +485,17 @@ class Metadata:
         # find the cs in the list of coordinate systems with the same name as the output
         return next(cs for cs in self.coordinateSystems if cs.name == output_cs[0].name)
 
+    @property
+    def axes(self) -> list[Axis]:
+        """The intrinsic coordinate system's axes.
+
+        A property, not a field, so ``dataclasses.asdict`` and
+        ``dataclasses.fields`` ignore it and the serialized entry is unchanged.
+        The axis rules in :mod:`ngff_zarr.structural_validation` read
+        ``metadata.axes``.
+        """
+        return self.intrinsic_coordinate_system.axes
+
     def to_version(
         self, version: Union[str, NgffVersion]
     ) -> Union["Metadata", "Metadata_v05", "Metadata_v04"]:

@@ -34,6 +34,24 @@ rule has a stable, lower-kebab-case identifier (a [[rule-reference|SpecRule]])
 that is part of the observable surface — reused verbatim in error messages,
 logs, tests, and across both language ports.
 
+Either image metadata model is accepted. v0.4 and v0.5 carry a flat `axes` list
+and per-dataset `scale`/`translation` transforms, which is the shape the rules
+are written against. v0.6 (RFC 5) instead keeps its axes in
+`coordinateSystems` and gives each dataset a single transform — an `identity`,
+a `scale`, or a `sequence` of a `scale` and a `translation` — mapping its array
+to the intrinsic coordinate system; that model is reduced to the flat shape
+before the rules run, so both validate identically. The reduction applies to
+every version in practice, because `from_ngff_zarr` and `to_multiscales` return
+v0.6 metadata whatever the store's version. One check does not carry over: a
+v0.6 multiscale-level `coordinateTransformations` entry maps between *named*
+coordinate systems, whose axis counts need not match the intrinsic system's, so
+`scale-length-mismatch` does not measure those vectors.
+
+The reduction keeps the intrinsic coordinate system, so the axis rules read its
+axes and only its axes. A v0.6 document may declare further coordinate systems,
+and `coordinate_systems.schema` applies `axes.schema` to each of them; those
+are not validated here.
+
 See [[rule-reference]] for the full rule table, [[api]] for how to invoke
 validation from Python and TypeScript, and [[parity]] for the cross-language
 equivalence guarantee.

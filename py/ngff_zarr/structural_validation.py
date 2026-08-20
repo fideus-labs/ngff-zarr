@@ -10,9 +10,13 @@ here answer "does this obey the spec's structural invariants?" -- e.g. axis
 counts, axis ordering, coordinate-transformation arity, finest-to-coarsest
 dataset ordering, and OMERO channel color format.
 
-The rules are pure Python (standard library only) and operate on the already
-parsed :class:`~ngff_zarr.v04.zarr_metadata.Metadata` dataclass, so they work
-even when the optional ``[validate]`` extra (``jsonschema``) is not installed.
+The rules are pure Python (standard library only) and operate on already
+parsed metadata, so they work even when the optional ``[validate]`` extra
+(``jsonschema``) is not installed. Both metadata models are accepted: the flat
+:class:`~ngff_zarr.v04.zarr_metadata.Metadata` of v0.4/v0.5 directly, and the
+``coordinateSystems`` model of v0.6 through the reduction in
+:func:`_flat_model` -- which matters because ``from_ngff_zarr`` and
+``to_multiscales`` hand back the v0.6 model whatever the store's version.
 
 Each rule is identified by a stable, kebab-case :class:`SpecRule` value that
 is part of the observable surface (reused verbatim in logs, tests, and the
@@ -192,6 +196,121 @@ def _first_scale_vector(dataset: Dataset) -> list[float] | None:
     return None
 
 
+@dataclass(frozen=True)
+class _MetadataView:
+    """A ``coordinateSystems`` metadata rendered in the flat v0.4 shape.
+
+    Exposes exactly the attributes the rules read, and nothing more: it is a
+    view for validation, never written back or serialized. A real
+    :class:`~ngff_zarr.v04.zarr_metadata.Metadata` cannot stand in for it,
+    since that requires a ``version`` the v0.6 model deliberately does not
+    carry -- from v0.5 on the spec version lives in the group-level ``ome``
+    namespace, not in the multiscale entry.
+    """
+
+    axes: list[Axis]
+    datasets: list[Dataset]
+    coordinateTransformations: list[Transform] | None
+    omero: Any
+    version: str | None
+    extra: dict
+
+
+def _dataset_scale_translation(
+    dataset: Any, axes_len: int
+) -> tuple[list[float], list[float]]:
+    """Reduce one v0.6 dataset's transform to a ``(scale, translation)`` pair.
+
+    At v0.6 a dataset carries a single transformation mapping its array to the
+    intrinsic coordinate system: an ``identity``, a ``scale``, or a
+    ``sequence`` of a ``scale`` and a ``translation``. Absent components fall
+    back to the unit scale and zero translation the identity implies. Vectors
+    are taken verbatim -- never padded or truncated -- so a wrong-length one
+    still reaches :func:`validate_scale_length`.
+
+    Mirrors the reader's own extraction
+    (:meth:`ngff_zarr.v06.zarr_metadata.Metadata._from_zarr_attrs`) and the
+    TypeScript port's ``extractScaleTranslation``.
+    """
+    scale = [1.0] * axes_len
+    translation = [0.0] * axes_len
+    for transform in dataset.coordinateTransformations:
+        kind = getattr(transform, "type", None)
+        if kind == "sequence":
+            for sub_transform in transform.transformations:
+                sub_kind = getattr(sub_transform, "type", None)
+                if sub_kind == "scale":
+                    scale = sub_transform.scale
+                elif sub_kind == "translation":
+                    translation = sub_transform.translation
+                elif sub_kind == "identity":
+                    # Within a sequence an identity resets only the scale: a
+                    # sibling translation composes with it (identity o
+                    # translation = translation). Spec-conformant dataset
+                    # sequences are [scale, translation] and carry no identity,
+                    # so this branch is defensive.
+                    scale = [1.0] * axes_len
+        elif kind == "scale":
+            scale = transform.scale
+        elif kind == "translation":
+            translation = transform.translation
+        elif kind == "identity":
+            scale = [1.0] * axes_len
+            translation = [0.0] * axes_len
+    return scale, translation
+
+
+def _flat_model(metadata: Any) -> Any:
+    """Return ``metadata`` in the flat v0.4 shape the rules are written against.
+
+    v0.4 and v0.5 metadata already carry a flat ``axes`` list and per-dataset
+    ``scale``/``translation`` transforms, and are returned unchanged -- so this
+    is a no-op for them, and idempotent for a view it built itself.
+
+    At v0.6 (RFC-5) the axes live in ``coordinateSystems`` and each dataset
+    carries one transform mapping its array to the intrinsic system. Those are
+    reduced to the flat ``[scale, translation]`` pair (see
+    :func:`_dataset_scale_translation`), which is what the TypeScript v0.6
+    reader hands its own structural pass, so both ports validate the same
+    normalized shape.
+
+    The presence of ``coordinateSystems`` is what marks the v0.6 model: it also
+    exposes ``axes``, as a property returning the intrinsic system's axes.
+
+    The multiscale-level ``coordinateTransformations`` are dropped from the
+    view. At v0.6 they map between *named* coordinate systems whose axis counts
+    need not match the intrinsic system's, so the global-transform arm of
+    :func:`validate_scale_length` -- which measures every vector against the
+    intrinsic axis count -- does not apply to them.
+    """
+    if not getattr(metadata, "coordinateSystems", None):
+        return metadata
+
+    from .v04.zarr_metadata import Dataset, Scale, Translation
+
+    axes = metadata.axes
+    datasets = []
+    for dataset in metadata.datasets:
+        scale, translation = _dataset_scale_translation(dataset, len(axes))
+        datasets.append(
+            Dataset(
+                path=dataset.path,
+                coordinateTransformations=[
+                    Scale(scale=scale),
+                    Translation(translation=translation),
+                ],
+            )
+        )
+    return _MetadataView(
+        axes=axes,
+        datasets=datasets,
+        coordinateTransformations=None,
+        omero=metadata.omero,
+        version=getattr(metadata, "version", None),
+        extra=getattr(metadata, "extra", {}),
+    )
+
+
 # Class-ordering rank for axis types: a ``time`` axis must precede a
 # ``channel`` axis, which must precede any ``space`` axis. Lower rank must
 # never follow higher rank (see ``validate_axis_order``).
@@ -323,7 +442,9 @@ def validate_per_dataset_scale_count(metadata: Metadata) -> None:
     """Validate that each dataset defines exactly one ``scale`` transform.
 
     Every dataset's ``coordinateTransformations`` must contain exactly one
-    ``scale`` (the per-level voxel size). This shares the per-dataset
+    ``scale`` (the per-level voxel size). v0.6 metadata is reduced first (see
+    :func:`_flat_model`), so a dataset whose transform is an ``identity`` reads
+    as the unit scale that identity implies. This shares the per-dataset
     coordinate-transform-shape rule identifier
     (:attr:`SpecRule.GLOBAL_COORD_TRANSFORM_AFTER_PER_LEVEL`); there is no
     dedicated identifier for the scale count.
@@ -335,6 +456,7 @@ def validate_per_dataset_scale_count(metadata: Metadata) -> None:
         dataset has zero or more than one ``scale`` transform; location
         ``multiscales[0].datasets[i].coordinateTransformations``.
     """
+    metadata = _flat_model(metadata)
     for i, dataset in enumerate(metadata.datasets):
         scale_count = sum(
             1 for t in dataset.coordinateTransformations if t.type == "scale"
@@ -364,6 +486,7 @@ def validate_scale_length(metadata: Metadata) -> None:
         whose vector length disagrees with ``len(metadata.axes)``; location
         identifies the offending transform.
     """
+    metadata = _flat_model(metadata)
     axes_len = len(metadata.axes)
     if metadata.coordinateTransformations:
         for j, transform in enumerate(metadata.coordinateTransformations):
@@ -403,6 +526,7 @@ def validate_transform_order(metadata: Metadata) -> None:
         first dataset where a ``scale`` follows a ``translation``; location
         identifies the offending ``scale``.
     """
+    metadata = _flat_model(metadata)
     for i, dataset in enumerate(metadata.datasets):
         seen_translation = False
         for j, transform in enumerate(dataset.coordinateTransformations):
@@ -435,6 +559,7 @@ def validate_dataset_order(metadata: Metadata) -> None:
         adjacent pair whose later (coarser) level has a smaller spatial scale;
         location ``multiscales[0].datasets[i+1]``.
     """
+    metadata = _flat_model(metadata)
     space_indices = [i for i, ax in enumerate(metadata.axes) if ax.type == "space"]
     datasets = metadata.datasets
     for i in range(len(datasets) - 1):
@@ -613,6 +738,11 @@ def validate_zarr_format_for_version(metadata: Metadata) -> None:
     is reachable here: it belongs on the enclosing Zarr v3 group, never on the
     entry, and any value other than ``3`` is incompatible with v0.5.
 
+    The version is read defensively: only the v0.4 model carries a ``version``
+    field, so from v0.5 on -- where the spec version lives in the group-level
+    ``ome`` namespace rather than in the entry -- there is nothing to gate on
+    and the rule is inert.
+
     Raises
     ------
     ValidationError
@@ -620,7 +750,7 @@ def validate_zarr_format_for_version(metadata: Metadata) -> None:
         ``zarr_format`` other than ``3`` in its ``extra`` passthrough; location
         ``multiscales[0]``.
     """
-    if metadata.version != "0.5":
+    if getattr(metadata, "version", None) != "0.5":
         return
     zarr_format = metadata.extra.get("zarr_format")
     if zarr_format is not None and zarr_format != 3:
@@ -647,6 +777,10 @@ def validate_ome_namespace(metadata: Metadata) -> None:
     ``.zattrs`` top level with no ``ome`` wrapper, so this rule is inert below
     v0.5.
 
+    The version is read defensively, exactly as in
+    :func:`validate_zarr_format_for_version`: a model with no ``version`` field
+    leaves the rule inert.
+
     Raises
     ------
     ValidationError
@@ -654,7 +788,7 @@ def validate_ome_namespace(metadata: Metadata) -> None:
         group-level ``ome`` or ``multiscales`` key in its ``extra`` passthrough;
         location ``multiscales[0]``.
     """
-    if metadata.version != "0.5":
+    if getattr(metadata, "version", None) != "0.5":
         return
     for wrapper_key in ("ome", "multiscales"):
         if wrapper_key in metadata.extra:
@@ -793,7 +927,10 @@ def validate_structural(
     Parameters
     ----------
     metadata:
-        The parsed OME-Zarr v0.4+ multiscales metadata to validate.
+        The parsed OME-Zarr v0.4+ multiscales metadata to validate, in either
+        model: the flat ``axes`` metadata of v0.4/v0.5, or the
+        ``coordinateSystems`` metadata of v0.6, which is reduced to the flat
+        shape once here (see :func:`_flat_model`) and passed to every rule.
     options:
         Validation options. Defaults to :class:`ValidateOptions`, i.e.
         :attr:`ValidationLevel.STRICT`. Under
@@ -821,6 +958,7 @@ def validate_structural(
         options = ValidateOptions()
     if options.level == ValidationLevel.SCHEMA_ONLY:
         return
+    metadata = _flat_model(metadata)
     validate_axis_count(metadata)
     validate_axis_type(metadata)
     validate_axis_order(metadata)

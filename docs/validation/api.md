@@ -41,8 +41,10 @@ from ngff_zarr import (
 )
 ```
 
-`validate_structural(metadata, options=None)` runs the image/multiscales rules.
-When `options` is `None` it uses `ValidateOptions()`, i.e.
+`validate_structural(metadata, options=None)` runs the image/multiscales rules
+against either metadata model — the flat v0.4/v0.5 `Metadata` or the v0.6
+`coordinateSystems` one that `from_ngff_zarr` and `to_multiscales` return (see
+[[overview]]). When `options` is `None` it uses `ValidateOptions()`, i.e.
 `ValidationLevel.STRICT`. A `ValidationError` carries `.rule` (a `SpecRule`),
 `.message` (str), and `.location` (`str | None`); `str(exc)` is
 `Spec rule [<rule>] violated: <message>`.
