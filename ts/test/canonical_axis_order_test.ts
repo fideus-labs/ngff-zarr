@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 /**
- * Normalization of channel-last input to the OME-Zarr axis order.
+ * Normalization of a non-canonical axis order to the OME-Zarr axis order.
  *
  * Mirrors the Python port's `_canonical_axis_order` coverage: the pipeline
  * reorders axes to `(t, c, z, y, x)`, moves the data with them, and leaves an
@@ -19,7 +19,7 @@ import {
 import { Methods } from "../src/types/methods.ts";
 import { NgffImage } from "../src/types/ngff_image.ts";
 import { canonicalAxisOrder } from "../src/utils/axis_order.ts";
-import { zarrGet } from "../src/utils/worker_pool.ts";
+import { zarrGet, zarrSet } from "../src/utils/worker_pool.ts";
 import { calculateStride } from "../src/utils/transpose.ts";
 
 /** A ramp image over `dims`/`shape`, values `0..n-1` in row-major order. */
@@ -43,7 +43,7 @@ async function readAll(
   return Array.from(result.data as ArrayLike<number>);
 }
 
-Deno.test("canonicalAxisOrder - channel-last input is reordered", async () => {
+Deno.test("canonicalAxisOrder - a non-canonical order is normalized", async () => {
   const image = await rampImage(["z", "y", "x", "c"], [2, 3, 4, 2]);
   const normalized = await canonicalAxisOrder(image);
 
@@ -103,4 +103,94 @@ Deno.test("toMultiscales - generated axes are spec-ordered", async () => {
   );
   assertEquals(multiscales.images[0].dims, ["c", "z", "y", "x"]);
   assertNotEquals(multiscales.images[0].dims, image.dims);
+});
+
+/** An in-memory image over `dims`/`shape` with an explicit dtype and chunking. */
+async function chunkedImage(
+  dims: string[],
+  shape: number[],
+  chunkShape: number[],
+  dataType: "float32" | "int64",
+): Promise<NgffImage> {
+  const total = shape.reduce((a, b) => a * b, 1);
+  const store: Map<string, Uint8Array> = new Map();
+  const array = await zarr.create(zarr.root(store).resolve("/0"), {
+    shape,
+    chunk_shape: chunkShape,
+    data_type: dataType,
+    fill_value: 0,
+  });
+  const data = dataType === "int64"
+    ? BigInt64Array.from({ length: total }, (_, i) => BigInt(i))
+    : Float32Array.from({ length: total }, (_, i) => i);
+  await zarrSet(array as never, shape.map(() => null), {
+    data,
+    shape,
+    stride: calculateStride(shape),
+  } as never);
+  const scale: Record<string, number> = {};
+  const translation: Record<string, number> = {};
+  for (const dim of dims) {
+    scale[dim] = 1.0;
+    translation[dim] = 0.0;
+  }
+  return new NgffImage({
+    data: array as zarr.Array<zarr.DataType, zarr.Readable>,
+    dims,
+    scale,
+    translation,
+    name: "image",
+    axesUnits: undefined,
+    computedCallbacks: undefined,
+  });
+}
+
+Deno.test("canonicalAxisOrder - a multi-chunk array transposes correctly", async () => {
+  // The copy walks the source chunk grid, so a single-chunk fixture would not
+  // exercise the per-chunk region arithmetic.
+  const shape = [4, 6, 2];
+  const image = await chunkedImage(
+    ["y", "x", "c"],
+    shape,
+    [2, 3, 1],
+    "float32",
+  );
+  const normalized = await canonicalAxisOrder(image);
+
+  assertEquals(normalized.dims, ["c", "y", "x"]);
+  assertEquals([...normalized.data.shape], [2, 4, 6]);
+
+  const sourceStride = calculateStride(shape);
+  const expected: number[] = [];
+  for (let c = 0; c < 2; c++) {
+    for (let y = 0; y < 4; y++) {
+      for (let x = 0; x < 6; x++) {
+        expected.push(
+          y * sourceStride[0] + x * sourceStride[1] + c * sourceStride[2],
+        );
+      }
+    }
+  }
+  assertEquals(await readAll(normalized.data), expected);
+});
+
+Deno.test("canonicalAxisOrder - a 64-bit integer image transposes", async () => {
+  // int64 reads back as a BigInt64Array; treating it as float32 would allocate
+  // the wrong buffer and throw on the first bigint assignment.
+  const image = await chunkedImage(
+    ["y", "x", "c"],
+    [2, 3, 2],
+    [2, 3, 2],
+    "int64",
+  );
+  const normalized = await canonicalAxisOrder(image);
+
+  assertEquals(normalized.dims, ["c", "y", "x"]);
+  assertEquals([...normalized.data.shape], [2, 2, 3]);
+  const values = (await zarrGet(normalized.data)).data;
+  assertEquals(values instanceof BigInt64Array, true);
+  assertEquals(
+    Array.from(values as BigInt64Array).map(Number),
+    [0, 2, 4, 6, 8, 10, 1, 3, 5, 7, 9, 11],
+  );
 });

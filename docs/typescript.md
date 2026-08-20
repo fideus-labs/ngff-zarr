@@ -465,7 +465,7 @@ async function toMultiscales(
 **Returns:** NgffMultiscales with generated pyramid levels
 
 Axes are normalized to the OME-Zarr order, time then channel then space, so a
-channel-last input such as `(z, y, c, x)` yields `(c, z, y, x)` and the data is
+non-canonical input such as `(z, y, c, x)` yields `(c, z, y, x)` and the data is
 reordered with it. An axis model outside the `(t, c, z, y, x)` vocabulary is
 left alone: it carries no spec ordering to normalize to. A positional `chunks`
 array indexes the dims you passed and follows them through the reordering.

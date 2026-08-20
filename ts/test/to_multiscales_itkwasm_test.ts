@@ -59,7 +59,7 @@ Deno.test("downsample zycx", async () => {
   const store: MemoryStore = new Map();
   await toNgffZarr(store, multiscales);
 
-  // The channel-last input is normalized to (c, z, y, x). Mirrors
+  // The non-canonical input is normalized to (c, z, y, x). Mirrors
   // py/test/test_to_ngff_zarr_itkwasm.py::test_downsample_zycx.
   assertEquals(multiscales.images[0].dims[0], "c");
   assertEquals(multiscales.images[0].dims[1], "z");
@@ -136,7 +136,7 @@ Deno.test("downsample tzycx", async () => {
   const store: MemoryStore = new Map();
   await toNgffZarr(store, multiscales);
 
-  // The channel-last input is normalized to (t, c, z, y, x). Mirrors
+  // The non-canonical input is normalized to (t, c, z, y, x). Mirrors
   // py/test/test_to_ngff_zarr_itkwasm.py::test_downsample_tzycx.
   assertEquals(multiscales.images[0].dims[0], "t");
   assertEquals(multiscales.images[0].dims[1], "c");

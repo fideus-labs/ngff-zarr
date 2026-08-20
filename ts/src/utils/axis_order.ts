@@ -21,6 +21,21 @@ import { zarrGet, zarrSet } from "./worker_pool.ts";
 /** The OME-Zarr specification axis order: time, then channel, then space. */
 export const CANONICAL_AXIS_ORDER = ["t", "c", "z", "y", "x"];
 
+/** Every chunk origin of a `shape`/`chunks` grid, in row-major order. */
+function* chunkOrigins(shape: number[], chunks: number[]): Generator<number[]> {
+  const counts = shape.map((size, axis) => Math.ceil(size / chunks[axis]));
+  const total = counts.reduce((a, b) => a * b, 1);
+  for (let flat = 0; flat < total; flat++) {
+    const origin = new Array<number>(shape.length);
+    let rest = flat;
+    for (let axis = shape.length - 1; axis >= 0; axis--) {
+      origin[axis] = (rest % counts[axis]) * chunks[axis];
+      rest = Math.floor(rest / counts[axis]);
+    }
+    yield origin;
+  }
+}
+
 /**
  * Return `image` with its dims in the spec axis order `(t, c, z, y, x)`.
  *
@@ -32,9 +47,11 @@ export const CANONICAL_AXIS_ORDER = ["t", "c", "z", "y", "x"];
  * an axis model that was not expressible before RFC-3 carries no spec ordering
  * to normalize to.
  *
- * Where the Python port transposes lazily through dask, this reads the array
- * and writes the permuted buffer into a new in-memory zarr array. The
- * downsampling path materializes the image anyway.
+ * Where the Python port transposes lazily through dask, this writes a reordered
+ * copy into a new in-memory zarr array. The copy proceeds one source chunk at
+ * a time, so peak working memory is a chunk rather than the whole image, but
+ * the whole image is read: a remote store is fetched in full even when no
+ * downsampling was requested.
  *
  * @param image - The image to normalize.
  * @param codecs - Codec pipeline for the reordered array; defaults to
@@ -55,17 +72,11 @@ export async function canonicalAxisOrder(
   }
 
   const permutation = newDims.map((dim) => dims.indexOf(dim));
-  const result = await zarrGet(image.data);
-  const componentType = componentTypeOf(result.data);
-  const transposed = transposeArray(
-    result.data,
-    [...result.shape],
-    permutation,
-    componentType,
-  );
+  const sourceShape = [...image.data.shape];
+  const sourceChunks = [...image.data.chunks];
+  const shape = permutation.map((index) => sourceShape[index]);
+  const chunkShape = permutation.map((index) => sourceChunks[index]);
 
-  const shape = permutation.map((index) => result.shape[index]);
-  const chunkShape = permutation.map((index) => image.data.chunks[index]);
   const store: Map<string, Uint8Array> = new Map();
   const array = await zarr.create(zarr.root(store).resolve("/0"), {
     shape,
@@ -74,11 +85,38 @@ export async function canonicalAxisOrder(
     fill_value: 0,
     codecs: codecs ?? defaultCodecs(image.data.dtype),
   });
-  await zarrSet(array, shape.map(() => null), {
-    data: transposed,
-    shape,
-    stride: calculateStride(shape),
-  });
+
+  // One source chunk at a time: the region read and the transposed buffer are
+  // both chunk-sized, so an image far larger than memory still converts.
+  for (const origin of chunkOrigins(sourceShape, sourceChunks)) {
+    const region = origin.map((start, axis) => ({
+      start,
+      stop: Math.min(start + sourceChunks[axis], sourceShape[axis]),
+    }));
+    const block = await zarrGet(
+      image.data,
+      region.map(({ start, stop }) => zarr.slice(start, stop)),
+    );
+    const blockShape = [...block.shape];
+    const transposed = transposeArray(
+      block.data,
+      blockShape,
+      permutation,
+      componentTypeOf(block.data),
+    );
+    const targetShape = permutation.map((index) => blockShape[index]);
+    await zarrSet(
+      array,
+      permutation.map((index) =>
+        zarr.slice(region[index].start, region[index].stop)
+      ),
+      {
+        data: transposed,
+        shape: targetShape,
+        stride: calculateStride(targetShape),
+      },
+    );
+  }
 
   return new NgffImage({
     data: array as zarr.Array<zarr.DataType, zarr.Readable>,
