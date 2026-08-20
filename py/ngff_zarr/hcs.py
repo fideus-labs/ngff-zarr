@@ -938,9 +938,12 @@ def write_hcs_well_image(
     zarr_format = 2 if version == "0.4" else 3
 
     # mode="a" semantics: create the root group only when absent, so
-    # concurrent well writes never rewrite the root documents.
-    if read_group_attributes(store, zarr_format=zarr_format) is None:
-        create_zarrista_group(store, None, zarr_format)
+    # concurrent well writes never rewrite the root documents. The probe and
+    # the create are one critical section (the empty well path keys the root)
+    # so parallel writers do not all rewrite the root document at startup.
+    with _well_metadata_lock(store, ""):
+        if read_group_attributes(store, zarr_format=zarr_format) is None:
+            create_zarrista_group(store, None, zarr_format)
     if version not in ("0.4", "0.5"):
         raise ValueError(f"Unsupported OME-Zarr version: {version}")
 

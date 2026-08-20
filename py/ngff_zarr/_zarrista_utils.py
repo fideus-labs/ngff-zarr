@@ -365,6 +365,33 @@ def normalize_store(store) -> Path:
     return path
 
 
+def _retry_on_windows_sharing_violation(operation, cleanup=None):
+    """Run *operation*, retrying the transient Windows sharing violation.
+
+    ``os.replace`` swaps group documents in place. Windows denies access to
+    the destination for the instant the swap takes, so a concurrent reader
+    or writer of that path sees ``PermissionError`` where POSIX sees the old
+    or new file. Retry briefly, then give up and let the error surface.
+    """
+    delay = 0.001
+    for attempt in range(10):
+        try:
+            return operation()
+        except PermissionError:
+            if attempt == 9:
+                if cleanup is not None:
+                    cleanup()
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.05)
+    return None
+
+
+def _read_doc_text(doc: Path) -> str:
+    """Read a zarr metadata document, tolerating a concurrent replace."""
+    return _retry_on_windows_sharing_violation(doc.read_text)
+
+
 def read_group_attributes(store, group_path=None, *, zarr_format: int) -> dict | None:
     """Attributes of the group at *group_path* within *store*.
 
@@ -386,14 +413,14 @@ def read_group_attributes(store, group_path=None, *, zarr_format: int) -> dict |
         doc = path / ".zattrs"
         if not doc.exists():
             return {}
-        loaded = json.loads(doc.read_text())
+        loaded = json.loads(_read_doc_text(doc))
         return loaded if isinstance(loaded, dict) else {}
     if zarr_format != 3:
         raise ValueError(f"Unsupported zarr format: {zarr_format}")
     doc = path / "zarr.json"
     if not doc.exists():
         return None
-    loaded = json.loads(doc.read_text())
+    loaded = json.loads(_read_doc_text(doc))
     if loaded.get("node_type") != "group":
         raise ValueError(f"An array node already exists at {path}")
     return dict(loaded.get("attributes") or {})
@@ -437,17 +464,10 @@ def _write_group_doc(path: Path, doc: dict) -> None:
     """
     tmp = path.with_name(f"{path.name}.{os.getpid()}-{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(doc, indent=4))
-    delay = 0.001
-    for attempt in range(10):
-        try:
-            os.replace(tmp, path)
-            return
-        except PermissionError:
-            if attempt == 9:
-                tmp.unlink(missing_ok=True)
-                raise
-            time.sleep(delay)
-            delay = min(delay * 2, 0.05)
+    _retry_on_windows_sharing_violation(
+        lambda: os.replace(tmp, path),
+        cleanup=lambda: tmp.unlink(missing_ok=True),
+    )
 
 
 def create_zarrista_group(

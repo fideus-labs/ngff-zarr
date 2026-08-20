@@ -10,6 +10,7 @@ tests that exercise it skip via ``pytest.importorskip`` where it is absent.
 import json
 import os
 import shutil
+from pathlib import Path
 
 import dask.array as da
 import numpy as np
@@ -1050,3 +1051,35 @@ def test_write_group_doc_gives_up_and_cleans_up(tmp_path, monkeypatch):
         _zarrista_utils._write_group_doc(tmp_path / "zarr.json", {"zarr_format": 3})
 
     assert list(tmp_path.glob("*.tmp")) == [], "temp file left behind"
+
+
+def test_read_group_attributes_retries_windows_sharing_violation(tmp_path, monkeypatch):
+    """A group document being replaced must not fail the concurrent reader.
+
+    On Windows the destination of ``os.replace`` is briefly inaccessible, so
+    a parallel writer probing the same group saw ``PermissionError`` from
+    ``read_text``. Simulated here because POSIX never denies the read.
+    """
+    from ngff_zarr import _zarrista_utils
+
+    store = tmp_path / "plate.ome.zarr"
+    store.mkdir()
+    (store / "zarr.json").write_text(
+        json.dumps({"zarr_format": 3, "node_type": "group", "attributes": {"a": 1}})
+    )
+
+    real_read_text = Path.read_text
+    calls = {"n": 0}
+
+    def flaky_read_text(self, *args, **kwargs):
+        if self.name == "zarr.json":
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise PermissionError(13, "Permission denied")
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", flaky_read_text)
+    attrs = _zarrista_utils.read_group_attributes(store, zarr_format=3)
+
+    assert attrs == {"a": 1}
+    assert calls["n"] == 3
