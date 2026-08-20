@@ -172,6 +172,42 @@ def _prep_for_to_zarr(store: StoreLike, arr: dask.array.Array) -> dask.array.Arr
     )
 
 
+def _blocks_write_disjoint_chunks(arr: dask.array.Array, array, region) -> bool:
+    """Whether two blocks of ``arr`` can never land in one chunk of ``array``.
+
+    Blocks are written concurrently, and a zarr chunk (a shard, when the array
+    is sharded) is read, updated and rewritten as a unit, so two writers in one
+    chunk lose data. They are disjoint when every block boundary falls on a
+    boundary of the write unit, which is what ``to_multiscales`` arranges: the
+    array is created with the chunk shape of the dask array, and a sharded one
+    is rechunked to whole shards before it gets here.
+    """
+    unit = getattr(array, "shards", None) or array.chunks
+    if unit is None or len(unit) != arr.ndim:
+        return False
+    starts = [start for start, _stop in _region_bounds(region, arr.ndim)]
+    for sizes, size, start in zip(arr.chunks, unit, starts):
+        if start % size:
+            return False
+        # The last boundary is the end of the written area, not a seam.
+        boundaries = np.cumsum(sizes)[:-1] + start
+        if any(int(boundary) % size for boundary in boundaries):
+            return False
+    return True
+
+
+def _region_bounds(region, ndim: int) -> list[tuple[int, int]]:
+    """``region`` as (start, stop) per dimension, defaulting to a zero start."""
+    if region is None:
+        return [(0, None)] * ndim
+    return [
+        (int(part.start or 0), part.stop)
+        if isinstance(part, slice)
+        else (int(part), None)
+        for part in region
+    ]
+
+
 def _numpy_to_zarr_dtype(dtype):
     dtype_map = {
         "bool": "bool",
@@ -870,7 +906,7 @@ def _write_array_direct(
         to_zarr_kwargs["chunks"] = arr.chunksize
 
     if zarr_fmt == 3 and zarr_array is None:
-        # Zarr v3, use zarr.create_array and assign (whole array or region)
+        # Zarr v3: create the array, then stream the blocks into it.
         array = zarr.create_array(
             store=store,
             name=path,
@@ -879,10 +915,17 @@ def _write_array_direct(
             **to_zarr_kwargs,
         )
         try:
-            if region is not None:
-                array[region] = arr.compute()
-            else:
-                array[:] = arr.compute()
+            # Stream block by block. ``array[:] = arr.compute()`` would hold the
+            # whole result in memory before the first byte is written, which
+            # caps the writable size at what fits in RAM.
+            dask.array.store(
+                arr,
+                array,
+                regions=region if region is not None else None,
+                lock=not _blocks_write_disjoint_chunks(arr, array, region),
+                compute=True,
+                return_stored=False,
+            )
         except (OSError, ValueError) as e:
             raise _array_write_error(path, e) from e
     else:
