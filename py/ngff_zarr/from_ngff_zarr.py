@@ -349,9 +349,8 @@ def from_ome_zarr(
     if version.startswith("0.6"):
         from .v06.zarr_metadata import Metadata
 
-        # TODO: Restore validation for v0.6
         metadata_obj, images = Metadata._from_zarr_attrs(
-            root_attrs, store, validate=False, subpath=subpath
+            root_attrs, store, validate=validate, subpath=subpath
         )
         method, method_type, method_metadata = _extract_method_metadata(
             root_attrs["ome"]["multiscales"][0]

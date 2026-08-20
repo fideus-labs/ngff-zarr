@@ -18,12 +18,12 @@ from packaging import version
 zarr_version = version.parse(zarr.__version__)
 zarr_version_major = zarr_version.major
 
-# OME-Zarr v0.5 requires a Zarr v3 store, which zarr-python only writes at
-# >= 3.0.0b1. The CI matrix exercises legs pinned to zarr 2.x (v0.4 only), where
-# ``to_ngff_zarr(..., version="0.5")`` raises; skip the v0.5-writing tests there.
+# OME-Zarr v0.5 and v0.6 require a Zarr v3 store, which zarr-python only writes
+# at >= 3.0.0b1. The CI matrix exercises legs pinned to zarr 2.x (v0.4 only),
+# where ``to_ngff_zarr(..., version="0.5")`` raises; skip those tests there.
 requires_zarr_v3 = pytest.mark.skipif(
     zarr_version < version.parse("3.0.0b1"),
-    reason="OME-Zarr v0.5 requires zarr-python >= 3.0.0b1",
+    reason="OME-Zarr v0.5 and v0.6 require zarr-python >= 3.0.0b1",
 )
 
 
@@ -167,3 +167,125 @@ def test_read_path_schema_instance_by_version():
     assert "multiscales" in v04_instance
     assert "ome" not in v04_instance
     assert v04_version == "0.4"
+
+
+def _write_valid_3d_store_v06() -> zarr.storage.MemoryStore:
+    """Write a valid 3D ``(z, y, x)`` two-level v0.6 multiscales to a store."""
+    store = zarr.storage.MemoryStore()
+    array = np.random.random((4, 8, 8)).astype("float32")
+    to_ngff_zarr(store, to_multiscales(array, [2]), version="0.6")
+    return store
+
+
+@requires_zarr_v3
+def test_validate_v06_resolves_split_schema_refs():
+    # From v0.6 the image schema reaches coordinate systems and coordinate
+    # transformations through the absolute ``$id`` URLs of sibling schema
+    # files. Validation is offline, so every bundled file has to be in the
+    # reference registry; without them this raised an unresolvable-reference
+    # error on the writer's own output rather than validating it.
+    pytest.importorskip("jsonschema")
+
+    root_attrs = zarr.open_group(_write_valid_3d_store_v06(), mode="r").attrs.asdict()
+
+    validate(root_attrs, version="0.6", model="image")
+
+
+@requires_zarr_v3
+def test_validate_v06_accepts_the_on_disk_version_string():
+    # A v0.6 store records the upstream pre-release tag the bundled schemas
+    # carry. That string has no ``spec`` tree of its own, so it has to resolve
+    # to the tree of the release it leads to.
+    pytest.importorskip("jsonschema")
+
+    root_attrs = zarr.open_group(_write_valid_3d_store_v06(), mode="r").attrs.asdict()
+    on_disk_version = root_attrs["ome"]["version"]
+    assert on_disk_version.startswith("0.6")
+    assert on_disk_version != "0.6"
+
+    validate(root_attrs, version=on_disk_version, model="image")
+
+
+@requires_zarr_v3
+def test_validate_v06_rejects_invalid_metadata():
+    # Resolving the references must not turn validation into a no-op: dropping
+    # a required property still fails.
+    jsonschema = pytest.importorskip("jsonschema")
+
+    root_attrs = zarr.open_group(_write_valid_3d_store_v06(), mode="r").attrs.asdict()
+    del root_attrs["ome"]["multiscales"][0]["coordinateSystems"]
+
+    with pytest.raises(jsonschema.ValidationError):
+        validate(root_attrs, version="0.6", model="image")
+
+
+@requires_zarr_v3
+def test_validate_v06_schema_active_on_read_path():
+    # The v0.6 read path validated nothing while the split-schema references
+    # were unresolvable. As for v0.5, a duplicate multiscale entry violates the
+    # schema's ``uniqueItems`` constraint -- a pure schema concern the
+    # structural rules (which inspect only ``multiscales[0]``) do not check --
+    # so it is rejected under ``validate=True`` and read silently otherwise.
+    jsonschema = pytest.importorskip("jsonschema")
+
+    store = _write_valid_3d_store_v06()
+    assert from_ngff_zarr(store, validate=True) is not None
+
+    root = zarr.open_group(store, mode="r+")
+    attrs = root.attrs.asdict()
+    ome = attrs["ome"]
+    ome["multiscales"] = [ome["multiscales"][0], ome["multiscales"][0]]
+    root.attrs["ome"] = ome
+
+    with pytest.raises(jsonschema.ValidationError):
+        from_ngff_zarr(store, validate=True)
+
+    multiscales = from_ngff_zarr(store, validate=False)
+    assert multiscales is not None
+
+
+@requires_zarr_v3
+@pytest.mark.parametrize("ngff_version", ["0.4", "0.5", "0.6"])
+def test_validate_strict_image_schema(ngff_version):
+    # Every ``strict_image`` schema wraps its base schema by absolute ``$id``
+    # URL, and the pre-0.6 ones omit ``$schema`` entirely. Both have to be
+    # handled for the strict models to run at all.
+    pytest.importorskip("jsonschema")
+
+    store = zarr.storage.MemoryStore()
+    array = np.random.random((4, 8, 8)).astype("float32")
+    to_ngff_zarr(store, to_multiscales(array, [2]), version=ngff_version)
+    root_attrs = zarr.open_group(store, mode="r").attrs.asdict()
+
+    validate(root_attrs, version=ngff_version, model="image", strict=True)
+
+
+def test_load_schema_rejects_unbundled_version():
+    # The version reaches the loader straight from a store's own metadata, so
+    # it is matched against the bundled directory names rather than joined onto
+    # the path as given. An unbundled version names the ones that are bundled
+    # instead of surfacing a filesystem path.
+    from ngff_zarr.validate import load_schema
+
+    for unbundled in ("0.7", "latest", "", "../../../../etc", "/etc"):
+        with pytest.raises(ValueError) as excinfo:
+            load_schema(version=unbundled)
+        message = str(excinfo.value)
+        assert "0.4" in message
+        assert "spec/" not in message
+
+
+@requires_zarr_v3
+def test_read_path_rejects_a_forged_version_string():
+    # ``from_ngff_zarr(store, version="0.6")`` bypasses version detection, so a
+    # store's own ``ome.version`` is what selects the schema. A forged value
+    # must be rejected by name, not resolved as a path.
+    store = _write_valid_3d_store_v06()
+    root = zarr.open_group(store, mode="r+")
+    attrs = root.attrs.asdict()
+    ome = attrs["ome"]
+    ome["version"] = "../../../../../../etc"
+    root.attrs["ome"] = ome
+
+    with pytest.raises(ValueError, match="No JSON Schema is bundled"):
+        from_ngff_zarr(store, validate=True, version="0.6")
