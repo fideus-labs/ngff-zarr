@@ -226,7 +226,10 @@ def has_any_rfc4_orientation(axes: list[dict[str, Any]]) -> bool:
     violation, so skipping validation because no spatial axis is oriented is
     precisely how that violation goes unreported.
 
-    A null or empty orientation is undefined under RFC 4, so it does not count.
+    Only ``None`` and ``{}`` are undefined under RFC 4, which is the pair
+    :func:`validate_rfc4_orientation` skips. Any other value, a falsey ``[]``,
+    ``""``, ``0`` or ``False`` included, is malformed rather than absent and so
+    must reach the validator.
 
     Parameters
     ----------
@@ -236,11 +239,16 @@ def has_any_rfc4_orientation(axes: list[dict[str, Any]]) -> bool:
     Returns
     -------
     bool
-        True if any axis carries a non-empty orientation
+        True if any axis carries an orientation that is neither absent nor empty
     """
-    return any(
-        isinstance(axis, dict) and bool(axis.get("orientation")) for axis in axes
-    )
+    for axis in axes:
+        if not isinstance(axis, dict) or "orientation" not in axis:
+            continue
+        orientation = axis["orientation"]
+        if orientation is None or orientation == {}:
+            continue
+        return True
+    return False
 
 
 def has_rfc4_orientation_metadata(axes: list[dict[str, Any]]) -> bool:

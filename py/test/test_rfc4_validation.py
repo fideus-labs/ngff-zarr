@@ -577,6 +577,8 @@ def test_orientation_on_a_non_space_axis_is_reachable():
     Gating validation on a *spatial* orientation would skip exactly the
     document the non-space rule exists to catch.
     """
+    pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
+
     from ngff_zarr.rfc4_validation import has_any_rfc4_orientation
 
     axes = [
@@ -601,7 +603,31 @@ def test_an_empty_orientation_does_not_trigger_validation():
     assert not has_any_rfc4_orientation(
         [{"name": "y", "type": "space", "orientation": None}]
     )
+    assert not has_any_rfc4_orientation(
+        [{"name": "y", "type": "space", "orientation": {}}]
+    )
     assert not has_any_rfc4_orientation([{"name": "y", "type": "space"}])
+
+
+@pytest.mark.parametrize("orientation", [[], "", 0, False, "left-to-right"])
+def test_a_falsey_orientation_still_reaches_the_validator(orientation):
+    """Only ``None`` and ``{}`` are undefined; anything else is malformed.
+
+    A truthiness test would call ``[]``, ``""``, ``0`` and ``False`` absent and
+    skip validation, but :func:`validate_rfc4_orientation` rejects each of them,
+    so the gate would hide exactly those documents.
+    """
+    pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
+
+    from ngff_zarr.rfc4_validation import has_any_rfc4_orientation
+
+    axes = [
+        {"name": "y", "type": "space", "orientation": orientation},
+        {"name": "x", "type": "space"},
+    ]
+    assert has_any_rfc4_orientation(axes)
+    with pytest.raises((ValueError, ValidationError)):
+        validate_rfc4_orientation(axes)
 
 
 def test_read_rejects_orientation_on_a_non_space_axis():
