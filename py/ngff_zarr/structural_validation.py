@@ -216,48 +216,45 @@ class _MetadataView:
     extra: dict
 
 
-def _dataset_scale_translation(
-    dataset: Any, axes_len: int
-) -> tuple[list[float], list[float]]:
-    """Reduce one v0.6 dataset's transform to a ``(scale, translation)`` pair.
+def _dataset_transforms(dataset: Any, axes_len: int) -> list:
+    """Render one RFC-5 dataset's transform in the flat v0.4 shape.
 
-    At v0.6 a dataset carries a single transformation mapping its array to the
-    intrinsic coordinate system: an ``identity``, a ``scale``, or a
-    ``sequence`` of a ``scale`` and a ``translation``. Absent components fall
-    back to the unit scale and zero translation the identity implies. Vectors
-    are taken verbatim -- never padded or truncated -- so a wrong-length one
-    still reaches :func:`validate_scale_length`.
+    From 0.6 a dataset carries a single transformation mapping its array to the
+    intrinsic coordinate system: an ``identity``, a ``scale``, or a ``sequence``
+    of a ``scale`` and a ``translation``. Only an ``identity`` is synthesized,
+    into the unit scale and zero translation it stands for. Every other form is
+    rendered in source order, one entry per ``scale`` or ``translation`` found,
+    so a dataset carrying no scale, two scales, or a translation ahead of its
+    scale still reaches :func:`validate_per_dataset_scale_count` and
+    :func:`validate_transform_order`.
 
-    Mirrors the reader's own extraction
-    (:meth:`ngff_zarr.v06.zarr_metadata.Metadata._from_zarr_attrs`) and the
-    TypeScript port's ``extractScaleTranslation``.
+    Vectors are taken verbatim, never padded or truncated, so a wrong-length
+    one still reaches :func:`validate_scale_length`.
     """
-    scale = [1.0] * axes_len
-    translation = [0.0] * axes_len
-    for transform in dataset.coordinateTransformations:
+    from .v04.zarr_metadata import Scale, Translation
+
+    def render(transform: Any) -> list:
         kind = getattr(transform, "type", None)
+        if kind == "scale":
+            return [Scale(scale=transform.scale)]
+        if kind == "translation":
+            return [Translation(translation=transform.translation)]
+        if kind == "identity":
+            return [
+                Scale(scale=[1.0] * axes_len),
+                Translation(translation=[0.0] * axes_len),
+            ]
         if kind == "sequence":
+            rendered = []
             for sub_transform in transform.transformations:
-                sub_kind = getattr(sub_transform, "type", None)
-                if sub_kind == "scale":
-                    scale = sub_transform.scale
-                elif sub_kind == "translation":
-                    translation = sub_transform.translation
-                elif sub_kind == "identity":
-                    # Within a sequence an identity resets only the scale: a
-                    # sibling translation composes with it (identity o
-                    # translation = translation). Spec-conformant dataset
-                    # sequences are [scale, translation] and carry no identity,
-                    # so this branch is defensive.
-                    scale = [1.0] * axes_len
-        elif kind == "scale":
-            scale = transform.scale
-        elif kind == "translation":
-            translation = transform.translation
-        elif kind == "identity":
-            scale = [1.0] * axes_len
-            translation = [0.0] * axes_len
-    return scale, translation
+                rendered.extend(render(sub_transform))
+            return rendered
+        return []
+
+    rendered = []
+    for transform in dataset.coordinateTransformations:
+        rendered.extend(render(transform))
+    return rendered
 
 
 def _flat_model(metadata: Any) -> Any:
@@ -270,7 +267,7 @@ def _flat_model(metadata: Any) -> Any:
     At v0.6 (RFC-5) the axes live in ``coordinateSystems`` and each dataset
     carries one transform mapping its array to the intrinsic system. Those are
     reduced to the flat ``[scale, translation]`` pair (see
-    :func:`_dataset_scale_translation`), which is what the TypeScript v0.6
+    :func:`_dataset_transforms`), which is what the TypeScript v0.6
     reader hands its own structural pass, so both ports validate the same
     normalized shape.
 
@@ -286,21 +283,16 @@ def _flat_model(metadata: Any) -> Any:
     if not getattr(metadata, "coordinateSystems", None):
         return metadata
 
-    from .v04.zarr_metadata import Dataset, Scale, Translation
+    from .v04.zarr_metadata import Dataset
 
     axes = metadata.axes
-    datasets = []
-    for dataset in metadata.datasets:
-        scale, translation = _dataset_scale_translation(dataset, len(axes))
-        datasets.append(
-            Dataset(
-                path=dataset.path,
-                coordinateTransformations=[
-                    Scale(scale=scale),
-                    Translation(translation=translation),
-                ],
-            )
+    datasets = [
+        Dataset(
+            path=dataset.path,
+            coordinateTransformations=_dataset_transforms(dataset, len(axes)),
         )
+        for dataset in metadata.datasets
+    ]
     return _MetadataView(
         axes=axes,
         datasets=datasets,

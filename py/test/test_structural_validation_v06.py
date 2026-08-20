@@ -138,6 +138,60 @@ def test_bare_scale_dataset_transform_is_accepted():
     validate_structural(metadata)
 
 
+def _custom_sequence(path, transformations, output=INTRINSIC):
+    """A dataset sequence carrying whatever transformations are given."""
+    return TransformSequence(
+        transformations=list(transformations),
+        input=CoordinateSystemIdentifier(path=path),
+        output=CoordinateSystemIdentifier(name=output),
+        name=f"{path}_to_{output}",
+    )
+
+
+@pytest.mark.parametrize(
+    "transformations, rule",
+    [
+        pytest.param(
+            [Translation(translation=[0.0, 0.0, 0.0])],
+            SpecRule.GLOBAL_COORD_TRANSFORM_AFTER_PER_LEVEL,
+            id="no-scale",
+        ),
+        pytest.param(
+            [Scale(scale=[1.0, 1.0, 1.0]), Scale(scale=[2.0, 2.0, 2.0])],
+            SpecRule.GLOBAL_COORD_TRANSFORM_AFTER_PER_LEVEL,
+            id="two-scales",
+        ),
+        pytest.param(
+            [
+                Translation(translation=[0.0, 0.0, 0.0]),
+                Scale(scale=[1.0, 1.0, 1.0]),
+            ],
+            SpecRule.GLOBAL_COORD_TRANSFORM_AFTER_PER_LEVEL,
+            id="translation-before-scale",
+        ),
+    ],
+)
+def test_malformed_dataset_sequences_are_rejected(transformations, rule):
+    """The reduction renders the source sequence, it does not repair it.
+
+    A dataset sequence with no scale, with two, or with its translation ahead
+    of its scale is what ``validate_per_dataset_scale_count`` and
+    ``validate_transform_order`` exist to catch. Synthesizing a well-formed
+    scale-then-translation pair would make both inert at v0.6.
+    """
+    metadata = _metadata(
+        [
+            Dataset(
+                path="0",
+                coordinateTransformations=[_custom_sequence("0", transformations)],
+            )
+        ]
+    )
+    with pytest.raises(ValidationError) as exc_info:
+        validate_structural(metadata)
+    assert exc_info.value.rule == rule
+
+
 def test_axes_property_is_not_a_field():
     # `axes` must stay a property: a field would be serialized into the
     # multiscales entry, which carries `coordinateSystems` at v0.6.

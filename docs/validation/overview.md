@@ -39,8 +39,12 @@ and per-dataset `scale`/`translation` transforms, which is the shape the rules
 are written against. v0.6 (RFC 5) instead keeps its axes in
 `coordinateSystems` and gives each dataset a single transform — an `identity`,
 a `scale`, or a `sequence` of a `scale` and a `translation` — mapping its array
-to the intrinsic coordinate system; that model is reduced to the flat shape
-before the rules run, so both validate identically. The reduction applies to
+to the intrinsic coordinate system; that model is rendered in the flat shape
+before the rules run, so both validate identically. Only an `identity` is
+synthesized, into the unit scale and zero translation it stands for; every
+other form is rendered in source order, one entry per `scale` or `translation`
+found, so a dataset carrying no scale, two scales, or a translation ahead of
+its scale is still rejected. The reduction applies to
 every version in practice, because `from_ngff_zarr` and `to_multiscales` return
 v0.6 metadata whatever the store's version. One check does not carry over: a
 v0.6 multiscale-level `coordinateTransformations` entry maps between *named*
