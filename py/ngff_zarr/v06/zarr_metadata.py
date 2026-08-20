@@ -681,7 +681,8 @@ class Metadata:
             # per-entry value is the fallback, as on the v0.4 read path.
             schema_version = str(
                 root_attrs["ome"].get("version")
-                or root_attrs["ome"]["multiscales"][0].get("version", "0.6")
+                or root_attrs["ome"]["multiscales"][0].get("version")
+                or "0.6"
             )
             validate_ngff(root_attrs, version=schema_version)
 

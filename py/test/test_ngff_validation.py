@@ -244,8 +244,14 @@ def test_validate_v06_schema_active_on_read_path():
     assert multiscales is not None
 
 
-@requires_zarr_v3
-@pytest.mark.parametrize("ngff_version", ["0.4", "0.5", "0.6"])
+@pytest.mark.parametrize(
+    "ngff_version",
+    [
+        "0.4",
+        pytest.param("0.5", marks=requires_zarr_v3),
+        pytest.param("0.6", marks=requires_zarr_v3),
+    ],
+)
 def test_validate_strict_image_schema(ngff_version):
     # Every ``strict_image`` schema wraps its base schema by absolute ``$id``
     # URL, and the pre-0.6 ones omit ``$schema`` entirely. Both have to be

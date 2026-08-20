@@ -40,9 +40,13 @@ def _schemas_dir(version: str) -> "Traversable":
     name = str(version)
     if name not in available:
         try:
-            name = packaging_version.parse(name).base_version
+            parsed = packaging_version.parse(name)
         except packaging_version.InvalidVersion:
             name = ""
+        else:
+            # Only a pre-release leads to a release. A post-release or a local
+            # version shares a base version with one without being it.
+            name = parsed.base_version if parsed.is_prerelease else ""
         if name not in available:
             raise ValueError(
                 f"No JSON Schema is bundled for OME-Zarr version {version!r}. "
@@ -89,7 +93,31 @@ def _schema_registry(version: str) -> "Registry":
 
 def validate(
     ngff_dict: dict, version: str = "0.4", model: str = "image", strict: bool = False
-):
+) -> None:
+    """Validate OME-Zarr metadata against its bundled JSON Schema.
+
+    Parameters
+    ----------
+    ngff_dict:
+        The parsed group attributes to check.
+    version:
+        The OME-Zarr version whose bundled schemas to validate against. A
+        pre-release resolves to the tree of the release it leads to.
+    model:
+        The schema to validate against: ``image``, ``label``, ``plate`` or
+        ``well``.
+    strict:
+        Validate against the ``strict_*`` variant of ``model``.
+
+    Raises
+    ------
+    ImportError
+        When the optional ``[validate]`` extra is not installed.
+    ValueError
+        When no schema tree is bundled for ``version``.
+    jsonschema.ValidationError
+        When ``ngff_dict`` does not satisfy the schema.
+    """
     try:
         from jsonschema import Draft202012Validator
     except ImportError:
