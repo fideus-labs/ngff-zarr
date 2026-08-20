@@ -617,7 +617,9 @@ def test_a_falsey_orientation_still_reaches_the_validator(orientation):
     skip validation, but :func:`validate_rfc4_orientation` rejects each of them,
     so the gate would hide exactly those documents.
     """
-    pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
+    jsonschema = pytest.importorskip(
+        "jsonschema", reason="jsonschema required for RFC 4 validation"
+    )
 
     from ngff_zarr.rfc4_validation import has_any_rfc4_orientation
 
@@ -626,7 +628,7 @@ def test_a_falsey_orientation_still_reaches_the_validator(orientation):
         {"name": "x", "type": "space"},
     ]
     assert has_any_rfc4_orientation(axes)
-    with pytest.raises((ValueError, ValidationError)):
+    with pytest.raises((ValueError, jsonschema.ValidationError)):
         validate_rfc4_orientation(axes)
 
 
