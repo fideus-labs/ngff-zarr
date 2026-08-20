@@ -240,6 +240,21 @@ supported by this subcommand. The output is the canonical contract used by the
 so the suite's driver can be pointed straight at this command. The
 [RFC-4 documentation](./rfc4.md) lists the violation and warning codes.
 
+### Read public OME-Zarr inputs from S3
+
+When the input is an OME-Zarr store on S3, the CLI passes fsspec
+`--storage-options` through to the reader. If you omit `--storage-options` for an
+`S3` URL, `ngff-zarr` uses anonymous access automatically.
+
+```shell
+# Public dataset: anonymous access is used by default.
+ngff-zarr -i s3://ome-zarr-scivis/v0.5/96x2/carp.ome.zarr
+
+# Private or requester-pays bucket: pass explicit storage options.
+ngff-zarr -i s3://my-bucket/my-dataset.ome.zarr \
+  --storage-options '{"anon": false, "requester_pays": true}'
+```
+
 ### More options
 
 ```shell
