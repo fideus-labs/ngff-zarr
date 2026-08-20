@@ -278,6 +278,26 @@ Deno.test("rewriteImports is idempotent", () => {
 const JSR_RESOLVED_DEPENDENCIES = new Set(["@zarrita/storage"]);
 
 /**
+ * Published packages that Deno never resolves, so `deno.lock` cannot pin them.
+ *
+ * `typescript` is invoked as `npx tsc` inside the generated `npm/` directory
+ * after `npm install` — it is a build tool for the emitted package, never an
+ * import of this source tree. Its range is still checked for well-formedness;
+ * only the lockfile cross-check is skipped.
+ */
+const UNRESOLVED_BY_DENO = new Set(["typescript"]);
+
+/** Published dependency ranges that `deno.lock` is expected to pin. */
+function lockCheckedDependencies(): Array<[string, string]> {
+  // Dev dependencies ship in the published package.json too, so they drift the
+  // same way runtime ones do and are checked alongside them.
+  return [
+    ...Object.entries(NPM_DEPENDENCIES),
+    ...Object.entries(NPM_DEV_DEPENDENCIES),
+  ].filter(([name]) => !UNRESOLVED_BY_DENO.has(name));
+}
+
+/**
  * Resolved versions from `deno.lock`, keyed by bare package name, kept
  * separate per registry.
  *
@@ -335,9 +355,9 @@ function lockedVersionsFor(
 
 Deno.test("every published dependency resolves in deno.lock", () => {
   const resolved = lockedVersions();
-  const missing = Object.keys(NPM_DEPENDENCIES).filter(
-    (n) => lockedVersionsFor(n, resolved) === undefined,
-  );
+  const missing = lockCheckedDependencies()
+    .map(([name]) => name)
+    .filter((n) => lockedVersionsFor(n, resolved) === undefined);
 
   assertEquals(
     missing,
@@ -365,6 +385,39 @@ Deno.test("JSR-resolved exceptions really are absent from npm resolution", () =>
   );
 });
 
+Deno.test("Deno-unresolved exemptions really are absent from deno.lock", () => {
+  // Same rule as the JSR exception set: an exemption that stops being true
+  // silently removes a package from the checks above.
+  const resolved = lockedVersions();
+  const stale = [...UNRESOLVED_BY_DENO].filter(
+    (n) => resolved.npm.has(n) || resolved.jsr.has(n),
+  );
+
+  assertEquals(
+    stale,
+    [],
+    `${stale.join(", ")} now resolves in deno.lock; remove it from ` +
+      `UNRESOLVED_BY_DENO so its version is checked.`,
+  );
+});
+
+Deno.test("exemption sets only name packages we actually publish", () => {
+  // A typo'd or leftover entry would exempt nothing and mislead the next
+  // reader into thinking a real package is covered by an exception.
+  const published = new Set([
+    ...Object.keys(NPM_DEPENDENCIES),
+    ...Object.keys(NPM_DEV_DEPENDENCIES),
+  ]);
+  const orphaned = [...JSR_RESOLVED_DEPENDENCIES, ...UNRESOLVED_BY_DENO]
+    .filter((n) => !published.has(n));
+
+  assertEquals(
+    orphaned,
+    [],
+    `${orphaned.join(", ")} is exempted but not declared in package.json`,
+  );
+});
+
 Deno.test("published dependency ranges are satisfied by locked versions", () => {
   const resolved = lockedVersions();
 
@@ -374,7 +427,7 @@ Deno.test("published dependency ranges are satisfied by locked versions", () => 
   // versions, every one of them must qualify: picking a single "winner" would
   // let a version the source never builds against carry the check.
   const violations: string[] = [];
-  for (const [name, range] of Object.entries(NPM_DEPENDENCIES)) {
+  for (const [name, range] of lockCheckedDependencies()) {
     const locked = lockedVersionsFor(name, resolved);
     if (!locked) continue; // reported by the test above
 
