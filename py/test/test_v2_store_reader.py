@@ -402,7 +402,10 @@ def test_async_store_mapping_tifffile_single_level(tmp_path):
 
     store = tifffile.imread(path, aszarr=True)
     node = open_store_node(AsyncStoreMapping(store))
-    assert isinstance(node, V3Array)
+    # Which zarr format tifffile's aszarr store emits is a tifffile-version
+    # detail (v2 before ~2025, v3 after), so assert only that the format was
+    # detected and read, not which one it was.
+    assert isinstance(node, (V2Array, V3Array))
     darr = node.to_dask()
     assert darr.chunksize == (16, 16)
     np.testing.assert_array_equal(darr.compute(), data)
@@ -418,7 +421,7 @@ def test_async_store_mapping_tifffile_pyramid(tmp_path):
 
     store = tifffile.imread(path, aszarr=True)
     root = open_store_node(AsyncStoreMapping(store))
-    assert isinstance(root, V3Group)
+    assert isinstance(root, (V2Group, V3Group))
     assert root.array_keys() == ["0", "1"]
     np.testing.assert_array_equal(root["0"].to_dask().compute(), data)
     np.testing.assert_array_equal(root["1"].to_dask().compute(), data[::2, ::2])
