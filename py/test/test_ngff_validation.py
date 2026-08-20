@@ -286,6 +286,8 @@ def test_read_path_rejects_a_forged_version_string():
     # ``from_ngff_zarr(store, version="0.6")`` bypasses version detection, so a
     # store's own ``ome.version`` is what selects the schema. A forged value
     # must be rejected by name, not resolved as a path.
+    pytest.importorskip("jsonschema")
+
     store = _write_valid_3d_store_v06()
     root = zarr.open_group(store, mode="r+")
     attrs = root.attrs.asdict()
