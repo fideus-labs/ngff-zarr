@@ -8,6 +8,7 @@ tests that exercise it skip via ``pytest.importorskip`` where it is absent.
 """
 
 import json
+import os
 import shutil
 
 import dask.array as da
@@ -1007,3 +1008,45 @@ def test_open_lazy_array_mapping_dispatch(tmp_path):
     lazy = open_lazy_array(mapping, "0")
     assert lazy.chunks == ((2, 2), (5,))
     assert np.array_equal(np.asarray(lazy), data)
+
+
+def test_write_group_doc_retries_windows_sharing_violation(tmp_path, monkeypatch):
+    """``os.replace`` raising PermissionError must be retried, not propagated.
+
+    On Windows a concurrent reader or writer holding the destination open
+    makes ``os.replace`` fail with ``PermissionError`` (WinError 5), which
+    broke parallel HCS well writes. POSIX renames onto an open file happily,
+    so the retry is simulated here.
+    """
+    from ngff_zarr import _zarrista_utils
+
+    target = tmp_path / "zarr.json"
+    real_replace = os.replace
+    calls = {"n": 0}
+
+    def flaky_replace(src, dst):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise PermissionError(5, "Access is denied")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(_zarrista_utils.os, "replace", flaky_replace)
+    _zarrista_utils._write_group_doc(target, {"zarr_format": 3})
+
+    assert calls["n"] == 3
+    assert json.loads(target.read_text()) == {"zarr_format": 3}
+    assert list(tmp_path.glob("*.tmp")) == [], "temp file left behind"
+
+
+def test_write_group_doc_gives_up_and_cleans_up(tmp_path, monkeypatch):
+    """A destination that never frees up re-raises without leaking temp files."""
+    from ngff_zarr import _zarrista_utils
+
+    def always_denied(src, dst):
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr(_zarrista_utils.os, "replace", always_denied)
+    with pytest.raises(PermissionError):
+        _zarrista_utils._write_group_doc(tmp_path / "zarr.json", {"zarr_format": 3})
+
+    assert list(tmp_path.glob("*.tmp")) == [], "temp file left behind"

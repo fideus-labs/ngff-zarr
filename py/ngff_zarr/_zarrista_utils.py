@@ -34,6 +34,7 @@ import os
 import re
 import shutil
 import threading
+import time
 from collections.abc import Mapping, MutableMapping
 from pathlib import Path
 
@@ -429,10 +430,24 @@ def _write_group_doc(path: Path, doc: dict) -> None:
     Group documents on shared ancestors (e.g. an HCS row group) can be read
     and rewritten by concurrent well/field writers; the atomic replace keeps
     readers from ever observing a truncated document.
+
+    On Windows ``os.replace`` raises ``PermissionError`` when another writer
+    or reader momentarily holds the destination open, so the replace is
+    retried briefly. POSIX renames onto an open file without complaint.
     """
     tmp = path.with_name(f"{path.name}.{os.getpid()}-{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(doc, indent=4))
-    os.replace(tmp, path)
+    delay = 0.001
+    for attempt in range(10):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == 9:
+                tmp.unlink(missing_ok=True)
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.05)
 
 
 def create_zarrista_group(
