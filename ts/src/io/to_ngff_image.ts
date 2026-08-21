@@ -2,6 +2,8 @@ import * as zarr from "zarrita";
 import { defaultCodecs } from "../utils/codecs.ts";
 import { NgffImage } from "../types/ngff_image.ts";
 import type { MemoryStore } from "../io/from_ngff_zarr.ts";
+import { calculateStride } from "../utils/transpose.ts";
+import type { NumericTypedArray } from "../utils/transpose.ts";
 import { zarrSet } from "../utils/worker_pool.ts";
 
 export interface ToNgffImageOptions {
@@ -13,10 +15,47 @@ export interface ToNgffImageOptions {
   axesTypes?: Record<string, string> | undefined;
 }
 
+/** A buffer paired with the zarr data type its elements are stored as. */
+interface TypedInput {
+  data: NumericTypedArray;
+  dataType: zarr.DataType;
+}
+
+/**
+ * Pair a typed array with the zarr data type of its elements.
+ *
+ * The buffer reaches the store as raw bytes sized by the array's declared
+ * `data_type`, so the type named here has to be the type the buffer holds.
+ *
+ * Covers the typed arrays whose elements are numbers and that this package
+ * can encode. A generic `ArrayLike` or a `Float16Array` returns `null`, and
+ * the caller materializes a float32 copy. The 64-bit integer arrays hold
+ * `bigint` rather than `number`, so they fall outside the declared input
+ * type.
+ */
+function typedInputOf(data: ArrayLike<number>): TypedInput | null {
+  if (data instanceof Uint8Array) return { data, dataType: "uint8" };
+  if (data instanceof Uint8ClampedArray) {
+    // Elements are 8-bit, but zarr writes "uint8" from a Uint8Array.
+    return { data: new Uint8Array(data), dataType: "uint8" };
+  }
+  if (data instanceof Int8Array) return { data, dataType: "int8" };
+  if (data instanceof Uint16Array) return { data, dataType: "uint16" };
+  if (data instanceof Int16Array) return { data, dataType: "int16" };
+  if (data instanceof Uint32Array) return { data, dataType: "uint32" };
+  if (data instanceof Int32Array) return { data, dataType: "int32" };
+  if (data instanceof Float32Array) return { data, dataType: "float32" };
+  if (data instanceof Float64Array) return { data, dataType: "float64" };
+  return null;
+}
+
 /**
  * Convert array data to NgffImage
  *
- * @param data - Input data as typed array or regular array
+ * @param data - Input data as typed array or regular array. A typed array's
+ * element type is preserved: the zarr array is created with the matching
+ * `data_type` and holds the caller's values. Plain JavaScript arrays, and
+ * any other `ArrayLike`, are converted to float32.
  * @param options - Configuration options for NgffImage creation
  * @returns NgffImage instance
  */
@@ -34,7 +73,8 @@ export async function toNgffImage(
   } = options;
 
   // Determine data shape and create typed array
-  let typedData: Float32Array | Uint8Array | Uint16Array;
+  let typedData: NumericTypedArray;
+  let dataType: zarr.DataType = "float32";
   let shape: number[];
 
   if (Array.isArray(data)) {
@@ -84,10 +124,10 @@ export async function toNgffImage(
     }
 
     // Preserve the original typed array type
-    if (data instanceof Uint8Array) {
-      typedData = data;
-    } else if (data instanceof Uint16Array) {
-      typedData = data;
+    const typedInput = typedInputOf(data);
+    if (typedInput) {
+      typedData = typedInput.data;
+      dataType = typedInput.dataType;
     } else {
       typedData = new Float32Array(data as ArrayLike<number>);
     }
@@ -116,15 +156,15 @@ export async function toNgffImage(
   const zarrArray = await zarr.create(root.resolve("data"), {
     shape,
     chunk_shape: chunkShape,
-    data_type: "float32",
+    data_type: dataType,
     fill_value: 0,
-    codecs: defaultCodecs("float32"),
+    codecs: defaultCodecs(dataType),
   });
 
   // Write data to zarr array; a null selection targets the full array (an
   // empty selection list writes nothing).
   await zarrSet(zarrArray, null, {
-    data: typedData as Float32Array,
+    data: typedData,
     shape,
     stride: calculateStride(shape),
   });
@@ -160,13 +200,4 @@ export async function toNgffImage(
     axesTypes,
     computedCallbacks: undefined,
   });
-}
-
-function calculateStride(shape: number[]): number[] {
-  const stride = new Array(shape.length);
-  stride[shape.length - 1] = 1;
-  for (let i = shape.length - 2; i >= 0; i--) {
-    stride[i] = stride[i + 1] * shape[i + 1];
-  }
-  return stride;
 }
