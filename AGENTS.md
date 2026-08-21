@@ -292,7 +292,8 @@ from .__about__ import __version__
 from ngff_zarr import from_ome_zarr, to_ome_zarr, to_multiscales
 
 # TypeScript: Function-based exports (not classes)
-import { fromOmeZarr, toOmeZarr } from "./io/from_ngff_zarr.ts";
+import { fromOmeZarr } from "./io/from_ngff_zarr.ts";
+import { toOmeZarr } from "./io/to_ngff_zarr.ts";
 ```
 
 ### Read/Write Function Names (CRITICAL for AI Agents)
