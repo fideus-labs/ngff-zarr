@@ -4,7 +4,6 @@
 
 import tempfile
 from pathlib import Path
-from typing import Any
 
 import zarr
 from ngff_zarr import (  # type: ignore[import-untyped]
@@ -27,7 +26,7 @@ except ImportError:
         version: str = "0.4",
         model: str = "image",
         strict: bool = False,
-    ) -> Any:
+    ) -> None:
         pass
 
 
