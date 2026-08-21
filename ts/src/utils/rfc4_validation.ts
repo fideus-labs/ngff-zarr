@@ -9,40 +9,12 @@
 import { AnatomicalOrientationValuesSchema } from "../schemas/rfc4.ts";
 import { formatNameList } from "./py_format.ts";
 
-/** Valid anatomical orientation values */
-const VALID_ORIENTATION_VALUES = new Set([
-  "left-to-right",
-  "right-to-left",
-  "anterior-to-posterior",
-  "posterior-to-anterior",
-  "inferior-to-superior",
-  "superior-to-inferior",
-  "dorsal-to-ventral",
-  "ventral-to-dorsal",
-  "dorsal-to-palmar",
-  "palmar-to-dorsal",
-  "dorsal-to-plantar",
-  "plantar-to-dorsal",
-  "rostral-to-caudal",
-  "caudal-to-rostral",
-  "cranial-to-caudal",
-  "caudal-to-cranial",
-  "proximal-to-distal",
-  "distal-to-proximal",
-  "superficial-to-deep",
-  "deep-to-superficial",
-  "apical-to-basal",
-  "basal-to-apical",
-  "apex-to-base",
-  "base-to-apex",
-]);
-
 /**
  * Each RFC 4 value maps to a stable key for the anatomical axis it lies on, so
  * the two antonyms of a pair (e.g. "left-to-right" / "right-to-left") collapse to
  * one key. Used to enforce "one direction per anatomical axis" (mutual exclusion).
  */
-const ANATOMICAL_AXIS_OF: Record<string, string> = {
+export const ANATOMICAL_AXIS_OF: Record<string, string> = {
   "left-to-right": "left-right",
   "right-to-left": "left-right",
   "anterior-to-posterior": "anterior-posterior",
@@ -68,6 +40,14 @@ const ANATOMICAL_AXIS_OF: Record<string, string> = {
   "apex-to-base": "apex-base",
   "base-to-apex": "apex-base",
 };
+
+/**
+ * The controlled vocabulary, derived from the pair table rather than typed out
+ * again: the message that lists the valid values then cannot disagree with what
+ * the mutual-exclusion rule can look up. `rfc4_vocabulary_test.ts` pins it
+ * against the Zod schema and the `AnatomicalOrientationValues` enum.
+ */
+const VALID_ORIENTATION_VALUES = new Set(Object.keys(ANATOMICAL_AXIS_OF));
 
 /**
  * Check if the axes contain RFC 4 anatomical orientation metadata.
