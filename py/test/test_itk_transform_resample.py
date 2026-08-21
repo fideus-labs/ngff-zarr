@@ -391,6 +391,43 @@ def test_the_graph_does_not_carry_a_buffer_for_every_block():
     )
 
 
+def test_a_large_transform_crosses_the_graph_once():
+    """The transform is one entry of the graph, not one copy per block.
+
+    Dask ships a task's run spec to a worker on its own, so a transform bound
+    into every block's callable crosses the wire once per block. A 60 x 60
+    B-spline weighs 64 kB, which sixteen blocks would turn into a megabyte.
+    """
+    import pickle
+
+    from ngff_zarr.itk_transform_resample_bounding_box import _as_itk_transform_list
+
+    def lazy(shape, chunks):
+        return NgffImage(
+            data=da.zeros(shape, chunks=chunks, dtype=np.uint8),
+            dims=("y", "x"),
+            scale={"y": 1.0, "x": 1.0},
+            translation={"y": 0.0, "x": 0.0},
+        )
+
+    transform = itk.BSplineTransform[itk.D, 2, 3].New()
+    transform.SetTransformDomainMeshSize([60, 60])
+    transform.SetTransformDomainOrigin([0.0, 0.0])
+    transform.SetTransformDomainPhysicalDimensions([1024.0, 1024.0])
+
+    image = lazy((1024, 1024), (256, 256))
+    result = itk_transform_resample(transform, image, image)
+    layer = result.data.dask.layers[result.data.name]
+    weight = sum(len(pickle.dumps(task, protocol=5)) for task in layer.values())
+    once = len(pickle.dumps(_as_itk_transform_list(transform), protocol=5))
+
+    assert result.data.npartitions == 16
+    assert weight < 2 * once, (
+        f"the graph weighs {weight} bytes for {result.data.npartitions} blocks "
+        f"and a transform of {once} bytes"
+    )
+
+
 def test_b_spline_default_padding_is_exact_on_float64_images():
     """float64 resolves the prefilter perturbation further out than float32.
 

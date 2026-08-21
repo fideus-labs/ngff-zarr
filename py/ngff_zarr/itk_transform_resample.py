@@ -102,6 +102,7 @@ def _block_grid(fixed: NgffImage, starts: dict, shape: tuple) -> NgffImage:
 
 def _resample_block(
     chunks,
+    transform_list,
     *,
     nchunks,
     offset,
@@ -115,7 +116,6 @@ def _resample_block(
     grid_translation,
     grid_shape,
     grid_orientations,
-    transform_list,
     interpolator: str,
     default_value: float,
     out_dtype,
@@ -125,6 +125,9 @@ def _resample_block(
     ``chunks`` are whole moving-image chunks, in C order over the ``nchunks``
     grid of chunks that covers the block's region; ``offset`` is the index of
     the first of them in the moving image and ``bounds`` the region itself.
+    ``transform_list`` arrives as a task argument rather than bound into the
+    callable, so the graph carries it once for every block instead of once per
+    block: see where the tasks are built.
     """
     from itkwasm_downsample import resample_to_reference
 
@@ -337,7 +340,12 @@ def itk_transform_resample(
         interpolator,
         default_value,
     )
-    graph = {}
+    # One entry for the transform, named by every block, rather than one copy
+    # bound into each block's callable. Dask ships a task's run spec to a worker
+    # on its own, so a displacement field or a long composite would otherwise
+    # cross the wire once per block.
+    transform_key = f"{name}-transform"
+    graph = {transform_key: transform_list}
     for index in np.ndindex(*[len(sizes) for sizes in out_chunks]):
         starts = {
             dim: int(out_offsets[axis][index[axis]])
@@ -387,12 +395,12 @@ def itk_transform_resample(
                 grid_translation=dict(grid.translation),
                 grid_shape=shape,
                 grid_orientations=fixed.axes_orientations,
-                transform_list=transform_list,
                 interpolator=interpolator,
                 default_value=default_value,
                 out_dtype=dtype,
             ),
             chunk_keys,
+            transform_key,
         )
 
     data = da.Array(
