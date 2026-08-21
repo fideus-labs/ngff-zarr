@@ -569,3 +569,110 @@ def test_from_ngff_zarr_without_rfc4_validation():
     # Should succeed without validation
     multiscales = from_ngff_zarr(store, validate=False)
     assert multiscales is not None
+
+
+def test_orientation_on_a_non_space_axis_is_reachable():
+    """An orientation only on a non-spatial axis is itself the violation.
+
+    Gating validation on a *spatial* orientation would skip exactly the
+    document the non-space rule exists to catch.
+    """
+    pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
+
+    from ngff_zarr.rfc4_validation import has_any_rfc4_orientation
+
+    axes = [
+        {
+            "name": "t",
+            "type": "time",
+            "orientation": {"type": "anatomical", "value": "left-to-right"},
+        },
+        {"name": "y", "type": "space"},
+        {"name": "x", "type": "space"},
+    ]
+    assert not has_rfc4_orientation_metadata(axes)
+    assert has_any_rfc4_orientation(axes)
+    with pytest.raises(ValueError, match="non-space axes"):
+        validate_rfc4_orientation(axes)
+
+
+def test_an_empty_orientation_does_not_trigger_validation():
+    """A null or empty orientation is undefined under RFC 4, not a violation."""
+    from ngff_zarr.rfc4_validation import has_any_rfc4_orientation
+
+    assert not has_any_rfc4_orientation(
+        [{"name": "y", "type": "space", "orientation": None}]
+    )
+    assert not has_any_rfc4_orientation(
+        [{"name": "y", "type": "space", "orientation": {}}]
+    )
+    assert not has_any_rfc4_orientation([{"name": "y", "type": "space"}])
+
+
+@pytest.mark.parametrize("orientation", [[], "", 0, False, "left-to-right"])
+def test_a_falsey_orientation_still_reaches_the_validator(orientation):
+    """Only ``None`` and ``{}`` are undefined; anything else is malformed.
+
+    A truthiness test would call ``[]``, ``""``, ``0`` and ``False`` absent and
+    skip validation, but :func:`validate_rfc4_orientation` rejects each of them,
+    so the gate would hide exactly those documents.
+    """
+    jsonschema = pytest.importorskip(
+        "jsonschema", reason="jsonschema required for RFC 4 validation"
+    )
+
+    from ngff_zarr.rfc4_validation import has_any_rfc4_orientation
+
+    axes = [
+        {"name": "y", "type": "space", "orientation": orientation},
+        {"name": "x", "type": "space"},
+    ]
+    assert has_any_rfc4_orientation(axes)
+    with pytest.raises((ValueError, jsonschema.ValidationError)):
+        validate_rfc4_orientation(axes)
+
+
+def test_read_rejects_orientation_on_a_non_space_axis():
+    """The reader reaches the non-space rule with no spatial axis oriented.
+
+    Gating on a spatial orientation left this document accepted: nothing in it
+    orients a space axis, which is exactly what makes it invalid.
+    """
+    pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
+
+    store = MemoryStore()
+    root = zarr.open_group(store, mode="w")
+    if hasattr(root, "create_array"):
+        root.create_array("0", shape=(2, 10, 10), dtype="uint8")
+    else:
+        root.create_dataset("0", shape=(2, 10, 10), dtype="uint8")
+
+    root.attrs["multiscales"] = [
+        {
+            "version": "0.4",
+            "name": "test",
+            "axes": [
+                {
+                    "name": "t",
+                    "type": "time",
+                    "orientation": {
+                        "type": "anatomical",
+                        "value": "left-to-right",
+                    },
+                },
+                {"name": "y", "type": "space", "unit": "micrometer"},
+                {"name": "x", "type": "space", "unit": "micrometer"},
+            ],
+            "datasets": [
+                {
+                    "path": "0",
+                    "coordinateTransformations": [
+                        {"type": "scale", "scale": [1.0, 1.0, 1.0]}
+                    ],
+                }
+            ],
+        }
+    ]
+
+    with pytest.raises(ValueError, match="non-space axes"):
+        from_ngff_zarr(store, validate=True)

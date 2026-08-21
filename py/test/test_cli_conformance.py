@@ -287,3 +287,62 @@ def test_conformance_cli_prints_json(tmp_path, monkeypatch, capsys):
     report = json.loads(capsys.readouterr().out)
     assert report["rfc4_valid"] is True
     assert report["format"] == "ome-zarr"
+
+
+def _write_zarr_v06(tmp_path: Path, axes: list[Axis]) -> str:
+    """Write a v0.6-shaped ``zarr.json``: the axes live in the intrinsic system."""
+    metadata = {
+        "attributes": {
+            "ome": {
+                "version": "0.6",
+                "multiscales": [
+                    {
+                        "coordinateSystems": [{"name": "intrinsic", "axes": axes}],
+                        "datasets": [{"path": "0"}],
+                    }
+                ],
+            }
+        }
+    }
+    (tmp_path / "zarr.json").write_text(json.dumps(metadata))
+    return str(tmp_path)
+
+
+def test_conformance_report_reads_v06_coordinate_systems(tmp_path):
+    """A v0.6 document is classified on its axes, not rejected as unreadable.
+
+    Before the axes were read through the shared helper, this shape carried no
+    flat ``axes`` key, so every v0.6 input -- valid or not -- came back as
+    ``input-not-ome-zarr`` with an empty axis map.
+    """
+    report = conformance_report(_write_zarr_v06(tmp_path, list(_LPS)))
+    assert report["rfc4_valid"] is True
+    assert report["violations"] == []
+    assert report["axes"] == {
+        "z": "inferior-to-superior",
+        "y": "anterior-to-posterior",
+        "x": "right-to-left",
+    }
+
+
+def test_conformance_report_classifies_a_v06_violation(tmp_path):
+    """A v0.6 violation is reported with its own code, not as unreadable."""
+    path = _write_zarr_v06(
+        tmp_path,
+        [
+            _space("y", "left-to-right"),
+            _space("x", "right-to-left"),
+        ],
+    )
+    report = conformance_report(path)
+    assert report["rfc4_valid"] is False
+    assert report["violations"] == ["duplicate-anatomical-axis"]
+
+
+def test_conformance_report_without_axes_anywhere(tmp_path):
+    """An entry carrying neither shape stays an unreadable input."""
+    metadata = {"attributes": {"ome": {"multiscales": [{"datasets": []}]}}}
+    (tmp_path / "zarr.json").write_text(json.dumps(metadata))
+    report = conformance_report(str(tmp_path))
+    assert report["rfc4_valid"] is False
+    assert report["violations"] == ["input-not-ome-zarr"]

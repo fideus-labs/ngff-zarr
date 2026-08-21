@@ -216,6 +216,41 @@ def validate_rfc4_orientation(axes: list[dict[str, Any]]) -> None:
     validator.validate(axes_structure)
 
 
+def has_any_rfc4_orientation(axes: list[dict[str, Any]]) -> bool:
+    """Whether any axis carries a non-empty ``orientation``.
+
+    :func:`has_rfc4_orientation_metadata` answers the narrower question of
+    whether a *spatial* axis is oriented, which is what callers deciding
+    whether to record orientation want. Callers deciding whether to *validate*
+    want this one: an orientation on a non-spatial axis is itself an RFC 4
+    violation, so skipping validation because no spatial axis is oriented is
+    precisely how that violation goes unreported.
+
+    Only ``None`` and ``{}`` are undefined under RFC 4, which is the pair
+    :func:`validate_rfc4_orientation` skips. Any other value, a falsey ``[]``,
+    ``""``, ``0`` or ``False`` included, is malformed rather than absent and so
+    must reach the validator.
+
+    Parameters
+    ----------
+    axes : List[Dict[str, Any]]
+        List of axis metadata dictionaries
+
+    Returns
+    -------
+    bool
+        True if any axis carries an orientation that is neither absent nor empty
+    """
+    for axis in axes:
+        if not isinstance(axis, dict) or "orientation" not in axis:
+            continue
+        orientation = axis["orientation"]
+        if orientation is None or orientation == {}:
+            continue
+        return True
+    return False
+
+
 def has_rfc4_orientation_metadata(axes: list[dict[str, Any]]) -> bool:
     """
     Check if the axes contain RFC 4 anatomical orientation metadata.

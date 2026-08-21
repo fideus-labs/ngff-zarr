@@ -425,9 +425,9 @@ class Metadata:
         import packaging.version
 
         from ..ngff_image import NgffImage
-        from ..parse_metadata import _parse_omero
+        from ..parse_metadata import _parse_omero, _raw_axes
         from ..rfc4_validation import (
-            has_rfc4_orientation_metadata,
+            has_any_rfc4_orientation,
             validate_rfc4_orientation,
         )
         from ..validate import validate as validate_ngff
@@ -462,17 +462,16 @@ class Metadata:
             else:
                 validate_ngff(root_attrs, version=schema_version)
 
-            # RFC 4 validation for anatomical orientation
-            if "axes" in root_attrs["multiscales"][0] and isinstance(
-                root_attrs["multiscales"][0]["axes"], list
-            ):
-                # Type cast each axis item to dict for validation
-                axes_dicts = []
-                for axis in root_attrs["multiscales"][0]["axes"]:
-                    if isinstance(axis, dict):
-                        axes_dicts.append(axis)
-                if axes_dicts and has_rfc4_orientation_metadata(axes_dicts):
-                    validate_rfc4_orientation(axes_dicts)
+            # RFC 4 validation for anatomical orientation. The axes are read
+            # through the shared helper, which knows where each version keeps
+            # them, and a non-dict axis entry is left to the schema check.
+            axes_dicts = [
+                axis
+                for axis in _raw_axes(root_attrs["multiscales"][0])
+                if isinstance(axis, dict)
+            ]
+            if axes_dicts and has_any_rfc4_orientation(axes_dicts):
+                validate_rfc4_orientation(axes_dicts)
 
         omero = _parse_omero(root_attrs.get("omero"))
         # OME-Zarr v0.5 hoists the spec ``version`` to the group-level ``ome``

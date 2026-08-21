@@ -144,6 +144,68 @@ def _parse_hcs_path(store_path: str) -> tuple[str, str | None]:
     return store_path, None
 
 
+def _raw_axes(multiscales_entry: dict) -> list:
+    """The raw axis entries of one ``multiscales`` entry, at any version.
+
+    v0.4 and v0.5 carry a flat ``axes`` list on the entry. From v0.6 (RFC-5)
+    the axes live in a coordinate system, and the intrinsic one is whichever
+    system the datasets map into, named by their transformation ``output``.
+    Nothing requires it to be listed first, so it is resolved by name; a
+    document whose datasets name no output falls back to the first system,
+    which is what both ports write.
+
+    Returns the list as found, without filtering: an axis may legally be a
+    dict, and a malformed entry is left for the caller to classify. Returns an
+    empty list when the entry carries neither shape.
+
+    Every caller that needs the axes of a raw metadata document goes through
+    here, so a version that moves them again is a one-line change rather than
+    a silently skipped check (the v0.6 move is what left the RFC-4 checks
+    unreachable in both the reader and the conformance report).
+    """
+    if not isinstance(multiscales_entry, dict):
+        return []
+    axes = multiscales_entry.get("axes")
+    if isinstance(axes, list):
+        return axes
+    systems = multiscales_entry.get("coordinateSystems")
+    if not isinstance(systems, list) or not systems:
+        return []
+    intrinsic = _intrinsic_system(multiscales_entry, systems)
+    if isinstance(intrinsic, dict):
+        intrinsic_axes = intrinsic.get("axes")
+        if isinstance(intrinsic_axes, list):
+            return intrinsic_axes
+    return []
+
+
+def _intrinsic_system(multiscales_entry: dict, systems: list):
+    """The coordinate system the datasets map into, else the first listed.
+
+    Mirrors :attr:`ngff_zarr.v06.zarr_metadata.Metadata.intrinsic_coordinate_system`
+    at the dict level, where the parsed dataclasses are not available yet.
+    """
+    for dataset in multiscales_entry.get("datasets") or []:
+        if not isinstance(dataset, dict):
+            continue
+        transforms = dataset.get("coordinateTransformations")
+        if not isinstance(transforms, list) or not transforms:
+            continue
+        if not isinstance(transforms[0], dict):
+            continue
+        output = transforms[0].get("output")
+        if not isinstance(output, dict):
+            continue
+        name = output.get("name")
+        if name is None:
+            continue
+        for system in systems:
+            if isinstance(system, dict) and system.get("name") == name:
+                return system
+        break
+    return systems[0]
+
+
 def _is_hcs_plate(root_attrs: dict) -> bool:
     """Check if root attributes indicate an HCS plate structure.
 

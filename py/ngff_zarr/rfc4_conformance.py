@@ -25,6 +25,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from .parse_metadata import _raw_axes
 from .rfc4_validation import _ANATOMICAL_AXIS_OF
 
 # Metadata files that may hold the multiscales, most specific first.
@@ -45,20 +46,29 @@ class _UnreadableInput(Exception):
 
 
 def _axes_from_metadata(meta: Any) -> list[dict[str, Any]]:
-    """Pull ``multiscales[0].axes`` out of a v2 ``.zattrs`` or v3 ``zarr.json`` blob."""
+    """Pull the axes out of a v2 ``.zattrs`` or v3 ``zarr.json`` blob.
+
+    The axes are located by :func:`~ngff_zarr.parse_metadata._raw_axes`, so a
+    v0.6 document, whose axes live in the intrinsic coordinate system rather
+    than in a flat ``axes`` key, yields its axes instead of being classified
+    as not-OME-Zarr.
+    """
     if not isinstance(meta, dict):
         raise _UnreadableInput("input-not-ome-zarr", "metadata is not a JSON object")
     attributes = meta.get("attributes", meta)
     ome = attributes.get("ome", attributes) if isinstance(attributes, dict) else {}
     try:
-        axes = ome["multiscales"][0]["axes"]
+        entry = ome["multiscales"][0]
     except (KeyError, IndexError, TypeError) as exc:
         raise _UnreadableInput(
-            "input-not-ome-zarr", "metadata has no multiscales[0].axes"
+            "input-not-ome-zarr", "metadata has no multiscales[0]"
         ) from exc
-    if not isinstance(axes, list):
+    axes = _raw_axes(entry)
+    if not axes:
         raise _UnreadableInput(
-            "input-not-ome-zarr", "multiscales[0].axes is not a list"
+            "input-not-ome-zarr",
+            "multiscales[0] carries no axes, in a flat 'axes' list or in "
+            "'coordinateSystems'",
         )
     return axes
 
