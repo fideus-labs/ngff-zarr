@@ -15,7 +15,7 @@ parsed metadata, so they work even when the optional ``[validate]`` extra
 (``jsonschema``) is not installed. Both metadata models are accepted: the flat
 :class:`~ngff_zarr.v04.zarr_metadata.Metadata` of v0.4/v0.5 directly, and the
 ``coordinateSystems`` model of v0.6 through the reduction in
-:func:`_flat_model` -- which matters because ``from_ngff_zarr`` and
+:func:`_flat_model` -- which matters because ``from_ome_zarr`` and
 ``to_multiscales`` hand back the v0.6 model whatever the store's version.
 
 Each rule is identified by a stable, kebab-case :class:`SpecRule` value that
@@ -202,10 +202,12 @@ class _MetadataView:
 
     Exposes exactly the attributes the rules read, and nothing more: it is a
     view for validation, never written back or serialized. A real
-    :class:`~ngff_zarr.v04.zarr_metadata.Metadata` cannot stand in for it,
-    since that requires a ``version`` the v0.6 model deliberately does not
-    carry -- from v0.5 on the spec version lives in the group-level ``ome``
-    namespace, not in the multiscale entry.
+    :class:`~ngff_zarr.v04.zarr_metadata.Metadata` is not the carrier because
+    its ``version`` defaults to ``"0.4"``, which would state a version the
+    v0.6 model deliberately does not carry -- from v0.5 on the spec version
+    lives in the group-level ``ome`` namespace, not in the multiscale entry.
+    Here ``version`` is ``None``, which is what leaves ``zarr-format`` and
+    ``ome-namespace`` inert on a v0.6 document.
     """
 
     axes: list[Axis]
@@ -265,11 +267,17 @@ def _flat_model(metadata: Any) -> Any:
     is a no-op for them, and idempotent for a view it built itself.
 
     At v0.6 (RFC-5) the axes live in ``coordinateSystems`` and each dataset
-    carries one transform mapping its array to the intrinsic system. Those are
-    reduced to the flat ``[scale, translation]`` pair (see
-    :func:`_dataset_transforms`), which is what the TypeScript v0.6
-    reader hands its own structural pass, so both ports validate the same
-    normalized shape.
+    carries one transform mapping its array to the intrinsic system. That
+    transform is rendered as the flat list of ``scale`` and ``translation``
+    entries it contains, in source order (see :func:`_dataset_transforms`), so
+    the per-dataset rules read what the document actually declares.
+
+    The TypeScript port reaches its structural pass differently: its v0.6
+    reader replaces each dataset's transform with the single
+    ``[scale, translation]`` pair ``extractScaleTranslation`` composes, so the
+    per-dataset shape rules cannot fire there. This port is the stricter of the
+    two at v0.6. The parity contract in ``docs/validation/parity.md`` covers
+    the rule identifiers, levels, and evaluation order, all unchanged.
 
     The presence of ``coordinateSystems`` is what marks the v0.6 model: it also
     exposes ``axes``, as a property returning the intrinsic system's axes.

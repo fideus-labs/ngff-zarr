@@ -8,7 +8,7 @@ a single transformation -- an ``identity``, a ``scale``, or a ``sequence`` of a
 coordinate system. :func:`~ngff_zarr.validate_structural` reduces that model to
 the flat v0.4 shape its rules are written against, so the same rules apply.
 
-This matters for every version: ``from_ngff_zarr`` and ``to_multiscales``
+This matters for every version: ``from_ome_zarr`` and ``to_multiscales``
 normalize to the v0.6 model whatever the store holds, so the metadata handed to
 callers is the coordinate-system one even for a v0.4 store.
 """
@@ -19,10 +19,10 @@ import numpy as np
 import pytest
 import zarr
 from ngff_zarr import (
-    from_ngff_zarr,
+    from_ome_zarr,
     to_multiscales,
     to_ngff_image,
-    to_ngff_zarr,
+    to_ome_zarr,
     validate_structural,
 )
 from ngff_zarr.structural_validation import SpecRule, ValidationError
@@ -282,8 +282,8 @@ def test_validate_structural_after_round_trip(tmp_path, version):
     image = to_ngff_image(np.zeros((4, 8, 8), dtype=np.float32), dims=["z", "y", "x"])
     multiscales = to_multiscales(image, scale_factors=[2])
     store = tmp_path / f"image-{version}.ome.zarr"
-    to_ngff_zarr(str(store), multiscales, version=version)
+    to_ome_zarr(str(store), multiscales, version=version)
 
-    metadata = from_ngff_zarr(str(store)).metadata
+    metadata = from_ome_zarr(str(store)).metadata
 
     validate_structural(metadata)

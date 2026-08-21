@@ -43,20 +43,20 @@ from ngff_zarr import (
 
 `validate_structural(metadata, options=None)` runs the image/multiscales rules
 against either metadata model — the flat v0.4/v0.5 `Metadata` or the v0.6
-`coordinateSystems` one that `from_ngff_zarr` and `to_multiscales` return (see
+`coordinateSystems` one that `from_ome_zarr` and `to_multiscales` return (see
 [[overview]]). When `options` is `None` it uses `ValidateOptions()`, i.e.
 `ValidationLevel.STRICT`. A `ValidationError` carries `.rule` (a `SpecRule`),
 `.message` (str), and `.location` (`str | None`); `str(exc)` is
 `Spec rule [<rule>] violated: <message>`.
 
-**Validate on read** with `from_ngff_zarr(store, validate=True)` (the `validate`
+**Validate on read** with `from_ome_zarr(store, validate=True)` (the `validate`
 keyword defaults to `False`). The `ValidationError` propagates unchanged:
 
 ```python
-from ngff_zarr import from_ngff_zarr, ValidationError
+from ngff_zarr import from_ome_zarr, ValidationError
 
 try:
-    multiscales = from_ngff_zarr("image.ome.zarr", validate=True)
+    multiscales = from_ome_zarr("image.ome.zarr", validate=True)
 except ValidationError as exc:
     print(f"rule={exc.rule.value} location={exc.location}: {exc.message}")
 ```
@@ -157,7 +157,7 @@ skip the structural rules.
 | Levels | `ValidationLevel` | `ValidationLevel` |
 | Options | `ValidateOptions` | `ValidateOptions` |
 | Error type | `ValidationError` | `ValidationError` |
-| Validate on read | `from_ngff_zarr(store, validate=True)` | `fromOmeZarr(store, { validate: true })` |
+| Validate on read | `from_ome_zarr(store, validate=True)` | `fromOmeZarr(store, { validate: true })` |
 
 The identifier set, level set, default, and evaluation order are identical
 across both ports and locked by tests — see [[parity]].
