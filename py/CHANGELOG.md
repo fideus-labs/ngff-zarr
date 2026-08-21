@@ -1,3 +1,29 @@
+## py-v0.43.0 (2026-08-21)
+
+### ♻️ Refactoring
+
+- **py,ts**: keep the RFC-4 vocabulary in one place per port ([02afb3f](https://github.com/fideus-labs/ngff-zarr/commit/02afb3f900ceb01b315f0e8bd2b2caeb99b68ecf))
+- **py**: move transform validation onto the dataclasses ([813409c](https://github.com/fideus-labs/ngff-zarr/commit/813409c210ad2b9563680060fbc26b66eb3d993c))
+
+### ✨ Features
+
+- **py**: model the mapAxis, byDimension and bijection transforms ([bf28616](https://github.com/fideus-labs/ngff-zarr/commit/bf28616a7426fd64c815c3fef9c5fb5158e8cae6))
+
+### 🐛 Bug Fixes
+
+- **py,ts**: reject a non-string orientation value and pin the schema both ways ([81b095d](https://github.com/fideus-labs/ngff-zarr/commit/81b095ddd75d02d2811659091854e6f14bfee5ed))
+- **py**: treat only a null or empty orientation as undefined ([db2840b](https://github.com/fideus-labs/ngff-zarr/commit/db2840b42b83a4387ae15e8c784e85e753fc07ca))
+- **py**: resolve the intrinsic system by name and validate any orientation ([0c13821](https://github.com/fideus-labs/ngff-zarr/commit/0c138216a1d0d612b6a94db94a9ba7526afa2eae))
+- **py**: read the axes wherever the version keeps them ([00cec97](https://github.com/fideus-labs/ngff-zarr/commit/00cec973be269554a5afbdaed482c36a26a5c229))
+- **py**: narrow the version fallback and document validate() ([3cbb94c](https://github.com/fideus-labs/ngff-zarr/commit/3cbb94cd12b8648cb9f3d6224fc0653ba0796715))
+- **py**: resolve cross-file JSON Schema references during validation ([f8bebf6](https://github.com/fideus-labs/ngff-zarr/commit/f8bebf64ef6cca65e27acf71b41d67aca4cdd1fa))
+- **py**: preserve configured S3 CLI access ([82c3c80](https://github.com/fideus-labs/ngff-zarr/commit/82c3c80d44f91015329d28a6dd66c2c8bc8b3104))
+- **py**: inspect public S3 stores anonymously ([8dc5596](https://github.com/fideus-labs/ngff-zarr/commit/8dc5596cb0411a98ed566a98057d9702d59472c2))
+- **py**: reject transformation payloads that omit required fields ([522b552](https://github.com/fideus-labs/ngff-zarr/commit/522b55226713351b7f2540f52cb9807e95fa65ab))
+- **py**: bound the mapAxis arity to 2 through 5 indices ([8515126](https://github.com/fideus-labs/ngff-zarr/commit/8515126c98daab7ef6e7a49d353722593bfa369e))
+- **py**: preserve transform names and tighten axis validation ([2e0a1bd](https://github.com/fideus-labs/ngff-zarr/commit/2e0a1bd525008c775bc11cc5a17086fb5befe650))
+- fix ci PyPI publish failure on metadata 2.5 wheels ([90c5bee](https://github.com/fideus-labs/ngff-zarr/commit/90c5bee484e8f128023a4cf7da71d2d320db9532))
+
 ## py-v0.42.0 (2026-08-13)
 
 ### ✨ Features
