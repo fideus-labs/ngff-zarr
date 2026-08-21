@@ -14,6 +14,13 @@ import type { NgffImage } from "../types/ngff_image.ts";
 import type { ZarrCodec } from "../utils/codecs.ts";
 import { defaultCodecs } from "../utils/codecs.ts";
 import { zarrGet, zarrSet } from "../utils/worker_pool.ts";
+import {
+  calculateStride,
+  componentTypeOf,
+  transposeArray,
+} from "../utils/transpose.ts";
+
+export { calculateStride, transposeArray };
 
 export const SPATIAL_DIMS = ["x", "y", "z"];
 
@@ -232,30 +239,6 @@ function copyTypedArray(
 }
 
 /**
- * Get ITK component type from typed array
- */
-export function getItkComponentType(
-  data: unknown,
-):
-  | "uint8"
-  | "int8"
-  | "uint16"
-  | "int16"
-  | "uint32"
-  | "int32"
-  | "float32"
-  | "float64" {
-  if (data instanceof Uint8Array) return "uint8";
-  if (data instanceof Int8Array) return "int8";
-  if (data instanceof Uint16Array) return "uint16";
-  if (data instanceof Int16Array) return "int16";
-  if (data instanceof Uint32Array) return "uint32";
-  if (data instanceof Int32Array) return "int32";
-  if (data instanceof Float64Array) return "float64";
-  return "float32";
-}
-
-/**
  * Integer component types eligible for the Gaussian float32 workaround
  */
 export type IntegerComponentType =
@@ -363,129 +346,6 @@ export function createIdentityMatrix(dimension: number): Float64Array {
 }
 
 /**
- * Calculate stride for array
- */
-function calculateStride(shape: number[]): number[] {
-  const stride = new Array(shape.length);
-  stride[shape.length - 1] = 1;
-  for (let i = shape.length - 2; i >= 0; i--) {
-    stride[i] = stride[i + 1] * shape[i + 1];
-  }
-  return stride;
-}
-
-/**
- * Transpose array data according to permutation
- */
-export function transposeArray(
-  data: unknown,
-  shape: number[],
-  permutation: number[],
-  componentType:
-    | "uint8"
-    | "int8"
-    | "uint16"
-    | "int16"
-    | "uint32"
-    | "int32"
-    | "float32"
-    | "float64",
-):
-  | Float32Array
-  | Float64Array
-  | Uint8Array
-  | Int8Array
-  | Uint16Array
-  | Int16Array
-  | Uint32Array
-  | Int32Array {
-  const typedData = data as
-    | Float32Array
-    | Float64Array
-    | Uint8Array
-    | Int8Array
-    | Uint16Array
-    | Int16Array
-    | Uint32Array
-    | Int32Array;
-
-  // Create output array of same type
-  let output:
-    | Float32Array
-    | Float64Array
-    | Uint8Array
-    | Int8Array
-    | Uint16Array
-    | Int16Array
-    | Uint32Array
-    | Int32Array;
-  const totalSize = typedData.length;
-
-  switch (componentType) {
-    case "uint8":
-      output = new Uint8Array(totalSize);
-      break;
-    case "int8":
-      output = new Int8Array(totalSize);
-      break;
-    case "uint16":
-      output = new Uint16Array(totalSize);
-      break;
-    case "int16":
-      output = new Int16Array(totalSize);
-      break;
-    case "uint32":
-      output = new Uint32Array(totalSize);
-      break;
-    case "int32":
-      output = new Int32Array(totalSize);
-      break;
-    case "float64":
-      output = new Float64Array(totalSize);
-      break;
-    case "float32":
-    default:
-      output = new Float32Array(totalSize);
-      break;
-  }
-
-  // Calculate strides for source
-  const sourceStride = calculateStride(shape);
-
-  // Calculate new shape after permutation
-  const newShape = permutation.map((i) => shape[i]);
-  const targetStride = calculateStride(newShape);
-
-  // Perform transpose
-  const indices = new Array(shape.length).fill(0);
-
-  for (let i = 0; i < totalSize; i++) {
-    // Calculate source index from multi-dimensional indices
-    let sourceIdx = 0;
-    for (let j = 0; j < shape.length; j++) {
-      sourceIdx += indices[j] * sourceStride[j];
-    }
-
-    // Calculate target index with permuted dimensions
-    let targetIdx = 0;
-    for (let j = 0; j < permutation.length; j++) {
-      targetIdx += indices[permutation[j]] * targetStride[j];
-    }
-
-    output[targetIdx] = typedData[sourceIdx];
-
-    // Increment indices
-    for (let j = shape.length - 1; j >= 0; j--) {
-      indices[j]++;
-      if (indices[j] < shape[j]) break;
-      indices[j] = 0;
-    }
-  }
-
-  return output;
-}
-
-/**
  * Convert zarr array to ITK-Wasm Image format
  * If isVector is true, ensures "c" dimension is last by transposing if needed
  */
@@ -533,7 +393,7 @@ export async function zarrToItkImage(
         result.data,
         result.shape,
         permutation,
-        getItkComponentType(result.data),
+        componentTypeOf(result.data),
       );
     } else {
       // "c" already at end or not present, just copy data
@@ -556,7 +416,7 @@ export async function zarrToItkImage(
   const itkImage: Image = {
     imageType: {
       dimension: spatialShape.length,
-      componentType: getItkComponentType(data),
+      componentType: componentTypeOf(data),
       pixelType: isVector ? "VariableLengthVector" : "Scalar",
       components,
     },
@@ -705,7 +565,7 @@ export async function itkImageToZarr(
         itkImage.data,
         currentShape,
         permutation,
-        getItkComponentType(itkImage.data),
+        componentTypeOf(itkImage.data),
       );
     }
 

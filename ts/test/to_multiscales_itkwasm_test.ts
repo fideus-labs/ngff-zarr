@@ -59,10 +59,12 @@ Deno.test("downsample zycx", async () => {
   const store: MemoryStore = new Map();
   await toNgffZarr(store, multiscales);
 
-  assertEquals(multiscales.images[0].dims[0], "z");
-  assertEquals(multiscales.images[0].dims[2], "c");
-  assertEquals(multiscales.images[1].data.shape[0], 16); // z downsampled
-  assertEquals(multiscales.images[1].data.shape[2], 2); // c unchanged
+  // The non-canonical input is normalized to (c, z, y, x). Mirrors
+  // py/test/test_to_ngff_zarr_itkwasm.py::test_downsample_zycx.
+  assertEquals(multiscales.images[0].dims[0], "c");
+  assertEquals(multiscales.images[0].dims[1], "z");
+  assertEquals(multiscales.images[1].data.shape[0], 2); // c unchanged
+  assertEquals(multiscales.images[1].data.shape[1], 16); // z downsampled
 });
 
 Deno.test("downsample cxyz", async () => {
@@ -134,12 +136,14 @@ Deno.test("downsample tzycx", async () => {
   const store: MemoryStore = new Map();
   await toNgffZarr(store, multiscales);
 
+  // The non-canonical input is normalized to (t, c, z, y, x). Mirrors
+  // py/test/test_to_ngff_zarr_itkwasm.py::test_downsample_tzycx.
   assertEquals(multiscales.images[0].dims[0], "t");
-  assertEquals(multiscales.images[0].dims[1], "z");
-  assertEquals(multiscales.images[0].dims[3], "c");
+  assertEquals(multiscales.images[0].dims[1], "c");
+  assertEquals(multiscales.images[0].dims[2], "z");
   assertEquals(multiscales.images[1].data.shape[0], 2); // t unchanged
-  assertEquals(multiscales.images[1].data.shape[1], 16); // z downsampled
-  assertEquals(multiscales.images[1].data.shape[3], 2); // c unchanged
+  assertEquals(multiscales.images[1].data.shape[1], 2); // c unchanged
+  assertEquals(multiscales.images[1].data.shape[2], 16); // z downsampled
 });
 
 Deno.test("downsample tcxyz", async () => {
