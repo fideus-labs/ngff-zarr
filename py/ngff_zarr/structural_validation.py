@@ -11,8 +11,15 @@ counts, axis ordering, coordinate-transformation arity, finest-to-coarsest
 dataset ordering, and OMERO channel color format.
 
 The rules are pure Python (standard library only) and operate on already
-parsed metadata, so they work even when the optional ``[validate]`` extra
-(``jsonschema``) is not installed. Both metadata models are accepted: the flat
+parsed metadata, so they run without the optional ``[validate]`` extra
+(``jsonschema``) installed. One rule is the exception:
+:func:`validate_axis_orientation` delegates to
+:func:`~ngff_zarr.rfc4_validation.validate_rfc4_orientation`, which imports
+``jsonschema``, so a document where some axis carries a non-empty
+``orientation`` raises :class:`ImportError` without the extra. Every other
+document, and every other rule, is unaffected.
+
+Both metadata models are accepted: the flat
 :class:`~ngff_zarr.v04.zarr_metadata.Metadata` of v0.4/v0.5 directly, and the
 ``coordinateSystems`` model of v0.6 through the reduction in
 :func:`_flat_model` -- which matters because ``from_ome_zarr`` and
