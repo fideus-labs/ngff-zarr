@@ -15,10 +15,13 @@ import dask.array as da
 import numpy as np
 import pytest
 import zarr
-from ngff_zarr import to_multiscales, to_ngff_image, to_ngff_zarr
+from ngff_zarr import from_ome_zarr, to_multiscales, to_ngff_image, to_ome_zarr
+from ngff_zarr.to_ngff_zarr import _blocks_write_disjoint_chunks
+from packaging import version
 
 pytestmark = pytest.mark.skipif(
-    zarr.__version__ < "3", reason="the direct zarr v3 write path needs zarr v3"
+    version.parse(zarr.__version__) < version.parse("3.0.0b1"),
+    reason="the direct zarr v3 write path needs zarr v3",
 )
 
 
@@ -49,20 +52,22 @@ def _counting_array(nblocks: int, block: int):
     return source.map_blocks(make, dtype="uint8"), peak
 
 
-@pytest.mark.parametrize("nblocks", [8])
+@pytest.mark.parametrize("nblocks", [8, 32])
 def test_write_holds_only_the_blocks_in_flight(tmp_path, nblocks):
     data, peak = _counting_array(nblocks, 16)
     image = to_ngff_image(data, dims=["z", "y", "x"])
     with dask.config.set(scheduler="synchronous"):
-        to_ngff_zarr(
+        to_ome_zarr(
             tmp_path / "streamed.ome.zarr",
             to_multiscales(image, scale_factors=[], chunks=16),
             overwrite=True,
         )
 
-    # One worker writes one block at a time, so a materializing write is the
-    # only way to see them all at once.
-    assert peak["blocks"] < nblocks
+    # A fixed bound, not a fraction of the input: one worker holds the block it
+    # is storing and the one already produced behind it, whether the array has
+    # eight blocks or thirty-two. A materializing write holds every block, so
+    # its high water mark is the block count.
+    assert peak["blocks"] <= 2, f"{peak['blocks']} blocks alive at once"
 
 
 def test_streamed_write_round_trips(tmp_path):
@@ -72,11 +77,55 @@ def test_streamed_write_round_trips(tmp_path):
         da.from_array(expected, chunks=(16, 16, 16)), dims=["z", "y", "x"]
     )
     store = tmp_path / "round-trip.ome.zarr"
-    to_ngff_zarr(
+    to_ome_zarr(
         store, to_multiscales(image, scale_factors=[], chunks=16), overwrite=True
     )
 
-    from ngff_zarr import from_ngff_zarr
-
-    written = np.asarray(from_ngff_zarr(store).images[0].data)
+    written = np.asarray(from_ome_zarr(store).images[0].data)
     np.testing.assert_array_equal(written, expected)
+
+
+class _Target:
+    """What the predicate reads off a zarr array: its chunks, and its shards."""
+
+    def __init__(self, chunks, shards=None):
+        self.chunks = chunks
+        self.shards = shards
+
+
+@pytest.mark.parametrize(
+    ("blocks", "target", "region", "disjoint"),
+    [
+        # Every block boundary falls on a chunk boundary: the writes cannot meet.
+        (((16, 16, 16), (16,), (16,)), _Target((16, 16, 16)), None, True),
+        # A block twice the chunk still only spans whole chunks.
+        (((32, 32), (16,), (16,)), _Target((16, 16, 16)), None, True),
+        # An irregular block leaves a seam inside a chunk.
+        (((10, 22), (16,), (16,)), _Target((16, 16, 16)), None, False),
+        # Chunks smaller than a shard: two blocks update one shard.
+        (
+            ((16, 16), (16,), (16,)),
+            _Target((16, 16, 16), shards=(32, 16, 16)),
+            None,
+            False,
+        ),
+        # Aligned blocks, but written at an offset that is not a chunk boundary.
+        (
+            ((16, 16), (16,), (16,)),
+            _Target((16, 16, 16)),
+            (slice(8, 40), slice(0, 16), slice(0, 16)),
+            False,
+        ),
+    ],
+)
+def test_the_lock_is_taken_exactly_when_blocks_can_meet(
+    blocks, target, region, disjoint
+):
+    """Concurrent writes are allowed only where two blocks cannot share a unit.
+
+    A zarr chunk, or a shard when the array is sharded, is read, updated and
+    rewritten whole, so two writers inside one of them lose data.
+    """
+    arr = da.zeros(tuple(sum(sizes) for sizes in blocks), chunks=blocks, dtype="uint8")
+
+    assert _blocks_write_disjoint_chunks(arr, target, region) is disjoint
