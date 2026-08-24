@@ -1,3 +1,21 @@
+## mcp-v0.12.0 (2026-08-21)
+
+### ♻️ Refactoring
+
+- **py,ts**: keep the RFC-4 vocabulary in one place per port ([02afb3f](https://github.com/fideus-labs/ngff-zarr/commit/02afb3f900ceb01b315f0e8bd2b2caeb99b68ecf))
+
+### ✨ Features
+
+- **mcp**: support stateless Streamable HTTP transport ([034d804](https://github.com/fideus-labs/ngff-zarr/commit/034d804911477a96a954bee4ac6c1fe94a3216c5))
+
+### 🐛 Bug Fixes
+
+- **py,ts**: reject a non-string orientation value and pin the schema both ways ([81b095d](https://github.com/fideus-labs/ngff-zarr/commit/81b095ddd75d02d2811659091854e6f14bfee5ed))
+- fix ci PyPI publish failure on metadata 2.5 wheels ([90c5bee](https://github.com/fideus-labs/ngff-zarr/commit/90c5bee484e8f128023a4cf7da71d2d320db9532))
+- RFC 4 orientation is optional per axis, null equals absent, type must be anatomical ([f4bf3dc](https://github.com/fideus-labs/ngff-zarr/commit/f4bf3dcb4446678e17135a95305b379c3fb9fe0a))
+- **ci**: use supported 'prek update' in autoupdate workflow ([8f2ee83](https://github.com/fideus-labs/ngff-zarr/commit/8f2ee83af4af48f096fc0272abdeb303646c3768))
+- reject RFC 4 orientation on non-spatial axes and duplicate anatomical axes ([45de14c](https://github.com/fideus-labs/ngff-zarr/commit/45de14c0ed62a0f0d68d56790f1a71482cb9c221))
+
 ## mcp-v0.11.0 (2026-07-17)
 
 ### ✨ Features

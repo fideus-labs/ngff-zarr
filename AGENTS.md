@@ -22,8 +22,8 @@ The central workflow follows this pattern across all implementations:
    metadata)
 2. **NgffImage → NgffMultiscales**: Generate multiple resolution levels via
    `to_multiscales()`
-3. **NgffMultiscales → OME-Zarr**: Write to zarr stores via `to_ngff_zarr()`
-4. **OME-Zarr → NgffMultiscales**: Read back via `from_ngff_zarr()`
+3. **NgffMultiscales → OME-Zarr**: Write to zarr stores via `to_ome_zarr()`
+4. **OME-Zarr → NgffMultiscales**: Read back via `from_ome_zarr()`
 
 ### Key Data Classes
 
@@ -289,11 +289,27 @@ these conventions to prevent reformatting churn:
 from .__about__ import __version__
 
 # Import core functions, not classes
-from ngff_zarr import from_ngff_zarr, to_ngff_zarr, to_multiscales
+from ngff_zarr import from_ome_zarr, to_ome_zarr, to_multiscales
 
 # TypeScript: Function-based exports (not classes)
-import { fromNgffZarr, toNgffZarr } from "./io/from_ngff_zarr.ts";
+import { fromOmeZarr } from "./io/from_ngff_zarr.ts";
+import { toOmeZarr } from "./io/to_ngff_zarr.ts";
 ```
+
+### Read/Write Function Names (CRITICAL for AI Agents)
+
+`to_ome_zarr` / `from_ome_zarr` (Python) and `toOmeZarr` / `fromOmeZarr`
+(TypeScript) are the names to use in new code, tests, docstrings, comments, and
+documentation.
+
+`to_ngff_zarr` / `from_ngff_zarr` and `toNgffZarr` / `fromNgffZarr` still exist
+and still work: they are plain aliases bound to the same objects, kept so
+existing callers keep running. They are not the names to write. New code that
+uses them gets flagged in review.
+
+The module and file names keep the historical spelling
+(`py/ngff_zarr/to_ngff_zarr.py`, `ts/src/io/from_ngff_zarr.ts`), so a path is
+not a naming violation; only the called function is.
 
 ### Configuration & Memory Management
 

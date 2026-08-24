@@ -660,9 +660,9 @@ class Metadata:
 
         from .._zarrista_utils import open_lazy_array
         from ..ngff_image import NgffImage
-        from ..parse_metadata import _parse_omero
+        from ..parse_metadata import _parse_omero, _raw_axes
         from ..rfc4_validation import (
-            has_rfc4_orientation_metadata,
+            has_any_rfc4_orientation,
             validate_rfc4_orientation,
         )
         from ..validate import validate as validate_ngff
@@ -674,22 +674,28 @@ class Metadata:
             )
 
         if validate:
-            validate_ngff(
-                root_attrs,
-                version=root_attrs["ome"]["multiscales"][0].get("version", "0.6"),
+            # From 0.6 the version is recorded on the ``ome`` namespace rather
+            # than on each multiscales entry, and it is the pre-release string
+            # ("0.6.dev4") that the bundled 0.6 schemas are tagged with. The
+            # per-entry value is the fallback, as on the v0.4 read path.
+            schema_version = str(
+                root_attrs["ome"].get("version")
+                or root_attrs["ome"]["multiscales"][0].get("version")
+                or "0.6"
             )
+            validate_ngff(root_attrs, version=schema_version)
 
-            # RFC 4 validation for anatomical orientation
-            if "axes" in root_attrs["ome"]["multiscales"][0] and isinstance(
-                root_attrs["ome"]["multiscales"][0]["axes"], list
-            ):
-                # Type cast each axis item to dict for validation
-                axes_dicts = []
-                for axis in root_attrs["ome"]["multiscales"][0]["axes"]:
-                    if isinstance(axis, dict):
-                        axes_dicts.append(axis)
-                if axes_dicts and has_rfc4_orientation_metadata(axes_dicts):
-                    validate_rfc4_orientation(axes_dicts)
+            # RFC 4 validation for anatomical orientation. From v0.6 the axes
+            # live in the intrinsic coordinate system, so they are read through
+            # the shared helper rather than from a flat ``axes`` key, which a
+            # v0.6 entry does not carry.
+            axes_dicts = [
+                axis
+                for axis in _raw_axes(root_attrs["ome"]["multiscales"][0])
+                if isinstance(axis, dict)
+            ]
+            if axes_dicts and has_any_rfc4_orientation(axes_dicts):
+                validate_rfc4_orientation(axes_dicts)
 
         omero = _parse_omero(root_attrs.get("ome", {}).get("omero"))
         root_attrs = root_attrs["ome"]["multiscales"][0]

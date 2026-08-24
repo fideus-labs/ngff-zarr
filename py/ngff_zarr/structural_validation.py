@@ -525,14 +525,14 @@ def validate_axis_orientation(metadata: Metadata) -> None:
     """Validate RFC 4 anatomical-orientation metadata on the spatial axes.
 
     This rule does not reimplement RFC 4; it wraps the package's existing logic
-    -- :func:`~ngff_zarr.rfc4_validation.has_rfc4_orientation_metadata` and
+    -- :func:`~ngff_zarr.rfc4_validation.has_any_rfc4_orientation` and
     :func:`~ngff_zarr.rfc4_validation.validate_rfc4_orientation` -- and surfaces
     its failures through the unified :class:`ValidationError` channel. The parsed
     :class:`~ngff_zarr.v04.zarr_metadata.Axis` objects are first rendered back to
     the axis-dict form those helpers expect (see :func:`_axis_to_validation_dict`).
 
-    Orientation is optional in RFC 4, so when no spatial axis carries it the rule
-    is a no-op and the comparatively heavy ``jsonschema`` import inside
+    Orientation is optional in RFC 4, so when no axis carries one the rule is a
+    no-op and the comparatively heavy ``jsonschema`` import inside
     :func:`validate_rfc4_orientation` is never triggered.
 
     Raises
@@ -549,23 +549,15 @@ def validate_axis_orientation(metadata: Metadata) -> None:
         vocabulary -- a schema-level concern with no dedicated structural rule.
     """
     from .rfc4_validation import (
-        has_rfc4_orientation_metadata,
+        has_any_rfc4_orientation,
         validate_rfc4_orientation,
     )
 
     axes_dicts = [_axis_to_validation_dict(axis) for axis in metadata.axes]
-    # A stray orientation on a non-spatial axis carries no spatial-axis
-    # orientation, so has_rfc4_orientation_metadata alone would skip it; check for
-    # any real (non-empty) orientation so the non-space rule is reachable. A null
-    # or empty orientation is undefined under RFC 4 and so is not a violation.
-    non_space_orientation = any(
-        isinstance(axis_dict, dict)
-        and axis_dict.get("type") != "space"
-        and isinstance(axis_dict.get("orientation"), dict)
-        and axis_dict.get("orientation")
-        for axis_dict in axes_dicts
-    )
-    if not has_rfc4_orientation_metadata(axes_dicts) and not non_space_orientation:
+    # Gated on *any* orientation, not just a spatial one: an orientation on a
+    # non-spatial axis is itself the violation, so a spatial-only check would
+    # skip exactly the document that needs reporting.
+    if not has_any_rfc4_orientation(axes_dicts):
         return
     try:
         validate_rfc4_orientation(axes_dicts)

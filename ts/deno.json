@@ -1,6 +1,6 @@
 {
   "name": "@fideus-labs/ngff-zarr",
-  "version": "0.28.0",
+  "version": "0.29.0",
   "license": "MIT",
   "exports": {
     ".": "./src/mod.ts",
@@ -35,8 +35,9 @@
     "@std/cli": "jsr:@std/cli@^1.0.27",
     "@std/http": "jsr:@std/http@^1.0.24",
     "@std/path": "jsr:@std/path@^1.1.4",
-    "@fideus-labs/fizarrita": "npm:@fideus-labs/fizarrita@^2.0.0",
-    "@fideus-labs/worker-pool": "npm:@fideus-labs/worker-pool@^2.0.0",
+    "@std/semver": "jsr:@std/semver@^1.0.5",
+    "@fideus-labs/fizarrita": "npm:@fideus-labs/fizarrita@^2.1.0",
+    "@fideus-labs/worker-pool": "npm:@fideus-labs/worker-pool@^2.1.0",
     "@zarrita/storage": "jsr:@zarrita/storage@^0.1.4",
     "dnt": "jsr:@deno/dnt@^0.42.3",
     "itk-wasm": "npm:itk-wasm@^1.0.0-b.201",

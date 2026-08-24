@@ -1,3 +1,28 @@
+## ts-v0.29.0 (2026-08-21)
+
+### ♻️ Refactoring
+
+- **py,ts**: keep the RFC-4 vocabulary in one place per port ([02afb3f](https://github.com/fideus-labs/ngff-zarr/commit/02afb3f900ceb01b315f0e8bd2b2caeb99b68ecf))
+
+### ✨ Features
+
+- **ts**: support Node.js worker threads for codec offloading ([bc4d488](https://github.com/fideus-labs/ngff-zarr/commit/bc4d4884a5d6fddf2a3e59245c602d37ee907dee))
+- **ts**: model the mapAxis, byDimension and bijection transforms ([c55bffb](https://github.com/fideus-labs/ngff-zarr/commit/c55bffbed91b5b0d29118c4fa39ef5bd00f3b5d7))
+
+### 🐛 Bug Fixes
+
+- **ts**: preserve 64-bit dtypes and stream the axis reordering by chunk ([8537569](https://github.com/fideus-labs/ngff-zarr/commit/85375690d54da57bb8118192d244703e53ab5e1c))
+- **ts**: order generated axes time, then channel, then space ([0471534](https://github.com/fideus-labs/ngff-zarr/commit/04715342120b97c3c84d8fe6d82ababc1020834f))
+- **py,ts**: reject a non-string orientation value and pin the schema both ways ([81b095d](https://github.com/fideus-labs/ngff-zarr/commit/81b095ddd75d02d2811659091854e6f14bfee5ed))
+- **ts**: exclude test/node from the pre-build test run ([349ff7f](https://github.com/fideus-labs/ngff-zarr/commit/349ff7f3582ef3de94b4410702ce13ed77d45f38))
+- **ts**: treat comments as whitespace in the npm specifier scanner ([68b9022](https://github.com/fideus-labs/ngff-zarr/commit/68b9022397133eced8770725f86bc2e719a8d82c))
+- **ts**: rewrite npm specifiers with a scanner, not a bare regex ([b1cbef7](https://github.com/fideus-labs/ngff-zarr/commit/b1cbef72167af33709a38007062b70ef29e1e784))
+- **ts**: correct per-channel statistics when the channel axis is chunked ([8deab98](https://github.com/fideus-labs/ngff-zarr/commit/8deab983012f813df4ed87d196ee5f3d2e44d451))
+- **ts**: apply the declared blosc shuffle mode when writing chunks ([cb2afc1](https://github.com/fideus-labs/ngff-zarr/commit/cb2afc1e5da97811c65e96c99799ad7feba42753))
+- **ts**: drop the inverseOf transformation from the zod schemas ([c5aadb8](https://github.com/fideus-labs/ngff-zarr/commit/c5aadb88757b42a2fcf70df088825be2fe8fde70))
+- **ts**: accept nested transformations and tighten axis validation ([23f6304](https://github.com/fideus-labs/ngff-zarr/commit/23f630479b2527ab53e56dfedfee3ea70ccffabf))
+- fix ci PyPI publish failure on metadata 2.5 wheels ([90c5bee](https://github.com/fideus-labs/ngff-zarr/commit/90c5bee484e8f128023a4cf7da71d2d320db9532))
+
 ## ts-v0.28.0 (2026-08-13)
 
 ### ♻️ Refactoring

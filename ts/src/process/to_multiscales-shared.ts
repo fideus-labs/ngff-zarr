@@ -10,6 +10,7 @@
 import { Methods } from "../types/methods.ts";
 import type { NgffMultiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
+import { canonicalAxisOrder } from "../utils/axis_order.ts";
 import type { ZarrCodec } from "../utils/codecs.ts";
 // deno-lint-ignore no-unused-vars
 import { bytesOnlyCodecs, defaultCodecs } from "../utils/codecs.ts";
@@ -78,17 +79,28 @@ export type DownsampleFunction = (
  * @returns NgffMultiscales object
  */
 export async function toMultiscalesCore(
-  image: NgffImage,
+  inputImage: NgffImage,
   options: ToMultiscalesOptions,
   downsampleItkWasm: DownsampleFunction,
 ): Promise<NgffMultiscales> {
   const {
     scaleFactors = [2, 4],
     method = Methods.ITKWASM_GAUSSIAN,
-    chunks: _chunks,
+    chunks: requestedChunks,
     codecs,
     orientation,
   } = options;
+
+  // OME-Zarr orders axes time, then channel, then space. Channel-last input
+  // (ITK component images, the 4-D/5-D default dims) is normalized here so the
+  // generated metadata and every scale are spec-ordered, and so a model the
+  // writer would refuse below 0.9.dev1 never reaches it.
+  const image = await canonicalAxisOrder(inputImage, codecs);
+  // A positional `chunks` array indexes the caller's dims, so it follows them
+  // through the reordering. The dim-keyed and scalar forms need no change.
+  const _chunks = Array.isArray(requestedChunks) && image !== inputImage
+    ? image.dims.map((dim) => requestedChunks[inputImage.dims.indexOf(dim)])
+    : requestedChunks;
 
   // The vector-component axis type (RFC-5 displacement/coordinate fields) is
   // carried on the input image, mirroring axesUnits / axesOrientations.

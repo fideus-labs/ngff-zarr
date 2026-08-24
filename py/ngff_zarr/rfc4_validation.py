@@ -25,7 +25,13 @@ def load_rfc4_orientation_schema() -> dict:
 
 # Each RFC 4 value maps to a stable key for the anatomical axis it lies on, so the
 # two antonyms of a pair (e.g. "left-to-right" / "right-to-left") collapse to one
-# key. Used to enforce "one direction per anatomical axis" (mutual exclusion).
+# key. Used to enforce "one direction per anatomical axis" (mutual exclusion), and
+# its keys are this module's vocabulary: membership is checked against them, and
+# the "valid values are" message lists them, so a value cannot be accepted here
+# and then fail the pair lookup below.
+#
+# ``test_rfc4_vocabulary.py`` pins these keys against
+# :class:`ngff_zarr.rfc4.AnatomicalOrientationValues` and the bundled schema.
 _ANATOMICAL_AXIS_OF: dict[str, str] = {
     "left-to-right": "left-right",
     "right-to-left": "left-right",
@@ -102,34 +108,6 @@ def validate_rfc4_orientation(axes: list[dict[str, Any]]) -> None:
     has_orientation = False
     spatial_orientation_values: list[tuple[str, str]] = []
 
-    # Valid anatomical orientation values (from the schema)
-    valid_orientation_values = {
-        "left-to-right",
-        "right-to-left",
-        "anterior-to-posterior",
-        "posterior-to-anterior",
-        "inferior-to-superior",
-        "superior-to-inferior",
-        "dorsal-to-ventral",
-        "ventral-to-dorsal",
-        "dorsal-to-palmar",
-        "palmar-to-dorsal",
-        "dorsal-to-plantar",
-        "plantar-to-dorsal",
-        "rostral-to-caudal",
-        "caudal-to-rostral",
-        "cranial-to-caudal",
-        "caudal-to-cranial",
-        "proximal-to-distal",
-        "distal-to-proximal",
-        "superficial-to-deep",
-        "deep-to-superficial",
-        "apical-to-basal",
-        "basal-to-apical",
-        "apex-to-base",
-        "base-to-apex",
-    }
-
     for axis in axes:
         if isinstance(axis, dict) and axis.get("type") == "space":
             orientation = axis.get("orientation")
@@ -154,14 +132,20 @@ def validate_rfc4_orientation(axes: list[dict[str, Any]]) -> None:
                     f"'{axis['name']}' has type '{orientation_type}'."
                 )
 
-            # Check that the orientation value is in the controlled vocabulary
+            # Check that the orientation value is in the controlled vocabulary.
+            # The membership test is a dict lookup, so a list or object value
+            # would raise TypeError rather than the documented ValidationError;
+            # a non-string is not in the vocabulary either way.
             orientation_value = orientation.get("value")
-            if orientation_value not in valid_orientation_values:
+            if (
+                not isinstance(orientation_value, str)
+                or orientation_value not in _ANATOMICAL_AXIS_OF
+            ):
                 from jsonschema import ValidationError
 
                 raise ValidationError(
                     f"Invalid orientation value '{orientation_value}' for axis '{axis['name']}'. "
-                    f"Valid values are: {sorted(valid_orientation_values)}"
+                    f"Valid values are: {sorted(_ANATOMICAL_AXIS_OF)}"
                 )
             spatial_orientation_values.append((axis["name"], orientation_value))
 
@@ -214,6 +198,41 @@ def validate_rfc4_orientation(axes: list[dict[str, Any]]) -> None:
 
     # Validate against the schema
     validator.validate(axes_structure)
+
+
+def has_any_rfc4_orientation(axes: list[dict[str, Any]]) -> bool:
+    """Whether any axis carries a non-empty ``orientation``.
+
+    :func:`has_rfc4_orientation_metadata` answers the narrower question of
+    whether a *spatial* axis is oriented, which is what callers deciding
+    whether to record orientation want. Callers deciding whether to *validate*
+    want this one: an orientation on a non-spatial axis is itself an RFC 4
+    violation, so skipping validation because no spatial axis is oriented is
+    precisely how that violation goes unreported.
+
+    Only ``None`` and ``{}`` are undefined under RFC 4, which is the pair
+    :func:`validate_rfc4_orientation` skips. Any other value, a falsey ``[]``,
+    ``""``, ``0`` or ``False`` included, is malformed rather than absent and so
+    must reach the validator.
+
+    Parameters
+    ----------
+    axes : List[Dict[str, Any]]
+        List of axis metadata dictionaries
+
+    Returns
+    -------
+    bool
+        True if any axis carries an orientation that is neither absent nor empty
+    """
+    for axis in axes:
+        if not isinstance(axis, dict) or "orientation" not in axis:
+            continue
+        orientation = axis["orientation"]
+        if orientation is None or orientation == {}:
+            continue
+        return True
+    return False
 
 
 def has_rfc4_orientation_metadata(axes: list[dict[str, Any]]) -> bool:

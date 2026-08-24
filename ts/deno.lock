@@ -21,13 +21,14 @@
     "jsr:@std/path@0.224.0": "0.224.0",
     "jsr:@std/path@1": "1.1.4",
     "jsr:@std/path@^1.1.4": "1.1.4",
+    "jsr:@std/semver@^1.0.5": "1.0.8",
     "jsr:@std/streams@^1.0.17": "1.0.17",
     "jsr:@ts-morph/bootstrap@0.27": "0.27.0",
     "jsr:@ts-morph/common@0.27": "0.27.0",
     "jsr:@zarrita/storage@~0.1.4": "0.1.4",
     "jsr:@zarrita/zarrita@~0.6.1": "0.6.1",
-    "npm:@fideus-labs/fizarrita@2": "2.0.0_zarrita@0.6.1",
-    "npm:@fideus-labs/worker-pool@2": "2.0.0",
+    "npm:@fideus-labs/fizarrita@^2.1.0": "2.1.0_zarrita@0.6.1",
+    "npm:@fideus-labs/worker-pool@^2.1.0": "2.1.0",
     "npm:@itk-wasm/compare-images@^5.4.1": "5.4.1",
     "npm:@itk-wasm/downsample@^2.0.2": "2.0.2",
     "npm:@itk-wasm/image-io@^1.6.0": "1.6.0",
@@ -129,6 +130,9 @@
         "jsr:@std/internal"
       ]
     },
+    "@std/semver@1.0.8": {
+      "integrity": "dc830e8b8b6a380c895d53fbfd1258dc253704ca57bbe1629ac65fd7830179b7"
+    },
     "@std/streams@1.0.17": {
       "integrity": "7859f3d9deed83cf4b41f19223d4a67661b3d3819e9fc117698f493bf5992140"
     },
@@ -167,15 +171,15 @@
         "tslib"
       ]
     },
-    "@fideus-labs/fizarrita@2.0.0_zarrita@0.6.1": {
-      "integrity": "sha512-QlRaBObEOAuEiUU7tDdYCDmPPP9YXCrG/Z/RBcRm28PO4vz+ipok/BUzNsANdF7EdjDA8rjDUzsuL4ihkGzRBg==",
+    "@fideus-labs/fizarrita@2.1.0_zarrita@0.6.1": {
+      "integrity": "sha512-HWGFW09TwGfj1ZiEmS93z8gchzvaWKKymlF5WTj7KYO5IByvg6P0afHUtmbgszXhzi0bEyyGOIlY83pSKSajng==",
       "dependencies": [
         "@fideus-labs/worker-pool",
         "zarrita"
       ]
     },
-    "@fideus-labs/worker-pool@2.0.0": {
-      "integrity": "sha512-a+0raK1pq7wv4N+vRRWgYZz7jTxG+FtIXb0S/OMu6oDGuS6BJhsU7+si0FoXFatb3pvtf65VVVHre166+uvgXA=="
+    "@fideus-labs/worker-pool@2.1.0": {
+      "integrity": "sha512-X/rmGDKS8HbTvWVrUxUn5dUrtolaJYNXM477CxStNupFMOGBEZcUD3CRqE1kVVNiQhN/W6+K/lwIKN/bsGKThw=="
     },
     "@ipld/car@5.4.2": {
       "integrity": "sha512-gfyrJvePyXnh2Fbj8mPg4JYvEZ3izhk8C9WgAle7xIYbrJNSXmNQ6BxAls8Gof97vvGbCROdxbTWRmHJtTCbcg==",
@@ -1278,10 +1282,11 @@
       "jsr:@std/cli@^1.0.27",
       "jsr:@std/http@^1.0.24",
       "jsr:@std/path@^1.1.4",
+      "jsr:@std/semver@^1.0.5",
       "jsr:@zarrita/storage@~0.1.4",
       "jsr:@zarrita/zarrita@~0.6.1",
-      "npm:@fideus-labs/fizarrita@2",
-      "npm:@fideus-labs/worker-pool@2",
+      "npm:@fideus-labs/fizarrita@^2.1.0",
+      "npm:@fideus-labs/worker-pool@^2.1.0",
       "npm:@itk-wasm/compare-images@^5.4.1",
       "npm:@itk-wasm/downsample@^2.0.2",
       "npm:@itk-wasm/image-io@^1.6.0",

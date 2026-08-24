@@ -5,7 +5,6 @@
 import tempfile
 import warnings
 from pathlib import Path
-from typing import Any
 
 from ngff_zarr import (  # type: ignore[import-untyped]
     Methods,
@@ -27,7 +26,7 @@ except ImportError:
         version: str = "0.4",
         model: str = "image",
         strict: bool = False,
-    ) -> Any:
+    ) -> None:
         pass
 
 

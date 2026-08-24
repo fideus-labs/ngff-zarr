@@ -181,7 +181,7 @@ all = { features = ["all"], solve-group = "default" }
 
 [tool.commitizen]
 name = "cz_ngff_zarr"
-version = "0.11.0"
+version = "0.12.0"
 version_provider = "commitizen"
 tag_format = "mcp-v$version"
 update_changelog_on_bump = true

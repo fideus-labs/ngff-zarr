@@ -22,6 +22,33 @@ const STAGING_DIR = "./npm/src";
 const NPM_DIR = "./npm";
 
 /**
+ * Runtime dependencies declared in the published package.json.
+ *
+ * These ranges are what npm consumers resolve against, so each one must be
+ * satisfied by the version pinned in `deno.lock` — that is the only version
+ * the test suite ever exercises. A range may be deliberately looser than the
+ * locked version (publishing a lower floor we still support), but it must
+ * never require a version we have not tested.
+ */
+export const NPM_DEPENDENCIES: Record<string, string> = {
+  "@fideus-labs/fizarrita": "^2.1.0",
+  "@fideus-labs/worker-pool": "^2.1.0",
+  "@itk-wasm/downsample": "^2.0.0",
+  // Floor at b.201: b.200 shipped without its `dist/` directory, which
+  // breaks the browser bundle with unresolved "itk-wasm" imports.
+  "itk-wasm": "^1.0.0-b.201",
+  "@zarrita/storage": "^0.1.4",
+  zod: "^4.0.2",
+  zarrita: "^0.6.1",
+};
+
+/** Dev dependencies declared in the published package.json. */
+export const NPM_DEV_DEPENDENCIES: Record<string, string> = {
+  "@itk-wasm/image-io": "^1.6.0",
+  typescript: "^5.7.2",
+};
+
+/**
  * Strip the `npm:` prefix and version range from an npm module specifier,
  * leaving the bare package name and any subpath.
  *
@@ -239,7 +266,7 @@ async function createTsConfig(): Promise<void> {
 async function createPackageJson(): Promise<void> {
   const packageJson = {
     name: "@fideus-labs/ngff-zarr",
-    version: "0.28.0",
+    version: "0.29.0",
     description:
       "TypeScript implementation of ngff-zarr for reading and writing OME-Zarr files",
     license: "MIT",
@@ -307,21 +334,8 @@ async function createPackageJson(): Promise<void> {
         "./esm/process/to_multiscales-browser.js",
     },
     files: ["esm/", "README.md", "LICENSE.txt"],
-    dependencies: {
-      "@fideus-labs/fizarrita": "^2.0.0",
-      "@fideus-labs/worker-pool": "^2.0.0",
-      "@itk-wasm/downsample": "^2.0.0",
-      // Floor at b.201: b.200 shipped without its `dist/` directory, which
-      // breaks the browser bundle with unresolved "itk-wasm" imports.
-      "itk-wasm": "^1.0.0-b.201",
-      "@zarrita/storage": "^0.1.4",
-      zod: "^4.0.2",
-      zarrita: "^0.6.1",
-    },
-    devDependencies: {
-      "@itk-wasm/image-io": "^1.6.0",
-      typescript: "^5.7.2",
-    },
+    dependencies: NPM_DEPENDENCIES,
+    devDependencies: NPM_DEV_DEPENDENCIES,
   };
 
   await Deno.writeTextFile(
