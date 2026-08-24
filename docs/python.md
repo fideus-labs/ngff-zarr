@@ -418,6 +418,28 @@ fill the arrays; `to_ome_zarr` is not involved, and the example above uses
 zarr-python, which ngff-zarr does not depend on. Chunks that are never written
 read back as the fill value.
 
+### Append coarser levels to an existing store
+
+Once the finest level is on disk, `start_level` derives the next levels from
+it and writes them beside it. The levels below `start_level` are read, never
+rewritten; root attributes the writer does not own are kept; the multiscales
+entry is rewritten in full.
+
+```python
+base = nz.from_ome_zarr('volume.ome.zarr').images[0]
+multiscales = nz.to_multiscales(base, scale_factors=[2, 4], chunks=chunks)
+nz.to_ome_zarr('volume.ome.zarr', multiscales, version='0.5',
+                overwrite=False, start_level=1)
+```
+
+`start_level` requires `overwrite=False`, and the store must hold every level
+below it with the shape and dtype the multiscales describes. Running the same
+call again replaces the appended levels. `metadata_only=True` composes with it
+to allocate the new levels empty. The appended levels take the chunks given to
+`to_multiscales`; pass the chunks of the stored level to keep one grid. A level
+whose data the caller replaced in the multiscales is written as given, so a
+pipeline that already holds a coarse level can bring it instead of deriving it.
+
 ## TIFF and OME-TIFF Files
 
 NGFF-Zarr provides support for converting TIFF files, including multi-series

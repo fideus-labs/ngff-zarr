@@ -19,6 +19,7 @@ from ._zarrista_utils import (
     _ZarristaArrayAdapter,
     create_zarrista_group,
     create_zarrista_subgroup,
+    has_consolidated_metadata,
     normalize_store,
     open_lazy_array,
     read_group_attributes,
@@ -486,6 +487,78 @@ def _guard_overwrite_of_source_store(
                     "levels with start_level, or materialize the data first, "
                     "e.g. image.data = image.data.persist()."
                 )
+
+
+def _guard_rewrite_of_read_levels(
+    multiscales: NgffMultiscales, store_path: str, datasets, start_level: int
+) -> None:
+    """Refuse to replace a stored level that a level to be written still reads.
+
+    A level at or above ``start_level`` replaces the array at its path, and
+    the array is removed before its replacement is computed.
+    """
+    store_root = Path(store_path).resolve()
+    replaced = {
+        store_root.joinpath(*_node_parts(dataset.path)): dataset.path
+        for dataset in datasets[start_level:]
+    }
+    for index in range(start_level, len(multiscales.images)):
+        data = multiscales.images[index].data
+        if not isinstance(data, dask.array.Array):
+            continue
+        for leaf in _lazy_array_leaves(data):
+            array_dir = _leaf_array_dir(leaf)
+            if array_dir in replaced:
+                raise ValueError(
+                    f"multiscales.images[{index}] reads the array at "
+                    f"'{replaced[array_dir]}', which start_level={start_level} "
+                    "replaces before its data is computed. Materialize that "
+                    "level first, e.g. image.data = image.data.persist(), or "
+                    f"pass a multiscales whose levels from {start_level} on are "
+                    f"derived from the stored level {start_level - 1}."
+                )
+
+
+def _node_parts(path: str) -> list[str]:
+    """Path components of a node path within a store."""
+    return [part for part in str(path).split("/") if part not in ("", ".")]
+
+
+def _bind_existing_level(image, store_path: str, path: str, index: int) -> None:
+    """Point ``image`` at the array already stored for scale ``index``.
+
+    The array must match the shape and dtype the multiscales describes for
+    that level: the levels written after it are derived from it, and the
+    datasets metadata is rewritten from the multiscales.
+    """
+    from ._zarrista_utils import open_zarrista_array
+
+    try:
+        existing = open_zarrista_array(store_path, path)
+    except Exception as error:
+        raise ValueError(
+            f"start_level expects scale level {index} at '{path}', but the "
+            f"store has no readable array there: {type(error).__name__}: {error}"
+        ) from error
+    shape = tuple(existing.shape)
+    dtype = np.dtype(existing.dtype.name)
+    if shape != tuple(image.data.shape) or dtype != np.dtype(image.data.dtype):
+        raise ValueError(
+            f"The array stored for scale level {index} at '{path}' has shape "
+            f"{shape} and dtype {dtype}, but the multiscales describes "
+            f"{tuple(image.data.shape)} {image.data.dtype}."
+        )
+    for callback in image.computed_callbacks:
+        callback()
+    image.computed_callbacks = []
+    image.data = open_lazy_array(store_path, path)
+
+
+def _remove_existing_level(store_path: str, path: str) -> None:
+    """Remove the array stored at ``path``, so its replacement starts clean."""
+    node_dir = Path(store_path).joinpath(*_node_parts(path))
+    if node_dir.exists():
+        shutil.rmtree(node_dir)
 
 
 def _prepare_metadata(
@@ -1241,6 +1314,7 @@ def to_ome_zarr(
     chunks_per_shard: int | tuple[int, ...] | dict[str, int] | None = None,
     scale_strategy: ScaleStrategy = "pad",
     metadata_only: bool = False,
+    start_level: int = 0,
     **kwargs,
 ) -> None:
     """
@@ -1293,6 +1367,14 @@ def to_ome_zarr(
         writer and needs no locking. Not available for .ozx output.
     :type  metadata_only: bool, optional
 
+    :param start_level: Index of the first scale level to write. The levels below it must
+        already exist in the store with the shape and dtype the multiscales describes; they
+        are read, never rewritten, and the first written level is derived from the last of
+        them on disk. Requires ``overwrite=False``. Root attributes the writer does not own
+        are kept, the multiscales entry is rewritten in full, and a level at or above
+        ``start_level`` that already exists is replaced.
+    :type  start_level: int, optional
+
     :param **kwargs: Array-creation options, e.g. `compressor` / `compressors`
         compression settings.
     """
@@ -1322,6 +1404,11 @@ def to_ome_zarr(
             raise ValueError(
                 "metadata_only=True is not available for .ozx output: a zipped "
                 "OME-Zarr is written in one piece, with its data."
+            )
+        if start_level:
+            raise ValueError(
+                "start_level is not available for .ozx output: a zipped OME-Zarr "
+                "is written in one piece."
             )
         if version != "0.5":
             raise ValueError(
@@ -1369,6 +1456,7 @@ def to_ome_zarr(
         chunks_per_shard=chunks_per_shard,
         scale_strategy=scale_strategy,
         metadata_only=metadata_only,
+        start_level=start_level,
         **kwargs,
     )
 
@@ -1388,6 +1476,7 @@ def _to_ngff_zarr_impl(
     chunks_per_shard: int | tuple[int, ...] | dict[str, int] | None = None,
     scale_strategy: ScaleStrategy = "pad",
     metadata_only: bool = False,
+    start_level: int = 0,
     **kwargs,
 ) -> None:
     """
@@ -1413,19 +1502,42 @@ def _to_ngff_zarr_impl(
     store_path = str(normalize_store(store))
 
     _validate_ngff_parameters(version, chunks_per_shard)
+    if not 0 <= start_level < len(multiscales.images):
+        raise ValueError(
+            f"start_level={start_level} is out of range for "
+            f"{len(multiscales.images)} scale levels."
+        )
+    if start_level and overwrite:
+        raise ValueError(
+            "start_level keeps the levels already in the store, which "
+            "overwrite=True would delete. Pass overwrite=False."
+        )
     if overwrite:
         _guard_overwrite_of_source_store(multiscales, store_path)
     metadata, dimension_names, _ = _prepare_metadata(multiscales, version)
     _gate_top_level_transforms(metadata, version)
+    if start_level:
+        _guard_rewrite_of_read_levels(
+            multiscales, store_path, metadata.datasets, start_level
+        )
     metadata_dict = asdict(metadata)
     metadata_dict = _pop_metadata_optionals(metadata_dict)
     metadata_dict["@type"] = "ngff:Image"
 
-    # Create Zarr root
-    _create_zarr_root(store, version, overwrite, metadata_dict)
-
     # Format parameters
     zarr_format = 2 if version == "0.4" else 3
+
+    # Create Zarr root
+    # Appending names only the levels it keeps until the new arrays are in
+    # place, so an interrupted call leaves a store that reads as those levels.
+    if start_level:
+        kept = copy.deepcopy(metadata_dict)
+        kept["datasets"] = kept["datasets"][:start_level]
+        _create_zarr_root(store, version, overwrite, kept)
+        if has_consolidated_metadata(store, zarr_format):
+            _zarrista_consolidate_metadata(store, zarr_format)
+    else:
+        _create_zarr_root(store, version, overwrite, metadata_dict)
 
     if version == "0.4" and kwargs.get("compressors") is not None:
         raise ValueError(
@@ -1451,15 +1563,6 @@ def _to_ngff_zarr_impl(
         path = metadata.datasets[index].path
         parent = str(PurePosixPath(path).parent)
 
-        # Create parent groups if needed
-        if parent not in (".", "/"):
-            create_zarrista_subgroup(
-                store,
-                parent,
-                {"_ARRAY_DIMENSIONS": list(image.dims)},
-                zarr_format,
-            )
-
         # Calculate dimension factors
         if index > 0 and index < nscales - 1 and multiscales.scale_factors:
             dim_factors = _dim_scale_factors(
@@ -1468,6 +1571,42 @@ def _to_ngff_zarr_impl(
         else:
             dim_factors = dict.fromkeys(dims, 1)
         previous_dim_factors = dim_factors
+
+        if index < start_level:
+            _bind_existing_level(image, store_path, path, index)
+            next_image = _prepare_next_scale(
+                image,
+                index,
+                nscales,
+                multiscales,
+                store,
+                path,
+                progress,
+                scale_strategy=scale_strategy,
+            )
+            continue
+
+        # Create parent groups if needed
+        if parent not in (".", "/"):
+            if (
+                not start_level
+                and not overwrite
+                and read_group_attributes(store, parent, zarr_format=zarr_format)
+                is not None
+            ):
+                raise ValueError(
+                    f"The store already holds scale level {index} at "
+                    f"'{parent}'. Pass start_level to append levels after the "
+                    "ones it holds, or overwrite=True to replace the store."
+                )
+            create_zarrista_subgroup(
+                store,
+                parent,
+                {"_ARRAY_DIMENSIONS": list(image.dims)},
+                zarr_format,
+            )
+        if start_level:
+            _remove_existing_level(store_path, path)
 
         # Configure sharding if needed
         # TODO check with recent updates to zarr by Ilan whether sharding can just be configured on zarr side.
@@ -1569,6 +1708,9 @@ def _to_ngff_zarr_impl(
             progress,
             scale_strategy=scale_strategy,
         )
+
+    if start_level:
+        _create_zarr_root(store, version, False, metadata_dict)
 
     # Clean up callbacks
     for image in multiscales.images:
