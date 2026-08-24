@@ -976,6 +976,15 @@ def _compute_plane_regions(
     return plane_regions
 
 
+def _is_generated_level(multiscales: NgffMultiscales, index: int) -> bool:
+    """Whether level ``index`` still carries the data to_multiscales gave it."""
+    keys = multiscales.generated_data_keys
+    if keys is None or index >= len(keys):
+        return False
+    data = multiscales.images[index].data
+    return getattr(data, "name", None) == keys[index]
+
+
 def _prepare_next_scale(
     image,
     index: int,
@@ -1000,8 +1009,15 @@ def _prepare_next_scale(
     # No next scale if we're at the last one
     if index >= nscales - 1:
         return None
-    # Minimize task graph depth
-    if multiscales.scale_factors and multiscales.method and multiscales.chunks:
+    # Re-deriving the next level from the level just written keeps the task
+    # graph shallow. Only a level still holding the data to_multiscales
+    # generated for it is re-derived; anything else is written as given.
+    if (
+        multiscales.scale_factors
+        and multiscales.method
+        and multiscales.chunks
+        and _is_generated_level(multiscales, index + 1)
+    ):
         for callback in image.computed_callbacks:
             callback()
         image.computed_callbacks = []

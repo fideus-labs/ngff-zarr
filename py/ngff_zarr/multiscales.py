@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ._store_types import StoreLike
@@ -28,6 +28,15 @@ class NgffMultiscales:
         | Mapping[Any, None | int | tuple[int, ...]]
         | None
     ) = None
+    generated_data_keys: list[str] | None = field(
+        default=None, repr=False, compare=False
+    )
+    """Dask graph key of each level as :func:`to_multiscales` produced it.
+
+    The writer re-derives a level from the level written before it only while
+    the level still carries the key recorded here; a level whose data has been
+    replaced is written as given.
+    """
 
     def to_ome_zarr(self, store: StoreLike, **kwargs: Any) -> None:
         """Write this multiscale image to an OME-Zarr store.

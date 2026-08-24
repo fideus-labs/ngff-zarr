@@ -717,4 +717,11 @@ def to_multiscales(
         metadata=method_metadata,
     )
 
-    return NgffMultiscales(images, metadata, scale_factors, method, out_chunks)
+    return NgffMultiscales(
+        images,
+        metadata,
+        scale_factors,
+        method,
+        out_chunks,
+        generated_data_keys=[image.data.name for image in images],
+    )
