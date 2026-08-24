@@ -247,6 +247,7 @@ def _itk_direction(ngff_image: NgffImage, itk_dims: Sequence[str]) -> np.ndarray
         return direction
 
     columns = []
+    seen_axes = set()
     for dim in itk_dims:
         orientation = orientations.get(dim)
         if orientation is None:
@@ -254,6 +255,16 @@ def _itk_direction(ngff_image: NgffImage, itk_dims: Sequence[str]) -> np.ndarray
         column = anatomical_orientation_to_itk_direction(orientation.value)
         if column is None:
             return direction
+        # A column pointing outside the matrix's dimension (e.g. a
+        # superior/inferior orientation on a 2D image), or two dims mapping
+        # onto the same LPS axis, would truncate to a singular matrix; keep
+        # the identity fallback instead.
+        if any(component != 0 for component in column[len(itk_dims) :]):
+            return direction
+        axis = max(range(len(column)), key=lambda i: abs(column[i]))
+        if axis in seen_axes:
+            return direction
+        seen_axes.add(axis)
         columns.append(column)
 
     for col_index, column in enumerate(columns):
@@ -396,7 +407,10 @@ def itk_transform_resample_bounding_box(
 
     * An **RFC-5 coordinate transformation** acts on the intrinsic coordinate
       system, where a point is ``translation + scale * index``. Its parameters
-      are in Zarr axis order and no direction matrix applies.
+      are in Zarr axis order and no direction matrix applies. Its ``input``
+      and ``output`` identifiers are **not resolved**: the transformation is
+      applied from the fixed image's intrinsic system to the moving image's,
+      whatever the identifiers name.
     * An **ITK transform** (for example a ``CompositeTransform`` returned by
       Elastix) acts on ITK physical space, so the geometry is built the way
       :func:`ngff_zarr.ngff_image_to_itk_image` builds it, including the
@@ -452,8 +466,10 @@ def itk_transform_resample_bounding_box(
     for label, image in (("fixed", fixed), ("moving", moving)):
         _check_geometry(label, image, fixed_spatial)
 
-    # ITK orders points fastest-axis-first, the reverse of the Zarr order.
-    itk_dims = list(reversed(fixed_spatial))
+    # ITK orders points fastest-axis-first: x, then y, then z, whatever order
+    # the image spells its spatial dims in. Reversing the dims is only right
+    # for the canonical (z, y, x); binding by name is right for every order.
+    itk_dims = [dim for dim in _SPATIAL_DIMS if dim in fixed_spatial]
 
     fixed_dims = tuple(fixed.dims)
     fixed_extent = {

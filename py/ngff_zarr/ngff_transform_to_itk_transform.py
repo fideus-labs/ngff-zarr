@@ -9,10 +9,11 @@ wrong yields a plausible transform that is simply in the wrong place.
 Axis order
     RFC-5 orders transformation parameters the same way the Zarr array is
     ordered -- parameter ``i`` belongs to coordinate-system axis ``i``, so a
-    ``zyx`` image has ``z`` first. ITK orders points fastest-axis-first, so
-    the same point is ``xyz``. Writing ``R`` for the axis-reversal
-    permutation, an RFC-5 affine ``q = M p + b`` becomes ``A = R M R`` and
-    ``t = R b`` in ITK.
+    ``zyx`` image has ``z`` first. ITK orders points fastest-axis-first by
+    name: x, then y, then z. Writing ``P`` for the permutation sending an
+    ITK-order vector to the ``dims``-order vector, an RFC-5 affine
+    ``q = M p + b`` becomes ``A = P^T M P`` and ``t = P^T b`` in ITK. For
+    the canonical ``zyx`` order ``P`` is the axis reversal.
 
 Composition order
     An RFC-5 ``sequence`` applies its first entry first. An ITK transform
@@ -75,9 +76,13 @@ def _homogeneous_from_transform(transform: Transform, ndim: int) -> np.ndarray:
     if isinstance(transform, Rotation):
         rotation = _as_matrix(transform.rotation, transform.path, "rotation")
         if rotation.shape != (ndim, ndim):
+            # Formatted from the whole shape tuple: a flat parameter array is
+            # 1-D, and indexing a fixed axis would raise IndexError from
+            # inside the message meant to explain the problem.
+            shape = "x".join(str(extent) for extent in rotation.shape)
             msg = (
-                f"rotation transformation is {rotation.shape[0]}x{rotation.shape[1]} "
-                f"but the coordinate system has {ndim} axes"
+                f"rotation transformation is {shape} but the coordinate "
+                f"system has {ndim} axes"
             )
             raise ValueError(msg)
         matrix = np.eye(ndim + 1)
@@ -90,10 +95,11 @@ def _homogeneous_from_transform(transform: Transform, ndim: int) -> np.ndarray:
         # rotation/scale/shear part followed by the translation as the last
         # column, with the trailing [0 ... 0 1] row omitted.
         if affine.shape != (ndim, ndim + 1):
+            shape = "x".join(str(extent) for extent in affine.shape)
             msg = (
-                f"affine transformation is {affine.shape[0]}x{affine.shape[1]} but "
-                f"a coordinate system with {ndim} axes requires "
-                f"{ndim}x{ndim + 1} (the translation is the last column)"
+                f"affine transformation is {shape} but a coordinate system "
+                f"with {ndim} axes requires {ndim}x{ndim + 1} (the "
+                "translation is the last column)"
             )
             raise ValueError(msg)
         matrix = np.eye(ndim + 1)
@@ -147,11 +153,16 @@ def _as_matrix(values, path: str | None, field: str) -> np.ndarray:
     return np.asarray(values, dtype=float)
 
 
-def ngff_transform_to_itk_matrix(
+def _ngff_transform_to_itk_matrix(
     transform: Transform,
     dims: Sequence[str],
 ) -> tuple[np.ndarray, np.ndarray]:
     """Convert an RFC-5 transformation to an ITK matrix and offset.
+
+    Internal. :func:`ngff_transform_to_itk_transform` is the public entry
+    point; nothing outside this package needs the raw numbers, since ITK is
+    what the caller wants to hand them to. The tests use it as a fine probe on
+    the axis and composition conventions.
 
     :param transform: An RFC-5 (OME-Zarr v0.6) coordinate transformation. It
         must describe a linear mapping -- ``identity``, ``scale``,
@@ -163,7 +174,12 @@ def ngff_transform_to_itk_matrix(
     :type  dims: Sequence[str]
 
     :return: ``(matrix, offset)`` for the spatial axes only, in ITK
-        (fastest-axis-first) order.
+        (fastest-axis-first) order. ITK has no notion of a non-spatial axis, so
+        a component acting purely on ``t`` or ``c`` -- a frame interval, say --
+        is *projected away*. That is lossless for the spatial mapping, which is
+        all an ITK transform describes, but the returned transform is not a
+        faithful copy of the input. A component that *couples* the two kinds of
+        axis is refused instead, because dropping it would move the image.
     :rtype: tuple[numpy.ndarray, numpy.ndarray]
 
     :raises NotImplementedError: If the transformation is not linear.
@@ -194,14 +210,24 @@ def ngff_transform_to_itk_matrix(
     matrix = homogeneous[np.ix_(spatial_indices, spatial_indices)]
     offset = homogeneous[spatial_indices, len(dims)]
 
-    # RFC-5 (Zarr) order -> ITK (fastest-axis-first) order.
-    reversal = np.eye(len(spatial_indices))[::-1]
-    return reversal @ matrix @ reversal, reversal @ offset
+    # RFC-5 (`dims`) order -> ITK (fastest-axis-first) order. ITK orders
+    # components by *name* (x, then y, then z), so the permutation is built
+    # by name rather than by reversing `dims`, which is only equivalent for
+    # the canonical (z, y, x).
+    spatial = [dims[index] for index in spatial_indices]
+    itk_dims = [dim for dim in _SPATIAL_DIMS if dim in spatial]
+    permutation = np.zeros((len(spatial), len(spatial)))
+    for row, dim in enumerate(spatial):
+        permutation[row, itk_dims.index(dim)] = 1.0
+    return permutation.T @ matrix @ permutation, permutation.T @ offset
 
 
 def ngff_transform_to_itk_transform(
     transform: Transform,
     dims: Sequence[str],
+    *,
+    fixed=None,
+    moving=None,
 ) -> list:
     """Convert an RFC-5 transformation to an ITK-Wasm transform list.
 
@@ -216,6 +242,16 @@ def ngff_transform_to_itk_transform(
         defined on, in RFC-5 (Zarr) order.
     :type  dims: Sequence[str]
 
+    :param fixed: The fixed and moving images the transform relates. Passing
+        both lets the conversion re-express the intrinsic-space mapping on ITK
+        physical space, including the direction matrix derived from RFC-4
+        anatomical orientation. Omitting them is exact only when neither image
+        carries an anatomical orientation.
+    :type  fixed: NgffImage, optional
+
+    :param moving: See ``fixed``. Pass both or neither.
+    :type  moving: NgffImage, optional
+
     :return: A single-entry ITK-Wasm ``TransformList``.
     :rtype: list[itkwasm.Transform]
     """
@@ -228,8 +264,31 @@ def ngff_transform_to_itk_transform(
         Transform as ItkTransform,
     )
 
-    matrix, offset = ngff_transform_to_itk_matrix(transform, dims)
+    matrix, offset = _ngff_transform_to_itk_matrix(transform, dims)
     dimension = offset.shape[0]
+
+    from .itk_transform_to_ngff_transform import (
+        _change_of_frame,
+        _check_frame_images,
+        _frame_geometry,
+    )
+
+    spatial = [dim for dim in dims if dim in _SPATIAL_DIMS]
+    if _check_frame_images(fixed, moving, spatial):
+        # The intrinsic systems -> ITK physical space: phi_m . T . phi_f^-1,
+        # which is the same change of frame with the directions inverted.
+        itk_dims = [dim for dim in _SPATIAL_DIMS if dim in spatial]
+        direction_fixed, direction_moving, origin_fixed, origin_moving = (
+            _frame_geometry(fixed, moving, itk_dims)
+        )
+        matrix, offset = _change_of_frame(
+            matrix,
+            offset,
+            np.linalg.inv(direction_fixed),
+            np.linalg.inv(direction_moving),
+            origin_fixed,
+            origin_moving,
+        )
 
     # ITK's MatrixOffsetTransformBase packs the row-major matrix followed by
     # the translation, with the center of rotation as the fixed parameters.

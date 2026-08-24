@@ -33,11 +33,7 @@ export {
   itkTransformToNgffTransform,
   type NgffMatrixAndOffset,
 } from "./utils/itk_transform_to_ngff_transform.ts";
-export {
-  type ItkMatrixAndOffset,
-  ngffTransformToItkMatrix,
-  ngffTransformToItkTransform,
-} from "./utils/ngff_transform_to_itk_transform.ts";
+export { ngffTransformToItkTransform } from "./utils/ngff_transform_to_itk_transform.ts";
 export {
   dataTypeToComponentType,
   ngffImageToItkImage,

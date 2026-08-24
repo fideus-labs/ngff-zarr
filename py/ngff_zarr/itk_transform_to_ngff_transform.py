@@ -7,7 +7,7 @@ is persistence: a registration produces an ITK transform, and RFC-5 is where
 that result belongs once it is written next to the image.
 
 The same two conventions apply in reverse -- the spatial block and the offset
-are reversed from ITK's fastest-axis-first order back to Zarr order, and ITK's
+are permuted from ITK's fastest-axis-first order back to ``dims`` order, and ITK's
 center of rotation is folded into the offset, since an RFC-5 affine has no
 center:
 
@@ -30,29 +30,161 @@ from .v06.zarr_metadata import (
 
 _SPATIAL_DIMS = ("x", "y", "z")
 
-#: itkwasm parameterizations this module decodes without help from ``itk``.
-#: Everything else (Euler, Versor, Similarity, ...) packs angles or quaternions
-#: rather than a matrix, so it is rebuilt through ``itk`` and probed instead.
-_DIRECTLY_DECODED = frozenset({"Identity", "Translation", "Scale", "Affine"})
+#: ITK-Wasm parameterizations that describe a deformation rather than an affine
+#: mapping. Probing one recovers a matrix from three points that says nothing
+#: about the rest of the field, so they are refused by name before any decoding
+#: is attempted. RFC-5 represents deformations with ``displacements`` or
+#: ``coordinates`` field arrays instead.
+_NON_LINEAR_PARAMETERIZATIONS = frozenset(
+    {
+        "AzimuthElevationToCartesian",
+        "BSpline",
+        "BSplineSmoothingOnUpdateDisplacementField",
+        "ConstantVelocityField",
+        "DisplacementField",
+        "GaussianExponentialDiffeomorphic",
+        "GaussianSmoothingOnUpdateDisplacementField",
+        "GaussianSmoothingOnUpdateTimeVaryingVelocityField",
+        "Rigid3DPerspective",
+        "TimeVaryingVelocityField",
+        "VelocityField",
+    }
+)
+
+
+def _direct_parameter_count(parameterization: str, dimension: int) -> int | None:
+    """Exact parameter count a directly decoded parameterization must carry.
+
+    What ITK's ``MatrixOffsetTransformBase`` and friends pack, and therefore
+    the ground truth for the transform's dimensionality. ``None`` for the
+    parameterizations this module does not decode arithmetically.
+    """
+    if parameterization == "Identity":
+        return 0
+    if parameterization in ("Translation", "Scale"):
+        return dimension
+    if parameterization == "Affine":
+        return dimension * dimension + dimension
+    return None
+
+
+def _reject_non_linear(itk_transform) -> None:
+    """Refuse a transform that ITK itself reports as non-linear."""
+    if hasattr(itk_transform, "IsLinear") and not itk_transform.IsLinear():
+        msg = (
+            "only linear ITK transforms can be expressed as an RFC-5 affine; "
+            f"{type(itk_transform).__name__} is not linear"
+        )
+        raise NotImplementedError(msg)
+
+
+#: Relative agreement required at the check point, by working precision.
+#: float64 is 1e-7 rather than machine-level: a composite transform may pass
+#: through internal frames (e.g. a global stage position) that dwarf both its
+#: probes and its outputs, and the rounding they leave behind is invisible to
+#: any output-side bound. 1e-7 absorbs hidden intermediates up to ~1e9 while
+#: a deformation still disagrees at the check point by orders of magnitude.
+_AFFINE_CHECK_RTOL = {"float32": 1e-5, "float64": 1e-7}
+
+
+def _working_precision(*samples: np.ndarray) -> str:
+    """Guess whether the transform computes in single or double precision.
+
+    ``itk.AffineTransform[itk.F, 3]`` answers ``TransformPoint`` with about
+    seven digits, so holding it to a double-precision tolerance rejects every
+    valid single-precision transform. Rather than read the ITK type name,
+    which is a private spelling, look at whether the values coming back are
+    exactly representable in ``float32``: they are when the transform computes
+    in ``float32``, and a double-precision result generally is not. Guessing
+    ``float32`` for a double-precision transform that happens to return exact
+    values only loosens the check on values that carry no round-off anyway.
+    """
+    values = np.concatenate([np.ravel(np.asarray(s, dtype=float)) for s in samples])
+    if values.size and np.all(values.astype(np.float32) == values):
+        return "float32"
+    return "float64"
+
+
+def _probe_step(offset: np.ndarray) -> float:
+    """The displacement to probe the transform with.
+
+    An affine map is exact for *any* step, so there is no truncation error to
+    trade off and the usual "small step" rule is exactly backwards here. The
+    only error is the cancellation in ``T(h e_j) - T(0)``, which is worst when
+    the offset dwarfs the step: with a step of 1 and an offset of 1e15 the
+    subtraction keeps no significant digit at all, and probing silently
+    reports a zero matrix. Following the offset's magnitude keeps the two
+    terms comparable, so the difference stays good to a few ulps.
+
+    The limit this leaves: a matrix coefficient whose contribution at the
+    probe scale falls below the rounding of the offset itself (roughly
+    ``|m| * h < ulp(|T(0)|)``) is unrecoverable by evaluation and folds into
+    the offset. Such a term is equally invisible to any consumer evaluating
+    the transform at that scale, so nothing representable is lost.
+    """
+    return max(1.0, float(np.abs(offset).max()))
 
 
 def _matrix_offset_by_probing(itk_transform, dimension: int):
     """Recover ``(matrix, offset)`` by evaluating the transform.
 
-    ``offset = T(0)`` and ``matrix[:, j] = T(e_j) - T(0)``. This is exact for
-    any linear transform and, unlike decoding ``GetParameters()``, does not
-    depend on how the particular transform type packs its parameters -- an
-    ``Euler3DTransform`` stores angles and a ``VersorRigid3DTransform`` a
+    ``offset = T(0)`` and ``matrix[:, j] = (T(h e_j) - T(0)) / h``. This is
+    exact for any linear transform and, unlike decoding ``GetParameters()``,
+    does not depend on how the particular transform type packs its parameters
+    -- an ``Euler3DTransform`` stores angles and a ``VersorRigid3DTransform`` a
     quaternion, but both answer ``TransformPoint`` the same way.
+
+    Probing a *non*-linear transform would succeed and return a plausible
+    affine that is simply wrong away from the probed points, so the recovered
+    model is checked against a point none of the probes reached. That point
+    scales with the probe step: a check fixed near the origin cannot tell a
+    zeroed matrix from a correct one once the offset dominates, which is the
+    very cancellation the step exists to avoid.
     """
     origin = [0.0] * dimension
     offset = np.asarray(itk_transform.TransformPoint(origin), dtype=float)
+    step = _probe_step(offset)
+
     matrix = np.zeros((dimension, dimension))
+    probes = []
     for axis in range(dimension):
         basis = [0.0] * dimension
-        basis[axis] = 1.0
+        basis[axis] = step
         column = np.asarray(itk_transform.TransformPoint(basis), dtype=float)
-        matrix[:, axis] = column - offset
+        probes.append(column)
+        matrix[:, axis] = (column - offset) / step
+
+    if not np.all(np.isfinite(matrix)) or not np.all(np.isfinite(offset)):
+        msg = (
+            f"{type(itk_transform).__name__} maps finite points to non-finite "
+            "values; its parameters are not usable numbers"
+        )
+        raise ValueError(msg)
+
+    # Distinct from every probe and from the origin, whatever the dimension.
+    check = step * (np.arange(dimension) + 2.0) / (dimension + 2.0)
+    predicted = matrix @ check + offset
+    actual = np.asarray(itk_transform.TransformPoint(check.tolist()), dtype=float)
+    rtol = _AFFINE_CHECK_RTOL[_working_precision(offset, *probes, actual)]
+    # Rounding in TransformPoint scales with the magnitudes the evaluation
+    # passes through (|A| |x| and |t|), not with the result: a component of
+    # T(check) can legitimately be tiny while the terms producing it are huge.
+    # Comparing against the output alone would reject such transforms as
+    # non-linear, so the comparison floor is the working scale.
+    working_scale = max(
+        float(np.abs(matrix).max() * np.abs(check).max()),
+        float(np.abs(offset).max()),
+        1.0,
+    )
+    magnitude = np.maximum(np.maximum(np.abs(predicted), np.abs(actual)), working_scale)
+    if not np.all(np.abs(predicted - actual) <= rtol * magnitude):
+        msg = (
+            "only linear ITK transforms can be expressed as an RFC-5 affine; "
+            f"{type(itk_transform).__name__} does not map "
+            f"{np.round(check, 6).tolist()} the way an affine recovered from "
+            "its behaviour at the origin would"
+        )
+        raise NotImplementedError(msg)
     return matrix, offset
 
 
@@ -79,18 +211,73 @@ def _matrix_offset_from_itkwasm(entry, dimension: int):
         [] if entry.fixedParameters is None else entry.fixedParameters, dtype=float
     )
 
+    # A transform of the wrong dimensionality must not be decoded. Slicing a
+    # 3D parameter vector down to 2D silently projects the transform (or, for
+    # an affine, scrambles rows into a singular matrix); reading a 2D one as
+    # 3D pads it with garbage. The parameter count is the ground truth here,
+    # not ``transformType.inputDimension``: ``itkwasm.TransformType`` defaults
+    # that field to 3, so a hand-built 2D entry that omitted it would be
+    # wrongly refused on the declared number alone.
+    expected = _direct_parameter_count(parameterization, dimension)
+    if expected is not None:
+        if parameters.size != expected:
+            msg = (
+                f"ITK-Wasm '{parameterization}' transform carries "
+                f"{parameters.size} parameters, but a coordinate system with "
+                f"{dimension} spatial axes requires exactly {expected}. The "
+                "transform's dimensionality does not match `dims`."
+            )
+            raise ValueError(msg)
+        # Only the directly decoded parameterizations read fixedParameters as
+        # a center; elsewhere (a displacement field's grid, say) it holds
+        # other metadata and is none of this branch's business.
+        if fixed.size not in (0, dimension):
+            msg = (
+                f"ITK-Wasm '{parameterization}' transform carries "
+                f"{fixed.size} fixed parameters (the center), but a "
+                f"coordinate system with {dimension} spatial axes requires "
+                f"0 or {dimension}"
+            )
+            raise ValueError(msg)
+    center = fixed if fixed.size == dimension else np.zeros(dimension)
+
     if parameterization == "Identity":
         return np.eye(dimension), np.zeros(dimension)
     if parameterization == "Translation":
-        return np.eye(dimension), parameters[:dimension].copy()
+        return np.eye(dimension), parameters.copy()
     if parameterization == "Scale":
-        return np.diag(parameters[:dimension]), np.zeros(dimension)
+        # itk.ScaleTransform scales about its center, like the affine below.
+        matrix = np.diag(parameters)
+        return matrix, center - matrix @ center
     if parameterization == "Affine":
         matrix = parameters[: dimension * dimension].reshape(dimension, dimension)
-        translation = parameters[dimension * dimension :][:dimension]
-        center = fixed[:dimension] if fixed.size >= dimension else np.zeros(dimension)
+        translation = parameters[dimension * dimension :]
         # ITK applies the matrix about the center, so fold it into the offset.
         return matrix, translation + center - matrix @ center
+
+    if parameterization in _NON_LINEAR_PARAMETERIZATIONS:
+        msg = (
+            "only linear ITK transforms can be expressed as an RFC-5 affine; "
+            f"'{parameterization}' describes a deformation. RFC-5 represents "
+            "those with a 'displacements' or 'coordinates' field instead."
+        )
+        raise NotImplementedError(msg)
+
+    # An angle or quaternion parameterization packs a type-specific number of
+    # parameters, so the count says nothing about dimensionality here. These
+    # entries come from serializers (itk.dict_from_transform, the ITK-Wasm
+    # pipeline), which do fill in the declared dimension, so it is trustworthy
+    # on this path in a way it is not for the hand-built matrix entries above.
+    try:
+        declared = int(transform_type.inputDimension)
+    except (TypeError, ValueError):
+        declared = dimension  # unusable declaration: let the itk rebuild judge
+    if declared != dimension:
+        msg = (
+            f"ITK-Wasm '{parameterization}' transform is {declared}D, but the "
+            f"coordinate system has {dimension} spatial axes"
+        )
+        raise ValueError(msg)
 
     try:
         import itk
@@ -108,6 +295,9 @@ def _matrix_offset_from_itkwasm(entry, dimension: int):
     rebuilt = itk.transform_from_dict(asdict(entry))
     if hasattr(rebuilt, "GetNthTransform") and rebuilt.GetNumberOfTransforms() == 1:
         rebuilt = rebuilt.GetNthTransform(0)
+    # The name check above only covers the parameterizations known at the time
+    # of writing; ITK's own answer covers the rest.
+    _reject_non_linear(rebuilt)
     return _matrix_offset_by_probing(rebuilt, dimension)
 
 
@@ -117,12 +307,7 @@ def _itk_matrix_offset(transform, dimension: int):
 
     # A native itk.Transform, including the CompositeTransform Elastix returns.
     if hasattr(transform, "TransformPoint"):
-        if hasattr(transform, "IsLinear") and not transform.IsLinear():
-            msg = (
-                "only linear ITK transforms can be expressed as an RFC-5 affine; "
-                f"{type(transform).__name__} is not linear"
-            )
-            raise NotImplementedError(msg)
+        _reject_non_linear(transform)
         return _matrix_offset_by_probing(transform, dimension)
 
     entries = (
@@ -136,6 +321,23 @@ def _itk_matrix_offset(transform, dimension: int):
     # matrices multiply left to right in list order.
     total = np.eye(dimension + 1)
     for entry in entries:
+        if _parameterization_name(entry.transformType) == "Composite":
+            # A parameterless 'Composite' entry is ambiguous. The ITK-Wasm
+            # pipeline writes one as a grouping header before the children,
+            # but itk.dict_from_transform never writes a header at all: there
+            # it is a *nested* composite whose children the serialization
+            # dropped, at any position including the first. Decoding past one
+            # would silently compose the wrong mapping, so refuse the entry
+            # wherever it appears and name the ways out.
+            msg = (
+                "a 'Composite' entry in an ITK-Wasm transform list cannot be "
+                "decoded: itk.dict_from_transform drops a nested composite's "
+                "children, leaving this entry indistinguishable from a "
+                "pipeline grouping header. Pass the native itk.Transform "
+                "instead, or, for a pipeline-serialized list, drop the "
+                "leading header entry and pass the children."
+            )
+            raise NotImplementedError(msg)
         matrix, offset = _matrix_offset_from_itkwasm(entry, dimension)
         homogeneous = np.eye(dimension + 1)
         homogeneous[:dimension, :dimension] = matrix
@@ -144,9 +346,94 @@ def _itk_matrix_offset(transform, dimension: int):
     return total[:dimension, :dimension], total[:dimension, dimension]
 
 
+def _itk_axis_order(spatial):
+    """The spatial dims in ITK component order: x first, then y, then z.
+
+    ITK orders points fastest-axis-first by *name*, not by reversing however
+    the caller spelled ``dims``: reversing is only right for the canonical
+    (z, y, x).
+    """
+    return [dim for dim in _SPATIAL_DIMS if dim in spatial]
+
+
+def _permutation_from_itk(spatial) -> np.ndarray:
+    """The matrix sending an ITK-order vector to the ``dims``-order vector."""
+    itk_dims = _itk_axis_order(spatial)
+    permutation = np.zeros((len(spatial), len(spatial)))
+    for row, dim in enumerate(spatial):
+        permutation[row, itk_dims.index(dim)] = 1.0
+    return permutation
+
+
+def _frame_geometry(fixed, moving, itk_dims):
+    """The direction matrices and origins ``ngff_image_to_itk_image`` gives
+    the two images, in ITK component order."""
+    from .itk_transform_resample_bounding_box import _itk_direction
+
+    return (
+        _itk_direction(fixed, itk_dims),
+        _itk_direction(moving, itk_dims),
+        np.array([float(fixed.translation[d]) for d in itk_dims]),
+        np.array([float(moving.translation[d]) for d in itk_dims]),
+    )
+
+
+def _change_of_frame(
+    matrix, offset, direction_in, direction_out, origin_in, origin_out
+):
+    """Re-express ``y = A x + t`` through a change of frame on each side.
+
+    ``ngff_image_to_itk_image`` builds each image with ``origin = translation``
+    and the RFC-4 direction matrix ``D``, so an intrinsic point ``p`` sits at
+    the physical point ``phi(p) = D (p - o) + o``. Given a mapping ``T``
+    between two frames, this returns ``phi_out^-1 . T . phi_in`` for the
+    directions and origins supplied:
+
+        M = D_out^-1 A D_in
+        b = D_out^-1 (A (I - D_in) o_in + t - o_out) + o_out
+
+    ``phi^-1`` has the same shape as ``phi`` with ``D^-1`` in place of ``D``,
+    so the same formula serves both conversions: ITK to RFC-5 passes the
+    images' directions, RFC-5 to ITK passes their inverses. The scales cancel
+    on both sides; the translations do not, which is why orientations alone
+    would not be enough. With no anatomical orientation every direction is
+    the identity and the mapping comes back unchanged.
+    """
+    inverse_out = np.linalg.inv(direction_out)
+    identity = np.eye(len(origin_in))
+    conjugated = inverse_out @ matrix @ direction_in
+    shifted = (
+        inverse_out
+        @ (matrix @ (identity - direction_in) @ origin_in + offset - origin_out)
+        + origin_out
+    )
+    return conjugated, shifted
+
+
+def _check_frame_images(fixed, moving, spatial):
+    """Validate the fixed/moving pair handed to a converter."""
+    if (fixed is None) != (moving is None):
+        msg = "pass both fixed and moving, or neither"
+        raise ValueError(msg)
+    if fixed is None:
+        return False
+    for label, image in (("fixed", fixed), ("moving", moving)):
+        missing = [d for d in spatial if d not in image.translation]
+        if missing:
+            msg = (
+                f"the {label} image has no translation entry for spatial "
+                f"dimension(s) {missing}; its dims do not cover `dims`"
+            )
+            raise ValueError(msg)
+    return True
+
+
 def itk_transform_to_ngff_matrix(
     transform,
     dims: Sequence[str],
+    *,
+    fixed=None,
+    moving=None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Convert an ITK transform to a matrix and offset in RFC-5 axis order.
 
@@ -171,15 +458,23 @@ def itk_transform_to_ngff_matrix(
 
     matrix, offset = _itk_matrix_offset(transform, len(spatial))
 
-    # ITK (fastest-axis-first) order -> RFC-5 (Zarr) order.
-    reversal = np.eye(len(spatial))[::-1]
-    return reversal @ matrix @ reversal, reversal @ offset
+    if _check_frame_images(fixed, moving, spatial):
+        # ITK physical space -> the intrinsic systems: phi_m^-1 . T . phi_f.
+        geometry = _frame_geometry(fixed, moving, _itk_axis_order(spatial))
+        matrix, offset = _change_of_frame(matrix, offset, *geometry)
+
+    # ITK (fastest-axis-first) order -> the order the axes appear in `dims`.
+    permutation = _permutation_from_itk(spatial)
+    return permutation @ matrix @ permutation.T, permutation @ offset
 
 
 def itk_transform_to_ngff_transform(
     transform,
     dims: Sequence[str],
     simplify: bool = True,
+    *,
+    fixed=None,
+    moving=None,
 ) -> Transform:
     """Convert an ITK transform to an RFC-5 coordinate transformation.
 
@@ -199,18 +494,36 @@ def itk_transform_to_ngff_transform(
     :param simplify: Return the least expressive transformation that represents
         the mapping exactly -- ``identity``, ``translation``, ``scale``, or a
         ``sequence`` of scale and translation -- falling back to ``affine``.
-        RFC-5 recommends this, and only these simpler forms are legal inside
-        ``multiscales > datasets``. Set to ``False`` to always get an ``affine``.
+        RFC-5 recommends this. A mirror never simplifies to a ``scale``, since
+        RFC-5 requires strictly positive scale factors. Note that
+        ``multiscales > datasets`` accepts only a single ``scale``, a single
+        ``identity``, or a two-element ``sequence`` of scale and translation,
+        so a bare ``translation`` or an ``affine`` belongs in the
+        multiscales-level ``coordinateTransformations`` instead. Set to
+        ``False`` to always get an ``affine``.
     :type  simplify: bool
 
     :return: An RFC-5 coordinate transformation over ``dims``.
     :rtype: Transform
 
+    :param fixed: The fixed and moving images the ITK transform was produced
+        on. An ITK transform acts on ITK physical space, which includes the
+        direction matrix derived from RFC-4 anatomical orientation; an RFC-5
+        transformation acts on the intrinsic coordinate systems. Passing both
+        images lets the conversion change frames exactly. Omitting them is
+        exact only when neither image carries an anatomical orientation.
+    :type  fixed: NgffImage, optional
+
+    :param moving: See ``fixed``. Pass both or neither.
+    :type  moving: NgffImage, optional
+
     :raises NotImplementedError: If the transform is not linear. A non-linear
         registration has no affine equivalent.
     """
     dims = tuple(dims)
-    matrix, offset = itk_transform_to_ngff_matrix(transform, dims)
+    matrix, offset = itk_transform_to_ngff_matrix(
+        transform, dims, fixed=fixed, moving=moving
+    )
 
     spatial_indices = [index for index, dim in enumerate(dims) if dim in _SPATIAL_DIMS]
     ndim = len(dims)
@@ -236,22 +549,29 @@ def itk_transform_to_ngff_transform(
 
 def _simplify(matrix: np.ndarray, offset: np.ndarray, ndim: int) -> Transform | None:
     """Return a less expressive equivalent transformation, or ``None``."""
+    diagonal = np.diag(matrix)
     is_identity = np.array_equal(matrix, np.eye(ndim))
-    is_diagonal = np.array_equal(matrix, np.diag(np.diag(matrix)))
+    is_diagonal = np.array_equal(matrix, np.diag(diagonal))
     no_offset = not offset.any()
+    # RFC-5 requires every scale factor to be strictly positive, so a mirror
+    # or a flip is not a `scale` however diagonal its matrix looks. Emitting
+    # one anyway writes metadata the schema rejects, and an LPS to RAS flip
+    # (diag(-1, -1, 1)) is an ordinary registration result. Fall through to
+    # `affine`, which carries the sign.
+    is_scale = is_diagonal and bool((diagonal > 0).all())
 
     if is_identity and no_offset:
         return Identity()
     if is_identity:
         return Translation(translation=offset.tolist())
-    if is_diagonal and no_offset:
-        return Scale(scale=np.diag(matrix).tolist())
-    if is_diagonal:
+    if is_scale and no_offset:
+        return Scale(scale=diagonal.tolist())
+    if is_scale:
         # Scale first, then translate: y = scale * x + translation, which is
         # the form `multiscales > datasets` accepts.
         return TransformSequence(
             transformations=[
-                Scale(scale=np.diag(matrix).tolist()),
+                Scale(scale=diagonal.tolist()),
                 Translation(translation=offset.tolist()),
             ]
         )

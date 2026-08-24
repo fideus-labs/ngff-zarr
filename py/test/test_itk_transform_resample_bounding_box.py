@@ -20,12 +20,12 @@ from ngff_zarr import (
     NgffImage,
     itk_transform_resample_bounding_box,
     ngff_image_to_itk_image,
-    ngff_transform_to_itk_matrix,
 )
 from ngff_zarr.itk_transform_resample_bounding_box import (
     _itk_direction,
     _metadata_only_itk_image,
 )
+from ngff_zarr.ngff_transform_to_itk_transform import _ngff_transform_to_itk_matrix
 from ngff_zarr.v06.zarr_metadata import (
     Affine,
     Displacements,
@@ -202,7 +202,7 @@ def test_asymmetric_three_dimensional_ngff_affine_matches_oracle():
 
 def test_affine_translation_is_the_last_column():
     """RFC-5 stores the translation as the last column of the affine matrix."""
-    matrix, offset = ngff_transform_to_itk_matrix(
+    matrix, offset = _ngff_transform_to_itk_matrix(
         Affine(affine=[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]), ("y", "x")
     )
     # In NGFF terms: y = 1*y + 2*x + 3 and x = 4*y + 5*x + 6. ITK reverses the
@@ -213,7 +213,7 @@ def test_affine_translation_is_the_last_column():
 
 def test_affine_with_wrong_shape_is_rejected():
     with pytest.raises(ValueError, match="translation is the last column"):
-        ngff_transform_to_itk_matrix(
+        _ngff_transform_to_itk_matrix(
             Affine(affine=[[1.0, 0.0], [0.0, 1.0]]), ("y", "x")
         )
 
@@ -231,7 +231,7 @@ def test_sequence_applies_its_first_entry_first():
             Scale(scale=[1.0, 2.0]),
         ]
     )
-    matrix, offset = ngff_transform_to_itk_matrix(sequence, ("y", "x"))
+    matrix, offset = _ngff_transform_to_itk_matrix(sequence, ("y", "x"))
 
     # ITK order is (x, y): translate by 10 then scale by 2 gives an offset of 20.
     assert np.isclose(offset[0], 20.0)
@@ -243,8 +243,40 @@ def test_sequence_applies_its_first_entry_first():
             Translation(translation=[0.0, 10.0]),
         ]
     )
-    _, reversed_offset = ngff_transform_to_itk_matrix(reversed_sequence, ("y", "x"))
+    _, reversed_offset = _ngff_transform_to_itk_matrix(reversed_sequence, ("y", "x"))
     assert np.isclose(reversed_offset[0], 10.0)
+
+
+def test_sequence_order_survives_the_whole_pipeline():
+    """The composition order has to hold at the public entry point too.
+
+    Every other sequence test here reads the matrix out of
+    ``_ngff_transform_to_itk_matrix``. If the order inverted, the region the
+    caller actually gets would move, and nothing below that helper would
+    notice. Applying ``[translate 10, scale 2]`` in the wrong order gives
+    ``2x + 10`` instead of ``2(x + 10)``, so the x start moves by 10.
+    """
+    spatial = ("y", "x")
+    fixed = _image(spatial, {"y": 16, "x": 16}, {"y": 2, "x": 2}, {"y": 20, "x": 10})
+    moving = _image(spatial, {"y": 512, "x": 512}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+    sequence = TransformSequence(
+        transformations=[
+            Translation(translation=[0.0, 10.0]),
+            Scale(scale=[1.0, 2.0]),
+        ]
+    )
+
+    bounding_box = itk_transform_resample_bounding_box(
+        sequence, fixed, moving, padding=0
+    )
+
+    # First entry first: y = x, x = 2(x + 10) = 2x + 20.
+    expected_start, expected_size = _oracle_region(
+        np.diag([1.0, 2.0]), np.array([0.0, 20.0]), fixed, moving, spatial, 0
+    )
+    assert [bounding_box.start_index[d] for d in spatial] == expected_start.tolist()
+    assert [bounding_box.size[d] for d in spatial] == expected_size.tolist()
+    assert bounding_box.start_index["x"] == 40  # 30 if the order inverted
 
 
 def test_nested_sequences_compose():
@@ -254,35 +286,125 @@ def test_nested_sequences_compose():
     outer = TransformSequence(
         transformations=[inner, Translation(translation=[0.0, 100.0])]
     )
-    _, offset = ngff_transform_to_itk_matrix(outer, ("y", "x"))
+    _, offset = _ngff_transform_to_itk_matrix(outer, ("y", "x"))
     assert np.isclose(offset[0], 101.0)
 
 
 def test_identity_scale_rotation_round_trip():
-    matrix, offset = ngff_transform_to_itk_matrix(Identity(), ("y", "x"))
+    matrix, offset = _ngff_transform_to_itk_matrix(Identity(), ("y", "x"))
     assert np.allclose(matrix, np.eye(2))
     assert np.allclose(offset, np.zeros(2))
 
-    matrix, _ = ngff_transform_to_itk_matrix(Scale(scale=[2.0, 3.0]), ("y", "x"))
+    matrix, _ = _ngff_transform_to_itk_matrix(Scale(scale=[2.0, 3.0]), ("y", "x"))
     # Reversed to ITK order (x, y).
     assert np.allclose(matrix, np.diag([3.0, 2.0]))
 
     rotation = [[0.0, -1.0], [1.0, 0.0]]
-    matrix, _ = ngff_transform_to_itk_matrix(Rotation(rotation=rotation), ("y", "x"))
+    matrix, _ = _ngff_transform_to_itk_matrix(Rotation(rotation=rotation), ("y", "x"))
     reversal = np.eye(2)[::-1]
     assert np.allclose(matrix, reversal @ np.array(rotation) @ reversal)
 
 
 def test_non_linear_transform_is_rejected():
     with pytest.raises(NotImplementedError, match="cannot be converted"):
-        ngff_transform_to_itk_matrix(Displacements(path="field"), ("y", "x"))
+        _ngff_transform_to_itk_matrix(Displacements(path="field"), ("y", "x"))
 
 
 def test_transform_coupling_spatial_and_non_spatial_axes_is_rejected():
     affine = np.eye(3, 4)
     affine[1, 0] = 0.5  # y would depend on c
     with pytest.raises(ValueError, match="couples spatial and non-spatial"):
-        ngff_transform_to_itk_matrix(Affine(affine=affine.tolist()), ("c", "y", "x"))
+        _ngff_transform_to_itk_matrix(Affine(affine=affine.tolist()), ("c", "y", "x"))
+
+
+def test_rfc5_branch_ignores_anatomical_orientation():
+    """An RFC-5 transformation acts on the intrinsic coordinate system,
+    where a point is ``translation + scale * index`` and no direction matrix
+    applies, so the region it selects cannot depend on RFC-4 anatomical
+    orientation: the oriented region must equal the unoriented one.
+    """
+    from ngff_zarr.rfc4 import RAS
+
+    spatial = ("z", "y", "x")
+    shape = {"z": 8, "y": 16, "x": 24}
+    scale = dict.fromkeys(spatial, 1.0)
+    translation = dict.fromkeys(spatial, 0.0)
+    transform = Translation(translation=[2.0, 3.0, 4.0])
+
+    plain = itk_transform_resample_bounding_box(
+        transform,
+        _image(spatial, shape, scale, translation),
+        _image(spatial, {"z": 32, "y": 64, "x": 96}, scale, translation),
+        padding=0,
+    )
+    oriented = itk_transform_resample_bounding_box(
+        transform,
+        _image(spatial, shape, scale, translation, RAS),
+        _image(spatial, {"z": 32, "y": 64, "x": 96}, scale, translation, RAS),
+        padding=0,
+    )
+
+    assert oriented.start_index == plain.start_index == {"z": 2, "y": 3, "x": 4}
+    assert oriented.size == plain.size
+
+
+def test_non_canonical_spatial_order_binds_itk_axes_by_name():
+    """ITK's first component is x by *name*, not whichever axis comes last.
+
+    Reversing the dims is only equivalent for the canonical ("z", "y", "x"):
+    with dims ("z", "x", "y") it would bind ITK x to y and ITK y to x,
+    silently swapping the two axes' regions. Both paths must agree, and
+    agree with the axis names.
+    """
+    dims = ("z", "x", "y")
+    fixed = _image(
+        dims,
+        {"z": 4, "x": 8, "y": 16},
+        dict.fromkeys(dims, 1.0),
+        dict.fromkeys(dims, 0.0),
+    )
+    moving = _image(
+        dims,
+        {"z": 32, "x": 64, "y": 64},
+        dict.fromkeys(dims, 1.0),
+        dict.fromkeys(dims, 0.0),
+    )
+    expected = {"z": 1, "x": 7, "y": 5}
+
+    # RFC-5 parameters are in dims order: (z, x, y).
+    via_rfc5 = itk_transform_resample_bounding_box(
+        Translation(translation=[1.0, 7.0, 5.0]), fixed, moving, padding=0
+    )
+    # ITK parameters are fastest-axis-first by name: (x, y, z).
+    via_itk = itk_transform_resample_bounding_box(
+        _translation([7.0, 5.0, 1.0]), fixed, moving, padding=0
+    )
+
+    assert via_rfc5.start_index == expected
+    assert via_itk.start_index == expected
+
+
+def test_a_component_on_a_non_spatial_axis_alone_is_projected_away():
+    """ITK has no non-spatial axis, so a frame interval on ``t`` has nowhere
+    to go.
+
+    Dropping it leaves the spatial mapping exact, which is all an ITK transform
+    describes. This pins that as a decision rather than an accident; the
+    coupled case above is refused instead, because dropping *that* would move
+    the image.
+    """
+    sequence = TransformSequence(
+        transformations=[
+            Scale(scale=[0.5, 1.0, 2.0, 2.0]),
+            Translation(translation=[7.0, 0.0, 3.0, -4.0]),
+        ]
+    )
+
+    matrix, offset = _ngff_transform_to_itk_matrix(sequence, ("t", "c", "y", "x"))
+
+    # ITK order (x, y): the t and c entries are gone, the spatial ones exact.
+    assert np.allclose(matrix, np.diag([2.0, 2.0]))
+    assert np.allclose(offset, [-4.0, 3.0])
 
 
 def test_v04_transform_dataclasses_are_accepted():

@@ -11,9 +11,10 @@
  * Axis order
  *   RFC-5 orders transformation parameters the same way the Zarr array is
  *   ordered, so a `zyx` image has `z` first. ITK orders points
- *   fastest-axis-first, so the same point is `xyz`. Writing `R` for the
- *   axis-reversal permutation, an RFC-5 affine `q = M p + b` becomes
- *   `A = R M R` and `t = R b` in ITK.
+ *   fastest-axis-first by name: x, then y, then z. Writing `P` for the
+ *   permutation sending an ITK-order vector to the `dims`-order vector, an
+ *   RFC-5 affine `q = M p + b` becomes `A = P^T M P` and `t = P^T b` in
+ *   ITK. For the canonical `zyx` order `P` is the axis reversal.
  *
  * Composition order
  *   An RFC-5 `sequence` applies its first entry first. An ITK transform list
@@ -26,6 +27,8 @@
  */
 
 import type { Transform, TransformList } from "itk-wasm";
+import type { NgffImage } from "../types/ngff_image.ts";
+import { changeOfFrame, frameGeometry, transposed } from "./itk_direction.ts";
 import type { V06Transform } from "../types/zarr_metadata.ts";
 
 const SPATIAL_DIMS = ["x", "y", "z"];
@@ -53,6 +56,21 @@ function multiply(left: Matrix, right: Matrix): Matrix {
         return total;
       }),
   );
+}
+
+/**
+ * A matrix's shape for an error message. Naming row 0's length alone would
+ * describe a ragged matrix as its own requirement ("is 2x3 but requires
+ * 2x3"), hiding the short row the message exists to point at.
+ */
+function describeShape(rows: number[][]): string {
+  const lengths = new Set(rows.map((row) => row.length));
+  if (lengths.size <= 1) {
+    return `${rows.length}x${rows[0]?.length ?? 0}`;
+  }
+  return `${rows.length} rows of lengths ${
+    rows.map((row) => row.length).join(", ")
+  }`;
 }
 
 function assertMatrix(
@@ -117,8 +135,8 @@ function homogeneousFromTransform(
       );
       if (rotation.length !== ndim || rotation.some((r) => r.length !== ndim)) {
         throw new Error(
-          `rotation transformation is ${rotation.length}x` +
-            `${rotation[0]?.length} but the coordinate system has ${ndim} axes`,
+          `rotation transformation is ${describeShape(rotation)} but the ` +
+            `coordinate system has ${ndim} axes`,
         );
       }
       const matrix = identityMatrix(ndim + 1);
@@ -139,9 +157,7 @@ function homogeneousFromTransform(
         affine.length !== ndim || affine.some((r) => r.length !== ndim + 1)
       ) {
         throw new Error(
-          `affine transformation is ${affine.length}x${
-            affine[0]?.length
-          } but ` +
+          `affine transformation is ${describeShape(affine)} but ` +
             `a coordinate system with ${ndim} axes requires ` +
             `${ndim}x${ndim + 1} (the translation is the last column)`,
         );
@@ -190,12 +206,23 @@ export interface ItkMatrixAndOffset {
 /**
  * Convert an RFC-5 transformation to an ITK matrix and offset.
  *
+ * Internal: {@link ngffTransformToItkTransform} is the public entry point, and
+ * nothing outside this package needs the raw numbers, since ITK is what the
+ * caller wants to hand them to. Exported for the tests, which use it as a fine
+ * probe on the axis and composition conventions.
+ *
+ * @internal
  * @param transform An RFC-5 (OME-Zarr v0.6) coordinate transformation. It must
  *   describe a linear mapping: `identity`, `scale`, `translation`, `rotation`,
  *   `affine`, or a `sequence` of those.
  * @param dims The axis names of the coordinate system the transformation is
  *   defined on, in RFC-5 (Zarr) order, e.g. `["z", "y", "x"]`.
- * @returns The matrix and offset for the spatial axes, in ITK order.
+ * @returns The matrix and offset for the spatial axes, in ITK order. ITK has no
+ *   notion of a non-spatial axis, so a component acting purely on `t` or `c` (a
+ *   frame interval, say) is *projected away*. That is lossless for the spatial
+ *   mapping, which is all an ITK transform describes, but the result is not a
+ *   faithful copy of the input. A component that *couples* the two kinds of
+ *   axis is refused instead, because dropping it would move the image.
  */
 export function ngffTransformToItkMatrix(
   transform: V06Transform,
@@ -229,13 +256,18 @@ export function ngffTransformToItkMatrix(
     }
   }
 
-  // RFC-5 (Zarr) order -> ITK (fastest-axis-first) order: reverse both the
-  // row and the column ordering of the spatial block.
-  const reversed = [...spatialIndices].reverse();
-  const matrix = reversed.map((row) =>
-    reversed.map((col) => homogeneous[row][col])
+  // RFC-5 (`dims`) order -> ITK (fastest-axis-first) order. ITK orders
+  // components by name (x, then y, then z), so the mapping is built by name
+  // rather than by reversing, which is only equivalent for the canonical
+  // (z, y, x) order.
+  const spatialNames = spatialIndices.map((index) => dims[index]);
+  const itkIndices = SPATIAL_DIMS
+    .filter((dim) => spatialNames.includes(dim))
+    .map((dim) => spatialIndices[spatialNames.indexOf(dim)]);
+  const matrix = itkIndices.map((row) =>
+    itkIndices.map((col) => homogeneous[row][col])
   );
-  const offset = reversed.map((row) => homogeneous[row][ndim]);
+  const offset = itkIndices.map((row) => homogeneous[row][ndim]);
 
   return { matrix, offset };
 }
@@ -253,9 +285,29 @@ export function ngffTransformToItkMatrix(
 export function ngffTransformToItkTransform(
   transform: V06Transform,
   dims: string[],
+  frames: { fixed?: NgffImage; moving?: NgffImage } = {},
 ): TransformList {
-  const { matrix, offset } = ngffTransformToItkMatrix(transform, dims);
+  let { matrix, offset } = ngffTransformToItkMatrix(transform, dims);
   const dimension = offset.length;
+
+  if ((frames.fixed === undefined) !== (frames.moving === undefined)) {
+    throw new Error("pass both fixed and moving, or neither");
+  }
+  if (frames.fixed !== undefined && frames.moving !== undefined) {
+    // The intrinsic systems -> ITK physical space: phi_m . T . phi_f^-1,
+    // which is the same change of frame with the directions inverted.
+    const spatial = dims.filter((dim) => SPATIAL_DIMS.includes(dim));
+    const itkDims = SPATIAL_DIMS.filter((dim) => spatial.includes(dim));
+    const geometry = frameGeometry(frames.fixed, frames.moving, itkDims);
+    ({ matrix, offset } = changeOfFrame(
+      matrix,
+      offset,
+      transposed(geometry.directionFixed),
+      transposed(geometry.directionMoving),
+      geometry.originFixed,
+      geometry.originMoving,
+    ));
+  }
 
   // ITK's MatrixOffsetTransformBase packs the row-major matrix followed by the
   // translation, with the center of rotation as the fixed parameters. An

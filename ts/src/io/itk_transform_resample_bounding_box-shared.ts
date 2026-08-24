@@ -12,7 +12,8 @@ import * as zarr from "zarrita";
 import type { Image, TransformList } from "itk-wasm";
 import { NgffImage } from "../types/ngff_image.ts";
 import type { V06Transform } from "../types/zarr_metadata.ts";
-import { anatomicalOrientationToItkDirection } from "../types/rfc4.ts";
+import { identityDirection, itkDirection } from "../utils/itk_direction.ts";
+export { itkDirection };
 import { ngffTransformToItkTransform } from "../utils/ngff_transform_to_itk_transform.ts";
 
 const SPATIAL_DIMS = ["x", "y", "z"];
@@ -258,51 +259,6 @@ function checkRegionContainsCorners(
   });
 }
 
-function identityDirection(dimension: number): Float64Array {
-  const direction = new Float64Array(dimension * dimension);
-  for (let i = 0; i < dimension; i++) direction[i * dimension + i] = 1.0;
-  return direction;
-}
-
-/**
- * Direction matrix from RFC-4 orientation, matching `ngffImageToItkImage`.
- *
- * All-or-nothing: unless every spatial axis carries an orientation that maps
- * onto an LPS axis, the direction falls back to identity.
- */
-export function itkDirection(
-  image: NgffImage,
-  itkDims: string[],
-): Float64Array {
-  const dimension = itkDims.length;
-  const direction = identityDirection(dimension);
-
-  const orientations = image.axesOrientations;
-  if (!orientations) return direction;
-
-  const columns: number[][] = [];
-  for (const dim of itkDims) {
-    const orientation = orientations[dim];
-    if (orientation === undefined) return direction;
-    const column = anatomicalOrientationToItkDirection(orientation.value);
-    if (column === undefined) return direction;
-    // A column pointing outside the matrix's dimension (e.g. a
-    // superior/inferior orientation on a 2D image) would truncate to a
-    // singular matrix; keep the identity fallback instead.
-    if (column.slice(dimension).some((component) => component !== 0)) {
-      return direction;
-    }
-    columns.push(column);
-  }
-
-  for (let col = 0; col < dimension; col++) {
-    for (let row = 0; row < dimension; row++) {
-      direction[row * dimension + col] = columns[col][row];
-    }
-  }
-  return direction;
-}
-
 /**
  * Build an ITK-Wasm image carrying geometry only, with an empty buffer.
  *
@@ -379,7 +335,9 @@ export async function resampleBoundingBoxShared(
   checkGeometry("moving", moving, fixedSpatial);
 
   // ITK orders points fastest-axis-first, the reverse of the Zarr order.
-  const itkDims = [...fixedSpatial].reverse();
+  // ITK orders points fastest-axis-first by name: x, then y, then z.
+  // Reversing the dims is only right for the canonical (z, y, x).
+  const itkDims = SPATIAL_DIMS.filter((dim) => fixedSpatial.includes(dim));
 
   const movingShape: Record<string, number> = {};
   for (const dim of movingSpatial) {

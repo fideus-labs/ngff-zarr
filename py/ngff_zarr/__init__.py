@@ -44,10 +44,7 @@ from .methods import Methods
 from .multiscales import Multiscales, NgffMultiscales
 from .ngff_image import NgffImage
 from .ngff_image_to_itk_image import ngff_image_to_itk_image
-from .ngff_transform_to_itk_transform import (
-    ngff_transform_to_itk_matrix,
-    ngff_transform_to_itk_transform,
-)
+from .ngff_transform_to_itk_transform import ngff_transform_to_itk_transform
 from .nibabel_image_to_ngff_image import (
     extract_omero_metadata_from_nibabel,
     nibabel_image_to_ngff_image,
@@ -133,7 +130,6 @@ __all__ = [
     "extract_omero_metadata_from_nibabel",
     "ngff_image_to_itk_image",
     # RFC 5 - Coordinate transformations and ITK
-    "ngff_transform_to_itk_matrix",
     "ngff_transform_to_itk_transform",
     "itk_transform_to_ngff_matrix",
     "itk_transform_to_ngff_transform",

@@ -13,7 +13,12 @@
  * order.
  */
 
-import { assertAlmostEquals, assertEquals, assertRejects } from "@std/assert";
+import {
+  assertAlmostEquals,
+  assertEquals,
+  assertRejects,
+  assertThrows,
+} from "@std/assert";
 import * as zarr from "zarrita";
 import {
   createAffine,
@@ -23,9 +28,11 @@ import {
   createTransformSequence,
   createTranslation,
   itkTransformResampleBoundingBox,
+  itkTransformToNgffTransform,
   NgffImage,
-  ngffTransformToItkMatrix,
+  ngffTransformToItkTransform,
 } from "../src/mod.ts";
+import { ngffTransformToItkMatrix } from "../src/utils/ngff_transform_to_itk_transform.ts";
 import { resampleBoundingBoxShared } from "../src/io/itk_transform_resample_bounding_box-shared.ts";
 import { RAS } from "../src/types/rfc4.ts";
 import type { AnatomicalOrientation } from "../src/types/rfc4.ts";
@@ -300,6 +307,47 @@ Deno.test("a sequence applies its first entry first", () => {
     ngffTransformToItkMatrix(reversed, ["y", "x"]).offset[0],
     10,
   );
+});
+
+Deno.test("sequence order survives the whole pipeline", async () => {
+  // Every other sequence test here reads the matrix out of
+  // ngffTransformToItkMatrix. If the order inverted, the region the caller
+  // actually gets would move, and nothing below that helper would notice.
+  // Applying [translate 10, scale 2] the wrong way round gives 2x + 10
+  // instead of 2(x + 10), so the x start moves by 10.
+  const fixed = await geometryImage(["y", "x"], { y: 16, x: 16 }, {
+    y: 2,
+    x: 2,
+  }, { y: 20, x: 10 });
+  const moving = await geometryImage(["y", "x"], { y: 512, x: 512 }, {
+    y: 1,
+    x: 1,
+  }, { y: 0, x: 0 });
+
+  const region = await itkTransformResampleBoundingBox(
+    createTransformSequence([
+      createTranslation([0, 10]),
+      createScale([1, 2]),
+    ]),
+    fixed,
+    moving,
+    { padding: 0 },
+  );
+
+  // First entry first: y = x, x = 2(x + 10) = 2x + 20.
+  const { start, size } = oracleRegion(
+    [[1, 0], [0, 2]],
+    [0, 20],
+    [16, 16],
+    [2, 2],
+    [20, 10],
+    [1, 1],
+    [0, 0],
+    0,
+  );
+  assertEquals([region.startIndex.y, region.startIndex.x], start);
+  assertEquals([region.size.y, region.size.x], size);
+  assertEquals(region.startIndex.x, 40); // 30 if the order inverted
 });
 
 Deno.test("nested sequences compose", () => {
@@ -684,6 +732,194 @@ Deno.test("a degenerate fixed grid yields an empty region", async () => {
   );
 
   assertEquals(boundingBox.isEmpty, true);
+});
+
+Deno.test("the RFC-5 branch ignores anatomical orientation", async () => {
+  // An RFC-5 transformation acts on the intrinsic coordinate system, where
+  // a point is translation + scale * index and no direction matrix applies,
+  // so the region it selects cannot depend on RFC-4 anatomical orientation:
+  // the oriented region must equal the unoriented one.
+  const ras: Record<string, AnatomicalOrientation> = RAS;
+  const geometry = async (oriented: boolean) => ({
+    fixed: await geometryImage(
+      ["z", "y", "x"],
+      { z: 8, y: 16, x: 24 },
+      { z: 1, y: 1, x: 1 },
+      { z: 0, y: 0, x: 0 },
+      oriented ? ras : undefined,
+    ),
+    moving: await geometryImage(
+      ["z", "y", "x"],
+      { z: 32, y: 64, x: 96 },
+      { z: 1, y: 1, x: 1 },
+      { z: 0, y: 0, x: 0 },
+      oriented ? ras : undefined,
+    ),
+  });
+  const transform = createTranslation([2, 3, 4]);
+
+  const plainImages = await geometry(false);
+  const orientedImages = await geometry(true);
+  const plain = await itkTransformResampleBoundingBox(
+    transform,
+    plainImages.fixed,
+    plainImages.moving,
+    { padding: 0 },
+  );
+  const oriented = await itkTransformResampleBoundingBox(
+    transform,
+    orientedImages.fixed,
+    orientedImages.moving,
+    { padding: 0 },
+  );
+
+  assertEquals(plain.startIndex, { z: 2, y: 3, x: 4 });
+  assertEquals(oriented.startIndex, plain.startIndex);
+  assertEquals(oriented.size, plain.size);
+});
+
+Deno.test("converting with frames matches the ITK path on oriented images", async () => {
+  // The acceptance test for the change of frame: an ITK transform acts on
+  // physical space (direction matrix included), the RFC-5 branch on the
+  // intrinsic systems. Converted with { fixed, moving }, the two paths must
+  // select the same region of the same RAS-oriented images. Fractional
+  // translations keep every corner off an integer, away from floor/ceil
+  // knife edges.
+  const ras: Record<string, AnatomicalOrientation> = RAS;
+  const fixed = await geometryImage(
+    ["z", "y", "x"],
+    { z: 8, y: 8, x: 8 },
+    { z: 1, y: 2, x: 3 },
+    { z: 1.3, y: -2.7, x: 5.1 },
+    ras,
+  );
+  const moving = await geometryImage(
+    ["z", "y", "x"],
+    { z: 256, y: 256, x: 256 },
+    { z: 1, y: 1, x: 1 },
+    { z: -4.2, y: 7.6, x: 3.4 },
+    ras,
+  );
+  // A sheared affine with translation, in ITK order: every frame error shows.
+  const transform = [{
+    transformType: {
+      transformParameterization: "Affine",
+      parametersValueType: "float64",
+      inputDimension: 3,
+      outputDimension: 3,
+    },
+    name: "AffineTransform",
+    inputSpaceName: "",
+    outputSpaceName: "",
+    numberOfFixedParameters: 3,
+    numberOfParameters: 12,
+    fixedParameters: new Float64Array(3),
+    parameters: new Float64Array([
+      0.9,
+      0.1,
+      0,
+      -0.1,
+      1.1,
+      0,
+      0,
+      0,
+      1,
+      2,
+      -3,
+      4,
+    ]),
+    metadata: new Map(),
+    // deno-lint-ignore no-explicit-any
+  } as any];
+
+  const viaItk = await itkTransformResampleBoundingBox(
+    transform,
+    fixed,
+    moving,
+    {
+      padding: 0,
+    },
+  );
+  const converted = itkTransformToNgffTransform(
+    transform,
+    ["z", "y", "x"],
+    true,
+    {
+      fixed,
+      moving,
+    },
+  );
+  const viaRfc5 = await itkTransformResampleBoundingBox(
+    converted,
+    fixed,
+    moving,
+    { padding: 0 },
+  );
+
+  assertEquals(viaRfc5.startIndex, viaItk.startIndex);
+  assertEquals(viaRfc5.size, viaItk.size);
+
+  // Passing only one image is refused; unoriented frames are a no-op.
+  assertThrows(
+    () =>
+      itkTransformToNgffTransform(transform, ["z", "y", "x"], true, { fixed }),
+    Error,
+    "both fixed and moving",
+  );
+});
+
+Deno.test("frames round trip through both converters", async () => {
+  // RFC-5 -> ITK -> RFC-5 with frames must return the identical mapping.
+  // On a 3-cycle orientation (z, y, x onto LPS x, z, y): a diagonal
+  // direction such as RAS is its own inverse, so it cannot tell the reverse
+  // conversion's D^-1 from D.
+  const { AnatomicalOrientationValues, createAnatomicalOrientation } =
+    await import("../src/types/rfc4.ts");
+  const cycle = {
+    z: createAnatomicalOrientation(AnatomicalOrientationValues.LeftToRight),
+    y: createAnatomicalOrientation(
+      AnatomicalOrientationValues.InferiorToSuperior,
+    ),
+    x: createAnatomicalOrientation(
+      AnatomicalOrientationValues.PosteriorToAnterior,
+    ),
+  };
+  const fixed = await geometryImage(
+    ["z", "y", "x"],
+    { z: 8, y: 8, x: 8 },
+    { z: 1, y: 2, x: 3 },
+    { z: 1.3, y: -2.7, x: 5.1 },
+    cycle,
+  );
+  const moving = await geometryImage(
+    ["z", "y", "x"],
+    { z: 16, y: 16, x: 16 },
+    { z: 1, y: 1, x: 1 },
+    { z: -4.2, y: 7.6, x: 3.4 },
+    cycle,
+  );
+  const original = createAffine([
+    [1, 0.2, 0, 4.1],
+    [0, 2, 0.3, -6.2],
+    [0.5, 0, 1, 11.3],
+  ]);
+
+  const itkList = ngffTransformToItkTransform(original, ["z", "y", "x"], {
+    fixed,
+    moving,
+  });
+  const back = itkTransformToNgffTransform(itkList, ["z", "y", "x"], false, {
+    fixed,
+    moving,
+  });
+
+  assertEquals(back.type, "affine");
+  const rows = (back as { affine: number[][] }).affine;
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 4; col++) {
+      assertAlmostEquals(rows[row][col], original.affine![row][col], 1e-9);
+    }
+  }
 });
 
 Deno.test("an ITK-Wasm transform list is accepted", async () => {
