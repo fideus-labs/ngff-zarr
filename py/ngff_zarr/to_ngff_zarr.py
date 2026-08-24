@@ -117,6 +117,83 @@ def _numpy_to_zarr_dtype(dtype):
         raise ValueError(f"dtype {dtype} cannot be mapped to Zarr v3 core dtype")
 
 
+def _create_dataset(
+    store_path: str,
+    shape,
+    dtype,
+    chunks,
+    zarr_format,
+    dimension_names=None,
+    internal_chunk_shape=None,
+    compression_chain=None,
+):
+    """Create the array node at ``store_path`` (``<store>/<path>``) and return it.
+
+    ``compression_chain`` carries the ordered compression codec chain (for
+    zarr format 2 metadata only its first entry is stored): ``None`` requests
+    the engine default, an empty sequence requests no compression. An array
+    already at the path is opened instead of created.
+    """
+    from ._zarrista_utils import create_zarrista_array, open_zarrista_array
+
+    scale_path = Path(store_path)
+    store_root = scale_path.parent
+    node_name = scale_path.name
+
+    create_kwargs = {}
+    if zarr_format == 2:
+        if compression_chain is None:
+            # Mirror zarr-python's zarr format 2 default compressor so the
+            # zarrista engine's output is indistinguishable from what the
+            # legacy engine wrote.
+            compressor = {"id": "zstd", "level": 0}
+        elif compression_chain:
+            compressor = compression_chain[0]
+        else:
+            compressor = None
+        create_kwargs["compressor"] = compressor
+    elif zarr_format == 3:
+        default_compression = {
+            "name": "zstd",
+            "configuration": {"level": 0, "checksum": False},
+        }
+        if compression_chain is None:
+            # Mirror the zarr-python default codec chain.
+            create_kwargs["compressors"] = [default_compression]
+        else:
+            # An explicit chain is preserved in order; an explicit empty
+            # chain means no compression, matching zarr-python.
+            create_kwargs["compressors"] = list(compression_chain)
+        if dimension_names:
+            create_kwargs["dimension_names"] = tuple(dimension_names)
+        if internal_chunk_shape:
+            # ``chunks`` is the shard (outer chunk) grid; the subchunks
+            # inside each shard are the internal chunk shape.
+            create_kwargs["shards"] = tuple(chunks)
+            chunks = tuple(internal_chunk_shape)
+    else:
+        raise ValueError(f"Unsupported zarr format: {zarr_format}")
+
+    # Try to create the dataset first, open existing only if needed
+    try:
+        return create_zarrista_array(
+            store_root,
+            node_name,
+            tuple(shape),
+            dtype,
+            chunks,
+            zarr_format,
+            **create_kwargs,
+        )
+    except Exception as create_error:
+        # Dataset may already exist: fall back to opening it, surfacing
+        # the create failure when there is nothing to open.
+        try:
+            return open_zarrista_array(store_root, node_name)
+        except Exception:
+            raise create_error from None
+
+
 def _write_with_zarrista(
     store_path: str,
     array,
@@ -132,14 +209,11 @@ def _write_with_zarrista(
 ) -> None:
     """Write array using the zarrista backend.
 
-    *store_path* addresses the array node itself (``<store>/<path>``).
-    ``compression_chain`` carries the ordered compression codec chain (for
-    zarr format 2 metadata only its first entry is stored): ``None`` requests
-    the engine default, an empty sequence requests no compression.
+    *store_path* addresses the array node itself (``<store>/<path>``); see
+    :func:`_create_dataset` for ``compression_chain``.
     """
     from ._zarrista_utils import (
         _native_contiguous,
-        create_zarrista_array,
         open_zarrista_array,
         write_dask_array,
     )
@@ -148,65 +222,21 @@ def _write_with_zarrista(
     dataset_shape = tuple(
         full_array_shape if full_array_shape is not None else array.shape
     )
-    scale_path = Path(store_path)
-    store_root = scale_path.parent
-    node_name = scale_path.name
 
     if create_dataset:
-        create_kwargs = {}
-        if zarr_format == 2:
-            if compression_chain is None:
-                # Mirror zarr-python's zarr format 2 default compressor so the
-                # zarrista engine's output is indistinguishable from what the
-                # legacy engine wrote.
-                compressor = {"id": "zstd", "level": 0}
-            elif compression_chain:
-                compressor = compression_chain[0]
-            else:
-                compressor = None
-            create_kwargs["compressor"] = compressor
-        elif zarr_format == 3:
-            default_compression = {
-                "name": "zstd",
-                "configuration": {"level": 0, "checksum": False},
-            }
-            if compression_chain is None:
-                # Mirror the zarr-python default codec chain.
-                create_kwargs["compressors"] = [default_compression]
-            else:
-                # An explicit chain is preserved in order; an explicit empty
-                # chain means no compression, matching zarr-python.
-                create_kwargs["compressors"] = list(compression_chain)
-            if dimension_names:
-                create_kwargs["dimension_names"] = tuple(dimension_names)
-            if internal_chunk_shape:
-                # ``chunks`` is the shard (outer chunk) grid; the subchunks
-                # inside each shard are the internal chunk shape.
-                create_kwargs["shards"] = tuple(chunks)
-                chunks = tuple(internal_chunk_shape)
-        else:
-            raise ValueError(f"Unsupported zarr format: {zarr_format}")
-
-        # Try to create the dataset first, open existing only if needed
-        try:
-            dataset = create_zarrista_array(
-                store_root,
-                node_name,
-                dataset_shape,
-                array.dtype,
-                chunks,
-                zarr_format,
-                **create_kwargs,
-            )
-        except Exception as create_error:
-            # Dataset may already exist: fall back to opening it, surfacing
-            # the create failure when there is nothing to open.
-            try:
-                dataset = open_zarrista_array(store_root, node_name)
-            except Exception:
-                raise create_error from None
+        dataset = _create_dataset(
+            store_path,
+            dataset_shape,
+            array.dtype,
+            chunks,
+            zarr_format,
+            dimension_names,
+            internal_chunk_shape,
+            compression_chain,
+        )
     else:
-        dataset = open_zarrista_array(store_root, node_name)
+        scale_path = Path(store_path)
+        dataset = open_zarrista_array(scale_path.parent, scale_path.name)
 
     # Try to write the dask array directly first
     try:
@@ -607,28 +637,17 @@ def _is_bytes_codec(codec) -> bool:
     return name == "bytes"
 
 
-def _write_array_with_zarrista(
-    store_path: str,
-    path: str,
-    arr: dask.array.Array,
-    chunks: tuple[int, ...] | list[int],
-    shards: tuple[int, ...] | None,
-    internal_chunk_shape: tuple[int, ...] | None,
-    zarr_format: int,
-    dimension_names: tuple[str, ...] | None,
-    region: tuple[slice, ...],
-    full_array_shape: tuple[int, ...] | None = None,
-    create_dataset: bool = True,
-    **kwargs,
-) -> None:
-    """Write an array using the zarrista backend."""
-    # Translate the public compression kwargs into a single ordered chain:
-    # ``None`` selects the engine default and an empty chain selects no
-    # compression. Mirroring the legacy engine's kwargs handling, an explicit
-    # ``compressor=None`` disables compression while ``compressors=None`` is
-    # indistinguishable from unset (default compression); the unset cases are
-    # detected with a sentinel. Only the array-to-bytes ("bytes") codec is
-    # dropped from a supplied chain since the writer always leads with one.
+def _compression_chain(kwargs: dict) -> list | None:
+    """Translate the public compression kwargs into a single ordered chain.
+
+    ``None`` selects the engine default and an empty chain selects no
+    compression. Mirroring the legacy engine's kwargs handling, an explicit
+    ``compressor=None`` disables compression while ``compressors=None`` is
+    indistinguishable from unset (default compression); the unset cases are
+    detected with a sentinel. Only the array-to-bytes ("bytes") codec is
+    dropped from a supplied chain since the writer always leads with one. The
+    consumed keys are removed from ``kwargs``.
+    """
     filters = kwargs.pop("filters", None)
     if filters:
         raise ValueError(
@@ -648,6 +667,25 @@ def _write_array_with_zarrista(
     else:
         compression_chain = None
     kwargs.pop("chunks", None)  # Remove chunks from kwargs since it's a positional arg
+    return compression_chain
+
+
+def _write_array_with_zarrista(
+    store_path: str,
+    path: str,
+    arr: dask.array.Array,
+    chunks: tuple[int, ...] | list[int],
+    shards: tuple[int, ...] | None,
+    internal_chunk_shape: tuple[int, ...] | None,
+    zarr_format: int,
+    dimension_names: tuple[str, ...] | None,
+    region: tuple[slice, ...],
+    full_array_shape: tuple[int, ...] | None = None,
+    create_dataset: bool = True,
+    **kwargs,
+) -> None:
+    """Write an array using the zarrista backend."""
+    compression_chain = _compression_chain(kwargs)
 
     scale_path = f"{store_path}/{path}"
     sharding_kwargs = (
@@ -692,31 +730,21 @@ def _array_write_error(path: str, error: Exception) -> OSError:
     return OSError(msg)
 
 
-def _handle_large_array_writing(
-    image,
+def _resolve_scale_chunks(
     arr: dask.array.Array,
-    path: str,
-    dims: tuple[str, ...],
-    dim_factors: dict[str, int],
     chunks: tuple[int, ...],
     sharding_kwargs: dict,
-    store_path: str,
-    zarr_format: int,
-    dimension_names: tuple[str, ...],
     internal_chunk_shape: tuple[int, ...] | None,
     shards: tuple[int, ...] | None,
-    progress: NgffProgress | NgffProgressCallback | None,
-    index: int,
-    nscales: int,
-    **kwargs,
-) -> None:
-    """Handle writing large arrays by splitting them into manageable pieces."""
-    shrink_factors = []
-    for dim in dims:
-        if dim in dim_factors:
-            shrink_factors.append(dim_factors[dim])
-        else:
-            shrink_factors.append(1)
+) -> tuple[
+    tuple[int, ...], tuple[int, ...], tuple[int, ...] | None, tuple[int, ...] | None
+]:
+    """Resolve the stored chunk grid of a scale array from the requested one.
+
+    Returns the chunk shape to plan region writes on (the shard shape when
+    sharding), the chunks clamped to the axes, the shard shape and the inner
+    chunk shape of a shard.
+    """
 
     # Region writes and shard/array chunk sizes do not need to divide the
     # dimension evenly: Zarr v3 permits a partial final chunk. Region slabs are
@@ -815,6 +843,73 @@ def _handle_large_array_writing(
             ]
         )
         zarr_chunk_shape = chunks
+
+    return zarr_chunk_shape, chunks, shards, internal_chunk_shape
+
+
+def _create_scale_array(
+    store_path: str,
+    path: str,
+    arr: dask.array.Array,
+    chunks: tuple[int, ...],
+    sharding_kwargs: dict,
+    zarr_format: int,
+    dimension_names: tuple[str, ...] | None,
+    internal_chunk_shape: tuple[int, ...] | None,
+    shards: tuple[int, ...] | None,
+    **kwargs,
+):
+    """Create the empty array of one scale level.
+
+    Chunk, shard and compression settings are resolved the way the region
+    writer resolves them, so an array created for a metadata-only store is
+    identical to one the writer fills itself.
+    """
+    _, chunks, shards, internal_chunk_shape = _resolve_scale_chunks(
+        arr, chunks, sharding_kwargs, internal_chunk_shape, shards
+    )
+    compression_chain = _compression_chain(dict(kwargs))
+    return _create_dataset(
+        f"{store_path}/{path}",
+        arr.shape,
+        arr.dtype,
+        chunks,
+        zarr_format,
+        dimension_names,
+        internal_chunk_shape if shards is not None else None,
+        compression_chain,
+    )
+
+
+def _handle_large_array_writing(
+    image,
+    arr: dask.array.Array,
+    path: str,
+    dims: tuple[str, ...],
+    dim_factors: dict[str, int],
+    chunks: tuple[int, ...],
+    sharding_kwargs: dict,
+    store_path: str,
+    zarr_format: int,
+    dimension_names: tuple[str, ...],
+    internal_chunk_shape: tuple[int, ...] | None,
+    shards: tuple[int, ...] | None,
+    progress: NgffProgress | NgffProgressCallback | None,
+    index: int,
+    nscales: int,
+    **kwargs,
+) -> None:
+    """Handle writing large arrays by splitting them into manageable pieces."""
+    shrink_factors = []
+    for dim in dims:
+        if dim in dim_factors:
+            shrink_factors.append(dim_factors[dim])
+        else:
+            shrink_factors.append(1)
+
+    zarr_chunk_shape, chunks, shards, internal_chunk_shape = _resolve_scale_chunks(
+        arr, chunks, sharding_kwargs, internal_chunk_shape, shards
+    )
 
     shape = image.data.shape
     x_index = dims.index("x")
@@ -1145,6 +1240,7 @@ def to_ome_zarr(
     progress: NgffProgress | NgffProgressCallback | None = None,
     chunks_per_shard: int | tuple[int, ...] | dict[str, int] | None = None,
     scale_strategy: ScaleStrategy = "pad",
+    metadata_only: bool = False,
     **kwargs,
 ) -> None:
     """
@@ -1189,6 +1285,14 @@ def to_ome_zarr(
         coordinate metadata.
     :type  scale_strategy: "pad" or "exact", optional
 
+    :param metadata_only: If True, write the OME-Zarr metadata and create every scale
+        array with its shape, dtype, chunks, shards and codecs, but compute and write no
+        pixel data. Nothing in the dask graphs is evaluated, so the call returns at once
+        whatever the image size. Fill the arrays afterwards with any Zarr writer; a chunk
+        grid that follows the regions each writer produces gives every chunk a single
+        writer and needs no locking. Not available for .ozx output.
+    :type  metadata_only: bool, optional
+
     :param **kwargs: Array-creation options, e.g. `compressor` / `compressors`
         compression settings.
     """
@@ -1214,6 +1318,11 @@ def to_ome_zarr(
 
     # RFC-9: Handle .ozx (zipped OME-Zarr) files
     if isinstance(store, (str, Path)) and is_ozx_path(store):
+        if metadata_only:
+            raise ValueError(
+                "metadata_only=True is not available for .ozx output: a zipped "
+                "OME-Zarr is written in one piece, with its data."
+            )
         if version != "0.5":
             raise ValueError(
                 "RFC-9 zipped OME-Zarr (.ozx) requires OME-Zarr version 0.5. "
@@ -1259,6 +1368,7 @@ def to_ome_zarr(
         progress=progress,
         chunks_per_shard=chunks_per_shard,
         scale_strategy=scale_strategy,
+        metadata_only=metadata_only,
         **kwargs,
     )
 
@@ -1277,6 +1387,7 @@ def _to_ngff_zarr_impl(
     progress: NgffProgress | NgffProgressCallback | None = None,
     chunks_per_shard: int | tuple[int, ...] | dict[str, int] | None = None,
     scale_strategy: ScaleStrategy = "pad",
+    metadata_only: bool = False,
     **kwargs,
 ) -> None:
     """
@@ -1324,7 +1435,7 @@ def _to_ngff_zarr_impl(
 
     # Process each scale level
     nscales = len(multiscales.images)
-    if progress:
+    if progress and not metadata_only:
         progress.add_multiscales_task("[green]Writing scales", nscales)
 
     next_image = multiscales.images[0]
@@ -1332,7 +1443,7 @@ def _to_ngff_zarr_impl(
     previous_dim_factors = dict.fromkeys(dims, 1)
 
     for index in range(nscales):
-        if progress:
+        if progress and not metadata_only:
             progress.update_multiscales_task_completed(index + 1)
 
         image = next_image
@@ -1384,6 +1495,25 @@ def _to_ngff_zarr_impl(
             chunks = shards
         else:
             shards = None
+
+        if metadata_only:
+            # The levels keep the shapes to_multiscales gave them, which are
+            # the shapes the datasets metadata describes.
+            _create_scale_array(
+                store_path,
+                path,
+                arr,
+                chunks,
+                sharding_kwargs,
+                zarr_format,
+                dimension_names,
+                internal_chunk_shape,
+                shards,
+                **kwargs,
+            )
+            if index + 1 < nscales:
+                next_image = multiscales.images[index + 1]
+            continue
 
         # Determine write method based on memory requirements
         if memory_usage(image) > config.memory_target:
