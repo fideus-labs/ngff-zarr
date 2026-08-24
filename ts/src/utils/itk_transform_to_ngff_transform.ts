@@ -257,6 +257,13 @@ export function itkTransformToNgffMatrix(
     const parameterization = String(
       entry.transformType.transformParameterization,
     );
+    if (parameterization === "DisplacementField") {
+      throw new Error(
+        "a displacement field has no affine equivalent; convert it with " +
+          "itkDisplacementFieldToNgffTransform, which returns the " +
+          "'displacements' transform and the field to write next to the image",
+      );
+    }
     if (parameterization === "Composite") {
       // A parameterless 'Composite' entry is ambiguous. The ITK-Wasm
       // pipeline writes one as a grouping header before the children, but

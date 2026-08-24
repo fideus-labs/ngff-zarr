@@ -287,6 +287,13 @@ export function ngffTransformToItkTransform(
   dims: string[],
   frames: { fixed?: NgffImage; moving?: NgffImage } = {},
 ): TransformList {
+  if (transform.type === "displacements") {
+    throw new Error(
+      `the displacements transform points at '${transform.path}'; convert ` +
+        "it with ngffDisplacementFieldToItkTransform, passing the field " +
+        "loaded from that path",
+    );
+  }
   let { matrix, offset } = ngffTransformToItkMatrix(transform, dims);
   const dimension = offset.length;
 

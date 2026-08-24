@@ -273,16 +273,23 @@ Deno.test("an angle-based parameterization is refused with guidance", () => {
 
 Deno.test("a deformation is refused as a deformation, not as a matrix gap", () => {
   // "Convert it to an Affine transform first" is not advice that applies to a
-  // displacement field: it has no affine equivalent at all. Saying so sends
-  // the caller to the RFC-5 field types instead of on a wild goose chase.
-  for (const parameterization of ["DisplacementField", "BSpline"]) {
-    const deformation = entry(parameterization, [0, 0, 0, 0]);
-    assertThrows(
-      () => itkTransformToNgffMatrix(deformation, ["y", "x"]),
-      Error,
-      "describes a deformation",
-    );
-  }
+  // deformation: it has no affine equivalent at all. A displacement field is
+  // sent to its own conversion; any other deformation to the RFC-5 field
+  // types, instead of on a wild goose chase.
+  assertThrows(
+    () =>
+      itkTransformToNgffMatrix(entry("DisplacementField", [0, 0, 0, 0]), [
+        "y",
+        "x",
+      ]),
+    Error,
+    "itkDisplacementFieldToNgffTransform",
+  );
+  assertThrows(
+    () => itkTransformToNgffMatrix(entry("BSpline", [0, 0, 0, 0]), ["y", "x"]),
+    Error,
+    "describes a deformation",
+  );
 });
 
 Deno.test("a scale transform decodes", () => {

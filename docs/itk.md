@@ -425,10 +425,13 @@ would move the image. Coming back the other way, non-spatial axes are left
 untransformed.
 
 In the TypeScript package the equivalents are `ngffTransformToItkTransform`,
-`itkTransformToNgffTransform` and `itkTransformToNgffMatrix`. TypeScript has no
-`itk` package to fall back on, so only parameterizations that carry a matrix
-(`Identity`, `Translation`, `Scale`, `Affine`) convert there; angle- and
-quaternion-based ones must be converted to an affine first.
+`itkTransformToNgffTransform` and `itkTransformToNgffMatrix`, and for fields
+`itkDisplacementFieldToNgffTransform` and `ngffDisplacementFieldToItkTransform`,
+both async since the field is read from and written to a Zarr array. TypeScript
+has no `itk` package to fall back on, so only parameterizations that carry a
+matrix (`Identity`, `Translation`, `Scale`, `Affine`) or a field
+(`DisplacementField`) convert there; angle- and quaternion-based ones must be
+converted to an affine first.
 
 ## TypeScript
 

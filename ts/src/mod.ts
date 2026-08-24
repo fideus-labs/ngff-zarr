@@ -76,6 +76,13 @@ export {
 } from "./utils/itk_transform_to_ngff_transform.ts";
 export { ngffTransformToItkTransform } from "./utils/ngff_transform_to_itk_transform.ts";
 export {
+  type FieldFrames,
+  type ItkDisplacementFieldOptions,
+  itkDisplacementFieldToNgffTransform,
+  type NgffDisplacementField,
+  ngffDisplacementFieldToItkTransform,
+} from "./utils/displacement_field_transform.ts";
+export {
   fromZarrAttrsV04,
   fromZarrAttrsV05,
   fromZarrAttrsV06,
