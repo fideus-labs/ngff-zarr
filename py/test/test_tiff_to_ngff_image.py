@@ -429,7 +429,7 @@ def test_tiff_file_to_ngff_images_with_ome_translation():
     expected_position_y = _convert_unit_value(position_y, ome_unit, pixel_size_unit)
     expected_position_z = _convert_unit_value(position_z, ome_unit, pixel_size_unit)
 
-    metadata = {
+    metadata_xyz = {
         "DimensionOrder": "XYZCT",
         "PhysicalSizeX": pixel_size,
         "PhysicalSizeXUnit": pixel_size_unit,
@@ -447,36 +447,59 @@ def test_tiff_file_to_ngff_images_with_ome_translation():
         },
     }
 
-    with tifffile.TiffWriter(tiff_path, ome=True) as tif:
-        tif.write(
-            np.random.rand(size_z, size_y, size_x).astype(np.float32),
-            photometric="minisblack",
-            metadata=metadata,
-            subifds=1,
-        )
-        tif.write(
-            np.random.rand(size_z // 2, size_y // 2, size_x // 2).astype(np.float32),
-            photometric="minisblack",
-            metadata=metadata,
-            subfiletype=1,
-        )
+    metadata_xy = {
+        "DimensionOrder": "XYZCT",
+        "PhysicalSizeX": pixel_size,
+        "PhysicalSizeXUnit": pixel_size_unit,
+        "PhysicalSizeY": pixel_size,
+        "PhysicalSizeYUnit": pixel_size_unit,
+        "Plane": {
+            "PositionX": [position_x] * nplanes,
+            "PositionXUnit": [ome_unit] * nplanes,
+            "PositionY": [position_y] * nplanes,
+            "PositionYUnit": [ome_unit] * nplanes,
+            "PositionZ": [position_z] * nplanes,
+            "PositionZUnit": [ome_unit] * nplanes,
+        },
+    }
 
-    # Convert and check metadata
-    for reuse_existing_pyramids in [False, True]:
-        images = tiff_file_to_ngff_images(
-            tiff_path, reuse_existing_pyramids=reuse_existing_pyramids
-        )
-        assert len(images) == 1
+    for metadata, has_z in zip([metadata_xy, metadata_xyz], [False, True]):
+        with tifffile.TiffWriter(tiff_path, ome=True) as tif:
+            if has_z:
+                data = np.random.rand(size_z, size_y, size_x).astype(np.float32)
+                data_downscaled = np.random.rand(size_z // 2, size_y // 2, size_x // 2).astype(np.float32)
+            else:
+                data = np.random.rand(size_y, size_x).astype(np.float32)
+                data_downscaled = np.random.rand(size_y // 2, size_x // 2).astype(np.float32)
+            tif.write(
+                data,
+                photometric="minisblack",
+                metadata=metadata,
+                subifds=1,
+            )
+            tif.write(
+                data_downscaled,
+                photometric="minisblack",
+                metadata=metadata,
+                subfiletype=1,
+            )
 
-        name, img = images[0]
-        if isinstance(img, NgffMultiscales):
-            img = img.images[0]  # Get the first NgffImage from the multiscales
+        # Convert and check metadata
+        for reuse_existing_pyramids in [False, True]:
+            images = tiff_file_to_ngff_images(
+                tiff_path, reuse_existing_pyramids=reuse_existing_pyramids
+            )
+            assert len(images) == 1
 
-        # Check translation was extracted from OME metadata
-        assert img.translation is not None
-        assert img.translation["x"] == pytest.approx(expected_position_x)
-        assert img.translation["y"] == pytest.approx(expected_position_y)
-        assert img.translation["z"] == pytest.approx(expected_position_z)
+            name, img = images[0]
+            if isinstance(img, NgffMultiscales):
+                img = img.images[0]  # Get the first NgffImage from the multiscales
+
+            # Check translation was extracted from OME metadata
+            assert img.translation is not None
+            assert img.translation["x"] == pytest.approx(expected_position_x)
+            assert img.translation["y"] == pytest.approx(expected_position_y)
+            assert img.translation["z"] == pytest.approx(expected_position_z)
 
 
 def test_tiff_file_to_ngff_images_simple_rgb():
