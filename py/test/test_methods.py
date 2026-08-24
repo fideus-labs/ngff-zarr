@@ -28,6 +28,7 @@ EXPECTED_MEMBERS = {
     "DASK_IMAGE_GAUSSIAN": "dask_image_gaussian",
     "DASK_IMAGE_MODE": "dask_image_mode",
     "DASK_IMAGE_NEAREST": "dask_image_nearest",
+    "DASK_BIN_SHRINK": "dask_bin_shrink",
 }
 
 

@@ -25,6 +25,7 @@ from ._zarrista_utils import (
 from .config import config
 from .memory_usage import memory_usage
 from .methods import Methods
+from .methods._dask import _downsample_dask_bin_shrink
 from .methods._dask_image import _downsample_dask_image
 from .methods._itk import (
     _downsample_itk_bin_shrink,
@@ -611,6 +612,10 @@ def to_multiscales(
     elif method is Methods.DASK_IMAGE_MODE:
         images = _downsample_dask_image(
             ngff_image, default_chunks, out_chunks, scale_factors, label="mode"
+        )
+    elif method is Methods.DASK_BIN_SHRINK:
+        images = _downsample_dask_bin_shrink(
+            ngff_image, default_chunks, out_chunks, scale_factors
         )
 
     # Propagate channel_names and channel_colors from the input image to
