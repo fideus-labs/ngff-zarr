@@ -2,69 +2,33 @@
 # SPDX-License-Identifier: MIT
 """Tests for handling unknown fields in axis metadata."""
 
-import asyncio
 import json
 import logging
+from pathlib import Path
 
 import numpy as np
-import packaging.version
 import pytest
-import zarr
 from ngff_zarr import from_ngff_zarr, to_multiscales, to_ngff_image, to_ngff_zarr
-from zarr.storage import MemoryStore
-
-zarr_version = packaging.version.parse(zarr.__version__)
 
 
 @pytest.fixture
 def zarr_helpers():
     """Fixture providing helper functions for accessing zarr store attributes."""
 
-    # Check zarr version to determine the appropriate API
-    zarr_version_major = zarr_version.major
+    def get_attrs(store_path):
+        """Get root attributes from an on-disk zarr v2 store."""
+        attrs_file = Path(store_path) / ".zattrs"
+        return json.loads(attrs_file.read_text())
 
-    if zarr_version_major >= 3:
-        # Zarr v3 API
-        async def _get_attrs_async(store):
-            """Get attributes from a zarr store (v3 compatible)."""
-            from zarr.core.buffer import default_buffer_prototype
-
-            attrs_key = ".zattrs"
-            attrs_bytes = await store.get(attrs_key, default_buffer_prototype())
-            return json.loads(attrs_bytes.to_bytes().decode())
-
-        async def _set_attrs_async(store, attrs):
-            """Set attributes in a zarr store (v3 compatible)."""
-            from zarr.core.buffer import default_buffer_prototype
-
-            attrs_key = ".zattrs"
-            attrs_bytes = json.dumps(attrs).encode()
-            proto = default_buffer_prototype()
-            buffer = proto.buffer.from_bytes(attrs_bytes)
-            await store.set(attrs_key, buffer)
-
-        # Return sync wrappers to avoid repeated asyncio.run() calls in tests
-        def get_attrs(store):
-            return asyncio.run(_get_attrs_async(store))
-
-        def set_attrs(store, attrs):
-            return asyncio.run(_set_attrs_async(store, attrs))
-    else:
-        # Zarr v2 API
-        def get_attrs(store):
-            """Get attributes from a zarr store (v2 compatible)."""
-            attrs_key = ".zattrs"
-            return json.loads(store[attrs_key].decode())
-
-        def set_attrs(store, attrs):
-            """Set attributes in a zarr store (v2 compatible)."""
-            attrs_key = ".zattrs"
-            store[attrs_key] = json.dumps(attrs).encode()
+    def set_attrs(store_path, attrs):
+        """Set root attributes in an on-disk zarr v2 store."""
+        attrs_file = Path(store_path) / ".zattrs"
+        attrs_file.write_text(json.dumps(attrs))
 
     return {"get": get_attrs, "set": set_attrs}
 
 
-def test_unknown_axis_fields_are_filtered(caplog, zarr_helpers):
+def test_unknown_axis_fields_are_filtered(caplog, zarr_helpers, tmp_path):
     """Test that non-standard axis fields are filtered out and a warning is logged."""
     # Create a basic image
     data = np.random.rand(10, 20, 30).astype(np.float32)
@@ -78,7 +42,7 @@ def test_unknown_axis_fields_are_filtered(caplog, zarr_helpers):
     multiscales = to_multiscales(image, scale_factors=[])
 
     # Write to zarr store
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     version = "0.4"
     to_ngff_zarr(store, multiscales, version=version)
 
@@ -116,7 +80,7 @@ def test_unknown_axis_fields_are_filtered(caplog, zarr_helpers):
     assert not hasattr(z_axis, "custom_field")
 
 
-def test_unknown_fields_multiple_axes(caplog, zarr_helpers):
+def test_unknown_fields_multiple_axes(caplog, zarr_helpers, tmp_path):
     """Test that unknown fields in multiple axes are all logged."""
     # Create a 4D image
     data = np.random.rand(2, 10, 20, 30).astype(np.float32)
@@ -130,7 +94,7 @@ def test_unknown_fields_multiple_axes(caplog, zarr_helpers):
     multiscales = to_multiscales(image, scale_factors=[])
 
     # Write to zarr store
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     version = "0.4"
     to_ngff_zarr(store, multiscales, version=version)
 
@@ -158,7 +122,7 @@ def test_unknown_fields_multiple_axes(caplog, zarr_helpers):
     assert multiscales_back is not None
 
 
-def test_missing_required_name_field(zarr_helpers):
+def test_missing_required_name_field(zarr_helpers, tmp_path):
     """Test that missing 'name' field raises ValueError."""
     # Create a basic image
     data = np.random.rand(10, 20, 30).astype(np.float32)
@@ -172,7 +136,7 @@ def test_missing_required_name_field(zarr_helpers):
     multiscales = to_multiscales(image, scale_factors=[])
 
     # Write to zarr store
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     version = "0.4"
     to_ngff_zarr(store, multiscales, version=version)
 
@@ -189,7 +153,7 @@ def test_missing_required_name_field(zarr_helpers):
         from_ngff_zarr(store, version=version)
 
 
-def test_missing_required_type_field(zarr_helpers):
+def test_missing_required_type_field(zarr_helpers, tmp_path):
     """Test that missing 'type' field raises ValueError."""
     # Create a basic image
     data = np.random.rand(10, 20, 30).astype(np.float32)
@@ -203,7 +167,7 @@ def test_missing_required_type_field(zarr_helpers):
     multiscales = to_multiscales(image, scale_factors=[])
 
     # Write to zarr store
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     version = "0.4"
     to_ngff_zarr(store, multiscales, version=version)
 
@@ -220,7 +184,7 @@ def test_missing_required_type_field(zarr_helpers):
         from_ngff_zarr(store, version=version)
 
 
-def test_only_unknown_fields(zarr_helpers):
+def test_only_unknown_fields(zarr_helpers, tmp_path):
     """Test that an axis with only unknown fields (no valid fields) raises ValueError."""
     # Create a basic image
     data = np.random.rand(10, 20, 30).astype(np.float32)
@@ -234,7 +198,7 @@ def test_only_unknown_fields(zarr_helpers):
     multiscales = to_multiscales(image, scale_factors=[])
 
     # Write to zarr store
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     version = "0.4"
     to_ngff_zarr(store, multiscales, version=version)
 
@@ -254,7 +218,7 @@ def test_only_unknown_fields(zarr_helpers):
         from_ngff_zarr(store, version=version)
 
 
-def test_valid_optional_fields_preserved(zarr_helpers):
+def test_valid_optional_fields_preserved(zarr_helpers, tmp_path):
     """Test that valid optional fields (like 'unit') are preserved."""
     # Create a basic image with units
     data = np.random.rand(10, 20, 30).astype(np.float32)
@@ -270,7 +234,7 @@ def test_valid_optional_fields_preserved(zarr_helpers):
     multiscales = to_multiscales(image, scale_factors=[])
 
     # Write to zarr store
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     version = "0.4"
     to_ngff_zarr(store, multiscales, version=version)
 

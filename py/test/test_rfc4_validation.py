@@ -10,7 +10,6 @@ from ngff_zarr.rfc4_validation import (
     has_rfc4_orientation_metadata,
     validate_rfc4_orientation,
 )
-from zarr.storage import MemoryStore
 
 
 def test_has_rfc4_orientation_metadata():
@@ -405,12 +404,12 @@ def test_validate_rfc4_orientation_duplicate_anatomical_axis_same_name():
         validate_rfc4_orientation(axes_dup)
 
 
-def test_from_ngff_zarr_with_rfc4_validation():
+def test_from_ngff_zarr_with_rfc4_validation(tmp_path):
     """Test from_ngff_zarr with RFC 4 validation enabled."""
     pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
 
     # Create a store with RFC 4 orientation metadata
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
 
     # Create a simple zarr array
     root = zarr.open_group(store, mode="w")
@@ -462,12 +461,12 @@ def test_from_ngff_zarr_with_rfc4_validation():
     assert multiscales is not None
 
 
-def test_from_ngff_zarr_with_rfc4_validation_invalid():
+def test_from_ngff_zarr_with_rfc4_validation_invalid(tmp_path):
     """Test from_ngff_zarr with RFC 4 validation fails on invalid orientation."""
     pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
 
     # Create a store with invalid RFC 4 orientation metadata
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
 
     # Create a simple zarr array
     root = zarr.open_group(store, mode="w")
@@ -518,10 +517,10 @@ def test_from_ngff_zarr_with_rfc4_validation_invalid():
         from_ngff_zarr(store, validate=True)
 
 
-def test_from_ngff_zarr_without_rfc4_validation():
+def test_from_ngff_zarr_without_rfc4_validation(tmp_path):
     """Test from_ngff_zarr works without validation even with invalid orientation."""
     # Create a store with invalid RFC 4 orientation metadata
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
 
     # Create a simple zarr array
     root = zarr.open_group(store, mode="w")
@@ -632,7 +631,7 @@ def test_a_falsey_orientation_still_reaches_the_validator(orientation):
         validate_rfc4_orientation(axes)
 
 
-def test_read_rejects_orientation_on_a_non_space_axis():
+def test_read_rejects_orientation_on_a_non_space_axis(tmp_path):
     """The reader reaches the non-space rule with no spatial axis oriented.
 
     Gating on a spatial orientation left this document accepted: nothing in it
@@ -640,7 +639,7 @@ def test_read_rejects_orientation_on_a_non_space_axis():
     """
     pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
 
-    store = MemoryStore()
+    store = str(tmp_path / "test.zarr")
     root = zarr.open_group(store, mode="w")
     if hasattr(root, "create_array"):
         root.create_array("0", shape=(2, 10, 10), dtype="uint8")

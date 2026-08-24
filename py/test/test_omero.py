@@ -13,7 +13,6 @@ from ngff_zarr import (
     to_ngff_zarr,
 )
 from packaging import version
-from zarr.storage import MemoryStore
 
 from ._data import test_data_dir
 
@@ -78,7 +77,7 @@ def test_read_omero(input_images):
     assert omero.channels[5].label == "Hyb probe"
 
 
-def test_write_omero():
+def test_write_omero(tmp_path):
     data = np.random.randint(0, 256, 262144).reshape((2, 32, 64, 64)).astype(np.uint8)
     image = to_ngff_image(data, dims=["c", "z", "y", "x"])
     multiscales = to_multiscales(image, scale_factors=[2, 4], chunks=32)
@@ -99,7 +98,7 @@ def test_write_omero():
     )
     multiscales.metadata.omero = omero
 
-    store = MemoryStore()
+    store = tmp_path / "test.ome.zarr"
     version = "0.4"
     to_ngff_zarr(store, multiscales, version=version)
 
@@ -121,7 +120,7 @@ def test_write_omero():
 @pytest.mark.skipif(
     zarr_version < version.parse("3.0.0b2"), reason="zarr version < 3.0.0b2"
 )
-def test_write_omero_v05():
+def test_write_omero_v05(tmp_path):
     """Test that omero metadata is correctly written inside the ome namespace for v0.5.
 
     This is a regression test for https://github.com/fideus-labs/ngff-zarr/issues/172
@@ -147,7 +146,7 @@ def test_write_omero_v05():
     )
     multiscales.metadata.omero = omero
 
-    store = MemoryStore()
+    store = tmp_path / "test.ome.zarr"
     version = "0.5"
     to_ngff_zarr(store, multiscales, version=version)
 

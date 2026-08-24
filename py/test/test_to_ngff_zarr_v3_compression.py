@@ -5,7 +5,6 @@ import tempfile
 
 import pytest
 import zarr
-import zarr.storage
 from ngff_zarr import Methods, to_multiscales, to_ngff_zarr
 from packaging import version
 
@@ -129,7 +128,7 @@ def test_zarr_v3_compression_with_sharding(input_images):
         )
 
 
-def test_zarr_v3_compression_rejected_for_ome_zarr_04(input_images):
+def test_zarr_v3_compression_rejected_for_ome_zarr_04(input_images, tmp_path):
     """Test that compressors argument is rejected for OME-Zarr version 0.4"""
     dataset_name = "cthead1"
     image = input_images[dataset_name]
@@ -137,7 +136,7 @@ def test_zarr_v3_compression_rejected_for_ome_zarr_04(input_images):
     multiscales = to_multiscales(
         image, [2, 4], chunks=chunks, method=Methods.ITKWASM_GAUSSIAN
     )
-    store = zarr.storage.MemoryStore()
+    store = str(tmp_path / "test.zarr")
 
     compressors = zarr.codecs.BloscCodec(
         cname="zlib", clevel=5, shuffle=zarr.codecs.BloscShuffle.shuffle

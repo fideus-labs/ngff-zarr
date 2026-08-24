@@ -2,14 +2,15 @@
 # SPDX-License-Identifier: MIT
 """Utility functions for ngff-zarr MCP server."""
 
+import json
 import tempfile
+from collections.abc import Mapping, MutableMapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 import aiofiles
 import httpx
-import zarr
 from ngff_zarr import (  # type: ignore[import-untyped]
     config,
     from_ome_zarr,
@@ -68,7 +69,95 @@ def is_zarr_store(path: str) -> bool:
         return path.endswith(".zarr") or path.endswith(".ome.zarr")
 
     path_obj = Path(path)
-    return (path_obj / ".zgroup").exists() or (path_obj / ".zarray").exists()
+    return (
+        (path_obj / "zarr.json").exists()
+        or (path_obj / ".zgroup").exists()
+        or (path_obj / ".zarray").exists()
+    )
+
+
+def url_store_mapping(store_path: str) -> MutableMapping:
+    """Key-to-bytes mapping over a remote store URL."""
+    if is_s3_url(store_path):
+        try:
+            import s3fs  # type: ignore[import-not-found,import-untyped]
+        except ImportError:
+            raise ImportError("s3fs required for S3 URLs")
+        fs = s3fs.S3FileSystem()
+        return s3fs.S3Map(store_path, s3=fs)
+
+    # HTTP/HTTPS URLs
+    import fsspec  # type: ignore[import-untyped]
+
+    return fsspec.get_mapper(store_path)
+
+
+def _store_doc(store: str | Path | Mapping, name: str) -> str | None:
+    """Raw metadata document *name* at the store root, or None if unreadable."""
+    if isinstance(store, (str, Path)):
+        try:
+            return (Path(store) / name).read_text()
+        except OSError:
+            return None
+    try:
+        data = store[name]
+    except Exception:
+        return None
+    return data.decode() if isinstance(data, (bytes, bytearray)) else str(data)
+
+
+def read_root_attrs(store: str | Path | Mapping) -> dict:
+    """Root group attributes read directly from the store's metadata documents.
+
+    Accepts a local directory path, a remote store URL, or a key-to-bytes
+    mapping. Prefers the zarr v3 ``zarr.json`` document, falling back to the
+    zarr v2 ``.zattrs``; returns ``{}`` when neither is readable. No
+    zarr-python involved.
+    """
+    if isinstance(store, str) and is_url(store):
+        store = url_store_mapping(store)
+    text = _store_doc(store, "zarr.json")
+    if text is not None:
+        try:
+            doc = json.loads(text)
+        except json.JSONDecodeError:
+            doc = None
+        if isinstance(doc, dict) and doc.get("node_type") == "group":
+            attrs = doc.get("attributes")
+            if isinstance(attrs, dict) and attrs:
+                return attrs
+    text = _store_doc(store, ".zattrs")
+    if text is not None:
+        try:
+            loaded = json.loads(text)
+        except json.JSONDecodeError:
+            return {}
+        if isinstance(loaded, dict):
+            return loaded
+    return {}
+
+
+def detect_ome_zarr_version(root_attrs: dict) -> str | None:
+    """OME-Zarr version declared in *root_attrs*, or None when undeclared.
+
+    Recognizes the v0.5+ layout (``ome.version``, defaulting to "0.5" when
+    the ``ome`` key is present without a version) and the v0.4 layout
+    (``multiscales[0].version``, defaulting to "0.4").
+    """
+    if "ome" in root_attrs:
+        ome_attrs = root_attrs["ome"]
+        if isinstance(ome_attrs, dict):
+            version_attr = ome_attrs.get("version", "0.5")
+            if isinstance(version_attr, str):
+                return version_attr
+    multiscales_attr = root_attrs.get("multiscales")
+    if isinstance(multiscales_attr, list) and multiscales_attr:
+        ms_attrs = multiscales_attr[0]
+        if isinstance(ms_attrs, dict):
+            version_attr = ms_attrs.get("version", "0.4")
+            if isinstance(version_attr, str):
+                return version_attr
+    return None
 
 
 def get_store_size_and_files(store_path: str) -> tuple[int, int]:
@@ -95,21 +184,11 @@ def get_store_size_and_files(store_path: str) -> tuple[int, int]:
 def analyze_zarr_store(store_path: str) -> StoreInfo:
     """Analyze a Zarr store and return information."""
     try:
+        store: str | MutableMapping
         if is_url(store_path):
-            # Handle remote stores
-            if is_s3_url(store_path):
-                try:
-                    import s3fs  # type: ignore[import-not-found,import-untyped]
-
-                    fs = s3fs.S3FileSystem()
-                    store = s3fs.S3Map(store_path, s3=fs)
-                except ImportError:
-                    raise ImportError("s3fs required for S3 URLs")
-            else:
-                # HTTP/HTTPS URLs
-                import fsspec  # type: ignore[import-untyped]
-
-                store = fsspec.get_mapper(store_path)
+            # Remote stores read through a key-to-bytes mapping, which the
+            # ngff-zarr store reader consumes directly (no zarr-python).
+            store = url_store_mapping(store_path)
         else:
             # For local files, just use the path directly
             store = store_path
@@ -117,27 +196,6 @@ def analyze_zarr_store(store_path: str) -> StoreInfo:
         # Load multiscales
         try:
             multiscales = from_ome_zarr(store)
-        except ValueError as e:
-            if "path" in str(e) and "FSMap" in str(e):
-                # Handle zarr v3 FSMap issue by using zarr v2 for remote stores
-                import zarr  # type: ignore[import-untyped]
-
-                if store_path.startswith(("http://", "https://")):
-                    try:
-                        store_v2 = zarr.open(store, mode="r")
-                        multiscales = from_ome_zarr(store_v2.store)
-                    except KeyError as ke:
-                        if str(ke) == "'start'":
-                            # Handle OMERO metadata compatibility issue for remote stores
-                            raise ValueError(
-                                "Remote store has incompatible OMERO metadata format: missing 'start' key in channel window. This is a known compatibility issue with some OME-Zarr stores that use 'min'/'max' instead of 'start'/'end'."
-                            ) from ke
-                        else:
-                            raise ke
-                else:
-                    raise e
-            else:
-                raise e
         except KeyError as e:
             if str(e) == "'start'" and store_path.startswith(("http://", "https://")):
                 # Handle OMERO metadata compatibility issue for remote stores
@@ -163,29 +221,12 @@ def analyze_zarr_store(store_path: str) -> StoreInfo:
             except Exception:
                 pass
 
-        # Determine OME-Zarr version from metadata
+        # Determine OME-Zarr version from the root metadata documents
         version = "0.4"  # Default
         try:
-            import zarr as zarr_module  # Use a different name to avoid conflicts
-
-            root = zarr_module.open(store, mode="r")
-
-            # Check for v0.5 format first (ome.version)
-            if "ome" in root.attrs:
-                ome_attrs = root.attrs["ome"]
-                if isinstance(ome_attrs, dict) and "version" in ome_attrs:
-                    version_attr = ome_attrs["version"]
-                    if isinstance(version_attr, str):
-                        version = version_attr
-            # Check for v0.4 format (multiscales[0].version)
-            elif "multiscales" in root.attrs:
-                multiscales_attr = root.attrs["multiscales"]
-                if isinstance(multiscales_attr, list) and len(multiscales_attr) > 0:
-                    ms_attrs = multiscales_attr[0]
-                    if isinstance(ms_attrs, dict) and "version" in ms_attrs:
-                        version_attr = ms_attrs["version"]
-                        if isinstance(version_attr, str):
-                            version = version_attr
+            detected = detect_ome_zarr_version(read_root_attrs(store))
+            if detected is not None:
+                version = detected
         except Exception:
             pass
 
@@ -397,11 +438,9 @@ def setup_dask_config(
     if cache_dir:
         cache_path = Path(cache_dir).resolve()
         cache_path.mkdir(parents=True, exist_ok=True)
-        if hasattr(zarr.storage, "DirectoryStore"):  # type: ignore[attr-defined]
-            LocalStore = zarr.storage.DirectoryStore  # type: ignore[attr-defined]
-        else:
-            LocalStore = zarr.storage.LocalStore  # type: ignore[attr-defined]
-        config.cache_store = LocalStore(cache_path)
+        # ngff-zarr's cache_store is a directory path; large-image cache
+        # arrays are written into it through the zarrista backend.
+        config.cache_store = cache_path
 
     client = None
     if use_local_cluster:

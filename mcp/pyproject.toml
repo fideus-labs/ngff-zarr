@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "ngff-zarr-mcp"
 description = "Model Context Protocol server for OME-Zarr image conversion"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "MIT"
 keywords = ["mcp", "ome-zarr", "image-conversion", "microscopy"]
 authors = [
@@ -21,7 +21,6 @@ classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -35,7 +34,7 @@ dependencies = [
     # json_response support (MCP specification revision 2025-03-26);
     # < 2 because mcp 2.0 removed the mcp.server.fastmcp module.
     "mcp >= 1.8.0, < 2",
-    "ngff-zarr[cli,tensorstore] >= 0.15.2",
+    "ngff-zarr[cli] >= 0.15.2",
     "pydantic >= 2.0",
     "httpx",
     "aiofiles",
@@ -64,6 +63,9 @@ dev = [
     "hatch",
     "types-aiofiles",
     "types-psutil",
+    # zarr-python is a test-only dependency: it verifies round-trip
+    # compatibility of zarrista-written stores with the reference reader.
+    "zarr",
 ]
 
 [project.urls]
@@ -92,7 +94,7 @@ test = "pytest {args:tests}"
 test-cov = "pytest --cov-report=term-missing --cov-config=pyproject.toml --cov=ngff_zarr_mcp {args:tests}"
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 88
 
 [tool.ruff.lint]
@@ -144,13 +146,13 @@ platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
 ngff-zarr-mcp = { path = ".", editable = true }
 
 [tool.pixi.dependencies]
-python = ">=3.10,<3.14"
+python = ">=3.11,<3.14"
 pytest = ">=8.4.1,<9"
 pytest-asyncio = ">=1.0.0,<2"
 
 [tool.pixi.feature.dev.pypi-dependencies]
 ngff-zarr-mcp = { path = ".", editable = true, extras = ["dev"] }
-ngff-zarr = { path = "../py", editable = true, extras = ["cli", "tensorstore"] }
+ngff-zarr = { path = "../py", editable = true, extras = ["cli"] }
 
 [tool.pixi.feature.dev.tasks]
 test = "pytest tests/"

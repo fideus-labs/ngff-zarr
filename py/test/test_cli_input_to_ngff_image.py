@@ -1,6 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-import pytest
 import zarr
 from ngff_zarr import ConversionBackend, cli_input_to_ngff_image
 from packaging import version
@@ -36,11 +35,9 @@ def test_cli_input_to_ngff_image_itk_list(input_images):
     assert image.dims == ("z", "y", "x")
 
 
-@pytest.mark.skipif(
-    zarr_version >= version.parse("3.0.0b1"),
-    reason="Skipping because Zarr version is greater than 3, ZarrTiffStore not yet supported",
-)
 def test_cli_input_to_ngff_image_tifffile(input_images):
+    # No zarr-version skip needed anymore: the TIFFFILE branch reads
+    # tifffile's aszarr store through the pure-Python store reader.
     input = [
         test_data_dir / "input" / "bat-cochlea-volume.tif",
     ]

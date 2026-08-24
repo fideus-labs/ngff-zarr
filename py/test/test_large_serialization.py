@@ -5,7 +5,6 @@ import zarr
 from dask_image import imread
 from ngff_zarr import config, to_multiscales, to_ngff_image, to_ngff_zarr
 from packaging import version
-from zarr.storage import MemoryStore
 
 zarr_version = version.parse(zarr.__version__)
 
@@ -15,7 +14,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_large_image_serialization(input_images):
+def test_large_image_serialization(input_images, tmp_path):
     default_mem_target = config.memory_target
     config.memory_target = int(1e6)
 
@@ -31,7 +30,7 @@ def test_large_image_serialization(input_images):
     multiscales = to_multiscales(image)
     # baseline_name = "auto/memory_target_1e6.zarr"
     # store_new_multiscales(dataset_name, baseline_name, multiscales)
-    test_store = MemoryStore()
+    test_store = tmp_path / "test.ome.zarr"
     to_ngff_zarr(test_store, multiscales)
     # verify_against_baseline(dataset_name, baseline_name, multiscales)
 

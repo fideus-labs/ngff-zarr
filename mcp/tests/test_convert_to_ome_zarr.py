@@ -256,6 +256,8 @@ async def test_convert_to_ome_zarr_invalid_options(test_input_file, temp_output_
 @pytest.mark.asyncio
 async def test_convert_with_anatomical_orientation(test_input_file, temp_output_dir):
     """The ``anatomical_orientation`` preset is applied and written to the output."""
+    # zarr-python is a test-only dependency; reading the store back with it
+    # doubles as a compatibility check of zarrista-written output.
     import zarr
 
     assert test_input_file.exists(), f"Test input file not found: {test_input_file}"

@@ -2,24 +2,7 @@
 # SPDX-License-Identifier: MIT
 """Constants for ngff-zarr package."""
 
-import sys
-from enum import Enum
-
-if sys.version_info >= (3, 11):
-    from enum import StrEnum
-else:
-    # Backward compatibility for Python < 3.11
-    class StrEnum(str, Enum):
-        """
-        Enum where members are also (and must be) strings
-        """
-
-        def __new__(cls, value):
-            if not isinstance(value, str):
-                raise TypeError(f"{cls.__name__} values must be strings")
-            obj = str.__new__(cls, value)
-            obj._value_ = value
-            return obj
+from enum import StrEnum
 
 
 class NgffVersion(StrEnum):

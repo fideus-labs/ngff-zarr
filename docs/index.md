@@ -24,13 +24,15 @@ A lean and kind
 - Process extremely large datasets
 - Conversion of most bioimaging file formats
 - Multiple downscaling methods
-- Supports Python>=3.10
+- Supports Python>=3.11
 - Reads OME-Zarr v0.1 to v0.6 into simple Python data classes with Dask arrays
 - Optional OME-Zarr data model validation during reading
 - Writes OME-Zarr v0.4 to v0.6
 - v0.6 adds RFC-5 coordinate systems and transformations
 - [Sharded Zarr] stores
-- Optional writing via zarr-python 2, zarr-python 3, [tensorstore] or zarrita (TypeScript)
+- Zarr I/O backed by [zarrista] / Rust [zarrs] (Python) or zarrita
+  (TypeScript) -- no zarr-python dependency; outputs stay readable by
+  zarr-python 2 and 3
 - [Anatomical orientation metadata](./rfc4.md) (RFC-4)
 - [Coordinate systems and transformations](./rfc5.md) (RFC-5)
 - **OME-Zarr Zip (.ozx) file support** for single-file OME-Zarr datasets (RFC-9)
@@ -66,4 +68,5 @@ apidocs/index.rst
 ```
 
 [Sharded Zarr]: https://zarr.dev/zeps/accepted/ZEP0002.html
-[tensorstore]: https://google.github.io/tensorstore/
+[zarrista]: https://github.com/developmentseed/zarrista
+[zarrs]: https://zarrs.dev/

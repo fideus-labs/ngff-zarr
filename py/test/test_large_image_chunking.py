@@ -12,14 +12,32 @@ These tests verify that:
 7. No dask PerformanceWarning from chunk-size mismatches during cache writes
 """
 
+import sys
 import warnings
 
 import dask.array
 import numpy as np
-from ngff_zarr import config, to_multiscales, to_ngff_image
+from ngff_zarr import config, to_multiscales, to_ngff_image, to_ngff_zarr
 from ngff_zarr.task_count import task_count
 
 rng = np.random.default_rng(42)
+
+
+def _freeze_cache_clock(monkeypatch, value=1756000000.0):
+    """Make the cache path builder observe a single, repeating timestamp.
+
+    Emulates Windows with Python < 3.13, where time.time() has ~15.6 ms
+    resolution and back-to-back to_multiscales() calls read the same value.
+    """
+    # The package attribute shadows the module, so go through sys.modules
+    module = sys.modules["ngff_zarr.to_multiscales"]
+
+    class FrozenClock:
+        @staticmethod
+        def time():
+            return value
+
+    monkeypatch.setattr(module, "time", FrozenClock)
 
 
 class TestInputAlignedChunks:
@@ -412,3 +430,93 @@ class TestCacheChunkAlignment:
             np.testing.assert_array_equal(result, arr_np)
         finally:
             config.memory_target = old_mem
+
+    def test_cache_paths_unique_with_coarse_clock(self, monkeypatch):
+        """Caches must not collide when time.time() repeats.
+
+        Caching a 2D then a 1D image into one directory used to raise, because
+        the 1D array's chunk key "c/0" is a file where the 2D array's is a
+        directory.
+        """
+        _freeze_cache_clock(monkeypatch)
+
+        arr_2d = np.arange(128 * 128, dtype=np.uint16).reshape(128, 128)
+        image_2d = to_ngff_image(
+            dask.array.from_array(arr_2d, chunks=(64, 64)), dims=("y", "x")
+        )
+        arr_1d = np.arange(1024, dtype=np.uint16)
+        image_1d = to_ngff_image(
+            dask.array.from_array(arr_1d, chunks=(128,)), dims=("x",)
+        )
+
+        old_mem = config.memory_target
+        config.memory_target = 1  # Force caching
+
+        try:
+            result_2d = to_multiscales(image_2d, scale_factors=[]).images[0].data
+            np.testing.assert_array_equal(result_2d.compute(), arr_2d)
+
+            result_1d = to_multiscales(image_1d, scale_factors=[]).images[0].data
+            np.testing.assert_array_equal(result_1d.compute(), arr_1d)
+        finally:
+            config.memory_target = old_mem
+
+    def test_same_shape_caches_do_not_corrupt_with_coarse_clock(self, monkeypatch):
+        """Same-shape caches in one clock tick must not overwrite each other.
+
+        This is the silent variant of the collision: identical shapes produce
+        identical chunk keys, so the second cache overwrote the first and the
+        first image read back as the second's data with no error raised.
+        """
+        _freeze_cache_clock(monkeypatch)
+
+        shape = (128, 128)
+        first_np = np.arange(np.prod(shape), dtype=np.uint16).reshape(shape)
+        second_np = np.full(shape, 7, dtype=np.uint16)
+        first = to_ngff_image(
+            dask.array.from_array(first_np, chunks=(64, 64)), dims=("y", "x")
+        )
+        second = to_ngff_image(
+            dask.array.from_array(second_np, chunks=(64, 64)), dims=("y", "x")
+        )
+
+        old_mem = config.memory_target
+        config.memory_target = 1  # Force caching
+
+        try:
+            # Cache both before computing either, so the second write would
+            # land on the first's chunks while they are still needed.
+            first_result = to_multiscales(first, scale_factors=[]).images[0].data
+            second_result = to_multiscales(second, scale_factors=[]).images[0].data
+
+            np.testing.assert_array_equal(second_result.compute(), second_np)
+            np.testing.assert_array_equal(first_result.compute(), first_np)
+        finally:
+            config.memory_target = old_mem
+
+    def test_cache_directory_removed_after_write(self, tmp_path):
+        """The cache directory is cleaned up once the image is written."""
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+
+        arr_np = np.arange(128 * 128, dtype=np.uint16).reshape(128, 128)
+        image = to_ngff_image(
+            dask.array.from_array(arr_np, chunks=(64, 64)), dims=("y", "x")
+        )
+
+        old_mem = config.memory_target
+        old_cache_store = config.cache_store
+        config.memory_target = 1  # Force caching
+        config.cache_store = str(cache_dir)
+
+        try:
+            multiscales = to_multiscales(image, scale_factors=[])
+            assert list(cache_dir.iterdir()), "expected a cache directory"
+
+            to_ngff_zarr(tmp_path / "test.ome.zarr", multiscales)
+            assert not list(cache_dir.iterdir()), (
+                f"cache not cleaned up: {[p.name for p in cache_dir.iterdir()]}"
+            )
+        finally:
+            config.memory_target = old_mem
+            config.cache_store = old_cache_store

@@ -25,6 +25,9 @@ extensions = [
 ]
 
 myst_enable_extensions = ["colon_fence", "fieldlist"]
+# Generate GitHub-style anchors for headings so `.md#heading` cross-references
+# resolve (used by faq.md, installation.md, python.md, rfc5.md, tiff.md).
+myst_heading_anchors = 3
 
 templates_path = ["_templates"]
 # docs/validation/ is a structured DocGraph artifact (YAML front matter +

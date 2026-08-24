@@ -9,11 +9,11 @@ to OME-NGFF axes, based on the LinkML schema.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 
 
-class AnatomicalOrientationValues(str, Enum):
+class AnatomicalOrientationValues(StrEnum):
     """
     Anatomical orientation refers to the specific arrangement and directional
     alignment of anatomical structures within an imaging dataset. It is crucial

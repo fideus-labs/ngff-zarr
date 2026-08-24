@@ -3,8 +3,8 @@
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Union
 
+from .._store_types import StoreLike
 from .._supported_versions import NgffVersion
-from .._zarr_types import StoreLike
 from ..v04.zarr_metadata import Axis, Dataset, MethodMetadata, Omero, Transform
 
 if TYPE_CHECKING:

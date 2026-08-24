@@ -10,6 +10,9 @@ jobs:
     strategy:
       matrix:
         include:
+          # zarr-python is a test-only dependency that verifies
+          # zarrista-written stores; this leg pins the 3.x reference reader
+          # alongside the pinned Dask.
           - python-version: "3.12"
             zarr-version: ">=3.0.0"
             dask-version: "==2026.1.2"
@@ -30,10 +33,6 @@ jobs:
         run: |
           python -m pip install "dask${{ matrix.dask-version }}" "distributed${{ matrix.dask-version }}"
           python -m pip install "zarr${{ matrix.zarr-version }}"
-
-      - name: Install tensorstore
-        run: |
-          python -m pip install -e "py/.[tensorstore]"
 
       - name: Test with pytest
         run: |
