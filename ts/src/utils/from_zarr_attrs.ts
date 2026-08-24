@@ -25,10 +25,6 @@ import type { AxesType, AxisUnit, SupportedDims } from "../types/units.ts";
 import { parseOmero } from "./parse_metadata.ts";
 import type { MemoryStore } from "../io/from_ngff_zarr.ts";
 import {
-  hasRfc4OrientationMetadata,
-  validateRfc4Orientation,
-} from "./rfc4_validation.ts";
-import {
   validateStructural,
   ValidationLevel,
 } from "./structural_validation.ts";
@@ -165,6 +161,15 @@ export async function fromZarrAttrsV04(
 
   const multiscalesMetadata = multiscalesArray[0] as Record<string, unknown>;
 
+  // OME-Zarr v0.5 hoists the spec `version` to the group-level `ome`
+  // namespace; v0.4 carries it on each multiscale entry. Prefer the
+  // group-level value (which fromZarrAttrsV05 forwards as a top-level
+  // `version`) so validation sees the true spec version -- which the v0.5
+  // namespacing rules and the version-gated structural rules read. v0.4 has no
+  // top-level version, so this falls back to the entry's.
+  const declaredVersion = (rootAttrs.version as string | undefined) ??
+    (multiscalesMetadata.version as string | undefined) ?? "0.4";
+
   // Validate the root attributes against the OME-Zarr v0.4 schema
   if (validate) {
     // Basic structural validation
@@ -186,24 +191,6 @@ export async function fromZarrAttrsV04(
       throw new Error(
         "Invalid OME-Zarr metadata: 'datasets' must be a non-empty array",
       );
-    }
-
-    // RFC 4 validation for anatomical orientation
-    if (
-      "axes" in multiscalesMetadata &&
-      Array.isArray(multiscalesMetadata.axes)
-    ) {
-      const axesData = multiscalesMetadata.axes as Array<
-        Record<string, unknown>
-      >;
-      // Filter to only dict-style axes for RFC4 validation
-      const axesDicts = axesData.filter(
-        (axis): axis is Record<string, unknown> =>
-          typeof axis === "object" && axis !== null,
-      );
-      if (axesDicts.length > 0 && hasRfc4OrientationMetadata(axesDicts)) {
-        validateRfc4Orientation(axesDicts);
-      }
     }
   }
 
@@ -442,14 +429,9 @@ export async function fromZarrAttrsV04(
     axes,
     datasets,
     name: (multiscalesMetadata.name as string) ?? "image",
-    // OME-Zarr v0.5 hoists the spec `version` to the group-level `ome`
-    // namespace; v0.4 carries it on each multiscale entry. Prefer the
-    // group-level value (which fromZarrAttrsV05 forwards as a top-level
-    // `version`) so the structural pass sees the true spec version -- which the
-    // v0.5 namespacing rules gate on. v0.4 has no top-level version, so this
-    // falls back to the entry's.
-    version: (rootAttrs.version as string | undefined) ??
-      (multiscalesMetadata.version as string) ?? "0.4",
+    // The declared spec version, resolved above so the schema pass and the
+    // structural pass read the same value.
+    version: declaredVersion,
     omero,
     extra,
     coordinateTransformations:
@@ -647,17 +629,6 @@ export async function fromZarrAttrsV06(
     }
   }
   const axesOrientations = extractOrientationsFromAxes(intrinsicRawAxes);
-
-  // RFC 4 anatomical-orientation validation, mirroring the v0.4 reader.
-  if (validate) {
-    const axesDicts = intrinsicRawAxes.filter(
-      (axis): axis is Record<string, unknown> =>
-        typeof axis === "object" && axis !== null,
-    );
-    if (axesDicts.length > 0 && hasRfc4OrientationMetadata(axesDicts)) {
-      validateRfc4Orientation(axesDicts);
-    }
-  }
 
   // Open root group for array access (reuse consolidated metadata if present).
   let optimizedStore: MemoryStore | zarr.FetchStore | zarr.Readable;

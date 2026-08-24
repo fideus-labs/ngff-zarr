@@ -93,6 +93,24 @@ const NON_RFC3_VERSIONS: (string | undefined)[] = [
   undefined,
 ];
 
+// The locked RFC-4 orientation version manifest: the versions at which the
+// three axis-orientation rules are normative (ome/ngff-spec#190 folds RFC-4
+// into 0.9.dev1). This identical literal list appears in the Python twin.
+// The gate points the opposite way from CANONICAL_RFC3_VERSIONS: RFC-3 *lifts*
+// the axis restrictions at 0.9.dev1 while RFC-4 *adds* the orientation
+// requirements, so the rules are inert below these versions. No version at all
+// keeps them on, as a strictness choice (like axis-names-unique).
+const CANONICAL_RFC4_VERSIONS: string[] = [
+  "0.9.dev1",
+];
+
+// Every other supported version must leave the orientation rules inert. Read
+// off SUPPORTED_VERSIONS so a newly supported version has to be classified
+// here rather than silently defaulting to either side.
+const PRE_RFC4_VERSIONS: string[] = SUPPORTED_VERSIONS
+  .map((version) => version as string)
+  .filter((version) => !CANONICAL_RFC4_VERSIONS.includes(version));
+
 // The canonical fail-fast evaluation order of the image/multiscales
 // orchestrator (validateStructural). Each entry is the SpecRule the
 // orchestrator must raise when that rule -- and every rule after it -- is
@@ -478,5 +496,105 @@ Deno.test("axis-names-unique is never inert", () => {
       ValidationError,
     );
     assertEquals(error.rule, SpecRule.AxisNamesUnique, String(version));
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Manifest: the locked RFC-4 orientation version set
+// ---------------------------------------------------------------------------
+
+/**
+ * Wrap `axes` in metadata that satisfies every non-orientation rule.
+ *
+ * The axis lists below are legal under both the restricted axis model and
+ * RFC-3, so at every version the orientation rules alone decide the verdict.
+ */
+function orientationMetadata(axes: Axis[]): Metadata {
+  return {
+    axes,
+    datasets: [
+      {
+        path: "0",
+        coordinateTransformations: [
+          createScale(axes.map(() => 1.0)),
+          createTranslation(axes.map(() => 0.0)),
+        ],
+      },
+    ],
+    coordinateTransformations: undefined,
+    omero: undefined,
+    name: "image",
+    version: "0.4",
+  };
+}
+
+/**
+ * Orientation on the non-spatial time axis, and nowhere else.
+ *
+ * Only a stray orientation violates RFC 4 here, and it sits on the one axis
+ * that may not carry it -- exercising the non-space arm the orchestrator
+ * reaches even when no spatial axis is oriented.
+ */
+function orientationOnNonSpaceAxes(): Axis[] {
+  return [
+    {
+      name: "t",
+      type: "time",
+      unit: undefined,
+      orientation: orientation("anatomical", "inferior-to-superior"),
+    },
+    { name: "y", type: "space", unit: undefined },
+    { name: "x", type: "space", unit: undefined },
+  ];
+}
+
+/** Two spatial axes on the one left-right anatomical axis. */
+function duplicateAnatomicalAxisAxes(): Axis[] {
+  return [
+    {
+      name: "y",
+      type: "space",
+      unit: undefined,
+      orientation: orientation("anatomical", "left-to-right"),
+    },
+    {
+      name: "x",
+      type: "space",
+      unit: undefined,
+      orientation: orientation("anatomical", "right-to-left"),
+    },
+  ];
+}
+
+// One violating document per orientation rule. Each satisfies every other rule
+// at every version, so the orientation rule alone decides accept or reject.
+const RFC4_ORIENTATION_CASES: Array<[() => Axis[], SpecRule]> = [
+  [
+    validAxesWithInconsistentOrientation,
+    SpecRule.AxisOrientationAnatomicalType,
+  ],
+  [orientationOnNonSpaceAxes, SpecRule.AxisOrientationOnNonSpace],
+  [duplicateAnatomicalAxisAxes, SpecRule.AxisOrientationUniqueAxis],
+];
+
+Deno.test("RFC-4 orientation version manifest is locked", () => {
+  for (const [buildAxes, rule] of RFC4_ORIENTATION_CASES) {
+    // Enforced at the manifest versions, and when no version is given...
+    for (const version of [...CANONICAL_RFC4_VERSIONS, undefined]) {
+      const error = assertThrows(
+        () =>
+          validateStructural(
+            orientationMetadata(buildAxes()),
+            undefined,
+            version,
+          ),
+        ValidationError,
+      );
+      assertEquals(error.rule, rule, String(version));
+    }
+    // ...and inert at every earlier supported version.
+    for (const version of PRE_RFC4_VERSIONS) {
+      validateStructural(orientationMetadata(buildAxes()), undefined, version);
+    }
   }
 });

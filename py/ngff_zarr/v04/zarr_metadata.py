@@ -441,11 +441,7 @@ class Metadata:
 
         from .._zarrista_utils import open_lazy_array
         from ..ngff_image import NgffImage
-        from ..parse_metadata import _parse_omero, _raw_axes
-        from ..rfc4_validation import (
-            has_any_rfc4_orientation,
-            validate_rfc4_orientation,
-        )
+        from ..parse_metadata import _parse_omero
         from ..validate import validate as validate_ngff
 
         # Validate structure before any processing to avoid cryptic KeyError
@@ -477,17 +473,6 @@ class Metadata:
                 validate_ngff({"ome": root_attrs}, version=schema_version)
             else:
                 validate_ngff(root_attrs, version=schema_version)
-
-            # RFC 4 validation for anatomical orientation. The axes are read
-            # through the shared helper, which knows where each version keeps
-            # them, and a non-dict axis entry is left to the schema check.
-            axes_dicts = [
-                axis
-                for axis in _raw_axes(root_attrs["multiscales"][0])
-                if isinstance(axis, dict)
-            ]
-            if axes_dicts and has_any_rfc4_orientation(axes_dicts):
-                validate_rfc4_orientation(axes_dicts)
 
         omero = _parse_omero(root_attrs.get("omero"))
         # OME-Zarr v0.5 hoists the spec ``version`` to the group-level ``ome``
@@ -619,11 +604,14 @@ class Metadata:
 
         if validate:
             # Strict structural validation of the parsed Metadata, layered after
-            # the schema pass and RFC 4 dict check above. The structural rules
-            # encode the v0.4+ metadata model (typed axes and per-dataset
-            # coordinate transformations); the legacy v0.1-0.3 layouts predate
-            # it, so the rules are scoped to v0.4 and newer. Imported lazily so
-            # the default validate=False read path incurs no extra import cost.
+            # the schema pass above. The structural rules encode the v0.4+
+            # metadata model (typed axes and per-dataset coordinate
+            # transformations); the legacy v0.1-0.3 layouts predate it, so the
+            # rules are scoped to v0.4 and newer. Imported lazily so the
+            # default validate=False read path incurs no extra import cost.
+            # The declared version is passed through so the version-gated rules
+            # (the RFC-3 axis rules and the RFC 4 orientation checks) apply
+            # exactly the requirements of the store's own version.
             from ..structural_validation import (
                 ValidateOptions,
                 ValidationLevel,
@@ -633,7 +621,9 @@ class Metadata:
             spec_version = packaging.version.parse(str(metadata.version))
             if spec_version >= packaging.version.parse("0.4"):
                 validate_structural(
-                    metadata, ValidateOptions(level=ValidationLevel.STRICT)
+                    metadata,
+                    ValidateOptions(level=ValidationLevel.STRICT),
+                    version=metadata.version,
                 )
 
         return metadata, images

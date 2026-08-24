@@ -339,31 +339,39 @@ Deno.test("fromNgffZarr with valid RFC-4 orientation - validation passes", async
   assertEquals(multiscales !== undefined, true);
 });
 
-Deno.test("fromNgffZarr with invalid RFC-4 orientation - throws error", async () => {
+Deno.test("fromNgffZarr - an invalid orientation reads below the RFC-4 versions", async () => {
+  // RFC 4 orientation is normative from OME-Zarr 0.9.dev1 only
+  // (fideus-labs/ngff-zarr#667); this store declares 0.4, so its
+  // out-of-vocabulary orientation value is read back without complaint. The
+  // version gate lives in the read path alone: the module-level check rejects
+  // the value at every version. Mirrors the Python
+  // test_from_ngff_zarr_invalid_orientation_reads_below_rfc4.
+  const axes = [
+    {
+      name: "z",
+      type: "space",
+      unit: "micrometer",
+      // Out-of-vocabulary value: rejected by validateRfc4Orientation,
+      // tolerated by every pre-RFC-4 read.
+      orientation: { type: "anatomical", value: "not-a-direction" },
+    },
+    {
+      name: "y",
+      type: "space",
+      unit: "micrometer",
+      orientation: { type: "anatomical", value: "anterior-to-posterior" },
+    },
+    {
+      name: "x",
+      type: "space",
+      unit: "micrometer",
+      orientation: { type: "anatomical", value: "right-to-left" },
+    },
+  ];
   const multiscalesMetadata = {
     version: "0.4",
     name: "test",
-    axes: [
-      {
-        name: "x",
-        type: "space",
-        unit: "micrometer",
-        orientation: { type: "anatomical", value: "right-to-left" },
-      },
-      {
-        name: "y",
-        type: "space",
-        unit: "micrometer",
-        orientation: { type: "anatomical", value: "anterior-to-posterior" },
-      },
-      {
-        name: "z",
-        type: "space",
-        unit: "micrometer",
-        // Out-of-vocabulary value - this should cause validation to fail
-        orientation: { type: "anatomical", value: "not-a-direction" },
-      },
-    ],
+    axes,
     datasets: [
       {
         path: "0",
@@ -376,18 +384,13 @@ Deno.test("fromNgffZarr with invalid RFC-4 orientation - throws error", async ()
 
   const store = await createTestStore(multiscalesMetadata);
 
-  // Should fail on the out-of-vocabulary orientation value
-  let errorThrown = false;
-  try {
-    await fromNgffZarr(store, { validate: true });
-  } catch (error) {
-    errorThrown = true;
-    assertEquals(
-      (error as Error).message.includes("Invalid orientation value"),
-      true,
-    );
-  }
-  assertEquals(errorThrown, true);
+  // The module-level check rejects the out-of-vocabulary value...
+  const error = assertThrows(() => validateRfc4Orientation(axes), Error);
+  assertEquals(error.message.includes("Invalid orientation value"), true);
+
+  // ...and the 0.4 read path does not apply it: RFC 4 gates on 0.9.dev1.
+  const multiscales = await fromNgffZarr(store, { validate: true });
+  assertEquals(multiscales !== undefined, true);
 });
 
 Deno.test("fromNgffZarr without validation - loads invalid data", async () => {
