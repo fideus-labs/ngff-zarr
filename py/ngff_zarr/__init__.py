@@ -14,6 +14,10 @@ from .compute_omero import (
 )
 from .config import config
 from .detect_cli_io_backend import ConversionBackend, detect_cli_io_backend
+from .displacement_field_transform import (
+    itk_displacement_field_to_ngff_transform,
+    ngff_displacement_field_to_itk_transform,
+)
 from .from_ngff_zarr import from_ngff_zarr, from_ome_zarr
 from .hcs import (
     HCSPlate,
@@ -133,6 +137,8 @@ __all__ = [
     "ngff_transform_to_itk_transform",
     "itk_transform_to_ngff_matrix",
     "itk_transform_to_ngff_transform",
+    "itk_displacement_field_to_ngff_transform",
+    "ngff_displacement_field_to_itk_transform",
     # Out-of-core resampling
     "itk_transform_resample",
     "itk_transform_resample_bounding_box",

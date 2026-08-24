@@ -255,6 +255,13 @@ def _matrix_offset_from_itkwasm(entry, dimension: int):
         # ITK applies the matrix about the center, so fold it into the offset.
         return matrix, translation + center - matrix @ center
 
+    if parameterization == "DisplacementField":
+        msg = (
+            "a displacement field has no affine equivalent; convert it with "
+            "itk_displacement_field_to_ngff_transform, which returns the "
+            "'displacements' transform and the field to write next to the image"
+        )
+        raise NotImplementedError(msg)
     if parameterization in _NON_LINEAR_PARAMETERIZATIONS:
         msg = (
             "only linear ITK transforms can be expressed as an RFC-5 affine; "
@@ -307,6 +314,14 @@ def _itk_matrix_offset(transform, dimension: int):
 
     # A native itk.Transform, including the CompositeTransform Elastix returns.
     if hasattr(transform, "TransformPoint"):
+        if hasattr(transform, "GetDisplacementField"):
+            msg = (
+                "a displacement field has no affine equivalent; convert it with "
+                "itk_displacement_field_to_ngff_transform, which returns the "
+                "'displacements' transform and the field to write next to the "
+                "image"
+            )
+            raise NotImplementedError(msg)
         _reject_non_linear(transform)
         return _matrix_offset_by_probing(transform, dimension)
 

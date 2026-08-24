@@ -25,12 +25,13 @@ Both conventions place the pixel center at the integer index, so no
 half-pixel correction is involved.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 
 from .v06.zarr_metadata import (
     Affine,
+    Displacements,
     Identity,
     Rotation,
     Scale,
@@ -226,17 +227,25 @@ def ngff_transform_to_itk_transform(
     transform: Transform,
     dims: Sequence[str],
     *,
+    fields: Mapping[str, object] | None = None,
     fixed=None,
     moving=None,
 ) -> list:
     """Convert an RFC-5 transformation to an ITK-Wasm transform list.
 
-    The transformation is collapsed into a single ``Affine`` entry, so the
-    result is independent of ITK's own list-composition order.
+    A linear transformation is collapsed into a single ``Affine`` entry, so
+    the result is independent of ITK's own list-composition order. A
+    ``displacements`` transformation becomes a single ``DisplacementField``
+    entry built from the field passed in ``fields``.
 
-    :param transform: An RFC-5 (OME-Zarr v0.6) coordinate transformation
-        describing a linear mapping.
+    :param transform: An RFC-5 (OME-Zarr v0.6) coordinate transformation:
+        a linear mapping, or a ``displacements`` transformation.
     :type  transform: Transform
+    :param fields: The field images a ``displacements`` transformation points
+        at, keyed by its ``path``: an ``NgffImage``, or the ``NgffMultiscales``
+        read from ``f"{store}/{transform.path}"``. Required for a
+        ``displacements`` transformation, ignored otherwise.
+    :type  fields: Mapping[str, NgffImage | NgffMultiscales], optional
 
     :param dims: The axis names of the coordinate system the transformation is
         defined on, in RFC-5 (Zarr) order.
@@ -255,6 +264,20 @@ def ngff_transform_to_itk_transform(
     :return: A single-entry ITK-Wasm ``TransformList``.
     :rtype: list[itkwasm.Transform]
     """
+    if isinstance(transform, Displacements):
+        from .displacement_field_transform import (
+            _fields_entry,
+            ngff_displacement_field_to_itk_transform,
+        )
+
+        return ngff_displacement_field_to_itk_transform(
+            transform,
+            _fields_entry(transform, fields),
+            dims,
+            fixed=fixed,
+            moving=moving,
+        )
+
     from itkwasm import (
         FloatTypes,
         TransformParameterizations,

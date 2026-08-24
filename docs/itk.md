@@ -348,16 +348,73 @@ takes any RFC-5 type. `multiscales > datasets` takes exactly one entry, and only
 a single `scale`, a single `identity`, or a two-element `sequence` of scale and
 translation: a bare `translation` and an `affine` are both rejected there.
 
-Only **linear** transforms convert between the two representations, in either
-direction: a deformation has no affine equivalent, so a non-linear ITK
-transform raises `NotImplementedError`, as do array-backed `displacements` and
-`coordinates` going the other way. RFC-5 represents deformations with those
-field types instead, described in the [RFC-5 documentation](./rfc5.md).
+Linear transforms and displacement fields convert; other deformations do not.
+A B-spline or a velocity field has no RFC-5 equivalent, so such an ITK
+transform raises `NotImplementedError`, as does an RFC-5 `coordinates`
+transformation going the other way. RFC-5 represents deformations with its
+`displacements` and `coordinates` field types, described in the
+[RFC-5 documentation](./rfc5.md); the first of those is covered next.
 
-This restriction applies only to *converting* a transform. Computing a bounding
-box from an **ITK** transform does not require linearity -- that is the section
-above. An RFC-5 `displacements` or `coordinates` transformation is converted
-first, so it is refused there too.
+Computing a bounding box from an **ITK** transform does not require linearity
+-- that is the section above. An RFC-5 `displacements` transformation is
+converted first, so it needs its field there too.
+
+### Displacement fields
+
+A displacement field is a transformation and an array at once. ITK keeps the
+array inside the transform; RFC-5 keeps it in the store, as a multiscale image
+the `displacements` entry points at by `path`. The conversion therefore has two
+outputs, the transform and the field to write next to the image, and the
+functions stay free of any I/O:
+
+```python
+>>> transform, field = nz.itk_displacement_field_to_ngff_transform(  # doctest: +SKIP
+...     warp, multiscales.metadata.dimension_names, path='displacement_field')
+>>> nz.to_ome_zarr(  # doctest: +SKIP
+...     'registered.ome.zarr/displacement_field',
+...     nz.to_multiscales(field, scale_factors=[]), version='0.6')
+>>> transform.input = CoordinateSystemIdentifier(name=intrinsic.name)  # doctest: +SKIP
+>>> transform.output = CoordinateSystemIdentifier(name=registered.name)  # doctest: +SKIP
+>>> multiscales.metadata.coordinateTransformations = [transform]  # doctest: +SKIP
+>>> nz.to_ome_zarr(  # doctest: +SKIP
+...     'registered.ome.zarr', multiscales, version='0.6', overwrite=False)
+```
+
+`warp` may be an `itk.DisplacementFieldTransform`, the vector `itk.Image` or
+`itkwasm.Image` a registration tool writes the field as, or an ITK-Wasm
+`DisplacementField` transform. The field comes back as an `NgffImage` whose
+first axis holds the components (`type: "displacement"`) followed by the
+spatial axes, with the grid's spacing and origin as its scale and translation.
+Its components follow the axes of `dims`, as RFC-5 requires, so an ITK `(dx,
+dy, dz)` vector is stored as `(dz, dy, dx)` on a `zyx` image.
+
+Going back, pass the field the transform points at, loaded from the same
+store, keyed by its `path`:
+
+```python
+>>> imported = nz.from_ome_zarr('registered.ome.zarr')  # doctest: +SKIP
+>>> transform = imported.metadata.coordinateTransformations[0]  # doctest: +SKIP
+>>> field = nz.from_ome_zarr(f'registered.ome.zarr/{transform.path}')  # doctest: +SKIP
+>>> itk_transforms = nz.ngff_transform_to_itk_transform(  # doctest: +SKIP
+...     transform, imported.metadata.dimension_names,
+...     fields={transform.path: field})
+```
+
+The result is an ITK-Wasm `TransformList` with one `DisplacementField` entry;
+`itk.transform_from_dict` turns it into a native
+`itk.DisplacementFieldTransform`. ITK interpolates a field linearly, so a
+transform asking for another `interpolation` converts with a warning, which
+RFC-5 allows: the field's interpolation is a recommendation to consumers, not
+a requirement.
+
+The `fixed` and `moving` images change frames here exactly as for an affine,
+with one more rule. The field's own grid must be oriented like the fixed image
+(the identity when no images are passed): RFC-5 maps the field's array to the
+input coordinate system through the field's scale and translation, which
+cannot express a differently oriented grid. Registrations sample the field on
+the fixed grid, so this holds for their output; a field sampled elsewhere is
+refused rather than written with a mapping a reader would misread, and should
+be resampled onto the fixed grid first.
 
 ITK has no notion of a non-spatial axis. Going RFC-5 to ITK, a component acting
 purely on `t` or `c` -- a frame interval, say -- is therefore **projected

@@ -381,12 +381,23 @@ def test_non_linear_transform_is_rejected_as_an_itkwasm_entry():
     from ngff_zarr.itk_transform_resample_bounding_box import _as_itk_transform_list
 
     displacement = _displacement_field_transform(itk)
-    with pytest.raises(NotImplementedError, match="only linear"):
+    # A displacement field is refused with a pointer to its own conversion,
+    # on both paths alike.
+    with pytest.raises(
+        NotImplementedError, match="itk_displacement_field_to_ngff_transform"
+    ):
         itk_transform_to_ngff_transform(displacement, ("y", "x"))
 
     entries = _as_itk_transform_list(displacement)
-    with pytest.raises(NotImplementedError, match="only linear"):
+    with pytest.raises(
+        NotImplementedError, match="itk_displacement_field_to_ngff_transform"
+    ):
         itk_transform_to_ngff_transform(entries, ("y", "x"))
+
+    # Any other deformation gets the generic refusal on both paths.
+    bspline = _itkwasm_entry("BSpline", np.zeros(32), np.zeros(8), dimension=2)
+    with pytest.raises(NotImplementedError, match="only linear"):
+        itk_transform_to_ngff_transform([bspline], ("y", "x"))
 
 
 def test_non_linear_transform_is_rejected_without_itk(monkeypatch):
@@ -407,8 +418,13 @@ def test_non_linear_transform_is_rejected_without_itk(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", no_itk)
 
-    with pytest.raises(NotImplementedError, match="describes a deformation"):
+    with pytest.raises(
+        NotImplementedError, match="itk_displacement_field_to_ngff_transform"
+    ):
         itk_transform_to_ngff_matrix(entries, ("y", "x"))
+    bspline = _itkwasm_entry("BSpline", np.zeros(32), np.zeros(8), dimension=2)
+    with pytest.raises(NotImplementedError, match="describes a deformation"):
+        itk_transform_to_ngff_matrix([bspline], ("y", "x"))
 
 
 def test_probing_refuses_a_transform_that_is_not_affine():
