@@ -686,9 +686,9 @@ class Metadata:
 
         if validate:
             # From 0.6 the version is recorded on the ``ome`` namespace rather
-            # than on each multiscales entry, and it is the pre-release string
-            # ("0.6.dev4") that the bundled 0.6 schemas are tagged with. The
-            # per-entry value is the fallback, as on the v0.4 read path.
+            # than on each multiscales entry, as the pre-release string the
+            # store was written with. The per-entry value is the fallback, as
+            # on the v0.4 read path.
             schema_version = str(
                 root_attrs["ome"].get("version")
                 or root_attrs["ome"]["multiscales"][0].get("version")

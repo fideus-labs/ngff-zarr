@@ -13,7 +13,7 @@ import numpy as np
 from itkwasm import array_like_to_numpy_array
 
 from ._store_types import StoreLike
-from ._supported_versions import NgffVersion
+from ._supported_versions import V06_ONDISK_VERSION, NgffVersion
 from ._zarrista_utils import (
     consolidate_metadata as _zarrista_consolidate_metadata,
 )
@@ -295,15 +295,15 @@ def _root_ome_attrs(metadata_dict: dict, version: str) -> dict:
 
     Returns the ``ome``/``multiscales`` attribute mapping (hoisting ``omero``
     to its version-specific location) exactly as the writer persists it --
-    including mapping the API version ``"0.6"`` to the ``"0.6.dev4"`` string
-    stored on disk. ``metadata_dict`` is mutated in place: its ``omero`` entry
+    including mapping the API version ``"0.6"`` to the pre-release string
+    stored on disk (:data:`~ngff_zarr._supported_versions.V06_ONDISK_VERSION`). ``metadata_dict`` is mutated in place: its ``omero`` entry
     is popped so it lives only in its hoisted location, matching historical
     behavior.
     """
     if version != "0.4":
         # RFC 2, Zarr 3 - omero goes inside ome namespace
         if version == "0.6":
-            version = "0.6.dev4"
+            version = V06_ONDISK_VERSION.value
         ome_dict = {"version": version, "multiscales": [metadata_dict]}
         if "omero" in metadata_dict:
             ome_dict["omero"] = metadata_dict.pop("omero")

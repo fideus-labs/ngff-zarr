@@ -104,8 +104,8 @@ export async function fromOmeZarr(
     ) {
       // Gate the requested-version mismatch behind `validate`, matching the node
       // reader and the v0.4/v0.5 path below; otherwise behavior diverges by
-      // version and environment. The v0.6 family (`0.6` and draft `0.6.dev4`)
-      // is treated as equivalent.
+      // version and environment. The v0.6 family (`0.6` and its pre-release
+      // tags) is treated as equivalent.
       if (validate && version && !isV06Version(version)) {
         throw new Error(
           `Expected OME-Zarr version ${version}, but found ${omeForVersion.version}`,

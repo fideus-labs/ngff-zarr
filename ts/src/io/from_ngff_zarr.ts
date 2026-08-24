@@ -128,8 +128,8 @@ export async function fromOmeZarr(
     const detectedVersion = detectVersion(rootAttrs);
 
     // Validate version if requested. Treat the v0.6 family as equivalent so a
-    // store tagged `0.6.dev4` on disk satisfies a requested version of `"0.6"`
-    // (and vice versa).
+    // store tagged with a 0.6 pre-release on disk satisfies a requested version
+    // of `"0.6"` (and vice versa).
     if (validate && requestedVersion) {
       const versionsMatch = detectedVersion === requestedVersion ||
         (isV06Version(detectedVersion) && isV06Version(requestedVersion));
@@ -141,7 +141,7 @@ export async function fromOmeZarr(
     }
 
     // Parse metadata using version-specific function. The v0.6 reader handles
-    // both `0.6` and the draft `0.6.dev4` on-disk version strings.
+    // both `0.6` and the pre-release on-disk version strings.
     let result;
     if (isV06Version(detectedVersion)) {
       result = await fromZarrAttrsV06(rootAttrs, resolvedStore, validate);

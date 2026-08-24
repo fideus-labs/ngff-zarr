@@ -81,8 +81,8 @@ export function buildRootAttributes(
     const v06Entry = buildV06MultiscalesEntry(metadata, processedAxes);
     return {
       ome: {
-        // The v0.6 spec is still a draft; tag the store with the development
-        // version `0.6.dev4` even though the requested version is `"0.6"`.
+        // Tag the store with the pre-release the bundled schemas carry, not
+        // with the bare `"0.6"` that was requested; see V06_ONDISK_VERSION.
         version: V06_ONDISK_VERSION,
         multiscales: [v06Entry],
         ...(metadata.omero && { omero: metadata.omero }),

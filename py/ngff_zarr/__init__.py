@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: MIT
 
 from .__about__ import __version__
-from ._supported_versions import SUPPORTED_VERSIONS
+from ._supported_versions import SUPPORTED_VERSIONS, V06_ONDISK_VERSION
 from .cli_input_to_ngff_image import cli_input_to_ngff_image
 from .codecs import codec_from_name, get_available_codecs
 from .compute_omero import (
@@ -110,6 +110,7 @@ from .validate import validate
 __all__ = [
     "__version__",
     "SUPPORTED_VERSIONS",
+    "V06_ONDISK_VERSION",
     "config",
     # OMERO computation
     "compute_omero_from_ngff_image",

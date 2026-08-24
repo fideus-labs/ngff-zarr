@@ -49,7 +49,7 @@ import packaging.version
 
 from ._remote_reader import RemoteZarrStore, remote_read_available
 from ._store_types import StoreLike
-from ._supported_versions import NgffVersion
+from ._supported_versions import V06_ONDISK_VERSION, NgffVersion
 from ._zarrista_utils import (
     _is_local_path,
     create_zarrista_array,
@@ -82,14 +82,26 @@ if TYPE_CHECKING:
 def _normalize_target_version(version: str | NgffVersion) -> str:
     """Return the API version string (``"0.4"``/``"0.5"``/``"0.6"``).
 
-    Both the API alias ``"0.6"`` and the on-disk development string
-    ``"0.6.dev4"`` normalize to ``"0.6"`` so the value can be handed to
+    Both the API alias ``"0.6"`` and the on-disk pre-release strings of the
+    0.6 family normalize to ``"0.6"`` so the value can be handed to
     ``Metadata.to_version`` (which only knows the three released versions).
     """
     nv = NgffVersion(version)
-    if nv in (NgffVersion.V06, NgffVersion.V06dev4):
+    if nv in (NgffVersion.V06, NgffVersion.V06dev4, NgffVersion.V06rc0):
         return "0.6"
     return nv.value
+
+
+def _ondisk_version_for(target_version: str) -> str:
+    """The ``ome.version`` string a store written at ``target_version`` carries.
+
+    ``"0.4"`` and ``"0.5"`` are written as themselves; ``"0.6"`` is written as
+    the pre-release tag the bundled schemas carry, see
+    :data:`~ngff_zarr._supported_versions.V06_ONDISK_VERSION`.
+    """
+    if target_version == "0.6":
+        return V06_ONDISK_VERSION.value
+    return target_version
 
 
 def _zarr_format_for_version(version: str) -> int:
@@ -492,10 +504,11 @@ def upgrade_ome_zarr(
     source_zarr_format = _zarr_format_for_version(source_version)
     same_store = _stores_are_same(input, output)
 
-    # No-op: the source spec version already equals the requested target.
-    # Normalize both to the API version so an on-disk "0.6.dev4" matches a
-    # requested "0.6".
-    if _normalize_target_version(source_version) == target_version and same_store:
+    # No-op: the store already carries the exact tag the target would write.
+    # Compared on the on-disk string rather than the API version, so a 0.6
+    # store tagged with an earlier pre-release is rewritten and its tag catches
+    # up with the vendored schemas, which is the only way to re-tag it.
+    if source_version == _ondisk_version_for(target_version) and same_store:
         # In-place no-op: leave the store bit-for-bit unchanged (no read, no
         # write). When an ``output`` is given for a same-version request we fall
         # through instead, so the user still gets their requested new store.

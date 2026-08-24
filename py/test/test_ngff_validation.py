@@ -208,6 +208,22 @@ def test_validate_v06_accepts_the_on_disk_version_string(tmp_path):
 
 
 @requires_zarr_v3
+def test_validate_v06_rejects_an_earlier_prerelease_tag(tmp_path):
+    # The bundled 0.6 schemas pin ``ome.version`` to the pre-release they were
+    # published with. A store tagged with an earlier draft is not accepted
+    # silently: the tag is the one claim the schema makes about the version.
+    # ``upgrade_ome_zarr(store, version="0.6")`` rewrites it in place.
+    jsonschema = pytest.importorskip("jsonschema")
+
+    store = _write_valid_3d_store_v06(tmp_path / "image.ome.zarr")
+    root_attrs = zarr.open_group(str(store), mode="r").attrs.asdict()
+    root_attrs["ome"]["version"] = "0.6.dev4"
+
+    with pytest.raises(jsonschema.ValidationError, match="0.6rc0"):
+        validate(root_attrs, version="0.6", model="image")
+
+
+@requires_zarr_v3
 def test_validate_v06_rejects_invalid_metadata(tmp_path):
     # Resolving the references must not turn validation into a no-op: dropping
     # a required property still fails.
