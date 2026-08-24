@@ -7,7 +7,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Union
 
 from .._store_types import StoreLike
-from .._supported_versions import V06_ONDISK_VERSION, NgffVersion
+from .._supported_versions import (
+    V06_ONDISK_VERSION,
+    V06_SUPERSEDED_TAGS,
+    NgffVersion,
+)
 from ..rfc4 import AnatomicalOrientation
 from ..v04.zarr_metadata import (
     AxesType as AxesTypeV04,
@@ -707,16 +711,13 @@ class Metadata:
                 or "0.6"
             )
             schema_attrs = root_attrs
-            if (
-                schema_version.startswith("0.6")
-                and schema_version != V06_ONDISK_VERSION.value
-            ):
+            if schema_version in V06_SUPERSEDED_TAGS:
                 # The bundled 0.6 schemas accept one tag, the pre-release they
-                # were published with. A store tagged with an earlier one
-                # differs from a valid store in that string alone, so the rest
-                # of the document is validated with the tag substituted, and
-                # the substitution is reported: ``upgrade_ome_zarr`` rewrites
-                # the tag in place.
+                # were published with. A store tagged with one an earlier
+                # release wrote differs from a valid store in that string
+                # alone, so the rest of the document is validated with the tag
+                # substituted, and the substitution is reported:
+                # ``upgrade_ome_zarr`` rewrites the tag in place.
                 warnings.warn(
                     f"OME-Zarr store carries the superseded 0.6 pre-release tag "
                     f"{schema_version!r}; the bundled schemas are tagged "

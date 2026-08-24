@@ -37,3 +37,10 @@ SUPPORTED_VERSIONS = (
 #: ``"0.6"`` the public ``version`` option accepts. Mirrors the TypeScript
 #: port's ``V06_ONDISK_VERSION``; this constant is the one place the tag lives.
 V06_ONDISK_VERSION = NgffVersion.V06rc0
+
+#: 0.6 pre-release tags that earlier ngff-zarr releases wrote and that the
+#: bundled schemas no longer accept. A store carrying one differs from a valid
+#: store in that string alone; the validating reader says so and checks the
+#: rest, and ``upgrade_ome_zarr`` rewrites the tag. Any other tag is checked
+#: as given, so a tag from a later spec release is not passed off as this one.
+V06_SUPERSEDED_TAGS = frozenset({NgffVersion.V06dev4.value})

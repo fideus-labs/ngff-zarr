@@ -273,6 +273,23 @@ def test_read_warns_on_a_superseded_0_6_tag_and_validates_the_rest(tmp_path):
 
 
 @requires_zarr_v3
+def test_read_does_not_substitute_a_tag_no_release_wrote(tmp_path):
+    # Only the tags earlier releases wrote are substituted. A plain ``0.6``,
+    # which a stricter writer might record, is checked as given, and the
+    # schema rejects it, so it is not passed off as the vendored pre-release.
+    jsonschema = pytest.importorskip("jsonschema")
+
+    store = _write_valid_3d_store_v06(tmp_path / "image.ome.zarr")
+    root = zarr.open_group(str(store), mode="r+")
+    ome = dict(root.attrs["ome"])
+    ome["version"] = "0.6"
+    root.attrs["ome"] = ome
+
+    with pytest.raises(jsonschema.ValidationError, match="'0.6' is not one of"):
+        from_ome_zarr(store, validate=True)
+
+
+@requires_zarr_v3
 def test_read_still_rejects_a_defect_behind_a_superseded_0_6_tag(tmp_path):
     # The substitution covers the tag and nothing else.
     jsonschema = pytest.importorskip("jsonschema")
