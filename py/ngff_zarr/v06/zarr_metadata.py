@@ -1,11 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+import copy
+import warnings
 from abc import ABC
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Union
 
 from .._store_types import StoreLike
-from .._supported_versions import NgffVersion
+from .._supported_versions import V06_ONDISK_VERSION, NgffVersion
 from ..rfc4 import AnatomicalOrientation
 from ..v04.zarr_metadata import (
     AxesType as AxesTypeV04,
@@ -287,11 +289,11 @@ class ByDimensionItem:
     ) -> "ByDimensionItem":
         # ngff-zarr 0.43.0 wrote these two keys in snake_case; the spec and the
         # 0.6rc0 schema spell them inputAxes and outputAxes, which is what is
-        # written now. Both spellings are read.
-        data = {
-            _BY_DIMENSION_LEGACY_KEYS.get(key, key): value
-            for key, value in data.items()
-        }
+        # written now. Both spellings are read, the spec one taking precedence
+        # when a document carries both.
+        for legacy, canonical in _BY_DIMENSION_LEGACY_KEYS.items():
+            if legacy in data and canonical not in data:
+                data = {**data, canonical: data[legacy]}
         _require_keys(
             data, ("transformation", "inputAxes", "outputAxes"), "byDimension item"
         )
@@ -704,7 +706,29 @@ class Metadata:
                 or root_attrs["ome"]["multiscales"][0].get("version")
                 or "0.6"
             )
-            validate_ngff(root_attrs, version=schema_version)
+            schema_attrs = root_attrs
+            if (
+                schema_version.startswith("0.6")
+                and schema_version != V06_ONDISK_VERSION.value
+            ):
+                # The bundled 0.6 schemas accept one tag, the pre-release they
+                # were published with. A store tagged with an earlier one
+                # differs from a valid store in that string alone, so the rest
+                # of the document is validated with the tag substituted, and
+                # the substitution is reported: ``upgrade_ome_zarr`` rewrites
+                # the tag in place.
+                warnings.warn(
+                    f"OME-Zarr store carries the superseded 0.6 pre-release tag "
+                    f"{schema_version!r}; the bundled schemas are tagged "
+                    f"{V06_ONDISK_VERSION.value!r}. Validating the rest of the "
+                    "document against them. upgrade_ome_zarr(store, "
+                    "version='0.6') rewrites the tag.",
+                    stacklevel=2,
+                )
+                schema_attrs = copy.deepcopy(root_attrs)
+                schema_attrs["ome"]["version"] = V06_ONDISK_VERSION.value
+                schema_version = V06_ONDISK_VERSION.value
+            validate_ngff(schema_attrs, version=schema_version)
 
             # RFC 4 validation for anatomical orientation. From v0.6 the axes
             # live in the intrinsic coordinate system, so they are read through

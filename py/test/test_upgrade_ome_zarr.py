@@ -113,11 +113,14 @@ def _disk_ome_version(store_path, api_version: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def test_in_place_retags_an_earlier_0_6_prerelease(tmp_path):
+@pytest.mark.parametrize("validate", [False, True])
+def test_in_place_retags_an_earlier_0_6_prerelease(tmp_path, validate):
     # A store written while 0.6 was a draft carries that draft's tag. The
     # bundled schemas pin ``ome.version`` to a later pre-release, whose enum
     # rejects the old tag, so ``upgrade`` to the same API version rewrites the
     # tag instead of treating the request as a no-op. Chunks stay untouched.
+    # With ``validate`` the source is checked with its tag substituted, since
+    # the tag is the one thing this upgrade changes.
     multiscales, data = _synth_multiscales()
     store_path = str(tmp_path / "image.ome.zarr")
     to_ome_zarr(store_path, multiscales, version="0.6")
@@ -129,7 +132,7 @@ def test_in_place_retags_an_earlier_0_6_prerelease(tmp_path):
     chunks_before = _chunk_files(tmp_path)
     assert chunks_before
 
-    upgrade_ome_zarr(store_path, version="0.6")
+    upgrade_ome_zarr(store_path, version="0.6", validate=validate)
 
     root_after = zarr.open_group(store_path, mode="r")
     assert root_after.attrs["ome"]["version"] == DISK_VERSION["0.6"]
