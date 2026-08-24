@@ -6,6 +6,7 @@ import shutil
 import signal
 import threading
 import time
+import uuid
 from collections.abc import Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -155,7 +156,13 @@ def _large_image_serialization(
     image: NgffImage, progress: NgffProgress | NgffProgressCallback | None
 ):
     optimized_chunks = 512 if "z" in image.dims else 1024
-    base_path = f"{image.name}-cache-{time.time()}"
+    # The suffix must be unique per call. A timestamp alone is not: on Windows
+    # with Python < 3.13 time.time() has ~15.6 ms resolution, so back-to-back
+    # calls share a value and two caches land in one directory, where they
+    # clobber each other. Differing shapes raise (a 1D array's chunk key "c/0"
+    # is a file where a 2D array's is a directory), but matching shapes share
+    # chunk keys and corrupt silently, so uniqueness cannot rest on the clock.
+    base_path = f"{image.name}-cache-{time.time()}-{uuid.uuid4().hex}"
 
     cache = _CacheTarget.from_config()
     base_path_removed = False
