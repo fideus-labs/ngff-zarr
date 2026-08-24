@@ -123,10 +123,16 @@ the moving chunks directly, so a chunk that several blocks need is read and
 decoded once. The full moving image is never loaded, and nothing runs until
 the result is computed.
 
+`itk_transform_resample` takes an ITK or ITK-Wasm transform, so the RFC-5
+`Affine` above is converted first; `ngff_transform_to_itk_transform` keeps the
+axis order straight (see [Converting transforms](#converting-transforms)).
+
 ```python
+>>> itk_transform = nz.ngff_transform_to_itk_transform(  # doctest: +SKIP
+...     transform, dims=['y', 'x'])
 >>> resampled = nz.itk_transform_resample(              # doctest: +SKIP
-...     transform, fixed, moving)
->>> nz.to_ngff_zarr("resampled.zarr",                   # doctest: +SKIP
+...     itk_transform, fixed, moving)
+>>> nz.to_ome_zarr("resampled.zarr",                    # doctest: +SKIP
 ...     nz.to_multiscales(resampled))
 ```
 
