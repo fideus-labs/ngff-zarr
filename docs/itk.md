@@ -241,7 +241,11 @@ which matters when anatomical orientation is present:
   direction matrix derived from [RFC-4](./rfc4.md) anatomical orientation.
 
 In both cases the transform maps *fixed* points into *moving* space, matching
-the direction registration libraries return.
+the direction registration libraries return. A transformation's `input` and
+`output` identifiers are **not resolved** here: the bounding box always maps
+from the fixed image's intrinsic system to the moving image's, whatever the
+identifiers name. They matter when the transformation is written into a store,
+not when a region is computed.
 
 ## Converting transforms
 
@@ -252,6 +256,13 @@ Transforms convert in both directions, mirroring `itk_image_to_ngff_image` and
 | --- | --- |
 | `ngff_transform_to_itk_transform` | RFC-5 to ITK |
 | `itk_transform_to_ngff_transform` | ITK to RFC-5 |
+| `itk_transform_to_ngff_matrix` | ITK to RFC-5, as raw numbers |
+
+`itk_transform_to_ngff_matrix` returns the `(matrix, offset)` pair in Zarr axis
+order instead of an RFC-5 dataclass. Reach for it to *inspect* a registration
+numerically, a rotation angle or a determinant say: because the conversion
+simplifies by default, `itk_transform_to_ngff_transform` may hand back a
+`translation` or a `scale`, so there is no `affine` field to read.
 
 Both reconcile the two conventions that differ between the specifications:
 
@@ -279,20 +290,57 @@ so parameterizations that store angles or a quaternion (`Euler2DTransform`,
 ```python
 >>> import itk
 >>> import ngff_zarr as nz
+>>> from ngff_zarr.v06.zarr_metadata import (
+...     CoordinateSystem, CoordinateSystemIdentifier)
 >>>
 >>> transform = registration_method.GetCombinedTransform()  # doctest: +SKIP
 >>> rfc5 = nz.itk_transform_to_ngff_transform(  # doctest: +SKIP
 ...     transform, multiscales.metadata.dimension_names)
+>>>
+>>> # A transformation written into multiscales metadata must name the
+>>> # coordinate systems it maps between, so declare the target and point the
+>>> # transformation at it. Omit this and the store fails validation, quietly:
+>>> # the write succeeds and only `from_ome_zarr(..., validate=True)` complains.
+>>> intrinsic = multiscales.metadata.intrinsic_coordinate_system  # doctest: +SKIP
+>>> registered = CoordinateSystem(  # doctest: +SKIP
+...     name='registered', axes=list(intrinsic.axes))
+>>> multiscales.metadata.coordinateSystems.append(registered)  # doctest: +SKIP
+>>> rfc5.input = CoordinateSystemIdentifier(name=intrinsic.name)  # doctest: +SKIP
+>>> rfc5.output = CoordinateSystemIdentifier(name=registered.name)  # doctest: +SKIP
+>>>
 >>> multiscales.metadata.coordinateTransformations = [rfc5]  # doctest: +SKIP
 >>> nz.to_ome_zarr(  # doctest: +SKIP
 ...     'registered.ome.zarr', multiscales, version='0.6')
 ```
 
+When the images carry [RFC-4](./rfc4.md) anatomical orientation, pass them:
+
+```python
+>>> rfc5 = nz.itk_transform_to_ngff_transform(  # doctest: +SKIP
+...     transform, fixed.dims, fixed=fixed, moving=moving)
+```
+
+An ITK transform acts on physical space, direction matrix included, while an
+RFC-5 transformation acts on the intrinsic coordinate systems. Given both
+`NgffImage`s the conversion changes frames exactly; without them it copies the
+numbers unchanged, which is exact only when neither image is oriented.
+`ngff_transform_to_itk_transform` accepts the same pair for the reverse
+direction.
+
 By default the result is the least expressive transformation that represents
 the mapping exactly -- `identity`, `translation`, `scale`, or a `sequence` of
-scale and translation -- falling back to `affine`. RFC-5 recommends this, and
-only those simpler forms are legal inside `multiscales > datasets`. Pass
+scale and translation -- falling back to `affine`. RFC-5 recommends this. Pass
 `simplify=False` to always get an `affine`.
+
+A mirror never simplifies to a `scale`, however diagonal its matrix looks,
+because RFC-5 requires every scale factor to be strictly positive; it falls
+through to `affine`, which carries the sign.
+
+The two slots that hold a transformation accept different things, and the
+example above uses the permissive one. `multiscales > coordinateTransformations`
+takes any RFC-5 type. `multiscales > datasets` takes exactly one entry, and only
+a single `scale`, a single `identity`, or a two-element `sequence` of scale and
+translation: a bare `translation` and an `affine` are both rejected there.
 
 Only **linear** transforms convert between the two representations, in either
 direction: a deformation has no affine equivalent, so a non-linear ITK
@@ -301,20 +349,30 @@ transform raises `NotImplementedError`, as do array-backed `displacements` and
 field types instead, described in the [RFC-5 documentation](./rfc5.md).
 
 This restriction applies only to *converting* a transform. Computing a bounding
-box does **not** require linearity -- that is the section above.
+box from an **ITK** transform does not require linearity -- that is the section
+above. An RFC-5 `displacements` or `coordinates` transformation is converted
+first, so it is refused there too.
 
-In the TypeScript package the equivalents are `ngffTransformToItkTransform`
-and `itkTransformToNgffTransform`. TypeScript has no `itk` package to fall back
-on, so only parameterizations that carry a matrix (`Identity`, `Translation`,
-`Scale`, `Affine`) convert there; angle- and quaternion-based ones must be
-converted to an affine first.
+ITK has no notion of a non-spatial axis. Going RFC-5 to ITK, a component acting
+purely on `t` or `c` -- a frame interval, say -- is therefore **projected
+away**: the spatial mapping stays exact, but the ITK transform is not a
+faithful copy of the input. A component that *couples* the two kinds of axis,
+where `y` would depend on `c`, is refused instead, because dropping that one
+would move the image. Coming back the other way, non-spatial axes are left
+untransformed.
+
+In the TypeScript package the equivalents are `ngffTransformToItkTransform`,
+`itkTransformToNgffTransform` and `itkTransformToNgffMatrix`. TypeScript has no
+`itk` package to fall back on, so only parameterizations that carry a matrix
+(`Identity`, `Translation`, `Scale`, `Affine`) convert there; angle- and
+quaternion-based ones must be converted to an affine first.
 
 ## TypeScript
 
-The same functions are available in the TypeScript package as
-`itkTransformResampleBoundingBox` and `ngffTransformToItkTransform`. They are
-async, take options as an object, and return a `ResampleBoundingBox` whose
-`selection()` yields a zarrita selection instead of Python slices:
+The TypeScript package provides `itkTransformResampleBoundingBox`. It is async,
+takes options as an object, and returns a `ResampleBoundingBox` whose
+`selection()` yields a zarrita selection instead of Python slices. It accepts an
+RFC-5 transformation just as the Python function does:
 
 ```typescript
 import {
