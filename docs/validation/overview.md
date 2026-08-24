@@ -26,6 +26,9 @@ finest-to-coarsest dataset ordering, OMERO channel color format, RFC 4
 anatomical orientation, and HCS plate/well consistency. Most rules enforce v0.4
 MUSTs; two additional rules (`zarr-format`, `ome-namespace`) enforce the v0.5
 `ome`-namespace and Zarr v3 store conventions and fire only for v0.5 metadata.
+The three RFC 4 orientation rules are normative from OME-Zarr 0.9.dev1: they
+are inert when the caller declares an earlier version and stay on, as a
+strictness choice, when no version is declared (see [[rule-reference]]).
 
 The rules operate on the already-parsed metadata object (the `Metadata`,
 `Plate`, and `Well` dataclasses in Python; their equivalents in TypeScript), so
