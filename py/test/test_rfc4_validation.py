@@ -643,11 +643,12 @@ def test_a_falsey_orientation_still_reaches_the_validator(orientation):
         validate_rfc4_orientation(axes)
 
 
-def test_read_rejects_orientation_on_a_non_space_axis(tmp_path):
-    """The reader reaches the non-space rule with no spatial axis oriented.
+def test_read_accepts_orientation_on_a_non_space_axis_below_0_9(tmp_path):
+    """A 0.4 store with an orientation on its time axis reads cleanly.
 
-    Gating on a spatial orientation left this document accepted: nothing in it
-    orients a space axis, which is exactly what makes it invalid.
+    The non-space rule is reachable with no spatial axis oriented (see
+    ``test_orientation_on_a_non_space_axis_is_reachable``), but RFC 4 gates on
+    0.9.dev1, so the 0.4 read path does not apply it to this document.
     """
     pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
 
@@ -685,5 +686,5 @@ def test_read_rejects_orientation_on_a_non_space_axis(tmp_path):
         }
     ]
 
-    with pytest.raises(ValueError, match="non-space axes"):
-        from_ngff_zarr(store, validate=True)
+    multiscales = from_ngff_zarr(store, validate=True)
+    assert [axis.name for axis in multiscales.metadata.axes] == ["t", "y", "x"]
