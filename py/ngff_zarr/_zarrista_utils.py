@@ -103,13 +103,22 @@ class _ZarristaArrayAdapter:
     or non-native-byte-order write input. dask needs a tuple ``shape``, a
     numpy ``dtype``, ndarray ``__getitem__`` results, and a tolerant
     ``__setitem__`` (see :func:`_native_contiguous`).
+
+    ``store_path`` and ``node_path`` record where an array of a local store
+    lives, so the writer can tell that an image still reads from the store it
+    is about to replace. They are ``None`` for arrays without a local
+    directory.
     """
 
-    def __init__(self, arr):
+    def __init__(
+        self, arr, store_path: Path | None = None, node_path: str | None = None
+    ):
         self._arr = arr
         self.shape = tuple(arr.shape)
         self.dtype = np.dtype(arr.dtype.name)
         self.ndim = arr.ndim
+        self.store_path = store_path
+        self.node_path = node_path
 
     def _fetch(self, selection) -> np.ndarray:
         """Materialize *selection*; the async remote adapter overrides this."""
@@ -775,22 +784,30 @@ def is_zarrista_array(obj) -> bool:
     return isinstance(obj, Array)
 
 
-def zarrista_array_to_dask(arr) -> dask.array.Array:
+def zarrista_array_to_dask(
+    arr, store_path: Path | None = None, node_path: str | None = None
+) -> dask.array.Array:
     """Wrap zarrista ``Array`` *arr* as a lazy dask array.
 
     Chunks follow the stored chunk grid, using the subchunk (inner chunk)
     shape for sharded arrays so reads stay at the efficient granularity.
+    *store_path* and *node_path* name the array's place in a local store
+    (see :class:`_ZarristaArrayAdapter`).
     """
     if arr.is_sharded:
         chunks = tuple(arr.subchunk_shape)
     else:
         chunks = tuple(arr.chunk_shape([0] * arr.ndim))
-    return dask.array.from_array(_ZarristaArrayAdapter(arr), chunks=chunks)
+    return dask.array.from_array(
+        _ZarristaArrayAdapter(arr, store_path, node_path), chunks=chunks
+    )
 
 
 def open_zarrista_lazy(path, component: str | None = None) -> dask.array.Array:
     """Open the array at *component* within *path* as a lazy dask array."""
-    return zarrista_array_to_dask(open_zarrista_array(path, component))
+    path = normalize_store(path)
+    node_path = str(component).strip("/") if component else ""
+    return zarrista_array_to_dask(open_zarrista_array(path, component), path, node_path)
 
 
 def open_ozx_store(path):

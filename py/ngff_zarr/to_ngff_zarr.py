@@ -15,13 +15,14 @@ from itkwasm import array_like_to_numpy_array
 from ._store_types import StoreLike
 from ._supported_versions import V06_ONDISK_VERSION, NgffVersion
 from ._zarrista_utils import (
-    consolidate_metadata as _zarrista_consolidate_metadata,
-)
-from ._zarrista_utils import (
+    _ZarristaArrayAdapter,
     create_zarrista_group,
     create_zarrista_subgroup,
     normalize_store,
     open_lazy_array,
+)
+from ._zarrista_utils import (
+    consolidate_metadata as _zarrista_consolidate_metadata,
 )
 from .config import config
 from .memory_usage import memory_usage
@@ -388,6 +389,71 @@ def _gate_axis_model(metadata, version) -> None:
                     "0.9.dev1 is the only OME-Zarr version that adopts RFC-3 "
                     "(arbitrary axis count, names, types and ordering)."
                 ) from exc
+
+
+def _lazy_array_leaves(arr: dask.array.Array):
+    """Yield the local store arrays embedded in the dask graph of ``arr``.
+
+    An array opened from a local store enters a dask graph as a
+    ``_ZarristaArrayAdapter`` held by a materialized layer; blockwise layers
+    only reference it by key. Materialized data (``persist()``) holds none.
+    """
+    graph = arr.__dask_graph__()
+    layers = getattr(graph, "layers", None)
+    if layers is None:
+        sources = graph.values()
+    else:
+        sources = (
+            value
+            for layer in layers.values()
+            for value in getattr(layer, "mapping", {}).values()
+        )
+    for value in sources:
+        stack = [value]
+        while stack:
+            item = stack.pop()
+            if isinstance(item, _ZarristaArrayAdapter):
+                if item.store_path is not None:
+                    yield item
+            elif isinstance(item, (tuple, list)):
+                stack.extend(item)
+
+
+def _leaf_array_dir(leaf: _ZarristaArrayAdapter) -> Path:
+    """Directory of the array a lazy array leaf reads from."""
+    parts = [p for p in (leaf.node_path or "").split("/") if p not in ("", ".")]
+    return Path(leaf.store_path).resolve().joinpath(*parts)
+
+
+def _reads_below(leaf: _ZarristaArrayAdapter, directory: Path) -> bool:
+    """Whether a lazy array leaf reads an array at or below ``directory``."""
+    array_dir = _leaf_array_dir(leaf)
+    return array_dir == directory or directory in array_dir.parents
+
+
+def _guard_overwrite_of_source_store(
+    multiscales: NgffMultiscales, store_path: str
+) -> None:
+    """Refuse an overwrite that would clear the store the images still read.
+
+    Overwriting removes every node of the store before dask computes a
+    chunk. Reads of the removed chunks then return the fill value, so the
+    write silently fills the store with zeros.
+    """
+    destination = Path(store_path).resolve()
+    for index, image in enumerate(multiscales.images):
+        if not isinstance(image.data, dask.array.Array):
+            continue
+        for leaf in _lazy_array_leaves(image.data):
+            if _reads_below(leaf, destination):
+                raise ValueError(
+                    f"Cannot overwrite '{store_path}': multiscales.images[{index}] "
+                    "reads its data from that store, and overwrite=True removes "
+                    "the store contents before the data is computed, which "
+                    "would write zeros. Write to a different store, append "
+                    "levels with start_level, or materialize the data first, "
+                    "e.g. image.data = image.data.persist()."
+                )
 
 
 def _prepare_metadata(
@@ -1190,6 +1256,8 @@ def _to_ngff_zarr_impl(
     store_path = str(normalize_store(store))
 
     _validate_ngff_parameters(version, chunks_per_shard)
+    if overwrite:
+        _guard_overwrite_of_source_store(multiscales, store_path)
     metadata, dimension_names, _ = _prepare_metadata(multiscales, version)
     _gate_top_level_transforms(metadata, version)
     metadata_dict = asdict(metadata)
