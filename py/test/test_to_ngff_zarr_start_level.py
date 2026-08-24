@@ -7,6 +7,8 @@ import numpy as np
 import pytest
 import zarr
 from ngff_zarr import (
+    Methods,
+    NgffImage,
     from_ome_zarr,
     to_multiscales,
     to_ngff_image,
@@ -247,3 +249,35 @@ def test_interrupted_repeated_append_leaves_the_store_readable(tmp_path, monkeyp
     read = from_ome_zarr(path)
     assert len(read.images) == 1
     assert read.images[0].data.compute().max() > 0.0
+
+
+@needs_zarr_v3
+def test_displacement_field_keeps_its_axis_type_when_appending(tmp_path):
+    values = np.random.default_rng(0).random((2, 64, 64)).astype(np.float32)
+    image = NgffImage(
+        da.from_array(values, chunks=(2, 32, 32)),
+        dims=["c", "y", "x"],
+        scale={"c": 1.0, "y": 0.5, "x": 0.5},
+        translation={"c": 0.0, "y": 0.0, "x": 0.0},
+        name="displacement_field",
+        axes_types={"c": "displacement"},
+    )
+    path = str(tmp_path / "field.ome.zarr")
+    to_ome_zarr(
+        path, to_multiscales(image, scale_factors=[], cache=False), version="0.6"
+    )
+
+    base = from_ome_zarr(path).images[0]
+    multiscales = to_multiscales(
+        base,
+        scale_factors=[2],
+        method=Methods.DASK_BIN_SHRINK,
+        chunks=(2, 32, 32),
+        cache=False,
+    )
+    to_ome_zarr(path, multiscales, version="0.6", overwrite=False, start_level=1)
+
+    read = from_ome_zarr(path)
+    axes = read.metadata.intrinsic_coordinate_system.axes
+    assert [axis.type for axis in axes] == ["displacement", "space", "space"]
+    assert len(read.images) == 2
