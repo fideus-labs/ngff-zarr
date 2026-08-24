@@ -10,6 +10,7 @@ from ngff_zarr import (
     from_ngff_zarr,
     to_multiscales,
     to_ngff_zarr,
+    to_ome_zarr,
     validate,
 )
 from packaging import version
@@ -221,6 +222,35 @@ def test_validate_v06_rejects_an_earlier_prerelease_tag(tmp_path):
 
     with pytest.raises(jsonschema.ValidationError, match="0.6rc0"):
         validate(root_attrs, version="0.6", model="image")
+
+
+@requires_zarr_v3
+def test_v06_write_refuses_a_top_level_transform_without_references(tmp_path):
+    # From 0.6 a multiscale-level transform maps between two named coordinate
+    # systems and the schema requires both references. The writer refuses the
+    # model up front rather than producing a store its own validated reader
+    # rejects; with the references present the store validates.
+    from ngff_zarr.v06.zarr_metadata import CoordinateSystemIdentifier, Scale
+
+    array = np.random.random((4, 8, 8)).astype("float32")
+    multiscales = to_multiscales(array, [2])
+    multiscales.metadata.coordinateTransformations = [Scale(scale=[2.0, 2.0, 2.0])]
+
+    with pytest.raises(ValueError, match="names no input coordinate system"):
+        to_ome_zarr(tmp_path / "refused.ome.zarr", multiscales, version="0.6")
+
+    intrinsic = multiscales.metadata.intrinsic_coordinate_system.name
+    multiscales.metadata.coordinateTransformations = [
+        Scale(
+            scale=[2.0, 2.0, 2.0],
+            input=CoordinateSystemIdentifier(name=intrinsic),
+            output=CoordinateSystemIdentifier(name=intrinsic),
+        )
+    ]
+    store = tmp_path / "written.ome.zarr"
+    to_ome_zarr(store, multiscales, version="0.6")
+    pytest.importorskip("jsonschema")
+    validate(zarr.open_group(str(store), mode="r").attrs.asdict(), version="0.6")
 
 
 @requires_zarr_v3

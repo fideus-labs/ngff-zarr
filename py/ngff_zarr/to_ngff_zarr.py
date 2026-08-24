@@ -265,6 +265,28 @@ def _validate_ngff_parameters(
         )
 
 
+def _gate_top_level_transforms(metadata, version: str) -> None:
+    """Refuse a multiscale-level transform the 0.6 schema cannot express.
+
+    From 0.6 a transform on the multiscales entry maps between two named
+    coordinate systems, and the schema requires both ``input`` and ``output``
+    to name one. The writer serializes whatever the model holds, so a missing
+    reference would produce a store the validated reader rejects.
+    """
+    if version != "0.6" or not metadata.coordinateTransformations:
+        return
+    for index, transform in enumerate(metadata.coordinateTransformations):
+        for side in ("input", "output"):
+            reference = getattr(transform, side, None)
+            if reference is None or getattr(reference, "name", None) is None:
+                raise ValueError(
+                    f"multiscales coordinateTransformations[{index}] "
+                    f"({transform.type}) names no {side} coordinate system; "
+                    "OME-Zarr 0.6 requires every multiscale-level transformation "
+                    "to name both its input and its output coordinate system"
+                )
+
+
 def _prepare_metadata(
     multiscales: NgffMultiscales, version: str
 ) -> tuple[Metadata_v04 | Metadata_v05, tuple[str, ...], dict]:
@@ -1065,6 +1087,7 @@ def _to_ngff_zarr_impl(
 
     _validate_ngff_parameters(version, chunks_per_shard)
     metadata, dimension_names, _ = _prepare_metadata(multiscales, version)
+    _gate_top_level_transforms(metadata, version)
     metadata_dict = asdict(metadata)
     metadata_dict = _pop_metadata_optionals(metadata_dict)
     metadata_dict["@type"] = "ngff:Image"

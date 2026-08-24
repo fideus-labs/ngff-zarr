@@ -53,7 +53,7 @@ position `i` is the input axis that becomes the `i`-th output axis, and every
 zero-based input axis index appears exactly once.
 
 `ByDimension` builds a high dimensional transform from lower dimensional ones;
-each `ByDimensionItem` wraps a transformation with the `input_axes` and `output_axes`
+each `ByDimensionItem` wraps a transformation with the `inputAxes` and `outputAxes`
 (zero-based indices into the parent's coordinate systems) it applies to, and
 every output axis is produced by exactly one item.
 
