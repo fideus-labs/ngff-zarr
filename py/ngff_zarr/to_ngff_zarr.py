@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 import copy
+import json
 import shutil
 import tempfile
 import warnings
@@ -20,6 +21,7 @@ from ._zarrista_utils import (
     create_zarrista_subgroup,
     normalize_store,
     open_lazy_array,
+    read_group_attributes,
 )
 from ._zarrista_utils import (
     consolidate_metadata as _zarrista_consolidate_metadata,
@@ -508,6 +510,36 @@ def _root_ome_attrs(metadata_dict: dict, version: str) -> dict:
     return attrs
 
 
+#: Root attributes the writer owns, across every OME-Zarr version.
+_OME_ROOT_ATTRS = frozenset({"multiscales", "omero", "ome"})
+
+
+def _foreign_root_attrs(store: StoreLike) -> dict:
+    """Root attributes of an existing store that the writer does not own.
+
+    Application metadata such as direction cosines or provenance lives beside
+    the OME keys and survives an overwrite; the OME keys of every version are
+    excluded so a version change never leaves a stale entry behind. An absent
+    store or root group has nothing to preserve, and a root that holds an
+    array carries no group attributes. Any other failure to read the root
+    propagates, so an unreadable store is never cleared.
+    """
+    for zarr_format in (3, 2):
+        try:
+            attributes = read_group_attributes(store, zarr_format=zarr_format)
+        except json.JSONDecodeError:
+            raise
+        except ValueError:
+            return {}
+        if attributes is not None:
+            return {
+                key: value
+                for key, value in attributes.items()
+                if key not in _OME_ROOT_ATTRS
+            }
+    return {}
+
+
 def _create_zarr_root(
     store: StoreLike,
     version: str,
@@ -517,15 +549,13 @@ def _create_zarr_root(
     """Create and configure the root Zarr group with proper attributes.
 
     The group metadata is written through the zarrista compatibility layer
-    and the returned handle is a ``zarrista.Group``.
+    and the returned handle is a ``zarrista.Group``. An overwrite keeps the
+    root attributes the writer does not own.
     """
     zarr_format = 2 if version == "0.4" else 3
-    return create_zarrista_group(
-        store,
-        _root_ome_attrs(metadata_dict, version),
-        zarr_format,
-        overwrite=overwrite,
-    )
+    attributes = _foreign_root_attrs(store) if overwrite else {}
+    attributes.update(_root_ome_attrs(metadata_dict, version))
+    return create_zarrista_group(store, attributes, zarr_format, overwrite=overwrite)
 
 
 def _configure_sharding(
