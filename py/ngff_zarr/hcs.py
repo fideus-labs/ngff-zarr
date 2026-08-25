@@ -162,7 +162,11 @@ class HCSPlate:
         # Cache wells to avoid reloading - using bounded cache now
         if well_path not in self._wells:
             hcs_well = HCSWell.from_store(
-                self.store, well_path, well_meta, self.image_cache_size
+                self.store,
+                well_path,
+                well_meta,
+                self.image_cache_size,
+                validate=self._validate,
             )
             if self._validate:
                 # Strict structural validation of the well's own metadata, in
@@ -215,11 +219,13 @@ class HCSWell:
         well_metadata: PlateWell,
         well_group_metadata: Well,
         image_cache_size: int | None = None,
+        validate: bool = False,
     ):
         self.store = store
         self.path = well_path
         self.plate_metadata = well_metadata
         self.metadata = well_group_metadata
+        self._validate = validate
 
         # Use bounded cache for images to prevent memory issues
         from .config import config
@@ -234,8 +240,14 @@ class HCSWell:
         well_path: str,
         well_metadata: PlateWell,
         image_cache_size: int | None = None,
+        validate: bool = False,
     ) -> "HCSWell":
-        """Load a well from a zarr store."""
+        """Load a well from a zarr store.
+
+        ``validate`` reaches the images this well reads: ``from_hcs_zarr
+        (validate=True)`` checks the plate and the well metadata, and the
+        images are part of what it was asked to check.
+        """
         # Dispatches on store type: local paths read through the compat
         # layer, bytes mappings (including ZipReadStore for .ozx) through
         # the store reader, other store objects through zarr-python.
@@ -288,7 +300,12 @@ class HCSWell:
         well_group_metadata = Well(images=images, version=version)
 
         return cls(
-            store, well_path, well_metadata, well_group_metadata, image_cache_size
+            store,
+            well_path,
+            well_metadata,
+            well_group_metadata,
+            image_cache_size,
+            validate=validate,
         )
 
     @property
@@ -317,18 +334,20 @@ class HCSWell:
                 # A view of the same remote store narrowed to this field's
                 # sub-hierarchy, sharing the obstore client.
                 self._images[image_path] = from_ome_zarr(
-                    self.store.with_prefix(image_path)
+                    self.store.with_prefix(image_path), validate=self._validate
                 )
             elif isinstance(self.store, ZipReadStore):
                 # A view of the same archive narrowed to this field's
                 # sub-hierarchy; from_ome_zarr reads it as a mapping store.
                 self._images[image_path] = from_ome_zarr(
-                    self.store.with_prefix(image_path)
+                    self.store.with_prefix(image_path), validate=self._validate
                 )
             elif isinstance(self.store, (str, Path)):
                 # If store is a path string, append the image path
                 full_image_path = Path(self.store) / self.path / image_meta.path
-                self._images[image_path] = from_ome_zarr(str(full_image_path))
+                self._images[image_path] = from_ome_zarr(
+                    str(full_image_path), validate=self._validate
+                )
             else:
                 raise TypeError(
                     "HCS plates are read from local directory paths, remote "

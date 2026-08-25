@@ -182,8 +182,15 @@ def _raw_axes(multiscales_entry: dict) -> list:
 def _intrinsic_system(multiscales_entry: dict, systems: list):
     """The coordinate system the datasets map into, else the first listed.
 
-    Mirrors :attr:`ngff_zarr.v06.zarr_metadata.Metadata.intrinsic_coordinate_system`
-    at the dict level, where the parsed dataclasses are not available yet.
+    The dict-level counterpart of
+    :attr:`ngff_zarr.v06.zarr_metadata.Metadata.intrinsic_coordinate_system`,
+    used where the parsed dataclasses are not available yet. It answers with
+    the first listed system wherever that property raises: a dataset with no
+    ``output``, an ``output`` naming a system the document does not define, or
+    no datasets at all. The two therefore agree on a well-formed document and
+    part company on a malformed one, by design. This runs ahead of validation,
+    on the raw dict, so that a malformed document reaches the validator and is
+    reported rather than crashing here.
     """
     for dataset in multiscales_entry.get("datasets") or []:
         if not isinstance(dataset, dict):

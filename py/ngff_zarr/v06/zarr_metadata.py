@@ -924,6 +924,19 @@ class Metadata:
             coordinateTransformations=additionalTransformations,
         )
 
+        if validate:
+            # The structural pass, layered after the schema pass above, as the
+            # 0.4 and 0.5 readers do, so validate=True means the same thing at
+            # every version. Imported lazily so the default validate=False read
+            # path incurs no extra import cost.
+            from ..structural_validation import (
+                ValidateOptions,
+                ValidationLevel,
+                validate_structural,
+            )
+
+            validate_structural(metadata, ValidateOptions(level=ValidationLevel.STRICT))
+
         return metadata, images
 
     @classmethod
