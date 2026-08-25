@@ -18,7 +18,7 @@ zarr_version = packaging.version.parse(zarr.__version__)
 zarr_version_major = zarr_version.major
 
 
-def test_from_ngff_zarr(input_images):
+def test_from_ngff_zarr(input_images, tmp_path):
     dataset_name = "lung_series"
     data = imread.imread(input_images[dataset_name])
     image = to_ngff_image(
@@ -35,7 +35,7 @@ def test_from_ngff_zarr(input_images):
     baseline_name = "from_ngff_zarr"
     # store_new_multiscales(dataset_name, baseline_name, multiscales)
     # verify_against_baseline(dataset_name, baseline_name, multiscales)
-    test_store = MemoryStore()
+    test_store = str(tmp_path / f"{dataset_name}.zarr")
     version = "0.4"
     to_ngff_zarr(test_store, multiscales, version=version)
 
@@ -46,19 +46,19 @@ def test_from_ngff_zarr(input_images):
     )
 
 
-def test_omero_zarr_from_ngff_zarr_to_ngff_zarr(input_images):
+def test_omero_zarr_from_ngff_zarr_to_ngff_zarr(input_images, tmp_path):
     dataset_name = "13457537"
     store_path = test_data_dir / "input" / f"{dataset_name}.zarr"
     version = "0.4"
     multiscales = from_ngff_zarr(store_path, version=version)
-    test_store = MemoryStore()
+    test_store = str(tmp_path / f"{dataset_name}.zarr")
     to_ngff_zarr(test_store, multiscales, version=version)
 
 
 @pytest.mark.skipif(
     zarr_version_major < 3, reason="storage_options requires zarr-python 3"
 )
-def test_from_ngff_zarr_with_storage_options(input_images):
+def test_from_ngff_zarr_with_storage_options(input_images, tmp_path):
     """Test that storage_options parameter is accepted and handled correctly."""
     dataset_name = "lung_series"
     data = imread.imread(input_images[dataset_name])
@@ -74,8 +74,8 @@ def test_from_ngff_zarr_with_storage_options(input_images):
     multiscales.method = None
     multiscales.chunks = None
 
-    # Test with MemoryStore (should work as before)
-    test_store = MemoryStore()
+    # Test with a local directory store (should work as before)
+    test_store = str(tmp_path / f"{dataset_name}.zarr")
     version = "0.4"
     to_ngff_zarr(test_store, multiscales, version=version)
 
@@ -93,53 +93,39 @@ def test_from_ngff_zarr_with_storage_options(input_images):
     )
 
 
-@pytest.mark.skipif(
-    zarr_version_major < 3, reason="storage_options requires zarr-python 3"
-)
 def test_from_ngff_zarr_string_url_with_storage_options():
-    """Test that string URLs with storage_options create appropriate stores."""
-    from unittest.mock import MagicMock, patch
+    """String URLs forward storage_options into the remote store handle.
 
-    # Mock the FsspecStore.from_url method
-    with patch("zarr.storage.FsspecStore.from_url") as mock_from_url:
-        mock_store = MagicMock()
-        mock_from_url.return_value = mock_store
+    Remote URLs read through zarrista's async API over obstore;
+    ``from_ngff_zarr`` wraps the URL in a ``RemoteZarrStore`` that carries
+    the caller's fsspec-style ``storage_options`` (translated to obstore
+    configuration inside the handle; the translation itself is pinned in
+    ``test_remote_zarrista.py``). The legacy zarr-python/fsspec fallback
+    this test used to pin was removed with zarr-python store support; an
+    unavailable remote engine now raises ImportError up-front instead.
+    """
+    from unittest.mock import patch
 
-        # Mock zarr.open_group to avoid actual S3 calls
-        with patch("zarr.open_group") as mock_open_group:
-            mock_group = MagicMock()
-            mock_group.attrs.asdict.return_value = {
-                "multiscales": [{"version": "0.4", "datasets": [{"path": "0"}]}]
-            }
-            mock_open_group.return_value = mock_group
+    from ngff_zarr._remote_reader import remote_read_available
 
-            # Mock dask.array.from_zarr to avoid actual data loading
-            with patch("dask.array.from_zarr") as mock_from_zarr:
-                mock_array = MagicMock()
-                mock_array.dtype.byteorder = "="  # native endianness
-                mock_from_zarr.return_value = mock_array
+    if not remote_read_available():
+        pytest.skip("zarrista/obstore remote engine unavailable")
 
-                # Test that S3 URL with storage_options creates FsspecStore
-                url = "s3://test-bucket/test-dataset.zarr"
-                storage_options = {"anon": True, "region_name": "us-west-2"}
+    captured = {}
 
-                try:
-                    from_ngff_zarr(url, storage_options=storage_options)
+    def capture_open_remote_node(store, component=None):
+        captured["store"] = store
+        return  # no node here -> "No valid Zarr group found"
 
-                    # Verify that FsspecStore.from_url was called with correct parameters
-                    mock_from_url.assert_called_once_with(
-                        url, storage_options=storage_options
-                    )
+    url = "s3://test-bucket/test-dataset.zarr"
+    storage_options = {"anon": True, "region_name": "us-west-2"}
+    with patch("ngff_zarr.from_ngff_zarr.open_remote_node", capture_open_remote_node):
+        with pytest.raises(ValueError, match="No valid Zarr group found"):
+            from_ngff_zarr(url, storage_options=storage_options)
 
-                    # Verify that zarr.open_group was called with the created store
-                    mock_open_group.assert_called_once_with(mock_store, mode="r")
-
-                except Exception:
-                    # If there are other issues (like missing metadata), that's okay
-                    # We just want to verify the store creation logic
-                    mock_from_url.assert_called_once_with(
-                        url, storage_options=storage_options
-                    )
+    store = captured["store"]
+    assert store.url == url
+    assert store.storage_options == storage_options
 
 
 @pytest.mark.parametrize(
@@ -153,40 +139,43 @@ def test_from_ngff_zarr_string_url_with_storage_options():
     ],
 )
 def test_from_ngff_zarr_remote_missing_backend_helpful_error(url):
-    """A missing fsspec backend for any remote scheme yields an actionable error."""
+    """A missing remote engine for any remote scheme yields an actionable error.
+
+    When the zarrista/obstore remote reader is unavailable (Python 3.10, or
+    obstore not installed) there is no fallback engine anymore: the read
+    fails up-front, before any network access, with an ImportError pointing
+    at the ``[remote]`` extra.
+    """
     from unittest.mock import patch
 
-    # Simulate fsspec failing to import its filesystem backend (aiohttp,
-    # requests, s3fs, gcsfs, adlfs, ...).
-    with patch(
-        "zarr.open_group",
-        side_effect=ModuleNotFoundError("No module named 'a_backend'"),
-    ):
+    with patch("ngff_zarr.from_ngff_zarr.remote_read_available", return_value=False):
         with pytest.raises(ImportError) as exc_info:
             from_ngff_zarr(url)
 
     message = str(exc_info.value)
     assert "ngff-zarr[remote]" in message
     assert url in message
-    # The original cause is preserved for debugging.
-    assert isinstance(exc_info.value.__cause__, ModuleNotFoundError)
 
 
-def test_from_ngff_zarr_local_import_error_not_rewritten():
-    """A non-remote store re-raises an ImportError unchanged (remote-only guard)."""
-    from unittest.mock import patch
+@pytest.mark.skipif(
+    zarr_version_major < 3,
+    reason="zarr-python 2.x stores are MutableMappings, a supported input form",
+)
+def test_from_ngff_zarr_rejects_zarr_python_store_objects():
+    """Passing a zarr-python store object raises a helpful TypeError.
 
-    original_message = "No module named 'unrelated_dependency'"
-    with patch(
-        "zarr.open_group",
-        side_effect=ModuleNotFoundError(original_message),
+    This used to pin the remote-only ImportError-rewrite guard by reading
+    through a ``MemoryStore``. Store objects no longer reach any read
+    engine (the remote rewrite applies only to URL strings, before the
+    store is opened), so that scenario is unreachable; this now pins the
+    breaking-change contract instead: reads accept local directory paths,
+    remote URL strings, ``.ozx``/zip paths, and key-to-bytes mappings --
+    never zarr-python store objects.
+    """
+    with pytest.raises(
+        TypeError, match="Pass a path instead of a zarr-python store object"
     ):
-        with pytest.raises(ModuleNotFoundError) as exc_info:
-            from_ngff_zarr("local-store.zarr")
-
-    message = str(exc_info.value)
-    assert "ngff-zarr[remote]" not in message
-    assert original_message in message
+        from_ngff_zarr(MemoryStore())
 
 
 def test_from_ngff_zarr_remote_https_read_smoke():
@@ -203,9 +192,13 @@ def test_from_ngff_zarr_remote_https_read_smoke():
     """
     import os
 
+    from ngff_zarr._remote_reader import remote_read_available
+
     if not os.environ.get("NGFF_ZARR_NETWORK_TESTS"):
         pytest.skip("live remote read is opt-in; set NGFF_ZARR_NETWORK_TESTS=1 to run")
-    pytest.importorskip("aiohttp", reason="aiohttp required to read https stores")
+    if not remote_read_available():
+        # Legacy zarr-python/fsspec engine (Python 3.10 or no obstore).
+        pytest.importorskip("aiohttp", reason="aiohttp required to read https stores")
 
     url = "https://s3.embl.de/i2k-2020/platy-raw.ome.zarr"
     try:
@@ -213,6 +206,13 @@ def test_from_ngff_zarr_remote_https_read_smoke():
     except OSError as exc:
         # Connection refused / DNS / timeout: clearly the network, not the code.
         pytest.skip(f"remote store unavailable: {exc!r}")
+    except Exception as exc:
+        # zarrista folds transport failures into its own exception types;
+        # store-absence instead surfaces as the group-not-found ValueError,
+        # which must keep failing the test.
+        if type(exc).__module__.startswith("zarrista"):
+            pytest.skip(f"remote store unavailable: {exc!r}")
+        raise
 
     # Metadata is read eagerly; pixel data stays lazy, so this stays cheap.
     assert len(multiscales.images) > 0
@@ -222,14 +222,13 @@ def test_from_ngff_zarr_remote_https_read_smoke():
 @pytest.mark.skipif(
     zarr_version_major < 3, reason="storage_options requires zarr-python 3"
 )
-def test_omero_metadata_backward_compatibility():
+def test_omero_metadata_backward_compatibility(tmp_path):
     """Test that OMERO metadata with only min/max or only start/end is handled correctly."""
     import numpy as np
     from ngff_zarr import from_ngff_zarr
-    from zarr.storage import MemoryStore
 
     # Create a test store with OMERO metadata using only min/max (old format)
-    store = MemoryStore()
+    store = str(tmp_path / "min_max.zarr")
     zarr_group = zarr.open_group(store, mode="w")
 
     # Create sample data
@@ -302,7 +301,7 @@ def test_omero_metadata_backward_compatibility():
     assert channel.window.end == 1000
 
     # Test with start/end format only (newer format)
-    store2 = MemoryStore()
+    store2 = str(tmp_path / "start_end.zarr")
     zarr_group2 = zarr.open_group(store2, mode="w")
     array2 = zarr_group2.create_array(
         "0", shape=data.shape, dtype=data.dtype, chunks=(1, 1, 10, 50, 50)
@@ -331,7 +330,7 @@ def test_omero_metadata_backward_compatibility():
     assert channel2.window.max == 900
 
     # Test with both formats present (most complete)
-    store3 = MemoryStore()
+    store3 = str(tmp_path / "both_formats.zarr")
     zarr_group3 = zarr.open_group(store3, mode="w")
     array3 = zarr_group3.create_array(
         "0", shape=data.shape, dtype=data.dtype, chunks=(1, 1, 10, 50, 50)
@@ -398,25 +397,24 @@ def test_from_ngff_zarr_array_at_root(tmp_path):
 class TestBloscCodecCompat:
     """Tests for blosc codec backward-compatibility (Issue #516)."""
 
-    def test_from_dict_strips_nthreads(self):
-        """BloscCodec.from_dict should accept nthreads/blocksize without error."""
-        from zarr.codecs.blosc import BloscCname, BloscCodec
+    def test_import_does_not_patch_blosc_from_dict(self):
+        """Importing ngff_zarr leaves zarr-python's BloscCodec unpatched.
 
-        result = BloscCodec.from_dict(
-            {
-                "name": "blosc",
-                "configuration": {
-                    "cname": "zlib",
-                    "clevel": 5,
-                    "shuffle": "shuffle",
-                    "nthreads": 4,
-                    "blocksize": 0,
-                },
-            }
+        ngff-zarr used to monkey-patch ``BloscCodec.from_dict`` at import
+        time to strip the legacy ``nthreads``/``blocksize`` keys before
+        zarr-python parsed codec metadata (and this test pinned that shim).
+        Reads now go through the zarrista compat layer, zarr-python is only
+        a test dependency, and the shim is gone: importing ngff_zarr must
+        not mutate zarr-python internals. The user-facing tolerance for the
+        legacy keys is covered by the integration test below.
+        """
+        import ngff_zarr  # noqa: F401
+        from zarr.codecs.blosc import BloscCodec
+
+        defining_module = BloscCodec.from_dict.__func__.__module__
+        assert defining_module.startswith("zarr."), (
+            f"BloscCodec.from_dict is patched (defined in {defining_module})"
         )
-        assert result is not None
-        assert result.cname == BloscCname.zlib
-        assert result.clevel == 5
 
     def test_from_ngff_zarr_reads_with_nthreads(self, input_images):
         """Reading a zarr v3 file with nthreads in blosc metadata should work."""
@@ -473,3 +471,11 @@ class TestBloscCodecCompat:
 
             loaded = from_ngff_zarr(tmpdir)
             assert loaded is not None
+
+            # Chunk decoding is likewise unaffected by the legacy keys.
+            import numpy as np
+
+            np.testing.assert_array_equal(
+                loaded.images[0].data[:8, :8].compute(),
+                multiscales.images[0].data[:8, :8].compute(),
+            )

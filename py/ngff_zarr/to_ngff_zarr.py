@@ -1,34 +1,31 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 import copy
-import sys
+import shutil
 import tempfile
 import warnings
 from dataclasses import asdict
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
-from .methods._metadata import get_method_metadata
-
-if sys.version_info < (3, 10):
-    import importlib_metadata
-else:
-    import importlib.metadata as importlib_metadata
-
 import dask.array
 import numpy as np
-import zarr
-import zarr.storage
-from dask import __version__ as dask_version
 from itkwasm import array_like_to_numpy_array
-from packaging.version import Version
 
-from ._supported_versions import NgffVersion
-from ._zarr_kwargs import zarr_kwargs
-from ._zarr_open_array import open_array
-from ._zarr_types import StoreLike
+from ._store_types import StoreLike
+from ._supported_versions import V06_ONDISK_VERSION, NgffVersion
+from ._zarrista_utils import (
+    consolidate_metadata as _zarrista_consolidate_metadata,
+)
+from ._zarrista_utils import (
+    create_zarrista_group,
+    create_zarrista_subgroup,
+    normalize_store,
+    open_lazy_array,
+)
 from .config import config
 from .memory_usage import memory_usage
+from .methods._metadata import get_method_metadata
 from .methods._support import _dim_scale_factors
 from .multiscales import NgffMultiscales
 from .rfc9_zip import is_ozx_path, write_store_to_zip
@@ -37,78 +34,7 @@ from .to_multiscales import to_multiscales
 from .v04.zarr_metadata import Metadata as Metadata_v04
 from .v05.zarr_metadata import Metadata as Metadata_v05
 
-zarr_version = Version(zarr.__version__)
-IS_ZARR_V3_PLUS = zarr_version.major >= 3
-DASK_SUPPORTS_SHARDING = Version(dask_version) >= Version("2025.12.0")
-
-# Detect whether dask.array.to_zarr uses Group.create_array() (which rejects
-# ``zarr_format`` but inherits it from the group) or top-level
-# ``zarr.create_array()`` (which needs ``zarr_format`` to avoid defaulting to
-# format 3).  Changed in dask ~2026.3.0.
-_DASK_USES_GROUP_CREATE = False
-if DASK_SUPPORTS_SHARDING:
-    import inspect as _inspect
-    import re as _re
-
-    _src = _inspect.getsource(dask.array.core.to_zarr)
-    _DASK_USES_GROUP_CREATE = bool(_re.search(r"root\s*=\s*zarr\.open_group", _src))
-
 ScaleStrategy = Literal["pad", "exact"]
-
-
-def _numcodecs_to_zarr_v3_codec(compressor):
-    """Translate a *numcodecs* compressor to its zarr v3 codec equivalent.
-
-    Returns a zarr v3 codec object suitable for use inside a
-    :class:`~zarr.codecs.sharding.ShardingCodec` or as a standalone
-    bytes-to-bytes codec.  Returns ``None`` when *compressor* is ``None``
-    or the codec type is not recognised.
-    """
-    if compressor is None:
-        return None
-
-    codec_id = getattr(compressor, "codec_id", None)
-    if codec_id is None:
-        # Already a native Zarr v3 codec: pass it through unchanged. The
-        # sharding path otherwise swaps it for the zstd default.
-        if hasattr(compressor, "to_dict"):
-            return compressor
-        return None
-
-    try:
-        if codec_id == "blosc":
-            from zarr.codecs.blosc import BloscCodec
-
-            shuffle_val = getattr(compressor, "shuffle", 1)
-            if shuffle_val == 0:
-                from zarr.codecs.blosc import BloscShuffle
-
-                shuffle = BloscShuffle.noshuffle
-            elif shuffle_val == 2:
-                from zarr.codecs.blosc import BloscShuffle
-
-                shuffle = BloscShuffle.bitshuffle
-            else:
-                from zarr.codecs.blosc import BloscShuffle
-
-                shuffle = BloscShuffle.shuffle
-            return BloscCodec(
-                cname=getattr(compressor, "cname", "lz4"),
-                clevel=getattr(compressor, "clevel", 5),
-                shuffle=shuffle,
-            )
-        if codec_id == "gzip":
-            from zarr.codecs.gzip import GzipCodec
-
-            return GzipCodec(level=getattr(compressor, "level", 6))
-        if codec_id == "zstd":
-            from zarr.codecs.zstd import ZstdCodec
-
-            return ZstdCodec(level=getattr(compressor, "level", 3))
-    except ImportError:
-        pass
-
-    return None
 
 
 def _remove_none_values(obj: Any) -> Any:
@@ -149,24 +75,8 @@ def _pop_metadata_optionals(metadata_dict: dict) -> dict:
     return _remove_none_values(metadata_dict)
 
 
-def _prep_for_to_zarr(store: StoreLike, arr: dask.array.Array) -> dask.array.Array:
-    try:
-        importlib_metadata.distribution("kvikio")
-        _KVIKIO_AVAILABLE = True
-    except importlib_metadata.PackageNotFoundError:
-        _KVIKIO_AVAILABLE = False
-
-    if _KVIKIO_AVAILABLE:
-        from kvikio.zarr import GDSStore
-
-        if not isinstance(store, GDSStore):
-            arr = dask.array.map_blocks(
-                array_like_to_numpy_array,
-                arr,
-                dtype=arr.dtype,
-                meta=np.empty(()),
-            )
-        return arr
+def _prep_for_write(arr: dask.array.Array) -> dask.array.Array:
+    """Convert array-like blocks (itkwasm, cupy, ...) to numpy for writing."""
     return dask.array.map_blocks(
         array_like_to_numpy_array, arr, dtype=arr.dtype, meta=np.empty(())
     )
@@ -204,7 +114,7 @@ def _numpy_to_zarr_dtype(dtype):
         raise ValueError(f"dtype {dtype} cannot be mapped to Zarr v3 core dtype")
 
 
-def _write_with_tensorstore(
+def _write_with_zarrista(
     store_path: str,
     array,
     region,
@@ -214,211 +124,90 @@ def _write_with_tensorstore(
     internal_chunk_shape=None,
     full_array_shape=None,
     create_dataset=True,
-    compressor=None,
     compression_chain=None,
     **kwargs,
 ) -> None:
-    """Write array using tensorstore backend.
+    """Write array using the zarrista backend.
 
-    ``compressor`` carries a single legacy codec (zarr format 2 metadata).
-    ``compression_chain`` carries the ordered zarr v3 bytes-to-bytes codec
-    chain: ``None`` requests the default compression, an empty sequence
-    requests no compression.
+    *store_path* addresses the array node itself (``<store>/<path>``).
+    ``compression_chain`` carries the ordered compression codec chain (for
+    zarr format 2 metadata only its first entry is stored): ``None`` requests
+    the engine default, an empty sequence requests no compression.
     """
-    import tensorstore as ts
+    from ._zarrista_utils import (
+        _native_contiguous,
+        create_zarrista_array,
+        open_zarrista_array,
+        write_dask_array,
+    )
 
     # Use full array shape if provided, otherwise use the region array shape
-    dataset_shape = full_array_shape if full_array_shape is not None else array.shape
+    dataset_shape = tuple(
+        full_array_shape if full_array_shape is not None else array.shape
+    )
+    scale_path = Path(store_path)
+    store_root = scale_path.parent
+    node_name = scale_path.name
 
-    # Build the base spec
-    spec = {
-        "kvstore": {
-            "driver": "file",
-            "path": store_path,
-        },
-        "metadata": {
-            "shape": dataset_shape,
-        },
-    }
-
-    if zarr_format == 2:
-        spec["driver"] = "zarr" if not IS_ZARR_V3_PLUS else "zarr2"
-        spec["metadata"]["dimension_separator"] = "/"
-        spec["metadata"]["dtype"] = array.dtype.str
-        # Only add chunk info when creating the dataset
-        if create_dataset:
-            spec["metadata"]["chunks"] = chunks
-            # Add compression for zarr v2 with TensorStore
-            if compressor is not None:
-                # TensorStore zarr2 driver uses compressor in metadata
-                if hasattr(compressor, "codec_id"):
-                    # numcodecs compressor object
-                    spec["metadata"]["compressor"] = compressor.get_config()
-                else:
-                    # Simple compressor name or config dict
-                    spec["metadata"]["compressor"] = compressor
-    elif zarr_format == 3:
-        spec["driver"] = "zarr3"
-        spec["metadata"]["data_type"] = _numpy_to_zarr_dtype(array.dtype)
-        spec["metadata"]["chunk_key_encoding"] = {
-            "name": "default",
-            "configuration": {"separator": "/"},
-        }
-        if dimension_names:
-            spec["metadata"]["dimension_names"] = dimension_names
-        # Only add chunk info when creating the dataset
-        if create_dataset:
-            spec["metadata"]["chunk_grid"] = {
-                "name": "regular",
-                "configuration": {"chunk_shape": chunks},
-            }
-
-            # Build codecs list for zarr v3
-            codecs = []
-
-            # Helper function to create compression codec
-            def create_compression_codec(compressor):
-                if compressor is None:
-                    return None
-
-                # Native Zarr v3 codecs carry no codec_id but serialise into
-                # exactly the form TensorStore expects.
-                if hasattr(compressor, "to_dict") and not hasattr(
-                    compressor, "codec_id"
-                ):
-                    codec = compressor.to_dict()
-                    # zarr-python records constructor-defaulted blosc attrs in
-                    # _tunable_attrs and evolves them from the dtype at write
-                    # time; mirror that so both backends land on the same
-                    # configuration. Explicitly chosen values are kept.
-                    config = codec.get("configuration")
-                    if codec.get("name") == "blosc" and isinstance(config, dict):
-                        config = dict(config)
-                        itemsize = array.dtype.itemsize
-                        tunable = getattr(compressor, "_tunable_attrs", None)
-                        if tunable is None:
-                            # Fallback for zarr without _tunable_attrs.
-                            if config.get("typesize") in (None, 1):
-                                config["typesize"] = itemsize
-                        else:
-                            if "typesize" in tunable:
-                                config["typesize"] = itemsize
-                            if "shuffle" in tunable:
-                                config["shuffle"] = (
-                                    "bitshuffle" if itemsize == 1 else "shuffle"
-                                )
-                        codec = {**codec, "configuration": config}
-                    return codec
-
-                if hasattr(compressor, "codec_id"):
-                    # numcodecs compressor object
-                    codec_id = compressor.codec_id
-                    if codec_id == "gzip":
-                        return {
-                            "name": "gzip",
-                            "configuration": {"level": getattr(compressor, "level", 6)},
-                        }
-                    if codec_id == "blosc":
-                        return {
-                            "name": "blosc",
-                            "configuration": {
-                                "cname": getattr(compressor, "cname", "lz4"),
-                                "clevel": getattr(compressor, "clevel", 5),
-                                "shuffle": "shuffle"
-                                if getattr(compressor, "shuffle", 1) == 1
-                                else "noshuffle",
-                            },
-                        }
-                    if codec_id == "zstd":
-                        return {
-                            "name": "zstd",
-                            "configuration": {"level": getattr(compressor, "level", 3)},
-                        }
-                    if codec_id == "lz4":
-                        return {"name": "lz4"}
-                    # Fallback: try to use the codec_id as name
-                    return {"name": codec_id}
-                if isinstance(compressor, str):
-                    # Simple codec name
-                    return {"name": compressor}
-                if isinstance(compressor, dict):
-                    # Already in codec format
-                    return compressor
-                return None
-
-            # Mirror the zarr-python codec chain. Left unset, TensorStore
-            # applies its own defaults: sharded and uncompressed.
-            bytes_codec = {"name": "bytes", "configuration": {"endian": "little"}}
+    if create_dataset:
+        create_kwargs = {}
+        if zarr_format == 2:
+            if compression_chain is None:
+                # Mirror zarr-python's zarr format 2 default compressor so the
+                # zarrista engine's output is indistinguishable from what the
+                # legacy engine wrote.
+                compressor = {"id": "zstd", "level": 0}
+            elif compression_chain:
+                compressor = compression_chain[0]
+            else:
+                compressor = None
+            create_kwargs["compressor"] = compressor
+        elif zarr_format == 3:
             default_compression = {
                 "name": "zstd",
                 "configuration": {"level": 0, "checksum": False},
             }
             if compression_chain is None:
-                fallback = (
-                    create_compression_codec(compressor)
-                    if compressor is not None
-                    else None
-                )
-                compression_codecs = [fallback or default_compression]
+                # Mirror the zarr-python default codec chain.
+                create_kwargs["compressors"] = [default_compression]
             else:
                 # An explicit chain is preserved in order; an explicit empty
                 # chain means no compression, matching zarr-python.
-                compression_codecs = [
-                    codec
-                    for codec in map(create_compression_codec, compression_chain)
-                    if codec is not None
-                ]
-            inner_codecs = [bytes_codec, *compression_codecs]
-
-            # Add sharding codec with inner codecs if needed
+                create_kwargs["compressors"] = list(compression_chain)
+            if dimension_names:
+                create_kwargs["dimension_names"] = tuple(dimension_names)
             if internal_chunk_shape:
-                codecs.append(
-                    {
-                        "name": "sharding_indexed",
-                        "configuration": {
-                            "chunk_shape": internal_chunk_shape,
-                            "codecs": inner_codecs,
-                        },
-                    }
-                )
-            else:
-                codecs.extend(inner_codecs)
+                # ``chunks`` is the shard (outer chunk) grid; the subchunks
+                # inside each shard are the internal chunk shape.
+                create_kwargs["shards"] = tuple(chunks)
+                chunks = tuple(internal_chunk_shape)
+        else:
+            raise ValueError(f"Unsupported zarr format: {zarr_format}")
 
-            spec["metadata"]["codecs"] = codecs
+        # Try to create the dataset first, open existing only if needed
+        try:
+            dataset = create_zarrista_array(
+                store_root,
+                node_name,
+                dataset_shape,
+                array.dtype,
+                chunks,
+                zarr_format,
+                **create_kwargs,
+            )
+        except Exception as create_error:
+            # Dataset may already exist: fall back to opening it, surfacing
+            # the create failure when there is nothing to open.
+            try:
+                dataset = open_zarrista_array(store_root, node_name)
+            except Exception:
+                raise create_error from None
     else:
-        raise ValueError(f"Unsupported zarr format: {zarr_format}")
-
-    # Try to open existing dataset first, create only if needed
-    try:
-        if create_dataset:
-            dataset = ts.open(spec, create=True, dtype=array.dtype).result()
-        else:
-            # For existing datasets, use a minimal spec that just specifies the path
-            existing_spec = {
-                "kvstore": {
-                    "driver": "file",
-                    "path": store_path,
-                },
-                "driver": spec["driver"],
-            }
-            dataset = ts.open(existing_spec, create=False, dtype=array.dtype).result()
-    except Exception as e:
-        if "ALREADY_EXISTS" in str(e) and create_dataset:
-            # Dataset already exists, open it without creating
-            existing_spec = {
-                "kvstore": {
-                    "driver": "file",
-                    "path": store_path,
-                },
-                "driver": spec["driver"],
-            }
-            dataset = ts.open(existing_spec, create=False, dtype=array.dtype).result()
-        else:
-            raise
+        dataset = open_zarrista_array(store_root, node_name)
 
     # Try to write the dask array directly first
     try:
-        dataset[region] = array
+        write_dask_array(array, dataset, region=region)
     except Exception as e:
         # If we encounter dimension mismatch or shape-related errors,
         # compute the array and try again with corrective action
@@ -436,7 +225,7 @@ def _write_with_tensorstore(
             ]
         ):
             # Compute the array to get the actual shape
-            computed_array = array.compute()
+            computed_array = _native_contiguous(array)
 
             # Adjust region to match the actual computed array shape if needed
             if len(region) == len(computed_array.shape):
@@ -462,8 +251,6 @@ def _write_with_tensorstore(
 def _validate_ngff_parameters(
     version: str | NgffVersion,
     chunks_per_shard: int | tuple[int, ...] | dict[str, int] | None,
-    use_tensorstore: bool,
-    store: StoreLike,
 ) -> None:
     """Validate the parameters for the NGFF Zarr generation."""
     if isinstance(version, str):
@@ -472,18 +259,32 @@ def _validate_ngff_parameters(
     if version not in [NgffVersion.V04, NgffVersion.V05, NgffVersion.V06]:
         raise ValueError(f"Unsupported version: {version}")
 
-    if chunks_per_shard is not None:
-        if version == NgffVersion.V04:
-            raise ValueError(
-                "Sharding is only supported for OME-Zarr version 0.5 and later"
-            )
-        if not use_tensorstore and not IS_ZARR_V3_PLUS:
-            raise ValueError(
-                "Sharding requires zarr-python version >= 3.0.0b1 for OME-Zarr version >= 0.5"
-            )
+    if chunks_per_shard is not None and version == NgffVersion.V04:
+        raise ValueError(
+            "Sharding is only supported for OME-Zarr version 0.5 and later"
+        )
 
-    if use_tensorstore and not isinstance(store, (str, Path)):
-        raise ValueError("use_tensorstore currently requires a path-like store")
+
+def _gate_top_level_transforms(metadata, version: str) -> None:
+    """Refuse a multiscale-level transform the 0.6 schema cannot express.
+
+    From 0.6 a transform on the multiscales entry maps between two named
+    coordinate systems, and the schema requires both ``input`` and ``output``
+    to name one. The writer serializes whatever the model holds, so a missing
+    reference would produce a store the validated reader rejects.
+    """
+    if version != "0.6" or not metadata.coordinateTransformations:
+        return
+    for index, transform in enumerate(metadata.coordinateTransformations):
+        for side in ("input", "output"):
+            reference = getattr(transform, side, None)
+            if reference is None or getattr(reference, "name", None) is None:
+                raise ValueError(
+                    f"multiscales coordinateTransformations[{index}] "
+                    f"({transform.type}) names no {side} coordinate system; "
+                    "OME-Zarr 0.6 requires every multiscale-level transformation "
+                    "to name both its input and its output coordinate system"
+                )
 
 
 def _prepare_metadata(
@@ -511,67 +312,50 @@ def _prepare_metadata(
     return metadata, dimension_names, dimension_names_kwargs
 
 
-def _write_root_ome_attrs(root: zarr.Group, metadata_dict: dict, version: str) -> None:
-    """Serialize the OME-Zarr root-group attributes for ``metadata_dict``.
+def _root_ome_attrs(metadata_dict: dict, version: str) -> dict:
+    """Build the OME-Zarr root-group attribute entries for ``metadata_dict``.
 
-    Sets ``ome``/``multiscales`` (and hoists ``omero`` to its version-specific
-    location) on an already-open ``zarr.Group``, exactly as the writer does --
-    including mapping the API version ``"0.6"`` to the ``"0.6.dev4"`` string
-    persisted on disk. Shared by :func:`_create_zarr_root` and
-    :func:`ngff_zarr.upgrade_ome_zarr` so both emit byte-identical root
-    metadata. ``metadata_dict`` is mutated in place: its ``omero`` entry is
-    popped so it lives only in its hoisted location, matching historical
+    Returns the ``ome``/``multiscales`` attribute mapping (hoisting ``omero``
+    to its version-specific location) exactly as the writer persists it --
+    including mapping the API version ``"0.6"`` to the pre-release string
+    stored on disk (:data:`~ngff_zarr._supported_versions.V06_ONDISK_VERSION`). ``metadata_dict`` is mutated in place: its ``omero`` entry
+    is popped so it lives only in its hoisted location, matching historical
     behavior.
     """
     if version != "0.4":
         # RFC 2, Zarr 3 - omero goes inside ome namespace
         if version == "0.6":
-            version = "0.6.dev4"
+            version = V06_ONDISK_VERSION.value
         ome_dict = {"version": version, "multiscales": [metadata_dict]}
         if "omero" in metadata_dict:
             ome_dict["omero"] = metadata_dict.pop("omero")
-        root.attrs["ome"] = ome_dict
-    else:
-        # v0.4 - omero is at root level
-        if "omero" in metadata_dict:
-            root.attrs["omero"] = metadata_dict.pop("omero")
-        root.attrs["multiscales"] = [metadata_dict]
+        return {"ome": ome_dict}
+    # v0.4 - omero is at root level
+    attrs = {}
+    if "omero" in metadata_dict:
+        attrs["omero"] = metadata_dict.pop("omero")
+    attrs["multiscales"] = [metadata_dict]
+    return attrs
 
 
 def _create_zarr_root(
     store: StoreLike,
-    chunk_store: StoreLike | None,
     version: str,
     overwrite: bool,
     metadata_dict: dict,
-) -> zarr.Group:
-    """Create and configure the root Zarr group with proper attributes."""
+):
+    """Create and configure the root Zarr group with proper attributes.
+
+    The group metadata is written through the zarrista compatibility layer
+    and the returned handle is a ``zarrista.Group``.
+    """
     zarr_format = 2 if version == "0.4" else 3
-    format_kwargs = {"zarr_format": zarr_format} if IS_ZARR_V3_PLUS else {}
-
-    if version == "0.4":
-        root = zarr.open_group(
-            store,
-            mode="w" if overwrite else "a",
-            chunk_store=chunk_store,
-            **format_kwargs,
-        )
-    else:
-        if not IS_ZARR_V3_PLUS:
-            raise ValueError(
-                "zarr-python version >= 3.0.0b2 required for OME-Zarr version >= 0.5"
-            )
-        # For version >= 0.5, open root with Zarr v3
-        root = zarr.open_group(
-            store,
-            mode="w" if overwrite else "a",
-            chunk_store=chunk_store,
-            **format_kwargs,
-        )
-
-    _write_root_ome_attrs(root, metadata_dict, version)
-
-    return root
+    return create_zarrista_group(
+        store,
+        _root_ome_attrs(metadata_dict, version),
+        zarr_format,
+        overwrite=overwrite,
+    )
 
 
 def _configure_sharding(
@@ -601,21 +385,12 @@ def _configure_sharding(
     internal_chunk_shape = c0
     arr = arr.rechunk(shards)
 
-    # Configure sharding parameters differently for v2 vs v3
-    sharding_kwargs = {}
-    if IS_ZARR_V3_PLUS:
-        # For Zarr v3, configure sharding as a codec
-        # Use chunk_shape for internal chunks and configure sharding via codecs
-        sharding_kwargs["chunk_shape"] = internal_chunk_shape
-        # Note: sharding codec will be configured separately in the codecs parameter
-        # We'll pass the shard shape through a separate key to be handled later
-        sharding_kwargs["_shard_shape"] = shards
-    else:
-        # For zarr v2, use the older API
-        sharding_kwargs = {
-            "shards": shards,
-            "chunks": internal_chunk_shape,
-        }
+    # The shard (outer chunk) grid and the internal chunk shape within each
+    # shard; ``_handle_large_array_writing`` optimizes both to the array shape.
+    sharding_kwargs = {
+        "chunk_shape": internal_chunk_shape,
+        "_shard_shape": shards,
+    }
 
     return sharding_kwargs, internal_chunk_shape, arr
 
@@ -632,7 +407,7 @@ def _is_bytes_codec(codec) -> bool:
     return name == "bytes"
 
 
-def _write_array_with_tensorstore(
+def _write_array_with_zarrista(
     store_path: str,
     path: str,
     arr: dask.array.Array,
@@ -646,33 +421,40 @@ def _write_array_with_tensorstore(
     create_dataset: bool = True,
     **kwargs,
 ) -> None:
-    """Write an array using the TensorStore backend."""
-    # Extract compressor and other conflicting parameters from kwargs to avoid conflicts
-    compressor = kwargs.pop("compressor", None)
-    # The public API takes ``compressors`` (plural); without this a supplied
-    # codec is dropped and TensorStore silently writes its default. The full
-    # chain is preserved in order; only the array-to-bytes ("bytes") codec is
-    # dropped since the writer always leads with one. ``None`` — absent or
-    # explicit — selects no compression only when explicitly passed, matching
-    # zarr-python, so the unset case is detected with a sentinel.
+    """Write an array using the zarrista backend."""
+    # Translate the public compression kwargs into a single ordered chain:
+    # ``None`` selects the engine default and an empty chain selects no
+    # compression. Mirroring the legacy engine's kwargs handling, an explicit
+    # ``compressor=None`` disables compression while ``compressors=None`` is
+    # indistinguishable from unset (default compression); the unset cases are
+    # detected with a sentinel. Only the array-to-bytes ("bytes") codec is
+    # dropped from a supplied chain since the writer always leads with one.
+    filters = kwargs.pop("filters", None)
+    if filters:
+        raise ValueError(
+            "filters are not supported by the zarrista write engine; pass a "
+            "zarr store object as the target to use the zarr-python engine"
+        )
     _unset = object()
-    compressors = kwargs.pop("compressors", _unset)
-    if compressors is _unset:
-        compression_chain = [compressor] if compressor is not None else None
-    elif compressors is None:
-        compression_chain = []
-    elif isinstance(compressors, (list, tuple)):
-        compression_chain = [c for c in compressors if not _is_bytes_codec(c)]
+    compressor = kwargs.pop("compressor", _unset)
+    compressors = kwargs.pop("compressors", None)
+    if compressors is not None:
+        if isinstance(compressors, (list, tuple)):
+            compression_chain = [c for c in compressors if not _is_bytes_codec(c)]
+        else:
+            compression_chain = [compressors]
+    elif compressor is not _unset:
+        compression_chain = [] if compressor is None else [compressor]
     else:
-        compression_chain = [compressors]
-    if compressor is None and compression_chain:
-        # zarr format 2 metadata carries a single compressor.
-        compressor = compression_chain[0]
+        compression_chain = None
     kwargs.pop("chunks", None)  # Remove chunks from kwargs since it's a positional arg
 
     scale_path = f"{store_path}/{path}"
-    if shards is None:
-        _write_with_tensorstore(
+    sharding_kwargs = (
+        {} if shards is None else {"internal_chunk_shape": internal_chunk_shape}
+    )
+    try:
+        _write_with_zarrista(
             scale_path,
             arr,
             region,
@@ -681,70 +463,14 @@ def _write_array_with_tensorstore(
             dimension_names=dimension_names,
             full_array_shape=full_array_shape,
             create_dataset=create_dataset,
-            compressor=compressor,
             compression_chain=compression_chain,
+            **sharding_kwargs,
             **kwargs,
         )
-    else:  # Sharding
-        _write_with_tensorstore(
-            scale_path,
-            arr,
-            region,
-            chunks,
-            zarr_format=zarr_format,
-            dimension_names=dimension_names,
-            internal_chunk_shape=internal_chunk_shape,
-            full_array_shape=full_array_shape,
-            create_dataset=create_dataset,
-            compressor=compressor,
-            compression_chain=compression_chain,
-            **kwargs,
-        )
-
-
-def _prepare_zarr_kwargs(to_zarr_kwargs: dict):
-    """Prepare zarr kwargs for dask.array.to_zarr.
-
-    This helper function ensures that correct kwargs are passed on based on which version of zarr
-    and dask is being used. The different versions support different sets of arguments. The zarr_kwargs
-    are adjusted in place and thus the original is overwritten. This is not a problem given that the
-    arguments being adjusted are the same for the zarr store in use.
-    """
-    is_zarr_f2 = to_zarr_kwargs.get("zarr_format") == 2
-
-    # The zarr v2 case does not have to be checked here as this is done in `_zarr_kwargs.py`.
-    # The reason for not doing it here is that it only has one option whereas zarr v3 depends on zarr format being used.
-    if IS_ZARR_V3_PLUS and is_zarr_f2:
-        if DASK_SUPPORTS_SHARDING:
-            # New dask uses chunk_key_encoding
-            to_zarr_kwargs["chunk_key_encoding"] = {"name": "v2", "separator": "/"}
-            to_zarr_kwargs.pop("dimension_separator", None)
-        else:
-            # Old dask uses dimension_separator
-            to_zarr_kwargs["dimension_separator"] = "/"
-            to_zarr_kwargs.pop("chunk_key_encoding", None)
-
-    # Old dask (< 2025.12) passes kwargs to zarr.create() which only accepts
-    # 'compressor' (singular).  Newer dask uses Group.create_array() which
-    # accepts 'compressors' (plural).
-    if IS_ZARR_V3_PLUS and not DASK_SUPPORTS_SHARDING:
-        _sentinel = object()
-        compressors_val = to_zarr_kwargs.pop("compressors", _sentinel)
-        if compressors_val is not _sentinel:
-            if compressors_val is None:
-                to_zarr_kwargs["compressor"] = None
-            elif isinstance(compressors_val, (list, tuple)):
-                to_zarr_kwargs["compressor"] = (
-                    compressors_val[0] if compressors_val else None
-                )
-            else:
-                to_zarr_kwargs["compressor"] = compressors_val
-    # Dask versions that use Group.create_array() (< ~2026.3) reject
-    # zarr_format (it's inherited from the group).  Newer dask uses
-    # zarr.create_array() directly and NEEDS zarr_format to avoid
-    # defaulting to format 3.
-    if DASK_SUPPORTS_SHARDING and _DASK_USES_GROUP_CREATE:
-        to_zarr_kwargs.pop("zarr_format", None)
+    except OSError as e:
+        # Writing evaluates the lazy dask graph, so a corrupt source (e.g. a
+        # truncated TIFF) can surface here as a cryptic OSError (gh-issue-343).
+        raise _array_write_error(path, e) from e
 
 
 def _array_write_error(path: str, error: Exception) -> OSError:
@@ -766,163 +492,15 @@ def _array_write_error(path: str, error: Exception) -> OSError:
     return OSError(msg)
 
 
-def _write_array_direct(
-    arr: dask.array.Array,
-    store: StoreLike,
-    path: str,
-    sharding_kwargs: dict,
-    zarr_kwargs: dict,
-    format_kwargs: dict,
-    dimension_names_kwargs: dict,
-    region: tuple[slice, ...] | None = None,
-    zarr_array=None,
-    **kwargs,
-) -> None:
-    """Write an array directly using dask.array.to_zarr."""
-    arr = _prep_for_to_zarr(store, arr)
-
-    zarr_fmt = format_kwargs.get("zarr_format")
-
-    # Intercept compressor/compressors from kwargs so they don't leak into
-    # zarr.create_array() or dask.array.to_zarr() as unexpected keyword args.
-    _sentinel = object()
-    user_compressor = kwargs.pop("compressor", _sentinel)
-    has_compressor = user_compressor is not _sentinel
-    if not has_compressor:
-        user_compressor = None
-    user_compressors = kwargs.pop("compressors", None)
-    user_filters = kwargs.pop("filters", None)
-
-    # Handle sharding kwargs for direct writing
-    cleaned_sharding_kwargs = {}
-
-    if sharding_kwargs and "_shard_shape" in sharding_kwargs:
-        # For Zarr v3 direct writes, use shards and chunks parameters
-        shard_shape = sharding_kwargs["_shard_shape"]
-        internal_chunk_shape = sharding_kwargs.get("chunk_shape")
-
-        # Ensure internal_chunk_shape is available
-        if internal_chunk_shape is None:
-            # Use chunks from arr if available, or default
-            internal_chunk_shape = tuple(arr.chunks[i][0] for i in range(arr.ndim))
-
-        # For direct Zarr v3 writes, use shards and chunks
-        cleaned_sharding_kwargs["shards"] = shard_shape
-        cleaned_sharding_kwargs["chunks"] = internal_chunk_shape
-
-        # Remove internal kwargs
-        cleaned_sharding_kwargs.update(
-            {
-                k: v
-                for k, v in sharding_kwargs.items()
-                if k not in ["_shard_shape", "chunk_shape"]
-            }
-        )
-    else:
-        cleaned_sharding_kwargs = sharding_kwargs
-
-    # Translate user-supplied compression settings into format-appropriate kwargs.
-    # zarr v3's ``zarr.create_array`` uses ``compressors`` (plural).  When
-    # older dask is used (< 2025.12, calls ``zarr.create()``),
-    # ``_prepare_zarr_kwargs`` converts back to singular ``compressor``.
-    compression_kwargs = {}
-    if IS_ZARR_V3_PLUS:
-        if user_compressors is not None:
-            compression_kwargs["compressors"] = user_compressors
-        elif has_compressor:
-            if user_compressor is None:
-                compression_kwargs["compressors"] = None
-            elif zarr_fmt == 3:
-                # zarr format 3 needs zarr v3 codec objects
-                v3_codec = _numcodecs_to_zarr_v3_codec(user_compressor)
-                compression_kwargs["compressors"] = (
-                    [v3_codec] if v3_codec is not None else [user_compressor]
-                )
-            else:
-                # zarr format 2: numcodecs objects are accepted by
-                # Group.create_array() (used by new dask) when the group
-                # is format 2.
-                compression_kwargs["compressors"] = [user_compressor]
-        if user_filters is not None:
-            compression_kwargs["filters"] = user_filters
-    else:
-        # zarr v2 library uses 'compressor' (singular)
-        if has_compressor:
-            compression_kwargs["compressor"] = user_compressor
-        if user_filters is not None:
-            compression_kwargs["filters"] = user_filters
-
-    to_zarr_kwargs = {
-        **cleaned_sharding_kwargs,
-        **zarr_kwargs,
-        **format_kwargs,
-        **dimension_names_kwargs,
-        **compression_kwargs,
-        **kwargs,
-    }
-
-    # For Zarr v3 direct writes without sharding, ``zarr.create_array`` picks
-    # its own chunk shape if we do not pass one — that overrides the chunking
-    # the caller selected via ``to_multiscales(chunks=...)``.  Forward the
-    # dask array's canonical chunk shape (``chunksize`` = per-dim max, which
-    # tolerates non-uniform leading chunks) so user intent is respected.
-    if zarr_fmt == 3 and zarr_array is None and "chunks" not in to_zarr_kwargs:
-        to_zarr_kwargs["chunks"] = arr.chunksize
-
-    if zarr_fmt == 3 and zarr_array is None:
-        # Zarr v3, use zarr.create_array and assign (whole array or region)
-        array = zarr.create_array(
-            store=store,
-            name=path,
-            shape=arr.shape,
-            dtype=arr.dtype,
-            **to_zarr_kwargs,
-        )
-        try:
-            if region is not None:
-                array[region] = arr.compute()
-            else:
-                array[:] = arr.compute()
-        except (OSError, ValueError) as e:
-            raise _array_write_error(path, e) from e
-    else:
-        _prepare_zarr_kwargs(to_zarr_kwargs)
-
-        target = (
-            zarr_array if (region is not None and zarr_array is not None) else store
-        )
-
-        try:
-            dask.array.to_zarr(
-                arr,
-                target,
-                region=region
-                if (region is not None and zarr_array is not None)
-                else None,
-                component=path,
-                overwrite=False,
-                compute=True,
-                return_stored=False,
-                **to_zarr_kwargs,
-            )
-        except (OSError, ValueError) as e:
-            raise _array_write_error(path, e) from e
-
-
 def _handle_large_array_writing(
     image,
     arr: dask.array.Array,
-    store: StoreLike,
     path: str,
     dims: tuple[str, ...],
     dim_factors: dict[str, int],
     chunks: tuple[int, ...],
     sharding_kwargs: dict,
-    zarr_kwargs: dict,
-    format_kwargs: dict,
-    dimension_names_kwargs: dict,
-    use_tensorstore: bool,
-    store_path: str | None,
+    store_path: str,
     zarr_format: int,
     dimension_names: tuple[str, ...],
     internal_chunk_shape: tuple[int, ...] | None,
@@ -933,9 +511,6 @@ def _handle_large_array_writing(
     **kwargs,
 ) -> None:
     """Handle writing large arrays by splitting them into manageable pieces."""
-    # Copy zarr_kwargs to avoid mutating the caller's dict across loop iterations
-    zarr_kwargs = zarr_kwargs.copy()
-
     shrink_factors = []
     for dim in dims:
         if dim in dim_factors:
@@ -985,13 +560,9 @@ def _handle_large_array_writing(
             divisor += 1
         return best or shard_size
 
-    # If sharding is enabled, configure it properly
-    chunk_kwargs = {}
-    codecs_kwargs = {}
-
     if sharding_kwargs and "_shard_shape" in sharding_kwargs:
-        # For Zarr v3 with sharding, clamp the shard shape to the axis length
-        shard_shape = sharding_kwargs.pop("_shard_shape")
+        # Sharding: clamp the shard shape to the axis length
+        shard_shape = sharding_kwargs["_shard_shape"]
         internal_chunk_shape = sharding_kwargs.get(
             "chunk_shape"
         )  # This is the inner chunk shape
@@ -1030,75 +601,11 @@ def _handle_large_array_writing(
                 ]
             )
 
-        # Configure the sharding codec, respecting user-provided compression
-        from zarr.codecs.bytes import BytesCodec
-        from zarr.codecs.sharding import ShardingCodec
-        from zarr.codecs.zstd import ZstdCodec
-
-        # Determine inner codecs: honour user-supplied compressor/compressors
-        user_compressors = kwargs.get("compressors")
-        user_compressor = kwargs.get("compressor")
-        if user_compressors is not None:
-            from collections.abc import Iterable as IterableABC
-
-            from zarr.abc.codec import Codec
-
-            if isinstance(user_compressors, (Codec, dict)):
-                compressor_list = [user_compressors]
-            elif isinstance(user_compressors, IterableABC):
-                compressor_list = list(user_compressors)
-            else:
-                compressor_list = [user_compressors]
-            if any(isinstance(c, BytesCodec) for c in compressor_list):
-                inner_codecs = list(compressor_list)
-            else:
-                inner_codecs = [BytesCodec()] + compressor_list
-        elif user_compressor is not None:
-            v3_codec = _numcodecs_to_zarr_v3_codec(user_compressor)
-            inner_codecs = (
-                [BytesCodec(), v3_codec]
-                if v3_codec is not None
-                else [BytesCodec(), ZstdCodec()]
-            )
-        else:
-            inner_codecs = [BytesCodec(), ZstdCodec()]
-
-        # The array's chunk_shape should be the shard shape
-        # The sharding codec's chunk_shape should be the internal chunk shape
-        sharding_codec = ShardingCodec(
-            chunk_shape=internal_chunk_shape,  # Internal chunk shape within shards
-            codecs=inner_codecs,
-        )
-
-        # Set up codecs with sharding
-        existing_codecs = zarr_kwargs.get("codecs", [])
-        if not isinstance(existing_codecs, list):
-            existing_codecs = []
-        codecs_kwargs["codecs"] = [sharding_codec] + existing_codecs
-
-        # Set the array's chunk_shape to the optimized shard shape
-        chunk_kwargs["chunk_shape"] = optimized_shard_shape
-
-        # For region computation, use the optimized shard shape (actual zarr chunk shape)
+        # For region computation, use the optimized shard shape (the actual
+        # stored chunk grid); the array is created from these values.
         zarr_chunk_shape = optimized_shard_shape
-
-        # Clean up remaining kwargs (remove chunk_shape since we're setting it explicitly)
-        remaining_kwargs = {
-            k: v
-            for k, v in sharding_kwargs.items()
-            if k not in ["_shard_shape", "chunk_shape"]
-        }
-        sharding_kwargs_clean = remaining_kwargs
-    elif sharding_kwargs:
-        # For Zarr v2 or other cases with sharding but no _shard_shape
-        chunks = tuple(
-            [
-                _find_optimal_chunk_size(c[0], arr.shape[i])
-                for i, c in enumerate(arr.chunks)
-            ]
-        )
-        zarr_chunk_shape = chunks
-        sharding_kwargs_clean = sharding_kwargs
+        chunks = optimized_shard_shape
+        shards = optimized_shard_shape
     else:
         # No sharding
         chunks = tuple(
@@ -1107,69 +614,7 @@ def _handle_large_array_writing(
                 for i, c in enumerate(arr.chunks)
             ]
         )
-        chunk_kwargs = {"chunks": chunks}
         zarr_chunk_shape = chunks
-        sharding_kwargs_clean = {}
-
-    if format_kwargs["zarr_format"] == 2:
-        if IS_ZARR_V3_PLUS:
-            zarr_kwargs["dimension_separator"] = zarr_kwargs["chunk_key_encoding"][
-                "separator"
-            ]
-            del zarr_kwargs["chunk_key_encoding"]
-        else:
-            zarr_kwargs["dimension_separator"] = "/"
-
-    # For non-sharding paths (codecs_kwargs is empty), propagate user-supplied
-    # compression settings that were not captured by the sharding setup above.
-    if not codecs_kwargs:
-        user_compressor = kwargs.get("compressor")
-        user_compressors = kwargs.get("compressors")
-        zarr_fmt = format_kwargs["zarr_format"]
-        if zarr_fmt == 3:
-            from zarr.codecs.bytes import BytesCodec
-
-            if user_compressors is not None:
-                from collections.abc import Iterable as IterableABC
-
-                from zarr.abc.codec import Codec
-
-                if isinstance(user_compressors, (Codec, dict)):
-                    comp_list = [user_compressors]
-                elif isinstance(user_compressors, IterableABC):
-                    comp_list = list(user_compressors)
-                else:
-                    comp_list = [user_compressors]
-                if not any(isinstance(c, BytesCodec) for c in comp_list):
-                    comp_list = [BytesCodec()] + comp_list
-                codecs_kwargs["codecs"] = comp_list
-            elif user_compressor is not None:
-                v3_codec = _numcodecs_to_zarr_v3_codec(user_compressor)
-                if v3_codec is not None:
-                    codecs_kwargs["codecs"] = [BytesCodec(), v3_codec]
-                else:
-                    codecs_kwargs["codecs"] = [BytesCodec(), user_compressor]
-        elif zarr_fmt == 2 and user_compressor is not None:
-            # open_array() (unlike dask's create_array) accepts 'compressor'
-            # singular for format 2 even in zarr v3.
-            zarr_kwargs["compressor"] = user_compressor
-            user_filters = kwargs.get("filters")
-            if user_filters is not None:
-                zarr_kwargs["filters"] = user_filters
-
-    zarr_array = open_array(
-        shape=arr.shape,
-        dtype=arr.dtype,
-        store=store,
-        path=path,
-        mode="a",
-        **chunk_kwargs,
-        **sharding_kwargs_clean,
-        **zarr_kwargs,
-        **codecs_kwargs,
-        **dimension_names_kwargs,
-        **format_kwargs,
-    )
 
     shape = image.data.shape
     x_index = dims.index("x")
@@ -1186,7 +631,7 @@ def _handle_large_array_writing(
             )
 
         arr_region = arr[region]
-        arr_region = _prep_for_to_zarr(store, arr_region)
+        arr_region = _prep_for_write(arr_region)
         optimized = dask.array.Array(
             dask.array.optimize(
                 arr_region.__dask_graph__(), arr_region.__dask_keys__()
@@ -1196,34 +641,20 @@ def _handle_large_array_writing(
             meta=arr_region,
         )
 
-        if use_tensorstore:
-            _write_array_with_tensorstore(
-                store_path,
-                path,
-                optimized,
-                chunks,  # Use original array chunks, not region chunks
-                shards,
-                internal_chunk_shape,
-                zarr_format,
-                dimension_names,
-                region,
-                full_array_shape=arr.shape,
-                create_dataset=(region_index == 0),  # Only create on first region
-                **kwargs,
-            )
-        else:
-            _write_array_direct(
-                optimized,
-                store,
-                path,
-                sharding_kwargs,
-                zarr_kwargs,
-                format_kwargs,
-                dimension_names_kwargs,
-                region,
-                zarr_array,
-                **kwargs,
-            )
+        _write_array_with_zarrista(
+            store_path,
+            path,
+            optimized,
+            chunks,  # Use original array chunks, not region chunks
+            shards,
+            internal_chunk_shape,
+            zarr_format,
+            dimension_names,
+            region,
+            full_array_shape=arr.shape,
+            create_dataset=(region_index == 0),  # Only create on first region
+            **kwargs,
+        )
 
 
 def _compute_write_regions(
@@ -1405,7 +836,7 @@ def _prepare_next_scale(
             callback()
         image.computed_callbacks = []
 
-        image.data = dask.array.from_zarr(store, component=path)
+        image.data = open_lazy_array(store, path)
 
         # Get the absolute scale factor for the next level
         next_absolute_factor = multiscales.scale_factors[index]
@@ -1516,11 +947,12 @@ def to_ome_zarr(
     :param overwrite: If True, delete any pre-existing data in `store` before creating groups.
     :type  overwrite: bool, optional
 
-    :param use_tensorstore: If True, write array using tensorstore backend.
+    :param use_tensorstore: Deprecated. If True, write arrays with the zarrista
+        backend's fast direct-write path (tensorstore is no longer used).
     :type  use_tensorstore: bool, optional
 
-    :param chunk_store: Separate storage for chunks. If not provided, `store` will be used
-        for storage of both chunks and metadata.
+    :param chunk_store: No longer supported; chunks and metadata are always
+        written to `store`. Passing a value raises ``TypeError``.
     :type  chunk_store: StoreLike, optional
 
     :param progress: Optional progress logger
@@ -1541,8 +973,17 @@ def to_ome_zarr(
         coordinate metadata.
     :type  scale_strategy: "pad" or "exact", optional
 
-    :param **kwargs: Passed to the zarr.create_array() or zarr.creation.create() function, e.g., compression options.
+    :param **kwargs: Array-creation options, e.g. `compressor` / `compressors`
+        compression settings.
     """
+    if use_tensorstore:
+        warnings.warn(
+            "use_tensorstore is deprecated; the fast direct-write path now "
+            "uses the zarrista backend instead of tensorstore.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     # ``enabled_rfcs`` was removed: RFC-4 anatomical orientation is now written
     # automatically whenever it is present. Reject it explicitly so a legacy
     # caller gets a clear migration message instead of an opaque error from the
@@ -1567,37 +1008,16 @@ def to_ome_zarr(
         if chunks_per_shard is None:
             chunks_per_shard = 2
 
-        # Determine if we should use memory or disk for intermediate storage
-        total_memory_usage = sum(memory_usage(img) for img in multiscales.images)
-        use_memory_store = total_memory_usage <= config.memory_target
-
-        if use_memory_store:
-            # Small dataset: use memory store
-            from zarr.storage import MemoryStore
-
-            temp_store = MemoryStore()
-        else:
-            # Large dataset: use temporary directory store in cache
-            if hasattr(zarr.storage, "DirectoryStore"):
-                LocalStore = zarr.storage.DirectoryStore
-            else:
-                LocalStore = zarr.storage.LocalStore
-
-            temp_dir = tempfile.mkdtemp(
-                dir=config.cache_store.path
-                if hasattr(config.cache_store, "path")
-                else None
-            )
-            temp_store = LocalStore(temp_dir)
-
+        # Write to a temporary directory store first, then zip it into the
+        # requested .ozx archive (zarrista can only read zip archives).
+        temp_dir = tempfile.mkdtemp()
         try:
-            # Write to temporary store first
             _to_ngff_zarr_impl(
-                temp_store,
+                temp_dir,
                 multiscales,
                 version=version,
                 overwrite=overwrite,
-                use_tensorstore=False,  # Can't use tensorstore with memory/temp stores
+                use_tensorstore=False,
                 chunk_store=None,
                 progress=progress,
                 chunks_per_shard=chunks_per_shard,
@@ -1606,20 +1026,9 @@ def to_ome_zarr(
             )
 
             # Write temp store to .ozx file
-            write_store_to_zip(temp_store, store, version=version)
+            write_store_to_zip(temp_dir, store, version=version)
         finally:
-            # Clean up temporary directory if used
-            if not use_memory_store:
-                import shutil
-
-                if hasattr(zarr.storage, "DirectoryStore") and isinstance(
-                    temp_store, zarr.storage.DirectoryStore
-                ):
-                    shutil.rmtree(temp_store.dir_path(), ignore_errors=True)
-                elif hasattr(zarr.storage, "LocalStore") and isinstance(
-                    temp_store, zarr.storage.LocalStore
-                ):
-                    shutil.rmtree(temp_store.root, ignore_errors=True)
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
         return
 
@@ -1665,24 +1074,29 @@ def _to_ngff_zarr_impl(
     for image in multiscales.images:
         image.computed_callbacks = list(image.computed_callbacks)
 
-    # Setup and validation
-    store_path = str(store) if isinstance(store, (str, Path)) else None
+    if chunk_store is not None:
+        raise TypeError(
+            "chunk_store is no longer supported: chunks and metadata are "
+            "always written to the same local directory store."
+        )
 
-    _validate_ngff_parameters(version, chunks_per_shard, use_tensorstore, store)
-    metadata, dimension_names, dimension_names_kwargs = _prepare_metadata(
-        multiscales, version
-    )
+    # Setup and validation. All writes — group/attribute metadata and
+    # arrays — go through the zarrista compat layer, which requires a local
+    # directory path store.
+    store_path = str(normalize_store(store))
+
+    _validate_ngff_parameters(version, chunks_per_shard)
+    metadata, dimension_names, _ = _prepare_metadata(multiscales, version)
+    _gate_top_level_transforms(metadata, version)
     metadata_dict = asdict(metadata)
     metadata_dict = _pop_metadata_optionals(metadata_dict)
     metadata_dict["@type"] = "ngff:Image"
 
     # Create Zarr root
-    root = _create_zarr_root(store, chunk_store, version, overwrite, metadata_dict)
+    _create_zarr_root(store, version, overwrite, metadata_dict)
 
     # Format parameters
     zarr_format = 2 if version == "0.4" else 3
-    format_kwargs = {"zarr_format": zarr_format}
-    _zarr_kwargs = zarr_kwargs.copy()
 
     if version == "0.4" and kwargs.get("compressors") is not None:
         raise ValueError(
@@ -1710,8 +1124,12 @@ def _to_ngff_zarr_impl(
 
         # Create parent groups if needed
         if parent not in (".", "/"):
-            array_dims_group = root.create_group(parent)
-            array_dims_group.attrs["_ARRAY_DIMENSIONS"] = image.dims
+            create_zarrista_subgroup(
+                store,
+                parent,
+                {"_ARRAY_DIMENSIONS": list(image.dims)},
+                zarr_format,
+            )
 
         # Calculate dimension factors
         if index > 0 and index < nscales - 1 and multiscales.scale_factors:
@@ -1728,27 +1146,37 @@ def _to_ngff_zarr_impl(
             arr, chunks_per_shard, dims, kwargs.copy()
         )
 
-        # Get the chunks - these are now the shards if sharding is enabled
-        chunks = tuple([c[0] for c in arr.chunks])
+        # Get the chunks - these are now the shards if sharding is enabled.
+        # Use the canonical per-dim max (``chunksize``): a sliced input can
+        # carry a smaller partial leading chunk which must not become the
+        # stored chunk shape (gh-issue-488).
+        chunks = arr.chunksize
 
-        # For TensorStore, shards are the same as chunks when sharding is enabled
-        shards = chunks if chunks_per_shard is not None else None
+        # For the zarrista writer, shards are the same as chunks when sharding
+        # is enabled. Use the true shard grid from _configure_sharding: dask's
+        # rechunk clamps arr.chunks to the array shape, but the stored shard
+        # shape may exceed it (a partial final shard), and the inner chunk
+        # shape must divide the stored shard shape evenly.
+        if chunks_per_shard is not None:
+            shards = tuple(
+                sharding_kwargs.get("_shard_shape")
+                or sharding_kwargs.get("shards")
+                or chunks
+            )
+            chunks = shards
+        else:
+            shards = None
 
         # Determine write method based on memory requirements
         if memory_usage(image) > config.memory_target:
             _handle_large_array_writing(
                 image,
                 arr,
-                store,
                 path,
                 dims,
                 dim_factors,
                 chunks,
                 sharding_kwargs,
-                _zarr_kwargs,
-                format_kwargs,
-                dimension_names_kwargs,
-                use_tensorstore,
                 store_path,
                 zarr_format,
                 dimension_names,
@@ -1767,34 +1195,20 @@ def _to_ngff_zarr_impl(
 
             # For small arrays, write in one go
             region = tuple([slice(arr.shape[i]) for i in range(arr.ndim)])
-            if use_tensorstore:
-                _write_array_with_tensorstore(
-                    store_path,
-                    path,
-                    arr,
-                    chunks,
-                    shards,
-                    internal_chunk_shape,
-                    zarr_format,
-                    dimension_names,
-                    region,
-                    full_array_shape=arr.shape,
-                    create_dataset=True,  # Always create for small arrays
-                    **kwargs,
-                )
-            else:
-                _write_array_direct(
-                    arr,
-                    store,
-                    path,
-                    sharding_kwargs,
-                    _zarr_kwargs,
-                    format_kwargs,
-                    dimension_names_kwargs,
-                    None,
-                    None,
-                    **kwargs,
-                )
+            _write_array_with_zarrista(
+                store_path,
+                path,
+                arr,
+                chunks,
+                shards,
+                internal_chunk_shape,
+                zarr_format,
+                dimension_names,
+                region,
+                full_array_shape=arr.shape,
+                create_dataset=True,  # Always create for small arrays
+                **kwargs,
+            )
 
         # Prepare next scale if needed
         next_image = _prepare_next_scale(
@@ -1815,13 +1229,4 @@ def _to_ngff_zarr_impl(
         image.computed_callbacks = []
 
     # Consolidate metadata
-    if IS_ZARR_V3_PLUS:
-        with warnings.catch_warnings():
-            # Ignore consolidated metadata warning
-            warnings.filterwarnings("ignore", category=UserWarning)
-            zarr.consolidate_metadata(store, **format_kwargs)
-    else:
-        # Zarr_format is used elsewhere but for this consolidate_metadata it is not an argument in zarr v2.
-        if format_kwargs.get("zarr_format"):
-            del format_kwargs["zarr_format"]
-        zarr.consolidate_metadata(store, **format_kwargs)
+    _zarrista_consolidate_metadata(store, zarr_format)

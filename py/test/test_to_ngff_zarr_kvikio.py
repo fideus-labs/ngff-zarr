@@ -4,12 +4,15 @@ import packaging.version
 import pytest
 import zarr
 from ngff_zarr import Methods, to_multiscales, to_ngff_zarr
-from ngff_zarr._zarr_kwargs import zarr_kwargs
 
 pytest.importorskip("kvikio")
 pytest.importorskip("itkwasm_downsample_cucim")
 
 zarr_version_major = packaging.version.parse(zarr.__version__).major
+if zarr_version_major >= 3:
+    zarr_kwargs = {"chunk_key_encoding": {"name": "default", "separator": "/"}}
+else:
+    zarr_kwargs = {"dimension_separator": "/"}
 
 ome_zarr_versions = ["0.4"] + (["0.5"] if zarr_version_major >= 3 else [])
 

@@ -8,11 +8,95 @@ in ZIP archives according to RFC-9 specification.
 """
 
 import json
+import posixpath
+import threading
 import zipfile
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 
-import zarr
-import zarr.storage
+
+class ZipReadStore(Mapping):
+    """Read-only name-to-bytes view of an OME-Zarr zip archive (.ozx/.zip).
+
+    The ``Mapping[str, bytes]`` surface feeds the pure-Python store reader
+    for metadata parsing and group navigation, while the retained archive
+    *path* lets the compat layer route pixel reads through zarrista's native
+    zip store — required for the sharded arrays ``.ozx`` archives hold by
+    default, which the mapping reader cannot decode. A *prefix* narrows the
+    view to a sub-hierarchy (HCS well/field access): keys are resolved
+    relative to it and iteration yields only the keys below it.
+
+    Every view produced by :meth:`with_prefix` shares the archive handle,
+    name set, and read lock of the store it came from, so navigating a large
+    plate does not open one file descriptor (and re-parse the central
+    directory) per well and field. :meth:`close` releases the shared handle
+    for all of them; the store is also usable as a context manager.
+    """
+
+    def __init__(self, path: str | Path, prefix: str = "", _shared=None):
+        self.path = Path(path)
+        self.prefix = "/".join(
+            part for part in str(prefix).split("/") if part not in ("", ".")
+        )
+        if _shared is None:
+            archive = zipfile.ZipFile(self.path, mode="r")
+            _shared = (
+                archive,
+                threading.Lock(),
+                frozenset(
+                    name for name in archive.namelist() if not name.endswith("/")
+                ),
+            )
+        self._shared = _shared
+        self._zipfile, self._lock, self._names = _shared
+
+    def with_prefix(self, prefix: str) -> "ZipReadStore":
+        """A view of the same archive narrowed to *prefix* (joined to any
+        existing prefix), sharing this store's open archive handle."""
+        return ZipReadStore(
+            self.path,
+            posixpath.join(self.prefix, str(prefix)),
+            _shared=self._shared,
+        )
+
+    def close(self) -> None:
+        """Close the archive handle shared by this store and its views."""
+        self._zipfile.close()
+
+    def __enter__(self) -> "ZipReadStore":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        self.close()
+        return False
+
+    def _full_key(self, key: str) -> str:
+        return f"{self.prefix}/{key}" if self.prefix else key
+
+    def __getitem__(self, key: str) -> bytes:
+        name = self._full_key(key)
+        if name not in self._names:
+            raise KeyError(key)
+        # One ZipFile handle now backs every view, and a shared handle has a
+        # single seek position, so concurrent reads must be serialized.
+        with self._lock:
+            return self._zipfile.read(name)
+
+    def __iter__(self) -> Iterator[str]:
+        if not self.prefix:
+            yield from self._names
+            return
+        start = f"{self.prefix}/"
+        for name in self._names:
+            if name.startswith(start):
+                yield name[len(start) :]
+
+    def __len__(self) -> int:
+        return sum(1 for _ in self)
+
+    def __str__(self) -> str:
+        # Error messages built from the store display the archive path.
+        return str(self.path if not self.prefix else self.path / self.prefix)
 
 
 def is_ozx_path(path: str | Path) -> bool:
@@ -33,18 +117,16 @@ def is_ozx_path(path: str | Path) -> bool:
 
 
 def _get_store_root_path(source_store) -> Path | None:
-    """Return the filesystem root Path for a store, or None for non-filesystem stores."""
-    if isinstance(source_store, (str, Path)):
-        return Path(source_store)
-    if hasattr(zarr.storage, "LocalStore") and isinstance(
-        source_store, zarr.storage.LocalStore
-    ):
-        return Path(source_store.root)
-    if hasattr(zarr.storage, "DirectoryStore") and isinstance(
-        source_store, zarr.storage.DirectoryStore
-    ):
-        return Path(source_store.dir_path())
-    return None
+    """Return the filesystem root Path for a store, or None for non-filesystem stores.
+
+    Delegates to the compat layer's resolver, which handles plain
+    ``str``/``Path``/``os.PathLike`` targets and zarrista ``FilesystemStore``
+    handles.
+    """
+    # Imported lazily: _zarrista_utils imports is_ozx_path from this module.
+    from ._zarrista_utils import resolve_store_path
+
+    return resolve_store_path(source_store)
 
 
 def _enumerate_fs_files(root_dir: Path) -> list[str]:
@@ -90,7 +172,7 @@ def _write_rfc9_comment(zf: zipfile.ZipFile, version: str) -> None:
 
 
 def write_store_to_zip(
-    source_store: zarr.storage.StoreLike | str | Path,
+    source_store,
     zip_path: str | Path,
     version: str = "0.5",
     compression: int = zipfile.ZIP_STORED,
@@ -114,9 +196,10 @@ def write_store_to_zip(
 
     Parameters
     ----------
-    source_store : zarr.storage.StoreLike, str, or Path
-        Source zarr store to write from. Can be a store object (LocalStore, DirectoryStore)
-        or a path string to a directory containing zarr data.
+    source_store : str, Path, os.PathLike, Mapping, or zarrista FilesystemStore
+        Source zarr store to write from. Can be a path (str, Path, or
+        os.PathLike) to a directory containing zarr data, a zarrista
+        FilesystemStore handle, or an in-memory key-to-bytes mapping.
     zip_path : str or Path
         Path to output .ozx file
     version : str, optional
@@ -140,17 +223,15 @@ def write_store_to_zip(
     if root_dir is not None:
         # Filesystem-backed store: enumerate files from disk
         all_files = _enumerate_fs_files(root_dir)
+    elif isinstance(source_store, Mapping):
+        # In-memory key-to-bytes mapping: keys are the file paths.
+        all_files = list(source_store)
     else:
-        # Non-filesystem store (e.g. MemoryStore): enumerate via async list()
-        import asyncio
-
-        async def get_all_files():
-            items = []
-            async for item in source_store.list():
-                items.append(item)
-            return items
-
-        all_files = asyncio.run(get_all_files())
+        raise TypeError(
+            "write_store_to_zip requires a local directory path, a zarrista "
+            f"FilesystemStore, or a key-to-bytes mapping; got "
+            f"{type(source_store).__name__}."
+        )
 
     if not all_files:
         raise ValueError(f"No files found in source store of type {type(source_store)}")
@@ -194,39 +275,14 @@ def write_store_to_zip(
                     )
                 zf.write(full_path, arcname=file_path)
         else:
-            # Non-filesystem store (e.g. MemoryStore): data is already in
-            # memory, so bulk-reading via asyncio.gather is fine.
-            import asyncio
-
-            from zarr.core.buffer import default_buffer_prototype
-
-            proto = default_buffer_prototype()
-
-            async def get_file_data(fp: str):
-                """Get data from store using zarr v3 async API."""
-                try:
-                    result = await source_store.get(fp, proto)
-                    if result:
-                        return result.to_bytes()
-                    return None
-                except (KeyError, FileNotFoundError):
-                    return None
-
-            async def get_all_file_data(file_paths):
-                results = await asyncio.gather(
-                    *(get_file_data(fp) for fp in file_paths)
-                )
-                return dict(zip(file_paths, results))
-
-            file_data = asyncio.run(get_all_file_data(ordered_files))
-
+            # In-memory mapping: data is already in memory.
             for file_path in ordered_files:
-                data = file_data[file_path]
+                data = source_store.get(file_path)
                 if data is None:
                     raise ValueError(
                         f"Could not read data for {file_path} from source store"
                     )
-                zf.writestr(file_path, data)
+                zf.writestr(file_path, bytes(data))
 
         _write_rfc9_comment(zf, version)
 

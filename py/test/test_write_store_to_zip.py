@@ -189,6 +189,34 @@ def test_write_store_to_zip_rejects_same_source_and_destination():
     assert (zarr_path / "zarr.json").exists()
 
 
+def test_write_store_to_zip_with_zarrista_store_handle(tmp_path):
+    """A zarrista FilesystemStore source produces the same archive as its path."""
+    zarrista = pytest.importorskip("zarrista")
+
+    data = np.random.randint(0, 255, (2, 32, 32), dtype=np.uint8)
+    image = to_ngff_image(data=data, dims=["c", "y", "x"])
+    multiscales = to_multiscales(image)
+
+    zarr_path = tmp_path / "test_handle.ome.zarr"
+    to_ngff_zarr(str(zarr_path), multiscales, version="0.5")
+
+    ozx_from_handle = tmp_path / "from_handle.ozx"
+    ozx_from_path = tmp_path / "from_path.ozx"
+    store_handle = zarrista.store.FilesystemStore(zarr_path)
+    write_store_to_zip(store_handle, ozx_from_handle, version="0.5")
+    write_store_to_zip(zarr_path, ozx_from_path, version="0.5")
+
+    with (
+        zipfile.ZipFile(ozx_from_handle) as zf_handle,
+        zipfile.ZipFile(ozx_from_path) as zf_path,
+    ):
+        assert zf_handle.namelist() == zf_path.namelist()
+        assert zf_handle.namelist()[0] == "zarr.json"
+        for name in zf_handle.namelist():
+            assert zf_handle.read(name) == zf_path.read(name)
+    assert read_ozx_version(ozx_from_handle) == "0.5"
+
+
 def test_write_store_to_zip_with_path_object():
     """Test that write_store_to_zip works with Path objects too"""
     OUTPUT_DIR.mkdir(exist_ok=True)

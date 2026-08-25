@@ -248,8 +248,8 @@ export type CoordinateTransformation =
       type: "byDimension";
       transformations: Array<{
         transformation: CoordinateTransformation;
-        input_axes: number[];
-        output_axes: number[];
+        inputAxes: number[];
+        outputAxes: number[];
       }>;
     }
     & TransformationCommon
@@ -302,12 +302,12 @@ export const BijectionTransformationSchema: z.ZodType<
 // zero-based indices into the parent's input and output coordinate systems.
 export const ByDimensionItemSchema: z.ZodType<{
   transformation: CoordinateTransformation;
-  input_axes: number[];
-  output_axes: number[];
+  inputAxes: number[];
+  outputAxes: number[];
 }> = z.object({
   transformation: z.lazy(() => CoordinateTransformationSchema),
-  input_axes: z.array(z.number().int().nonnegative()),
-  output_axes: z.array(z.number().int().nonnegative()),
+  inputAxes: z.array(z.number().int().nonnegative()),
+  outputAxes: z.array(z.number().int().nonnegative()),
 });
 
 // By dimension transformation: a high dimensional transformation built from

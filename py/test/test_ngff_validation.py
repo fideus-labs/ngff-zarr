@@ -1,6 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -9,8 +8,10 @@ import zarr
 from ngff_zarr import (
     NgffMultiscales,
     from_ngff_zarr,
+    from_ome_zarr,
     to_multiscales,
     to_ngff_zarr,
+    to_ome_zarr,
     validate,
 )
 from packaging import version
@@ -27,8 +28,8 @@ requires_zarr_v3 = pytest.mark.skipif(
 )
 
 
-def check_valid_ngff(multiscale: NgffMultiscales):
-    store = zarr.storage.MemoryStore()
+def check_valid_ngff(multiscale: NgffMultiscales, tmp_path: Path):
+    store = tmp_path / "test.ome.zarr"
     version = "0.4"
     to_ngff_zarr(store, multiscale, version=version)
     format_kwargs = {}
@@ -43,20 +44,20 @@ def check_valid_ngff(multiscale: NgffMultiscales):
     from_ngff_zarr(store, validate=True, version=version)
 
 
-def test_y_x_valid_ngff():
+def test_y_x_valid_ngff(tmp_path):
     array = np.random.random((32, 16))
     multiscale = to_multiscales(array, [2, 4])
 
-    check_valid_ngff(multiscale)
+    check_valid_ngff(multiscale, tmp_path)
 
 
 def test_validate_0_1():
     test_store = Path(__file__).parent / "data" / "input" / "v01" / "6001251.zarr"
     multiscales = from_ngff_zarr(test_store, validate=True, version="0.1")
-    if sys.byteorder == "little":
-        assert multiscales.images[0].data.dtype.byteorder == "<"
-    else:
-        assert multiscales.images[0].data.dtype.byteorder == ">"
+    # The read path normalizes byte order to the host's: zarr-python keeps the
+    # explicit stored order character ("<"/">"), zarrista decodes straight to
+    # native ("="); both are the native dtype.
+    assert multiscales.images[0].data.dtype.isnative
 
 
 def test_validate_0_1_no_version():
@@ -86,16 +87,15 @@ def test_validate_0_3_no_version():
     from_ngff_zarr(test_store, validate=True)
 
 
-def _write_valid_2d_store_v05() -> zarr.storage.MemoryStore:
+def _write_valid_2d_store_v05(store: Path) -> Path:
     """Write a valid 2D ``(y, x)`` two-level v0.5 multiscales to a store."""
-    store = zarr.storage.MemoryStore()
     array = np.random.random((32, 16)).astype("float32")
     to_ngff_zarr(store, to_multiscales(array, [2]), version="0.5")
     return store
 
 
 @requires_zarr_v3
-def test_validate_v05_wrapped_instance():
+def test_validate_v05_wrapped_instance(tmp_path):
     # The public ``validate`` entry point checks a v0.5 store against the v0.5
     # image schema, which requires the ``ome`` namespace wrapper. The full root
     # attributes (``{"ome": {...}}``) validate; the unwrapped ``ome`` content
@@ -103,7 +103,7 @@ def test_validate_v05_wrapped_instance():
     # vendored v0.5 schema -- not the v0.4 schema -- is what runs.
     jsonschema = pytest.importorskip("jsonschema")
 
-    store = _write_valid_2d_store_v05()
+    store = _write_valid_2d_store_v05(tmp_path / "v05.ome.zarr")
     root_attrs = zarr.open_group(store, mode="r").attrs.asdict()
 
     validate(root_attrs, version="0.5", model="image")
@@ -112,7 +112,7 @@ def test_validate_v05_wrapped_instance():
 
 
 @requires_zarr_v3
-def test_validate_v05_schema_active_on_read_path():
+def test_validate_v05_schema_active_on_read_path(tmp_path):
     # The read path validates the ``ome``-wrapped instance against the v0.5
     # image schema. A duplicate multiscale entry violates the schema's
     # ``uniqueItems`` constraint -- a pure schema concern the structural rules
@@ -120,7 +120,7 @@ def test_validate_v05_schema_active_on_read_path():
     # under ``validate=True`` and read silently under ``validate=False``.
     jsonschema = pytest.importorskip("jsonschema")
 
-    store = _write_valid_2d_store_v05()
+    store = _write_valid_2d_store_v05(tmp_path / "v05.ome.zarr")
     root = zarr.open_group(store, mode="r+")
     attrs = root.attrs.asdict()
     ome = attrs["ome"]
@@ -135,7 +135,7 @@ def test_validate_v05_schema_active_on_read_path():
 
 
 @requires_zarr_v3
-def test_read_path_schema_instance_by_version():
+def test_read_path_schema_instance_by_version(tmp_path):
     # The v0.4 and v0.5 image schemas share identical multiscale definitions and
     # differ only in the ``ome`` wrapper, so the rewire is behavior-neutral on
     # realistic inputs; this spy locks the wiring directly. The read path must
@@ -154,13 +154,15 @@ def test_read_path_schema_instance_by_version():
         return instance, version_arg
 
     # v0.5: wrapped under ``ome``, tagged "0.5".
-    v05_instance, v05_version = _schema_call(_write_valid_2d_store_v05())
+    v05_instance, v05_version = _schema_call(
+        _write_valid_2d_store_v05(tmp_path / "v05.ome.zarr")
+    )
     assert "ome" in v05_instance
     assert "multiscales" in v05_instance["ome"]
     assert v05_version == "0.5"
 
     # v0.4: bare root with top-level ``multiscales``, tagged "0.4".
-    store_v04 = zarr.storage.MemoryStore()
+    store_v04 = tmp_path / "v04.ome.zarr"
     array = np.random.random((32, 16)).astype("float32")
     to_ngff_zarr(store_v04, to_multiscales(array, [2]), version="0.4")
     v04_instance, v04_version = _schema_call(store_v04)
@@ -169,16 +171,15 @@ def test_read_path_schema_instance_by_version():
     assert v04_version == "0.4"
 
 
-def _write_valid_3d_store_v06() -> zarr.storage.MemoryStore:
+def _write_valid_3d_store_v06(store: Path) -> Path:
     """Write a valid 3D ``(z, y, x)`` two-level v0.6 multiscales to a store."""
-    store = zarr.storage.MemoryStore()
     array = np.random.random((4, 8, 8)).astype("float32")
     to_ngff_zarr(store, to_multiscales(array, [2]), version="0.6")
     return store
 
 
 @requires_zarr_v3
-def test_validate_v06_resolves_split_schema_refs():
+def test_validate_v06_resolves_split_schema_refs(tmp_path):
     # From v0.6 the image schema reaches coordinate systems and coordinate
     # transformations through the absolute ``$id`` URLs of sibling schema
     # files. Validation is offline, so every bundled file has to be in the
@@ -186,19 +187,21 @@ def test_validate_v06_resolves_split_schema_refs():
     # error on the writer's own output rather than validating it.
     pytest.importorskip("jsonschema")
 
-    root_attrs = zarr.open_group(_write_valid_3d_store_v06(), mode="r").attrs.asdict()
+    store = _write_valid_3d_store_v06(tmp_path / "v06.ome.zarr")
+    root_attrs = zarr.open_group(store, mode="r").attrs.asdict()
 
     validate(root_attrs, version="0.6", model="image")
 
 
 @requires_zarr_v3
-def test_validate_v06_accepts_the_on_disk_version_string():
+def test_validate_v06_accepts_the_on_disk_version_string(tmp_path):
     # A v0.6 store records the upstream pre-release tag the bundled schemas
     # carry. That string has no ``spec`` tree of its own, so it has to resolve
     # to the tree of the release it leads to.
     pytest.importorskip("jsonschema")
 
-    root_attrs = zarr.open_group(_write_valid_3d_store_v06(), mode="r").attrs.asdict()
+    store = _write_valid_3d_store_v06(tmp_path / "v06.ome.zarr")
+    root_attrs = zarr.open_group(store, mode="r").attrs.asdict()
     on_disk_version = root_attrs["ome"]["version"]
     assert on_disk_version.startswith("0.6")
     assert on_disk_version != "0.6"
@@ -207,12 +210,112 @@ def test_validate_v06_accepts_the_on_disk_version_string():
 
 
 @requires_zarr_v3
-def test_validate_v06_rejects_invalid_metadata():
+def test_validate_v06_rejects_an_earlier_prerelease_tag(tmp_path):
+    # The bundled 0.6 schemas pin ``ome.version`` to the pre-release they were
+    # published with, and the schema API checks a document as given. The
+    # reader is the lenient one: see the warning test below.
+    jsonschema = pytest.importorskip("jsonschema")
+
+    store = _write_valid_3d_store_v06(tmp_path / "image.ome.zarr")
+    root_attrs = zarr.open_group(str(store), mode="r").attrs.asdict()
+    root_attrs["ome"]["version"] = "0.6.dev4"
+
+    with pytest.raises(jsonschema.ValidationError, match="0.6rc0"):
+        validate(root_attrs, version="0.6", model="image")
+
+
+@requires_zarr_v3
+def test_v06_write_refuses_a_top_level_transform_without_references(tmp_path):
+    # From 0.6 a multiscale-level transform maps between two named coordinate
+    # systems and the schema requires both references. The writer refuses the
+    # model up front rather than producing a store its own validated reader
+    # rejects; with the references present the store validates.
+    from ngff_zarr.v06.zarr_metadata import CoordinateSystemIdentifier, Scale
+
+    array = np.random.random((4, 8, 8)).astype("float32")
+    multiscales = to_multiscales(array, [2])
+    multiscales.metadata.coordinateTransformations = [Scale(scale=[2.0, 2.0, 2.0])]
+
+    with pytest.raises(ValueError, match="names no input coordinate system"):
+        to_ome_zarr(tmp_path / "refused.ome.zarr", multiscales, version="0.6")
+
+    intrinsic = multiscales.metadata.intrinsic_coordinate_system.name
+    multiscales.metadata.coordinateTransformations = [
+        Scale(
+            scale=[2.0, 2.0, 2.0],
+            input=CoordinateSystemIdentifier(name=intrinsic),
+            output=CoordinateSystemIdentifier(name=intrinsic),
+        )
+    ]
+    store = tmp_path / "written.ome.zarr"
+    to_ome_zarr(store, multiscales, version="0.6")
+    pytest.importorskip("jsonschema")
+    validate(zarr.open_group(str(store), mode="r").attrs.asdict(), version="0.6")
+
+
+@requires_zarr_v3
+def test_read_warns_on_a_superseded_0_6_tag_and_validates_the_rest(tmp_path):
+    # A store tagged with an earlier 0.6 pre-release differs from a valid store
+    # in that string alone. The validating reader says so and checks the rest
+    # of the document with the tag substituted, rather than fail on the one
+    # thing ``upgrade_ome_zarr`` exists to rewrite.
+    pytest.importorskip("jsonschema")
+
+    store = _write_valid_3d_store_v06(tmp_path / "image.ome.zarr")
+    root = zarr.open_group(str(store), mode="r+")
+    ome = dict(root.attrs["ome"])
+    ome["version"] = "0.6.dev4"
+    root.attrs["ome"] = ome
+
+    with pytest.warns(UserWarning, match="superseded 0.6 pre-release tag '0.6.dev4'"):
+        multiscales = from_ome_zarr(store, validate=True)
+    assert len(multiscales.images) == 2
+
+
+@requires_zarr_v3
+def test_read_does_not_substitute_a_tag_no_release_wrote(tmp_path):
+    # Only the tags earlier releases wrote are substituted. A plain ``0.6``,
+    # which a stricter writer might record, is checked as given, and the
+    # schema rejects it, so it is not passed off as the vendored pre-release.
+    jsonschema = pytest.importorskip("jsonschema")
+
+    store = _write_valid_3d_store_v06(tmp_path / "image.ome.zarr")
+    root = zarr.open_group(str(store), mode="r+")
+    ome = dict(root.attrs["ome"])
+    ome["version"] = "0.6"
+    root.attrs["ome"] = ome
+
+    with pytest.raises(jsonschema.ValidationError, match="'0.6' is not one of"):
+        from_ome_zarr(store, validate=True)
+
+
+@requires_zarr_v3
+def test_read_still_rejects_a_defect_behind_a_superseded_0_6_tag(tmp_path):
+    # The substitution covers the tag and nothing else.
+    jsonschema = pytest.importorskip("jsonschema")
+
+    store = _write_valid_3d_store_v06(tmp_path / "image.ome.zarr")
+    root = zarr.open_group(str(store), mode="r+")
+    ome = dict(root.attrs["ome"])
+    ome["version"] = "0.6.dev4"
+    del ome["multiscales"][0]["coordinateSystems"]
+    root.attrs["ome"] = ome
+
+    with (
+        pytest.warns(UserWarning, match="superseded"),
+        pytest.raises(jsonschema.ValidationError),
+    ):
+        from_ome_zarr(store, validate=True)
+
+
+@requires_zarr_v3
+def test_validate_v06_rejects_invalid_metadata(tmp_path):
     # Resolving the references must not turn validation into a no-op: dropping
     # a required property still fails.
     jsonschema = pytest.importorskip("jsonschema")
 
-    root_attrs = zarr.open_group(_write_valid_3d_store_v06(), mode="r").attrs.asdict()
+    store = _write_valid_3d_store_v06(tmp_path / "v06.ome.zarr")
+    root_attrs = zarr.open_group(store, mode="r").attrs.asdict()
     del root_attrs["ome"]["multiscales"][0]["coordinateSystems"]
 
     with pytest.raises(jsonschema.ValidationError):
@@ -220,7 +323,7 @@ def test_validate_v06_rejects_invalid_metadata():
 
 
 @requires_zarr_v3
-def test_validate_v06_schema_active_on_read_path():
+def test_validate_v06_schema_active_on_read_path(tmp_path):
     # The v0.6 read path validated nothing while the split-schema references
     # were unresolvable. As for v0.5, a duplicate multiscale entry violates the
     # schema's ``uniqueItems`` constraint -- a pure schema concern the
@@ -228,7 +331,7 @@ def test_validate_v06_schema_active_on_read_path():
     # so it is rejected under ``validate=True`` and read silently otherwise.
     jsonschema = pytest.importorskip("jsonschema")
 
-    store = _write_valid_3d_store_v06()
+    store = _write_valid_3d_store_v06(tmp_path / "v06.ome.zarr")
     assert from_ngff_zarr(store, validate=True) is not None
 
     root = zarr.open_group(store, mode="r+")
@@ -252,13 +355,13 @@ def test_validate_v06_schema_active_on_read_path():
         pytest.param("0.6", marks=requires_zarr_v3),
     ],
 )
-def test_validate_strict_image_schema(ngff_version):
+def test_validate_strict_image_schema(ngff_version, tmp_path):
     # Every ``strict_image`` schema wraps its base schema by absolute ``$id``
     # URL, and the pre-0.6 ones omit ``$schema`` entirely. Both have to be
     # handled for the strict models to run at all.
     pytest.importorskip("jsonschema")
 
-    store = zarr.storage.MemoryStore()
+    store = tmp_path / "strict.ome.zarr"
     array = np.random.random((4, 8, 8)).astype("float32")
     to_ngff_zarr(store, to_multiscales(array, [2]), version=ngff_version)
     root_attrs = zarr.open_group(store, mode="r").attrs.asdict()
@@ -282,13 +385,13 @@ def test_load_schema_rejects_unbundled_version():
 
 
 @requires_zarr_v3
-def test_read_path_rejects_a_forged_version_string():
+def test_read_path_rejects_a_forged_version_string(tmp_path):
     # ``from_ngff_zarr(store, version="0.6")`` bypasses version detection, so a
     # store's own ``ome.version`` is what selects the schema. A forged value
     # must be rejected by name, not resolved as a path.
     pytest.importorskip("jsonschema")
 
-    store = _write_valid_3d_store_v06()
+    store = _write_valid_3d_store_v06(tmp_path / "v06.ome.zarr")
     root = zarr.open_group(store, mode="r+")
     attrs = root.attrs.asdict()
     ome = attrs["ome"]

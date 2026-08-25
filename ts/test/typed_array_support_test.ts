@@ -20,6 +20,8 @@ Deno.test("support Int8Array", async () => {
   });
 
   assertEquals(multiscales.images.length, 2);
+  assertEquals(multiscales.images[0].data.dtype, "int8");
+  assertEquals(multiscales.images[1].data.dtype, "int8");
   assertEquals(multiscales.images[1].data.shape[0], 128);
   assertEquals(multiscales.images[1].data.shape[1], 128);
 });
@@ -41,6 +43,8 @@ Deno.test("support Uint32Array", async () => {
   });
 
   assertEquals(multiscales.images.length, 2);
+  assertEquals(multiscales.images[0].data.dtype, "uint32");
+  assertEquals(multiscales.images[1].data.dtype, "uint32");
   assertEquals(multiscales.images[1].data.shape[0], 64);
   assertEquals(multiscales.images[1].data.shape[1], 64);
 });
@@ -62,6 +66,8 @@ Deno.test("support Int32Array", async () => {
   });
 
   assertEquals(multiscales.images.length, 2);
+  assertEquals(multiscales.images[0].data.dtype, "int32");
+  assertEquals(multiscales.images[1].data.dtype, "int32");
   assertEquals(multiscales.images[1].data.shape[0], 64);
   assertEquals(multiscales.images[1].data.shape[1], 64);
 });
@@ -83,6 +89,8 @@ Deno.test("support Float64Array", async () => {
   });
 
   assertEquals(multiscales.images.length, 2);
+  assertEquals(multiscales.images[0].data.dtype, "float64");
+  assertEquals(multiscales.images[1].data.dtype, "float64");
   assertEquals(multiscales.images[1].data.shape[0], 64);
   assertEquals(multiscales.images[1].data.shape[1], 64);
 });

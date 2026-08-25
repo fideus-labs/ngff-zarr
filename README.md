@@ -40,13 +40,13 @@ The main Python package provides:
 - Process extremely large datasets
 - Conversion of most bioimaging file formats
 - Multiple downscaling methods
-- Supports Python>=3.10
+- Supports Python>=3.11
 - Reads OME-Zarr v0.1 to v0.6 into simple Python data classes with Dask arrays
 - Optional OME-Zarr data model validation during reading
 - Writes OME-Zarr v0.4 to v0.6
 - v0.6 adds RFC-5 coordinate systems and transformations
 - [Sharded Zarr] stores
-- Optional writing via zarr-python 2, zarr-python 3, [tensorstore] or zarrita (TypeScript)
+- Optional writing via zarr-python 2, zarr-python 3, [zarrista] or zarrita (TypeScript)
 - [Anatomical orientation metadata](./docs/rfc4.md) (RFC-4)
 - **OME-Zarr Zip (.ozx) file support** for single-file OME-Zarr datasets (RFC-9)
 - **High Content Screening (HCS) support** for plate and well data
@@ -113,4 +113,4 @@ usage instructions.
 [MIT](https://spdx.org/licenses/MIT.html) license.
 
 [Sharded Zarr]: https://zarr.dev/zeps/accepted/ZEP0002.html
-[tensorstore]: https://google.github.io/tensorstore/
+[zarrista]: https://github.com/developmentseed/zarrista

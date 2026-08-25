@@ -8,13 +8,14 @@ from pathlib import Path
 
 import pooch
 import pytest
+
+# zarr-python is a test-only dependency: the reference reader used to verify
+# round-trip compatibility of zarrista-written stores.
 import zarr
 from deepdiff import DeepDiff
 from itkwasm_image_io import imread
 from ngff_zarr import itk_image_to_ngff_image, to_ngff_zarr
-from ngff_zarr._zarr_kwargs import zarr_kwargs
 from packaging import version
-from zarr.storage import MemoryStore
 
 test_data_ipfs_cid = "bafybeifqibhcomn4u42aqrgvttyfteysbspvzez5sbezcqj5yylzzafpma"
 test_data_sha256 = "525dfae8fe52df4a18dc19de97f018e667e161bc83dc0584144c16d872349705"
@@ -144,21 +145,10 @@ async def async_store_contents(store, keys):
     return {k: (await store.get(k)).to_bytes() for k in keys}
 
 
-async def async_memory_store_contents(store, keys):
-    from zarr.core.buffer import default_buffer_prototype
-
-    return {
-        k: (await store.get(k, default_buffer_prototype())).to_bytes() for k in keys
-    }
-
-
 def store_contents(store, keys):
     zarr_version = version.parse(zarr.__version__)
     if zarr_version >= version.parse("3.0.0b1"):
-        if isinstance(store, MemoryStore):
-            contents = asyncio.run(async_memory_store_contents(store, keys))
-        else:
-            contents = asyncio.run(async_store_contents(store, keys))
+        contents = asyncio.run(async_store_contents(store, keys))
     else:
         contents = {k: store[k] for k in keys}
     return contents
@@ -297,6 +287,18 @@ def store_equals(baseline_store, test_store):
     return True
 
 
+def _local_zarr_store(path):
+    """Wrap a directory path in a zarr-python store object for verification."""
+    try:
+        from zarr.storage import DirectoryStore
+
+        return DirectoryStore(path, dimension_separator="/")
+    except ImportError:
+        from zarr.storage import LocalStore
+
+        return LocalStore(path)
+
+
 def verify_against_baseline(
     dataset_name, baseline_name, multiscales, version="0.4", scale_strategy="pad"
 ):
@@ -313,14 +315,7 @@ def verify_against_baseline(
             f"(zarr {zarr.__version__}); nothing to compare against."
         )
 
-    try:
-        from zarr.storage import DirectoryStore
-
-        baseline_store = DirectoryStore(baseline_path, **zarr_kwargs)
-    except ImportError:
-        from zarr.storage import LocalStore
-
-        baseline_store = LocalStore(baseline_path)
+    baseline_store = _local_zarr_store(baseline_path)
 
     # A directory that exists but holds no arrays (a truncated extraction,
     # say) would also compare vacuously. Demand at least one array.
@@ -330,30 +325,23 @@ def verify_against_baseline(
         "the comparison would pass vacuously"
     )
 
-    test_store = MemoryStore()
-    to_ngff_zarr(
-        test_store, multiscales, version=version, scale_strategy=scale_strategy
-    )
+    # to_ngff_zarr writes only to local directory paths; wrap the written
+    # store in a zarr-python store object for the comparison walk.
+    import tempfile
 
-    assert store_equals(baseline_store, test_store)
+    with tempfile.TemporaryDirectory() as test_dir:
+        to_ngff_zarr(
+            test_dir, multiscales, version=version, scale_strategy=scale_strategy
+        )
+        test_store = _local_zarr_store(test_dir)
+        assert store_equals(baseline_store, test_store)
 
 
 def store_new_multiscales(dataset_name, baseline_name, multiscales, version="0.4"):
     """Helper method for writing output results to disk
     for later upload as test baseline"""
-    try:
-        from zarr.storage import DirectoryStore
-
-        store = DirectoryStore(
-            test_data_dir
-            / f"baseline/zarr{zarr_version_major}/v{version}/{dataset_name}/{baseline_name}",
-            **zarr_kwargs,
-        )
-    except ImportError:
-        from zarr.storage import LocalStore
-
-        store = LocalStore(
-            test_data_dir
-            / f"baseline/zarr{zarr_version_major}/v{version}/{dataset_name}/{baseline_name}"
-        )
+    store = (
+        test_data_dir
+        / f"baseline/zarr{zarr_version_major}/v{version}/{dataset_name}/{baseline_name}"
+    )
     to_ngff_zarr(store, multiscales, version=version)

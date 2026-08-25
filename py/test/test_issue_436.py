@@ -102,7 +102,8 @@ class TestSeriesOutputTarget:
         args = SimpleNamespace(output="/tmp/out/")
         store, path = _series_output_target(args, None, "GFP", 0, 2)
         assert path.endswith("_GFP.ome.zarr")
-        assert not isinstance(store, str)
+        # The derived path string doubles as the store target.
+        assert store == path
 
     def test_no_output_returns_none(self):
         """Test a missing output target yields no store or path."""

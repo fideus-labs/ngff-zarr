@@ -4,13 +4,14 @@
 
 A corrupt TIFF/SVS source can surface only during lazy dask evaluation while
 writing the output zarr array, as a cryptic ``OSError`` (e.g.
-``[Errno 22] Invalid argument``) after a long conversion. ``_write_array_direct``
+``[Errno 22] Invalid argument``) after a long conversion. The write path
 wraps such failures with context identifying the likely cause.
 """
 
 import dask.array as da
 import pytest
-from ngff_zarr.to_ngff_zarr import _array_write_error, _write_array_direct
+from ngff_zarr import to_multiscales, to_ngff_zarr
+from ngff_zarr.to_ngff_zarr import _array_write_error
 
 
 def _exploding_array():
@@ -36,27 +37,13 @@ def test_array_write_error_message_and_chain():
     assert "Invalid argument" in msg
 
 
-def test_write_array_direct_wraps_compute_oserror():
-    import zarr
-
-    # MemoryStore exists on both zarr v2 and v3; empty format_kwargs routes
-    # through the version-agnostic ``dask.array.to_zarr`` branch.
-    store = zarr.storage.MemoryStore()
-    arr = _exploding_array()
+def test_write_wraps_compute_oserror(tmp_path):
+    multiscales = to_multiscales(_exploding_array(), scale_factors=[])
 
     with pytest.raises(OSError) as exc_info:
-        _write_array_direct(
-            arr,
-            store,
-            "scale0/image",
-            sharding_kwargs={},
-            zarr_kwargs={},
-            format_kwargs={},
-            dimension_names_kwargs={},
-        )
+        to_ngff_zarr(str(tmp_path / "out.ome.zarr"), multiscales)
 
     msg = str(exc_info.value)
     assert "Failed to write data to the zarr array" in msg
-    assert "scale0/image" in msg
     # The original error is preserved in the chain.
     assert isinstance(exc_info.value.__cause__, OSError)

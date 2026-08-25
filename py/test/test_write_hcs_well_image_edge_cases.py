@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 """Test for edge cases in write_hcs_well_image function."""
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -160,10 +161,13 @@ def test_write_hcs_well_image_invalid_indices():
             )
 
 
-def test_write_hcs_well_image_memory_store():
-    """Test write_hcs_well_image with non-file store (MemoryStore)."""
+def test_write_hcs_well_image_path_store(tmp_path):
+    """Test write_hcs_well_image writes and reads back through a path store.
+
+    Formerly exercised zarr-python MemoryStore objects, which are no longer
+    accepted; the generic behavior is now verified against a directory path.
+    """
     import zarr
-    from packaging import version
 
     columns = [PlateColumn(name="1"), PlateColumn(name="2")]
     rows = [PlateRow(name="A"), PlateRow(name="B")]
@@ -178,7 +182,7 @@ def test_write_hcs_well_image_memory_store():
         columns=columns,
         rows=rows,
         wells=wells,
-        name="Memory Store Test Plate",
+        name="Path Store Test Plate",
         field_count=1,
     )
 
@@ -192,68 +196,40 @@ def test_write_hcs_well_image_memory_store():
     )
     multiscales = nz.to_multiscales(ngff_image)
 
-    # Test with memory store (non-file store)
-    try:
-        from zarr.storage import MemoryStore
-
-        memory_store = MemoryStore()
-    except (AttributeError, ImportError):
-        # MemoryStore not available in this zarr version
-        pytest.skip("MemoryStore not available in this zarr version")
+    store_path = str(tmp_path / "path_store_plate.ome.zarr")
 
     # Create plate structure
-    hcs_plate = HCSPlate(memory_store, plate_metadata)
-    to_hcs_zarr(hcs_plate, memory_store)
+    hcs_plate = HCSPlate(store_path, plate_metadata)
+    to_hcs_zarr(hcs_plate, store_path)
 
-    # Check zarr version to determine expected behavior
-    zarr_version = version.parse(zarr.__version__)
+    write_hcs_well_image(
+        store=store_path,
+        multiscales=multiscales,
+        plate_metadata=plate_metadata,
+        row_name="A",
+        column_name="1",
+        field_index=0,
+    )
 
-    if zarr_version.major >= 3:
-        # Zarr 3.x should work with StorePath
-        try:
-            # Write well image - should work with fixed non-file store handling
-            write_hcs_well_image(
-                store=memory_store,
-                multiscales=multiscales,
-                plate_metadata=plate_metadata,
-                row_name="A",
-                column_name="1",
-                field_index=0,
-            )
+    # Verify the data was written to the correct location
+    # write_hcs_well_image defaults to version="0.4" (zarr format 2);
+    # zarr-python 2.x reads v2 stores without the zarr_format keyword.
+    from packaging import version
 
-            # Verify the data was written to the correct location
-            # write_hcs_well_image defaults to version="0.4" (zarr format 2)
-            root = zarr.open_group(memory_store, mode="r", zarr_format=2)
-            assert "A" in root, "Row group 'A' not found"
-            assert "1" in root["A"], "Column group '1' not found in row 'A'"
-            assert "0" in root["A/1"], "Field group '0' not found in well 'A/1'"
+    open_kwargs = (
+        {"zarr_format": 2} if version.parse(zarr.__version__).major >= 3 else {}
+    )
+    root = zarr.open_group(store_path, mode="r", **open_kwargs)
+    assert "A" in root, "Row group 'A' not found"
+    assert "1" in root["A"], "Column group '1' not found in row 'A'"
+    assert "0" in root["A/1"], "Field group '0' not found in well 'A/1'"
 
-            # Check that the multiscales metadata exists
-            field_group = root["A/1/0"]
-            assert "multiscales" in field_group.attrs, (
-                "NgffMultiscales metadata not found"
-            )
+    # Check that the multiscales metadata exists
+    field_group = root["A/1/0"]
+    assert "multiscales" in field_group.attrs, "NgffMultiscales metadata not found"
 
-            # Just check that the field group exists (data was written successfully)
-            assert field_group is not None, "Field group should exist after writing"
-
-        except ImportError:
-            # StorePath not available even in zarr 3.x
-            pytest.skip("StorePath not available in this zarr 3.x version")
-    else:
-        # Zarr 2.x should raise NotImplementedError
-        with pytest.raises(
-            NotImplementedError,
-            match="Non-file stores with zarr-python 2.x are not fully supported",
-        ):
-            write_hcs_well_image(
-                store=memory_store,
-                multiscales=multiscales,
-                plate_metadata=plate_metadata,
-                row_name="A",
-                column_name="1",
-                field_index=0,
-            )
+    # Just check that the field group exists (data was written successfully)
+    assert field_group is not None, "Field group should exist after writing"
 
 
 def test_write_hcs_well_image_multiple_fields():
@@ -314,3 +290,104 @@ def test_write_hcs_well_image_multiple_fields():
         for i, img in enumerate(well_attrs["images"]):
             assert img["path"] == str(i), f"Image {i} path should be '{i}'"
             assert img["acquisition"] == 0, f"Image {i} acquisition should be 0"
+
+
+def test_concurrent_fields_in_one_well_keep_every_image(tmp_path):
+    """Threads writing distinct fields of one well must not drop entries.
+
+    ``write_hcs_well_image`` reads the well's image list, appends the new
+    field, and writes it back. Without per-well serialization two threads can
+    read the same prior list and the later write drops the earlier field.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    store = tmp_path / "plate.ome.zarr"
+    plate_metadata = Plate(
+        columns=[PlateColumn(name="1")],
+        rows=[PlateRow(name="A")],
+        wells=[PlateWell(path="A/1", rowIndex=0, columnIndex=0)],
+        version="0.5",
+    )
+    multiscales = nz.to_multiscales(
+        np.zeros((16, 16), dtype=np.uint8), scale_factors=[]
+    )
+
+    n_fields = 8
+
+    def write(field_index):
+        write_hcs_well_image(
+            store=str(store),
+            multiscales=multiscales,
+            plate_metadata=plate_metadata,
+            row_name="A",
+            column_name="1",
+            field_index=field_index,
+            version="0.5",
+        )
+
+    with ThreadPoolExecutor(max_workers=n_fields) as executor:
+        list(executor.map(write, range(n_fields)))
+
+    well_attrs = json.loads((store / "A" / "1" / "zarr.json").read_text())
+    images = well_attrs["attributes"]["ome"]["well"]["images"]
+    assert sorted(int(image["path"]) for image in images) == list(range(n_fields))
+
+
+def test_to_hcs_zarr_overwrite_false_preserves_existing_wells(tmp_path):
+    """``overwrite=False`` must merge into an existing plate, not erase it."""
+    store = tmp_path / "plate.ome.zarr"
+    plate_metadata = Plate(
+        columns=[PlateColumn(name="1")],
+        rows=[PlateRow(name="A")],
+        wells=[PlateWell(path="A/1", rowIndex=0, columnIndex=0)],
+        version="0.5",
+    )
+    multiscales = nz.to_multiscales(
+        np.zeros((16, 16), dtype=np.uint8), scale_factors=[]
+    )
+    write_hcs_well_image(
+        store=str(store),
+        multiscales=multiscales,
+        plate_metadata=plate_metadata,
+        row_name="A",
+        column_name="1",
+        field_index=0,
+        version="0.5",
+    )
+    assert (store / "A" / "1" / "0").exists()
+
+    to_hcs_zarr(
+        HCSPlate(store=str(store), plate_metadata=plate_metadata),
+        str(store),
+        overwrite=False,
+    )
+    assert (store / "A" / "1" / "0").exists(), "existing well data was erased"
+
+    # The default still replaces the hierarchy.
+    to_hcs_zarr(HCSPlate(store=str(store), plate_metadata=plate_metadata), str(store))
+    assert not (store / "A" / "1" / "0").exists()
+
+
+def test_plate_writer_overwrite_false_keeps_prior_plate(tmp_path):
+    """``HCSPlateWriter(overwrite=False)`` must forward the flag."""
+    store = tmp_path / "plate.ome.zarr"
+    plate_metadata = Plate(
+        columns=[PlateColumn(name="1")],
+        rows=[PlateRow(name="A")],
+        wells=[PlateWell(path="A/1", rowIndex=0, columnIndex=0)],
+        version="0.5",
+    )
+    multiscales = nz.to_multiscales(
+        np.zeros((16, 16), dtype=np.uint8), scale_factors=[]
+    )
+    with nz.HCSPlateWriter(str(store), plate_metadata, version="0.5") as writer:
+        writer.write_well_image(multiscales, "A", "1", field_index=0)
+    assert (store / "A" / "1" / "0").exists()
+
+    with nz.HCSPlateWriter(
+        str(store), plate_metadata, version="0.5", overwrite=False
+    ) as writer:
+        writer.write_well_image(multiscales, "A", "1", field_index=1)
+
+    assert (store / "A" / "1" / "0").exists(), "resumed write erased the first field"
+    assert (store / "A" / "1" / "1").exists()

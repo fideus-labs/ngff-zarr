@@ -30,6 +30,88 @@ The field is itself an ordinary OME-Zarr image, so it can be written into the
 of the [Write an image and its transformation into one store](#write-an-image-and-its-transformation-into-one-store)
 section below.
 
+## Transformations
+
+The transformation data classes live in `ngff_zarr.v06.zarr_metadata`:
+
+| Class | `type` | Parameters |
+| --- | --- | --- |
+| `Identity` | `identity` | — |
+| `Scale` | `scale` | `scale: list[float]` |
+| `Translation` | `translation` | `translation: list[float]` |
+| `Rotation` | `rotation` | `rotation: list[list[float]]` |
+| `Affine` | `affine` | `affine: list[list[float]]` |
+| `Displacements` | `displacements` | `path: str`, `interpolation: str` |
+| `Coordinates` | `coordinates` | `path: str`, `interpolation: str` |
+| `TransformSequence` | `sequence` | `transformations: list[Transform]` |
+| `MapAxis` | `mapAxis` | `mapAxis: list[int]` |
+| `ByDimension` | `byDimension` | `transformations: list[ByDimensionItem]` |
+| `Bijection` | `bijection` | `forward: Transform`, `inverse: Transform` |
+
+`MapAxis` stores an axis permutation as a transpose vector: the value at
+position `i` is the input axis that becomes the `i`-th output axis, and every
+zero-based input axis index appears exactly once.
+
+`ByDimension` builds a high dimensional transform from lower dimensional ones;
+each `ByDimensionItem` wraps a transformation with the `inputAxes` and `outputAxes`
+(zero-based indices into the parent's coordinate systems) it applies to, and
+every output axis is produced by exactly one item.
+
+`Bijection` pairs an explicit `forward` transformation with its `inverse`.
+Constraints that follow from a transform's parameters alone are enforced
+when it is constructed, so an invalid instance cannot exist; the ones that
+depend on the resolved input and output coordinate systems are checked on read, and by
+`ngff_zarr.v06.zarr_metadata.validate_transform` (or the transform's own
+`validate` method) for programmatically built transforms.
+
+Every transform has an `input` and `output`, each a
+`CoordinateSystemIdentifier` naming a coordinate system (`name=`) or referencing
+a dataset (`path=`). `Displacements`/`Coordinates` additionally carry a `path`
+pointing at the field array within the store.
+
+Inline transforms (affine, rotation, scale, ...) are stored directly in the
+multiscales metadata, so a single `to_ome_zarr` call writes both the image
+pixel data and the transformation:
+
+```python
+import numpy as np
+import ngff_zarr as nz
+from ngff_zarr.v06.zarr_metadata import (
+    Affine,
+    Axis,
+    CoordinateSystem,
+    CoordinateSystemIdentifier,
+)
+
+array = np.random.random((64, 64, 64)).astype(np.float32)
+image = nz.to_ngff_image(array, dims=["z", "y", "x"])
+multiscales = nz.to_multiscales(image, scale_factors=[])
+
+# An affine that maps the intrinsic pixel system to an "output" system.
+output_cs = CoordinateSystem(
+    name="output",
+    axes=[Axis(name=d, type="space") for d in ("z", "y", "x")],
+)
+
+affine = Affine(
+    affine=[
+        [1.0, 0.0, 0.0, 5.0],
+        [0.0, 1.0, 0.0, 10.0],
+        [0.0, 0.0, 1.0, 15.0],
+    ],
+    input=CoordinateSystemIdentifier(
+        name=multiscales.metadata.intrinsic_coordinate_system.name
+    ),
+    output=CoordinateSystemIdentifier(name=output_cs.name),
+    name="to_output",
+)
+
+multiscales.metadata.coordinateSystems.append(output_cs)
+multiscales.metadata.coordinateTransformations = [affine]
+
+nz.to_ome_zarr("affine.ome.zarr", multiscales, version="0.6")
+```
+
 ## Displacement and coordinate fields
 
 A displacement (or coordinate) field is a multiscale image whose
@@ -62,84 +144,6 @@ nz.to_ome_zarr("displacement.ome.zarr", multiscales, version="0.6")
 The axis type round-trips through reading and writing. It can also be set after
 the fact by editing the metadata directly, for example
 `multiscales.metadata.intrinsic_coordinate_system.axes[0].type = "displacement"`.
-
-## Transformations
-
-The transformation data classes live in `ngff_zarr.v06.zarr_metadata`:
-
-| Class | `type` | Parameters |
-| --- | --- | --- |
-| `Identity` | `identity` | — |
-| `Scale` | `scale` | `scale: list[float]` |
-| `Translation` | `translation` | `translation: list[float]` |
-| `Rotation` | `rotation` | `rotation: list[list[float]]` |
-| `Affine` | `affine` | `affine: list[list[float]]` |
-| `Displacements` | `displacements` | `path: str`, `interpolation: str` |
-| `Coordinates` | `coordinates` | `path: str`, `interpolation: str` |
-| `TransformSequence` | `sequence` | `transformations: list[Transform]` |
-| `MapAxis` | `mapAxis` | `mapAxis: list[int]` |
-| `ByDimension` | `byDimension` | `transformations: list[ByDimensionItem]` |
-| `Bijection` | `bijection` | `forward: Transform`, `inverse: Transform` |
-
-`MapAxis` stores an axis permutation as a transpose vector: the value at
-position `i` is the input axis that becomes the `i`-th output axis, and every
-zero-based input axis index appears exactly once. `ByDimension` builds a high
-dimensional transform from lower dimensional ones; each `ByDimensionItem`
-wraps a transformation with the `input_axes` and `output_axes` (zero-based
-indices into the parent's coordinate systems) it applies to, and every output
-axis is produced by exactly one item. `Bijection` pairs an explicit `forward`
-transformation with its `inverse`. Constraints that follow from a transform's
-parameters alone are enforced when it is constructed, so an invalid instance
-cannot exist; the ones that depend on the resolved input and output
-coordinate systems are checked on read, and by
-`ngff_zarr.v06.zarr_metadata.validate_transform` (or the transform's own
-`validate` method) for programmatically built transforms.
-
-Every transform has an `input` and `output`, each a
-`CoordinateSystemIdentifier` naming a coordinate system (`name=`) or referencing
-a dataset (`path=`). `Displacements`/`Coordinates` additionally carry a `path`
-pointing at the field array within the store.
-
-Inline transforms (affine, rotation, scale, ...) are stored directly in the
-multiscales metadata, so a single `to_ome_zarr` call writes both the image
-pixel data and the transformation:
-
-```python
-import numpy as np
-import ngff_zarr as nz
-from ngff_zarr.v06.zarr_metadata import (
-    Affine,
-    Axis,
-    CoordinateSystem,
-    CoordinateSystemIdentifier,
-)
-
-array = np.random.random((64, 64, 64)).astype(np.float32)
-image = nz.to_ngff_image(array, dims=["z", "y", "x"])
-multiscales = nz.to_multiscales(image, scale_factors=[])
-
-# An affine that maps the intrinsic pixel system to an "output" system.
-output_cs = CoordinateSystem(
-    name="output",
-    axes=[Axis(name=d, type="space") for d in ("z", "y", "x")],
-)
-affine = Affine(
-    affine=[
-        [1.0, 0.0, 0.0, 5.0],
-        [0.0, 1.0, 0.0, 10.0],
-        [0.0, 0.0, 1.0, 15.0],
-    ],
-    input=CoordinateSystemIdentifier(
-        name=multiscales.metadata.intrinsic_coordinate_system.name
-    ),
-    output=CoordinateSystemIdentifier(name=output_cs.name),
-    name="to_output",
-)
-multiscales.metadata.coordinateSystems.append(output_cs)
-multiscales.metadata.coordinateTransformations = [affine]
-
-nz.to_ome_zarr("affine.ome.zarr", multiscales, version="0.6")
-```
 
 ## Write an image and its transformation into one store
 
@@ -279,8 +283,8 @@ const field2 = await fromOmeZarr(`${store}/${(transform as { path: string }).pat
 
 ## Compatibility
 
-The v0.6 data model requires a Zarr v3 store, so writing `version="0.6"` needs
-zarr-python >= 3.0.0b1. Reading v0.1–v0.5 stores is unchanged; on read, older
+The v0.6 data model requires a Zarr v3 store; the zarrista-backed writer
+produces these natively. Reading v0.1–v0.5 stores is unchanged; on read, older
 metadata is converted into the v0.6 data model (a single `intrinsic` coordinate
 system with per-dataset scale/translation sequences).
 

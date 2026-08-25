@@ -38,7 +38,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 # The on-disk ``ome.version`` string a given API version is written as.
-DISK_VERSION = {"0.4": "0.4", "0.5": "0.5", "0.6": "0.6.dev4"}
+DISK_VERSION = {"0.4": "0.4", "0.5": "0.5", "0.6": "0.6rc0"}
 
 # Every metadata sidecar name across Zarr v2 and v3, so ``_chunk_files`` can
 # isolate the true chunk *data* whose immutability we assert across an upgrade.
@@ -113,6 +113,34 @@ def _disk_ome_version(store_path, api_version: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
+@pytest.mark.parametrize("validate", [False, True])
+def test_in_place_retags_an_earlier_0_6_prerelease(tmp_path, validate):
+    # A store written while 0.6 was a draft carries that draft's tag. The
+    # bundled schemas pin ``ome.version`` to a later pre-release, whose enum
+    # rejects the old tag, so ``upgrade`` to the same API version rewrites the
+    # tag instead of treating the request as a no-op. Chunks stay untouched.
+    # With ``validate`` the source is checked with its tag substituted, since
+    # the tag is the one thing this upgrade changes.
+    multiscales, data = _synth_multiscales()
+    store_path = str(tmp_path / "image.ome.zarr")
+    to_ome_zarr(store_path, multiscales, version="0.6")
+    root = zarr.open_group(store_path, mode="r+")
+    ome = dict(root.attrs["ome"])
+    ome["version"] = "0.6.dev4"
+    root.attrs["ome"] = ome
+    assert zarr.open_group(store_path, mode="r").attrs["ome"]["version"] == "0.6.dev4"
+    chunks_before = _chunk_files(tmp_path)
+    assert chunks_before
+
+    upgrade_ome_zarr(store_path, version="0.6", validate=validate)
+
+    root_after = zarr.open_group(store_path, mode="r")
+    assert root_after.attrs["ome"]["version"] == DISK_VERSION["0.6"]
+    assert _chunk_files(tmp_path) == chunks_before
+    reloaded = from_ome_zarr(store_path, validate=True)
+    np.testing.assert_array_equal(reloaded.images[0].data.compute(), data)
+
+
 def test_in_place_0_5_to_0_6(tmp_path):
     multiscales, data = _synth_multiscales()
     store_path = str(tmp_path / "image.ome.zarr")
@@ -126,7 +154,7 @@ def test_in_place_0_5_to_0_6(tmp_path):
     upgrade_ome_zarr(store_path, version="0.6")
 
     root_after = zarr.open_group(store_path, mode="r")
-    assert root_after.attrs["ome"]["version"] == "0.6.dev4"
+    assert root_after.attrs["ome"]["version"] == "0.6rc0"
 
     # Array chunk files are byte-identical and unmodified (path, size, mtime,
     # and content) -- only the root group metadata was rewritten.
@@ -314,23 +342,34 @@ def test_write_to_new_store_matrix(tmp_path, source_version, target_version):
     np.testing.assert_array_equal(reloaded.images[0].data.compute(), data)
 
 
-def test_write_to_new_store_memory():
-    """Write-to-new-store also works store-to-store in memory (no filesystem)."""
-    multiscales, data = _synth_multiscales()
-    source = zarr.storage.MemoryStore()
-    to_ome_zarr(source, multiscales, version="0.4")
+def test_write_to_new_store_rejects_store_objects(tmp_path):
+    """zarr-python store objects are rejected with TypeError (breaking change).
 
-    target = zarr.storage.MemoryStore()
-    upgrade_ome_zarr(source, target, version="0.6")
+    Store-to-store upgrades through in-memory zarr-python stores are no longer
+    supported: only local paths, remote URLs, .ozx archives, and read-only
+    bytes mappings are accepted. Path-based write-to-new-store coverage lives
+    in test_write_to_new_store_matrix.
+    """
+    multiscales, _ = _synth_multiscales()
 
-    root_target = zarr.open_group(target, mode="r")
-    assert root_target.attrs["ome"]["version"] == "0.6.dev4"
-    reloaded = from_ome_zarr(target, version="0.6", validate=True)
-    np.testing.assert_array_equal(reloaded.images[0].data.compute(), data)
+    # Write side: to_ome_zarr no longer accepts store objects.
+    with pytest.raises(TypeError, match="no longer accepted"):
+        to_ome_zarr(zarr.storage.MemoryStore(), multiscales, version="0.4")
 
-    # Source still readable at its own version: never erased.
-    source_reloaded = from_ome_zarr(source, version="0.4", validate=True)
-    np.testing.assert_array_equal(source_reloaded.images[0].data.compute(), data)
+    source_path = str(tmp_path / "source.ome.zarr")
+    to_ome_zarr(source_path, multiscales, version="0.4")
+
+    # upgrade_ome_zarr rejects store objects as the source ...
+    with pytest.raises(TypeError, match="zarr-python store object"):
+        upgrade_ome_zarr(
+            zarr.storage.MemoryStore(),
+            str(tmp_path / "target.ome.zarr"),
+            version="0.6",
+        )
+
+    # ... and as the target.
+    with pytest.raises(TypeError, match="no longer accepted"):
+        upgrade_ome_zarr(source_path, zarr.storage.MemoryStore(), version="0.6")
 
 
 # --------------------------------------------------------------------------- #
@@ -427,7 +466,7 @@ def test_output_equal_to_input_routes_in_place(tmp_path):
     upgrade_ome_zarr(store_path, store_path, version="0.6")
 
     root_after = zarr.open_group(store_path, mode="r")
-    assert root_after.attrs["ome"]["version"] == "0.6.dev4"
+    assert root_after.attrs["ome"]["version"] == "0.6rc0"
     chunks_after = _chunk_files(tmp_path)
     assert set(chunks_after) == set(chunks_before)
     for rel, sig in chunks_before.items():

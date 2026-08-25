@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/axes.schema",
+  "$id": "https://ngff.openmicroscopy.org/0.6rc0/schemas/axes.schema",
   "title": "Axes",
   "description": "OME-Zarr Axes.",
   "type": "array",

@@ -28,7 +28,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 # The on-disk ``ome.version`` string each API version is written as.
-DISK_VERSION = {"0.4": "0.4", "0.5": "0.5", "0.6": "0.6.dev4"}
+DISK_VERSION = {"0.4": "0.4", "0.5": "0.5", "0.6": "0.6rc0"}
 
 # Metadata sidecars across Zarr v2 and v3, excluded when isolating chunk data.
 _METADATA_NAMES = {"zarr.json", ".zarray", ".zattrs", ".zgroup", ".zmetadata"}

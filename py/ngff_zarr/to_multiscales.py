@@ -6,24 +6,22 @@ import shutil
 import signal
 import threading
 import time
+import uuid
 from collections.abc import Mapping, MutableMapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import dask
 import numpy as np
-import zarr
 from dask.array.core import Array as DaskArray
 from numpy.typing import ArrayLike
 
-try:
-    from zarr.core import Array as ZarrArray
-except ImportError:
-    from zarr.core.array import Array as ZarrArray
-import zarr.storage
-
-from ._zarr_kwargs import zarr_kwargs
-from ._zarr_open_array import open_array
+from ._zarrista_utils import (
+    create_zarrista_array,
+    open_zarrista_lazy,
+    resolve_store_path,
+    write_dask_array,
+)
 from .config import config
 from .memory_usage import memory_usage
 from .methods import Methods
@@ -42,7 +40,7 @@ from .ngff_image import NgffImage
 from .rfc4 import AnatomicalOrientation, orientation_from_name
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
 from .task_count import task_count
-from .to_ngff_image import to_ngff_image
+from .to_ngff_image import _as_dask_array, to_ngff_image
 from .v06.zarr_metadata import (
     Axis,
     CoordinateSystem,
@@ -104,32 +102,77 @@ def _find_optimal_chunk_size(first_chunk, dim_size):
     return max(1, min(int(first_chunk), int(dim_size)))
 
 
+# zarr-python's default codec configuration, so cache arrays written through
+# zarrista compress the same way the legacy engine's cache arrays did.
+_CACHE_COMPRESSION = {"name": "zstd", "configuration": {"level": 0, "checksum": False}}
+
+
+@dataclass(frozen=True)
+class _CacheTarget:
+    """Destination for large-image cache arrays.
+
+    Wraps the local directory backing the configured cache store. The default
+    ``config.cache_store`` is the cache directory path itself; cache arrays
+    are written and read back through zarrista.
+    """
+
+    path: Path
+
+    @classmethod
+    def from_config(cls) -> "_CacheTarget":
+        store = config.cache_store
+        path = resolve_store_path(store)
+        if path is None:
+            raise TypeError(
+                "config.cache_store must be a local directory path; got "
+                f"{type(store).__name__}."
+            )
+        return cls(path)
+
+    def create_array(self, component, shape, chunks, dtype):
+        """Create the cache array at *component*, ready for region writes."""
+        # The cache is written and read back only through zarrista, so it
+        # always uses zarr format 3.
+        return create_zarrista_array(
+            self.path,
+            component,
+            shape,
+            dtype,
+            chunks,
+            zarr_format=3,
+            compressors=[_CACHE_COMPRESSION],
+        )
+
+    def write_region(self, cache_array, arr_region, region):
+        """Write *arr_region* into *region* of *cache_array*."""
+        write_dask_array(arr_region, cache_array, region=region)
+
+    def read_lazy(self, component):
+        """Open the cache array at *component* as a lazy dask array."""
+        return open_zarrista_lazy(self.path, component=component)
+
+
 def _large_image_serialization(
     image: NgffImage, progress: NgffProgress | NgffProgressCallback | None
 ):
     optimized_chunks = 512 if "z" in image.dims else 1024
-    base_path = f"{image.name}-cache-{time.time()}"
+    # The suffix must be unique per call. A timestamp alone is not: on Windows
+    # with Python < 3.13 time.time() has ~15.6 ms resolution, so back-to-back
+    # calls share a value and two caches land in one directory, where they
+    # clobber each other. Differing shapes raise (a 1D array's chunk key "c/0"
+    # is a file where a 2D array's is a directory), but matching shapes share
+    # chunk keys and corrupt silently, so uniqueness cannot rest on the clock.
+    base_path = f"{image.name}-cache-{time.time()}-{uuid.uuid4().hex}"
 
-    cache_store = config.cache_store
+    cache = _CacheTarget.from_config()
     base_path_removed = False
 
     def remove_from_cache_store(sig_id, frame):
         nonlocal base_path_removed
         if not base_path_removed:
-            if hasattr(zarr.storage, "DirectoryStore") and isinstance(
-                cache_store, zarr.storage.DirectoryStore
-            ):
-                full_path = Path(cache_store.dir_path()) / base_path
-                if full_path.exists():
-                    shutil.rmtree(full_path, ignore_errors=True)
-            elif hasattr(zarr.storage, "LocalStore") and isinstance(
-                cache_store, zarr.storage.LocalStore
-            ):
-                full_path = Path(cache_store.root) / base_path
-                if full_path.exists():
-                    shutil.rmtree(full_path, ignore_errors=True)
-            else:
-                zarr.storage.rmdir(cache_store, base_path)
+            full_path = cache.path / base_path
+            if full_path.exists():
+                shutil.rmtree(full_path, ignore_errors=True)
             base_path_removed = True
 
     atexit.register(remove_from_cache_store, None, None)
@@ -184,15 +227,7 @@ def _large_image_serialization(
             for i, (c, dim) in enumerate(zip(slabs.chunks, dims))
         )
 
-        zarr_array = open_array(
-            shape=data.shape,
-            chunks=chunks,
-            dtype=data.dtype,
-            store=cache_store,
-            path=path,
-            mode="a",
-            **zarr_kwargs,
-        )
+        zarr_array = cache.create_array(path, data.shape, chunks, data.dtype)
 
         n_slabs = int(np.ceil(data.shape[z_index] / slab_slices))
         if progress:
@@ -211,17 +246,8 @@ def _large_image_serialization(
             )
             region = tuple(region)
             arr_region = slabs[region]
-            dask.array.to_zarr(
-                arr_region,
-                zarr_array,
-                region=region,
-                component=path,
-                overwrite=False,
-                compute=True,
-                return_stored=False,
-                **zarr_kwargs,
-            )
-        data = dask.array.from_zarr(cache_store, component=path)
+            cache.write_region(zarr_array, arr_region, region)
+        data = cache.read_lazy(path)
         if optimized_chunks < data.shape[z_index] and slab_slices < optimized_chunks:
             rechunks[z_index] = optimized_chunks
             data = data.rechunk(rechunks)
@@ -236,15 +262,7 @@ def _large_image_serialization(
             )
 
             data = data.rechunk(chunks)
-            zarr_array = open_array(
-                shape=data.shape,
-                chunks=chunks,
-                dtype=data.dtype,
-                store=cache_store,
-                path=path,
-                mode="a",
-                **zarr_kwargs,
-            )
+            zarr_array = cache.create_array(path, data.shape, chunks, data.dtype)
             n_slabs = int(np.ceil(data.shape[z_index] / optimized_chunks))
             for slab_index in range(n_slabs):
                 if progress:
@@ -260,33 +278,22 @@ def _large_image_serialization(
                 )
                 region = tuple(region)
                 arr_region = data[region]
-                dask.array.to_zarr(
-                    arr_region,
-                    zarr_array,
-                    region=region,
-                    component=path,
-                    overwrite=False,
-                    compute=True,
-                    return_stored=False,
-                    **zarr_kwargs,
-                )
-            data = dask.array.from_zarr(cache_store, component=path)
+                cache.write_region(zarr_array, arr_region, region)
+            data = cache.read_lazy(path)
         else:
             data = data.rechunk(rechunks)
     elif "y" in dims or "x" in dims:
         # 2D (or 2D+c/t) images: process in strips along the larger spatial dim
-        data = _cache_2d_strips(data, dims, rechunks, cache_store, base_path, progress)
+        data = _cache_2d_strips(data, dims, rechunks, cache, base_path, progress)
     else:
         # 1D (x-only) images: process in segments along x
-        data = _cache_1d_segments(
-            data, dims, rechunks, cache_store, base_path, progress
-        )
+        data = _cache_1d_segments(data, dims, rechunks, cache, base_path, progress)
 
     image.data = data
     return image
 
 
-def _cache_2d_strips(data, dims, rechunks, cache_store, base_path, progress):
+def _cache_2d_strips(data, dims, rechunks, cache, base_path, progress):
     """Cache large 2D images in strips along the larger spatial dimension.
 
     This avoids constructing a massive dask rechunk graph for the full image
@@ -328,7 +335,7 @@ def _cache_2d_strips(data, dims, rechunks, cache_store, base_path, progress):
     n_strips = int(np.ceil(data.shape[strip_dim_index] / strip_size))
 
     # Ensure zarr chunks match the strip size to avoid dask rechunking
-    # during dask.array.to_zarr region writes (gh-issue-487).
+    # during cache region writes (gh-issue-487).
     adjusted_rechunks = dict(rechunks)
     adjusted_rechunks[strip_dim_index] = strip_size
 
@@ -337,15 +344,7 @@ def _cache_2d_strips(data, dims, rechunks, cache_store, base_path, progress):
 
     chunks = tuple(c[0] for c in slabs.chunks)
 
-    zarr_array = open_array(
-        shape=data.shape,
-        chunks=chunks,
-        dtype=data.dtype,
-        store=cache_store,
-        path=path,
-        mode="a",
-        **zarr_kwargs,
-    )
+    zarr_array = cache.create_array(path, data.shape, chunks, data.dtype)
 
     if progress:
         progress.add_cache_task(f"[blue]Caching {strip_dim_name}-strips", n_strips)
@@ -364,21 +363,12 @@ def _cache_2d_strips(data, dims, rechunks, cache_store, base_path, progress):
         )
         region = tuple(region)
         arr_region = slabs[region]
-        dask.array.to_zarr(
-            arr_region,
-            zarr_array,
-            region=region,
-            component=path,
-            overwrite=False,
-            compute=True,
-            return_stored=False,
-            **zarr_kwargs,
-        )
+        cache.write_region(zarr_array, arr_region, region)
 
-    return dask.array.from_zarr(cache_store, component=path)
+    return cache.read_lazy(path)
 
 
-def _cache_1d_segments(data, dims, rechunks, cache_store, base_path, progress):
+def _cache_1d_segments(data, dims, rechunks, cache, base_path, progress):
     """Cache large 1D images in segments along x.
 
     Handles the edge case of 1D data (only x dimension, possibly with c/t).
@@ -403,7 +393,7 @@ def _cache_1d_segments(data, dims, rechunks, cache_store, base_path, progress):
     n_segments = int(np.ceil(data.shape[x_index] / segment_size))
 
     # Ensure zarr chunks match the segment size to avoid dask rechunking
-    # during dask.array.to_zarr region writes (gh-issue-487).
+    # during cache region writes (gh-issue-487).
     adjusted_rechunks = dict(rechunks)
     adjusted_rechunks[x_index] = segment_size
 
@@ -412,15 +402,7 @@ def _cache_1d_segments(data, dims, rechunks, cache_store, base_path, progress):
 
     chunks = tuple(c[0] for c in slabs.chunks)
 
-    zarr_array = open_array(
-        shape=data.shape,
-        chunks=chunks,
-        dtype=data.dtype,
-        store=cache_store,
-        path=path,
-        mode="a",
-        **zarr_kwargs,
-    )
+    zarr_array = cache.create_array(path, data.shape, chunks, data.dtype)
 
     if progress:
         progress.add_cache_task("[blue]Caching x-segments", n_segments)
@@ -438,22 +420,13 @@ def _cache_1d_segments(data, dims, rechunks, cache_store, base_path, progress):
         )
         region = tuple(region)
         arr_region = slabs[region]
-        dask.array.to_zarr(
-            arr_region,
-            zarr_array,
-            region=region,
-            component=path,
-            overwrite=False,
-            compute=True,
-            return_stored=False,
-            **zarr_kwargs,
-        )
+        cache.write_region(zarr_array, arr_region, region)
 
-    return dask.array.from_zarr(cache_store, component=path)
+    return cache.read_lazy(path)
 
 
 def to_multiscales(
-    data: NgffImage | ArrayLike | MutableMapping | str | ZarrArray,
+    data: NgffImage | ArrayLike | MutableMapping | str,
     scale_factors: int | Sequence[dict[str, int] | int] = 128,
     method: Methods | None = None,
     chunks: int
@@ -469,7 +442,7 @@ def to_multiscales(
     Generate multiple resolution scales for the OME-NGFF standard data model.
 
     :param  data: Multi-dimensional array that provides the image pixel values, or image pixel values + image metadata when an NgffImage.
-    :type   data: NgffImage, ArrayLike, ZarrArray, MutableMapping, str
+    :type   data: NgffImage, ArrayLike, MutableMapping, str
 
     :param scale_factors: If a single integer, scale factors in spatial dimensions will be increased by a factor of two until this minimum length is reached.
         If a list, integer scale factors to apply uniformly across all spatial dimensions or
@@ -576,11 +549,7 @@ def to_multiscales(
     if "t" in ngff_image.dims:
         default_chunks["t"] = 1
 
-    if not isinstance(ngff_image.data, DaskArray):
-        if isinstance(ngff_image.data, (ZarrArray, str, MutableMapping)):
-            ngff_image.data = dask.array.from_zarr(ngff_image.data)
-        else:
-            ngff_image.data = dask.array.from_array(ngff_image.data)
+    ngff_image.data = _as_dask_array(ngff_image.data)
 
     # OME-Zarr orders axes time, then channel, then space. Channel-last input
     # (the TIFF S axis, ITK component images, the 4-D/5-D default dims) is

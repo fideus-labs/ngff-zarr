@@ -5,7 +5,7 @@
 import pytest
 from ngff_zarr import Methods, to_multiscales, to_ngff_image
 
-from ._data import store_equals, verify_against_baseline
+from ._data import _local_zarr_store, store_equals, verify_against_baseline
 
 
 def _tiny_multiscales():
@@ -25,23 +25,26 @@ def test_missing_baseline_skips_rather_than_passes():
     )
 
 
-def test_store_equals_requires_identical_key_sets():
+def test_store_equals_requires_identical_key_sets(tmp_path):
     """An empty baseline, or an extra key on either side, must not pass."""
     import zarr
     from ngff_zarr import to_ngff_zarr
     from packaging import version
-    from zarr.storage import MemoryStore
 
     multiscales = _tiny_multiscales()
-    populated = MemoryStore()
-    to_ngff_zarr(populated, multiscales, version="0.4")
+    populated_path = tmp_path / "populated"
+    to_ngff_zarr(populated_path, multiscales, version="0.4")
+    populated = _local_zarr_store(populated_path)
 
-    assert not store_equals(MemoryStore(), populated), (
+    empty_path = tmp_path / "empty"
+    empty_path.mkdir()
+    assert not store_equals(_local_zarr_store(empty_path), populated), (
         "an empty baseline compared equal to a populated store"
     )
 
-    test_store = MemoryStore()
-    to_ngff_zarr(test_store, multiscales, version="0.4")
+    test_path = tmp_path / "test"
+    to_ngff_zarr(test_path, multiscales, version="0.4")
+    test_store = _local_zarr_store(test_path)
     assert store_equals(populated, test_store), (
         "two identical writes should compare equal"
     )
@@ -58,7 +61,7 @@ def test_store_equals_requires_identical_key_sets():
     )
 
 
-def test_provenance_version_is_ignored_only_in_place():
+def test_provenance_version_is_ignored_only_in_place(tmp_path):
     """Only the recorded downsampler version may drift, where it belongs.
 
     The multiscales metadata block records the version of the tool that
@@ -72,7 +75,6 @@ def test_provenance_version_is_ignored_only_in_place():
     import zarr
     from ngff_zarr import to_ngff_zarr
     from packaging import version
-    from zarr.storage import MemoryStore
 
     is_zarr3 = version.parse(zarr.__version__) >= version.parse("3.0.0b1")
 
@@ -100,10 +102,12 @@ def test_provenance_version_is_ignored_only_in_place():
             write(store, key, json.dumps(document).encode())
 
     multiscales = _tiny_multiscales()
-    baseline = MemoryStore()
-    test_store = MemoryStore()
-    to_ngff_zarr(baseline, multiscales, version="0.4")
-    to_ngff_zarr(test_store, multiscales, version="0.4")
+    baseline_path = tmp_path / "baseline"
+    test_path = tmp_path / "test"
+    to_ngff_zarr(baseline_path, multiscales, version="0.4")
+    to_ngff_zarr(test_path, multiscales, version="0.4")
+    baseline = _local_zarr_store(baseline_path)
+    test_store = _local_zarr_store(test_path)
 
     def bump_version(attrs):
         attrs["multiscales"][0]["metadata"]["version"] = "0.0.0-provenance"
@@ -134,10 +138,12 @@ def test_provenance_version_is_ignored_only_in_place():
         mutate(document["attributes"]["ome"])
         write(store, "zarr.json", json.dumps(document).encode())
 
-    baseline_v05 = MemoryStore()
-    test_store_v05 = MemoryStore()
-    to_ngff_zarr(baseline_v05, multiscales, version="0.5")
-    to_ngff_zarr(test_store_v05, multiscales, version="0.5")
+    baseline_v05_path = tmp_path / "baseline_v05"
+    test_v05_path = tmp_path / "test_v05"
+    to_ngff_zarr(baseline_v05_path, multiscales, version="0.5")
+    to_ngff_zarr(test_v05_path, multiscales, version="0.5")
+    baseline_v05 = _local_zarr_store(baseline_v05_path)
+    test_store_v05 = _local_zarr_store(test_v05_path)
 
     edit_ome_attrs(test_store_v05, bump_version)
     assert store_equals(baseline_v05, test_store_v05), (

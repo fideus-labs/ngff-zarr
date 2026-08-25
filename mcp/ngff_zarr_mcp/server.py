@@ -71,7 +71,9 @@ async def convert_images_to_ome_zarr(
         scale_factors: Scale factors for multiscale generation
         compression_codec: Compression codec
         compression_level: Compression level
-        use_tensorstore: Use TensorStore for I/O
+        use_tensorstore: Deprecated: uses the zarrista backend for I/O
+            (accepted for backward compatibility; I/O always goes through
+            zarrista)
         use_local_cluster: Use Dask LocalCluster for large datasets
         cache_dir: Directory for caching
         anatomical_orientation: Anatomical orientation preset (LPS, RAS).

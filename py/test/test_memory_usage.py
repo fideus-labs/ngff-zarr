@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: MIT
 import dask.array
 import numpy as np
-import zarr
 from ngff_zarr import (
     from_ngff_zarr,
     memory_usage,
@@ -14,12 +13,12 @@ from ngff_zarr import (
 rng = np.random.default_rng(12345)
 
 
-def test_memory_usage():
+def test_memory_usage(tmp_path):
     arr = rng.integers(0, 255, size=(4, 4, 4), dtype=np.uint8)
     arr = dask.array.from_array(arr, chunks=2)
     image = to_ngff_image(arr)
     multiscales = to_multiscales(image, scale_factors=[], chunks=2)
-    store = zarr.storage.MemoryStore()
+    store = tmp_path / "test.ome.zarr"
     version = "0.4"
     to_ngff_zarr(store, multiscales, version=version)
     multiscales = from_ngff_zarr(store, version=version)
