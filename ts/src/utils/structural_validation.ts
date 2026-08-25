@@ -498,6 +498,15 @@ export function validatePerDatasetScaleCount(metadata: Metadata): void {
  * global-then-per-dataset, is reported. The length invariant itself lives in
  * {@link transformLenMismatch}.
  *
+ * The global arm is skipped when the metadata carries `coordinateSystems`,
+ * which marks the v0.6 model. There the multiscale-level
+ * `coordinateTransformations` map between two coordinate systems referenced by
+ * name, and their dimensionality follows those two systems rather than the
+ * intrinsic axis count that `metadata.axes` holds, so measuring them against
+ * `metadata.axes.length` rejects legal documents. The Python port drops the
+ * same transforms in `_flat_model` for the same reason. Per-dataset transforms
+ * do map the array to the intrinsic system, so their arm runs at every version.
+ *
  * @param metadata - The parsed multiscales metadata to validate.
  * @throws {ValidationError} With {@link SpecRule.ScaleLengthMismatch} for the
  * first transform whose vector length disagrees with `metadata.axes.length`;
@@ -505,7 +514,9 @@ export function validatePerDatasetScaleCount(metadata: Metadata): void {
  */
 export function validateScaleLength(metadata: Metadata): void {
   const axesLen = metadata.axes.length;
-  const globalTransforms = metadata.coordinateTransformations;
+  const globalTransforms = metadata.coordinateSystems
+    ? undefined
+    : metadata.coordinateTransformations;
   if (globalTransforms) {
     for (let j = 0; j < globalTransforms.length; j++) {
       const mismatch = transformLenMismatch(globalTransforms[j], axesLen);
