@@ -966,10 +966,14 @@ def _build_multiscales_from_pyramid(
     translation = None
     if ome_translation:
         translation = {}
-        spatial_dims = dims if dims else ("z", "y", "x")
+        spatial_dims = ("z", "y", "x")
         for dim in spatial_dims:
             if dim in ome_translation:
-                if ome_translation_units and axes_units:
+                if ome_translation_units:
+                    if axes_units is None:
+                        axes_units = {}
+                    if dim not in axes_units:
+                        axes_units[dim] = ome_translation_units.get(dim)
                     translation[dim] = _convert_unit_value(
                         ome_translation[dim],
                         ome_translation_units.get(dim),
@@ -977,7 +981,7 @@ def _build_multiscales_from_pyramid(
                     )
                 else:
                     translation[dim] = ome_translation[dim]
-            elif dim in ("x", "y", "z"):
+            elif dim in dims:
                 translation[dim] = 0.0  # Default translation for spatial dims
 
     # Create base NgffImage
@@ -1460,6 +1464,8 @@ def _read_tiff_series(
                 for dim in spatial_dims:
                     if dim in ome_translation:
                         if ome_translation_units:
+                            if axes_units is None:
+                                axes_units = {}
                             if dim not in axes_units:
                                 axes_units[dim] = ome_translation_units.get(dim)
                             translation[dim] = _convert_unit_value(
@@ -1469,7 +1475,7 @@ def _read_tiff_series(
                             )
                         else:
                             translation[dim] = ome_translation[dim]
-                    else:
+                    elif dim in dims:
                         translation[dim] = 0.0  # Default translation for spatial dims
 
             # Convert to NgffImage
