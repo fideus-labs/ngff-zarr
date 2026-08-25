@@ -464,6 +464,35 @@ to allocate the new levels empty. The appended levels take the chunks given to
 whose data the caller replaced in the multiscales is written as given, so a
 pipeline that already holds a coarse level can bring it instead of deriving it.
 
+### Read a store region by region
+
+A chunk is the unit a reader decompresses. A window that covers part of a chunk
+costs the whole chunk, and a sweep that advances in steps smaller than the chunk
+pays that for every step. On a 256 MB volume with chunks of 64 along z, reading
+the whole of it in slabs 8 deep takes about four times the chunk-aligned read,
+and in slabs 2 deep about fifteen times.
+
+The chunk grid is therefore chosen for the way the data will be read, and a
+producer that creates its store with `metadata_only=True` chooses both grids at
+once: pass `to_multiscales(chunks=...)` the shape of the regions the readers
+will ask for.
+
+For a store whose grid is already fixed, read the aligned block that contains
+the windows and slice it in memory. `open_array` reports the grid:
+
+```python
+level0 = nz.open_array('volume.ome.zarr', 'scale0/image')
+depth = level0.chunks[1]
+
+for start in range(0, level0.shape[1], depth):
+    block = level0[:, start:start + depth]        # one aligned read
+    for z in range(block.shape[1]):
+        plane = block[:, z]                       # a view, no read
+```
+
+This reaches the same speed as reading the volume in aligned blocks, whatever
+the size of the windows the loop serves.
+
 ## TIFF and OME-TIFF Files
 
 NGFF-Zarr provides support for converting TIFF files, including multi-series
