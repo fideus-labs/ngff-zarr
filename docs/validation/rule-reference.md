@@ -24,7 +24,7 @@ across the Python and TypeScript ports — see [[parity]] for the guarantee. Mos
 rules enforce OME-Zarr v0.4 MUSTs; the two v0.5 namespacing rules
 (`zarr-format`, `ome-namespace`) fire only for v0.5 metadata and are inert (a
 no-op) for v0.4. The three RFC 4 orientation rules (9–11) are normative from
-OME-Zarr 0.9.dev1, the version `ome/ngff-spec#190` folds RFC-4 into: they are
+OME-Zarr 0.9.dev1, which incorporates RFC-4 through `ome/ngff-spec#190`: they are
 inert when the caller declares 0.4, 0.5 or 0.6, where RFC 4 has no normative
 status, and stay on when no version is declared — a strictness choice, like
 `axis-names-unique` below 0.9.dev1. For the conceptual background and the two
