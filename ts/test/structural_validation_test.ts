@@ -22,6 +22,7 @@ import { assertEquals, assertInstanceOf, assertThrows } from "@std/assert";
 import {
   SpecRule,
   validateAxisCount,
+  validateAxisNamesUnique,
   validateAxisOrder,
   validateAxisType,
   validateDatasetOrder,
@@ -194,6 +195,24 @@ Deno.test("validateSpatialAxisOrder - rejects bad suffix and too many", () => {
     () => validateSpatialAxisOrder(tooMany),
     SpecRule.AxisOrder,
     "multiscales[0].axes",
+  );
+});
+
+Deno.test("validateAxisNamesUnique - accepts distinct names", () => {
+  validateAxisNamesUnique(buildValidMetadata());
+});
+
+Deno.test("validateAxisNamesUnique - rejects a repeated name", () => {
+  const repeated = buildValidMetadata();
+  repeated.axes = [
+    { name: "c", type: "channel", unit: undefined },
+    { name: "y", type: "space", unit: undefined },
+    { name: "y", type: "space", unit: undefined },
+  ];
+  assertRuleViolation(
+    () => validateAxisNamesUnique(repeated),
+    SpecRule.AxisNamesUnique,
+    "multiscales[0].axes[2]",
   );
 });
 
@@ -434,5 +453,100 @@ Deno.test("validateStructural - option defaults: strict, allowUnknownFields true
     () => validateStructural(invalid, { allowUnknownFields: false }),
     SpecRule.ScaleLengthMismatch,
     "multiscales[0].datasets[0].coordinateTransformations[0]",
+  );
+});
+
+Deno.test("axis rules are inert at 0.9.dev1 but enforced below it", () => {
+  // Six axes exceed the 2..5 range every released version imposes.
+  const sixAxes = buildValidMetadata();
+  sixAxes.axes = ["a", "b", "c", "d", "e", "f"].map((name) => ({
+    name,
+    type: "space" as const,
+    unit: undefined,
+  }));
+
+  assertRuleViolation(
+    () => validateAxisCount(sixAxes),
+    SpecRule.AxisCount,
+    "multiscales[0].axes",
+  );
+  for (const version of ["0.4", "0.5", "0.6"]) {
+    assertRuleViolation(
+      () => validateAxisCount(sixAxes, version),
+      SpecRule.AxisCount,
+      "multiscales[0].axes",
+    );
+  }
+  // RFC-3 lifts the restriction, and only at 0.9.dev1.
+  validateAxisCount(sixAxes, "0.9.dev1");
+  validateAxisType(sixAxes, "0.9.dev1");
+  validateAxisOrder(sixAxes, "0.9.dev1");
+  validateSpatialAxisOrder(sixAxes, "0.9.dev1");
+});
+
+Deno.test("axis names must stay unique at 0.9.dev1", () => {
+  // RFC-3 *adds* "axis names MUST NOT be repeated" (rule 5), so unlike the
+  // other axis rules this one is never inert.
+  const repeated = buildValidMetadata();
+  repeated.axes = [
+    { name: "c", type: "channel", unit: undefined },
+    { name: "y", type: "space", unit: undefined },
+    { name: "y", type: "space", unit: undefined },
+  ];
+  assertRuleViolation(
+    () => validateAxisNamesUnique(repeated, "0.9.dev1"),
+    SpecRule.AxisNamesUnique,
+    "multiscales[0].axes[2]",
+  );
+});
+
+Deno.test("fewer than two space axes is rejected below 0.9.dev1", () => {
+  // The v0.4 and v0.5 axes schemas state minContains: 2 on `space` axes.
+  // v0.6 adds an `array` arm, covered separately below.
+  const oneSpace = buildValidMetadata();
+  oneSpace.axes = [
+    { name: "c", type: "channel", unit: undefined },
+    { name: "x", type: "space", unit: undefined },
+  ];
+  assertRuleViolation(
+    () => validateSpatialAxisOrder(oneSpace, "0.4"),
+    SpecRule.AxisOrder,
+    "multiscales[0].axes",
+  );
+  validateSpatialAxisOrder(oneSpace, "0.9.dev1");
+});
+
+Deno.test("a v0.6 array coordinate system needs no space axis", () => {
+  // The v0.6 axes schema is a `oneOf`: 2-3 `space` axes, *or* two or more
+  // `array` axes. The space-axis floor must not fire on the second arm, or a
+  // store the bundled schema accepts becomes unwritable at v0.6.
+  const arrayCs = buildValidMetadata();
+  arrayCs.axes = [
+    { name: "i0", type: "array", unit: undefined },
+    { name: "i1", type: "array", unit: undefined },
+    { name: "i2", type: "array", unit: undefined },
+  ];
+  validateSpatialAxisOrder(arrayCs, "0.6");
+  validateSpatialAxisOrder(arrayCs, "0.6.dev4");
+
+  // v0.4 and v0.5 have no `array` arm, so the floor applies unconditionally.
+  for (const version of ["0.4", "0.5"]) {
+    assertRuleViolation(
+      () => validateSpatialAxisOrder(arrayCs, version),
+      SpecRule.AxisOrder,
+      "multiscales[0].axes",
+    );
+  }
+
+  // A single `array` axis does not reach the schema's minContains: 2.
+  const oneArray = buildValidMetadata();
+  oneArray.axes = [
+    { name: "i0", type: "array", unit: undefined },
+    { name: "c", type: "channel", unit: undefined },
+  ];
+  assertRuleViolation(
+    () => validateSpatialAxisOrder(oneArray, "0.6"),
+    SpecRule.AxisOrder,
+    "multiscales[0].axes",
   );
 });

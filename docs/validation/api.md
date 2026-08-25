@@ -41,11 +41,12 @@ from ngff_zarr import (
 )
 ```
 
-`validate_structural(metadata, options=None)` runs the image/multiscales rules
-against either metadata model — the flat v0.4/v0.5 `Metadata` or the v0.6
-`coordinateSystems` one that `from_ome_zarr` and `to_multiscales` return (see
-[[overview]]). When `options` is `None` it uses `ValidateOptions()`, i.e.
-`ValidationLevel.STRICT`. A `ValidationError` carries `.rule` (a `SpecRule`),
+`validate_structural(metadata, options=None, version=None)` runs the
+image/multiscales rules. When `options` is `None` it uses `ValidateOptions()`,
+i.e. `ValidationLevel.STRICT`. `version` is the OME-Zarr version the metadata
+declares; the axis rules are inert for the versions that adopt the RFC-3 axis
+model (see [[parity]]), so omitting it holds every store to the v0.4 axis
+caps. A `ValidationError` carries `.rule` (a `SpecRule`),
 `.message` (str), and `.location` (`str | None`); `str(exc)` is
 `Spec rule [<rule>] violated: <message>`.
 
@@ -99,9 +100,12 @@ import {
 } from "@fideus-labs/ngff-zarr";
 ```
 
-`validateStructural(metadata, options?)` runs the image/multiscales rules. When
-`options` (or its `level`) is omitted, the level resolves to
-`ValidationLevel.Strict`. A `ValidationError` carries a readonly `rule`
+`validateStructural(metadata, options?, version?)` runs the image/multiscales
+rules. When `options` (or its `level`) is omitted, the level resolves to
+`ValidationLevel.Strict`. `version` is the OME-Zarr version the metadata
+declares; the axis rules are inert for the versions that adopt the RFC-3 axis
+model (see [[parity]]), so omitting it holds every store to the v0.4 axis
+caps. A `ValidationError` carries a readonly `rule`
 (`SpecRule`) and an optional `location` (`string`); its `message` is
 `Spec rule [<rule>] violated: <message>`.
 

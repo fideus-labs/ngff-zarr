@@ -12,7 +12,7 @@ import type {
   Scale,
   Translation,
 } from "../types/zarr_metadata.ts";
-import type { AxesType, SupportedDims, Units } from "../types/units.ts";
+import type { AxesType, AxisUnit, SupportedDims } from "../types/units.ts";
 import type { Methods } from "../types/methods.ts";
 import type { AnatomicalOrientation } from "../types/rfc4.ts";
 
@@ -64,7 +64,7 @@ export async function createNgffImage(
 export function createAxis(
   name: SupportedDims,
   type: AxesType,
-  unit?: Units,
+  unit?: AxisUnit,
   orientation?: AxisOrientation | AnatomicalOrientation,
 ): Axis {
   const axis: Axis = {

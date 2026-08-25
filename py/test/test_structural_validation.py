@@ -20,6 +20,7 @@ from ngff_zarr.structural_validation import (
     ValidationError,
     ValidationLevel,
     validate_axis_count,
+    validate_axis_names_unique,
     validate_axis_order,
     validate_axis_type,
     validate_dataset_order,
@@ -153,6 +154,7 @@ def test_spatial_axis_order_valid(valid_metadata):
     [
         ("suffix-mismatch", "multiscales[0].axes[1]"),
         ("too-many-spatial", "multiscales[0].axes"),
+        ("too-few-spatial", "multiscales[0].axes"),
     ],
 )
 def test_spatial_axis_order_invalid(valid_metadata, case, location):
@@ -162,6 +164,12 @@ def test_spatial_axis_order_invalid(valid_metadata, case, location):
             Axis(name="c", type="channel"),
             Axis(name="x", type="space"),
             Axis(name="y", type="space"),
+        ]
+    elif case == "too-few-spatial":
+        # The bundled axes schemas state minContains: 2 for 'space'.
+        valid_metadata.axes = [
+            Axis(name="c", type="channel"),
+            Axis(name="x", type="space"),
         ]
     else:
         # Four space axes exceed the v0.4 maximum of three.
@@ -175,6 +183,91 @@ def test_spatial_axis_order_invalid(valid_metadata, case, location):
         validate_spatial_axis_order(valid_metadata)
     assert exc_info.value.rule == SpecRule.AXIS_ORDER
     assert exc_info.value.location == location
+
+
+class _BackportStyleVersion(str):
+    """A ``str`` subclass whose ``str()`` is not its value.
+
+    This is how the ``str, Enum`` backport renders below Python 3.11, where the
+    stdlib ``StrEnum`` is unavailable. Reproducing it here keeps the assertion
+    below meaningful on every interpreter rather than only on 3.10.
+    """
+
+    def __str__(self) -> str:
+        return "NgffVersion.V06dev4"
+
+
+def test_is_v06_version_accepts_enum_members_and_strings():
+    """The v0.6 predicate must not depend on the Python version.
+
+    ``NgffVersion`` is a stdlib ``StrEnum`` from 3.11 and a ``str, Enum``
+    backport below it. Only the former renders as its value under ``str()``,
+    so a ``str()``-based check silently returns ``False`` for enum members on
+    3.10 -- the version the zarr-python 2 CI matrix runs.
+    """
+    from ngff_zarr._supported_versions import NgffVersion, is_v06_version
+
+    assert is_v06_version(NgffVersion.V06)
+    assert is_v06_version(NgffVersion.V06dev4)
+    assert is_v06_version("0.6")
+    assert is_v06_version("0.6.dev4")
+    assert not is_v06_version(NgffVersion.V05)
+    assert not is_v06_version("0.4")
+    assert not is_v06_version(NgffVersion.V09dev1)
+    assert not is_v06_version(None)
+    assert not is_v06_version(6)
+    # The value is what counts, not what ``str()`` renders.
+    assert is_v06_version(_BackportStyleVersion("0.6.dev4"))
+    assert not is_v06_version(_BackportStyleVersion("0.4"))
+
+
+def test_spatial_axis_order_accepts_v06_array_coordinate_system(valid_metadata):
+    """An RFC-5 array coordinate system declares no ``space`` axis, and may.
+
+    The v0.6 ``axes`` schema is a ``oneOf``: 2 or 3 ``space`` axes, *or* two or
+    more ``array`` axes. The space-axis floor must not fire on the second arm,
+    or a store the bundled schema accepts becomes unwritable at v0.6.
+    """
+    valid_metadata.axes = [Axis(name=f"i{i}", type="array") for i in range(3)]
+
+    validate_spatial_axis_order(valid_metadata, "0.6")
+    validate_spatial_axis_order(valid_metadata, "0.6.dev4")
+
+
+def test_spatial_axis_order_array_branch_is_v06_only(valid_metadata):
+    """v0.4 and v0.5 have no ``array`` arm, so the floor applies unconditionally."""
+    valid_metadata.axes = [Axis(name=f"i{i}", type="array") for i in range(3)]
+
+    for version in ("0.4", "0.5", None):
+        with pytest.raises(ValidationError) as exc_info:
+            validate_spatial_axis_order(valid_metadata, version)
+        assert exc_info.value.rule == SpecRule.AXIS_ORDER
+
+
+def test_spatial_axis_order_needs_two_array_axes(valid_metadata):
+    """A single ``array`` axis does not reach the schema's ``minContains: 2``."""
+    valid_metadata.axes = [
+        Axis(name="i0", type="array"),
+        Axis(name="c", type="channel"),
+    ]
+    with pytest.raises(ValidationError):
+        validate_spatial_axis_order(valid_metadata, "0.6")
+
+
+def test_axis_names_unique_valid(valid_metadata):
+    validate_axis_names_unique(valid_metadata)
+
+
+def test_axis_names_unique_invalid(valid_metadata):
+    valid_metadata.axes = [
+        Axis(name="c", type="channel"),
+        Axis(name="y", type="space"),
+        Axis(name="y", type="space"),
+    ]
+    with pytest.raises(ValidationError) as exc_info:
+        validate_axis_names_unique(valid_metadata)
+    assert exc_info.value.rule == SpecRule.AXIS_NAMES_UNIQUE
+    assert exc_info.value.location == "multiscales[0].axes[2]"
 
 
 def test_per_dataset_scale_count_valid(valid_metadata):

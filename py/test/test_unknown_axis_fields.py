@@ -153,8 +153,8 @@ def test_missing_required_name_field(zarr_helpers, tmp_path):
         from_ngff_zarr(store, version=version)
 
 
-def test_missing_required_type_field(zarr_helpers, tmp_path):
-    """Test that missing 'type' field raises ValueError."""
+def test_missing_type_field_is_optional(zarr_helpers, tmp_path):
+    """A type-less axis is read with type None instead of being rejected."""
     # Create a basic image
     data = np.random.rand(10, 20, 30).astype(np.float32)
     image = to_ngff_image(
@@ -171,17 +171,17 @@ def test_missing_required_type_field(zarr_helpers, tmp_path):
     version = "0.4"
     to_ngff_zarr(store, multiscales, version=version)
 
-    # Manually corrupt the metadata by removing 'type' field
+    # Drop the 'type' field from the first axis.
     attrs = zarr_helpers["get"](store)
-
-    # Remove the 'type' field from one axis
     del attrs["multiscales"][0]["axes"][0]["type"]
-
     zarr_helpers["set"](store, attrs)
 
-    # Try to load the data - should raise ValueError
-    with pytest.raises(ValueError, match="missing required field 'type'"):
-        from_ngff_zarr(store, version=version)
+    # The axis reads with type None; the 'name' field stays required (below).
+    result = from_ngff_zarr(store, version=version)
+    axes = result.metadata.to_version("0.4").axes
+    assert axes[0].type is None
+    assert axes[0].name == "z"
+    assert axes[1].type == "space"
 
 
 def test_only_unknown_fields(zarr_helpers, tmp_path):

@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
-import type { AxesType, SupportedDims, Units } from "./units.ts";
+import type { AxisName, AxisType, AxisUnit, SupportedDims } from "./units.ts";
 import { NgffVersion } from "./supported_versions.ts";
 import type { NgffImage } from "./ngff_image.ts";
 import type { AnatomicalOrientation } from "./rfc4.ts";
@@ -22,9 +22,10 @@ export interface AxisOrientation {
 }
 
 export interface Axis {
-  name: SupportedDims;
-  type: AxesType;
-  unit: Units | undefined;
+  name: AxisName;
+  // The v0.4 schema accepts an axis that declares no `type`.
+  type: AxisType | undefined;
+  unit: AxisUnit | undefined;
   orientation?: AxisOrientation | AnatomicalOrientation | undefined;
   discrete?: boolean;
 }

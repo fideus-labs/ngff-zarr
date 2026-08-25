@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from ..ngff_image import NgffImage
     from ..v04.zarr_metadata import Metadata as Metadata_v04
     from ..v05.zarr_metadata import Metadata as Metadata_v05
+    from ..v09.zarr_metadata import Metadata as Metadata_v09
 
 
 # OME-Zarr v0.6 (RFC-5) extends the axis types with the discrete vector-field
@@ -514,7 +515,7 @@ class Metadata:
 
     def to_version(
         self, version: Union[str, NgffVersion]
-    ) -> Union["Metadata", "Metadata_v05", "Metadata_v04"]:
+    ) -> Union["Metadata", "Metadata_v05", "Metadata_v04", "Metadata_v09"]:
         if isinstance(version, str):
             # raise error for invalid version string
             version = NgffVersion(version)
@@ -525,15 +526,23 @@ class Metadata:
             return self._to_v05()
         if version == NgffVersion.V06:
             return self
+        if version == NgffVersion.V09dev1:
+            from ..v09.zarr_metadata import Metadata as Metadata_v09
+
+            return Metadata_v09.from_version(self)
         raise ValueError(f"Unsupported version conversion: 0.6 -> {version}")
 
     @classmethod
     def from_version(
-        cls, metadata: Union["Metadata", "Metadata_v05", "Metadata_v04"]
+        cls,
+        metadata: Union["Metadata", "Metadata_v05", "Metadata_v04", "Metadata_v09"],
     ) -> "Metadata":
         from ..v04.zarr_metadata import Metadata as Metadata_v04
         from ..v05.zarr_metadata import Metadata as Metadata_v05
+        from ..v09.zarr_metadata import Metadata as Metadata_v09
 
+        if isinstance(metadata, Metadata_v09):
+            return metadata._to_v06()
         if isinstance(metadata, Metadata_v05):
             return cls._from_v05(metadata)
         if isinstance(metadata, Metadata_v04):

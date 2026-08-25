@@ -16,7 +16,7 @@ from ._zarrista_utils import (
 )
 from .methods._support import _spatial_dims
 from .ngff_image import NgffImage
-from .v04.zarr_metadata import SupportedDims, Units
+from .v04.zarr_metadata import AxisUnit, SupportedDims
 
 # Group node types across the read backends: the compat-layer local reader
 # and the pure-Python mapping-store reader.
@@ -87,7 +87,7 @@ def to_ngff_image(
     scale: Mapping[Hashable, float] | None = None,
     translation: Mapping[Hashable, float] | None = None,
     name: str = "image",
-    axes_units: Mapping[str, Units] | None = None,
+    axes_units: Mapping[str, AxisUnit] | None = None,
     channel_names: Sequence[str] | None = None,
 ) -> NgffImage:
     """

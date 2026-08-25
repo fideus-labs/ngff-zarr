@@ -57,7 +57,11 @@ Deno.test("downsample zycx", async () => {
   });
 
   const store: MemoryStore = new Map();
-  await toNgffZarr(store, multiscales);
+  // These dims are not the spec order (time, channel, space), which the
+  // writer requires below 0.9.dev1. The test is about downsampling with
+  // the channel axis in that position, so write at the version whose
+  // axis model allows it.
+  await toNgffZarr(store, multiscales, { version: "0.9.dev1" });
 
   // The non-canonical input is normalized to (c, z, y, x). Mirrors
   // py/test/test_to_ngff_zarr_itkwasm.py::test_downsample_zycx.
@@ -134,7 +138,11 @@ Deno.test("downsample tzycx", async () => {
   });
 
   const store: MemoryStore = new Map();
-  await toNgffZarr(store, multiscales);
+  // These dims are not the spec order (time, channel, space), which the
+  // writer requires below 0.9.dev1. The test is about downsampling with
+  // the channel axis in that position, so write at the version whose
+  // axis model allows it.
+  await toNgffZarr(store, multiscales, { version: "0.9.dev1" });
 
   // The non-canonical input is normalized to (t, c, z, y, x). Mirrors
   // py/test/test_to_ngff_zarr_itkwasm.py::test_downsample_tzycx.
