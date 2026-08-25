@@ -54,9 +54,8 @@ The main Python package provides:
 
 📖 **Documentation**
 
-More information about command line usage, the Python API, library features, and
-how to contribute can be found in
-[our documentation](https://ngff-zarr.readthedocs.io/).
+More information about command line usage, the Python API, and library features
+can be found in [our documentation](https://ngff-zarr.readthedocs.io/).
 
 ## TypeScript/JavaScript Package (`ts/`)
 
@@ -96,6 +95,13 @@ The Model Context Protocol server enables AI assistants like Claude to interact
 with NGFF-Zarr files. See the [MCP documentation](./mcp/README.md) for setup and
 usage instructions.
 
+## Contributing
+
+Contributions are welcome and appreciated! 🎉 The [development guide] covers
+environment setup, the pull request workflow, commit message conventions, and
+the development commands for each package. Please also read our
+[Code of Conduct](./CODE_OF_CONDUCT.md).
+
 ## See also
 
 - [ome-zarr-py](https://github.com/ome/ome-zarr-py)
@@ -113,4 +119,5 @@ usage instructions.
 [MIT](https://spdx.org/licenses/MIT.html) license.
 
 [Sharded Zarr]: https://zarr.dev/zeps/accepted/ZEP0002.html
+[development guide]: https://ngff-zarr.readthedocs.io/en/latest/development.html
 [zarrista]: https://github.com/developmentseed/zarrista
