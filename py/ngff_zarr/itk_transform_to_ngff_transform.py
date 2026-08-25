@@ -16,6 +16,7 @@ center:
 """
 
 from collections.abc import Sequence
+from typing import NamedTuple
 
 import numpy as np
 
@@ -105,67 +106,48 @@ def _working_precision(*samples: np.ndarray) -> str:
     return "float64"
 
 
-def _probe_step(offset: np.ndarray) -> float:
-    """The displacement to probe the transform with.
+def _working_scale(offset: np.ndarray) -> float:
+    """The magnitude the transform's own numbers work at.
 
-    An affine map is exact for *any* step, so there is no truncation error to
-    trade off and the usual "small step" rule is exactly backwards here. The
-    only error is the cancellation in ``T(h e_j) - T(0)``, which is worst when
-    the offset dwarfs the step: with a step of 1 and an offset of 1e15 the
-    subtraction keeps no significant digit at all, and probing silently
-    reports a zero matrix. Following the offset's magnitude keeps the two
-    terms comparable, so the difference stays good to a few ulps.
-
-    The limit this leaves: a matrix coefficient whose contribution at the
-    probe scale falls below the rounding of the offset itself (roughly
-    ``|m| * h < ulp(|T(0)|)``) is unrecoverable by evaluation and folds into
-    the offset. Such a term is equally invisible to any consumer evaluating
-    the transform at that scale, so nothing representable is lost.
+    Both the probing step and the point the recovered affine is checked at
+    follow it, because either one fixed near the origin stops meaning anything
+    once the offset dominates: with a step of 1 and an offset of 1e15,
+    ``T(h e_j) - T(0)`` keeps no significant digit and probing reports a zero
+    matrix that a check near the origin cannot tell from the truth. An affine
+    map is exact for *any* step, so there is no truncation error to trade
+    against and the usual "small step" rule is exactly backwards here.
     """
     return max(1.0, float(np.abs(offset).max()))
 
 
-def _matrix_offset_by_probing(itk_transform, dimension: int):
-    """Recover ``(matrix, offset)`` by evaluating the transform.
+def _reject_non_finite(itk_transform, matrix, offset) -> None:
+    """Refuse an affine whose own numbers are not usable."""
+    if np.all(np.isfinite(matrix)) and np.all(np.isfinite(offset)):
+        return
+    msg = (
+        f"{type(itk_transform).__name__} does not describe a finite affine "
+        "mapping; its matrix or offset holds a non-finite value"
+    )
+    raise ValueError(msg)
 
-    ``offset = T(0)`` and ``matrix[:, j] = (T(h e_j) - T(0)) / h``. This is
-    exact for any linear transform and, unlike decoding ``GetParameters()``,
-    does not depend on how the particular transform type packs its parameters
-    -- an ``Euler3DTransform`` stores angles and a ``VersorRigid3DTransform`` a
-    quaternion, but both answer ``TransformPoint`` the same way.
 
-    Probing a *non*-linear transform would succeed and return a plausible
-    affine that is simply wrong away from the probed points, so the recovered
-    model is checked against a point none of the probes reached. That point
-    scales with the probe step: a check fixed near the origin cannot tell a
-    zeroed matrix from a correct one once the offset dominates, which is the
-    very cancellation the step exists to avoid.
+def _check_affine_model(itk_transform, matrix, offset, samples) -> None:
+    """Refuse a transform the recovered affine does not actually describe.
+
+    Neither reading a transform's matrix nor probing it proves the transform
+    *is* affine. Probing a deformation succeeds and returns a plausible affine
+    that is simply wrong away from the probed points, and
+    ``AzimuthElevationToCartesianTransform`` inherits an affine's matrix and
+    offset, overrides ``TransformPoint``, and still reports itself linear
+    (InsightSoftwareConsortium/ITK#6791). So the recovered model is confronted
+    with one more evaluation, at a point no probe reached.
     """
-    origin = [0.0] * dimension
-    offset = np.asarray(itk_transform.TransformPoint(origin), dtype=float)
-    step = _probe_step(offset)
-
-    matrix = np.zeros((dimension, dimension))
-    probes = []
-    for axis in range(dimension):
-        basis = [0.0] * dimension
-        basis[axis] = step
-        column = np.asarray(itk_transform.TransformPoint(basis), dtype=float)
-        probes.append(column)
-        matrix[:, axis] = (column - offset) / step
-
-    if not np.all(np.isfinite(matrix)) or not np.all(np.isfinite(offset)):
-        msg = (
-            f"{type(itk_transform).__name__} maps finite points to non-finite "
-            "values; its parameters are not usable numbers"
-        )
-        raise ValueError(msg)
-
+    dimension = offset.shape[0]
     # Distinct from every probe and from the origin, whatever the dimension.
-    check = step * (np.arange(dimension) + 2.0) / (dimension + 2.0)
+    check = _working_scale(offset) * (np.arange(dimension) + 2.0) / (dimension + 2.0)
     predicted = matrix @ check + offset
     actual = np.asarray(itk_transform.TransformPoint(check.tolist()), dtype=float)
-    rtol = _AFFINE_CHECK_RTOL[_working_precision(offset, *probes, actual)]
+    rtol = _AFFINE_CHECK_RTOL[_working_precision(offset, *samples, actual)]
     # Rounding in TransformPoint scales with the magnitudes the evaluation
     # passes through (|A| |x| and |t|), not with the result: a component of
     # T(check) can legitimately be tiny while the terms producing it are huge.
@@ -181,10 +163,126 @@ def _matrix_offset_by_probing(itk_transform, dimension: int):
         msg = (
             "only linear ITK transforms can be expressed as an RFC-5 affine; "
             f"{type(itk_transform).__name__} does not map "
-            f"{np.round(check, 6).tolist()} the way an affine recovered from "
-            "its behaviour at the origin would"
+            f"{np.round(check, 6).tolist()} the way the affine recovered from "
+            "it would"
         )
         raise NotImplementedError(msg)
+
+
+def _matrix_offset_by_probing(itk_transform, dimension: int):
+    """Recover ``(matrix, offset)`` by evaluating the transform.
+
+    The fallback for a transform that carries no matrix and offset of its own:
+    ``offset = T(0)`` and ``matrix[:, j] = (T(h e_j) - T(0)) / h``. Exact for
+    any linear transform whatever parameterization it stores, but it pays for
+    that in cancellation, which is why the step follows the transform's own
+    scale (see :func:`_working_scale`). The limit it leaves: a matrix
+    coefficient whose contribution at the probe scale falls below the rounding
+    of the offset itself is unrecoverable by evaluation and folds into the
+    offset. Reading the matrix directly has no such limit, so this runs only
+    where that is impossible.
+    """
+    origin = [0.0] * dimension
+    offset = np.asarray(itk_transform.TransformPoint(origin), dtype=float)
+    step = _working_scale(offset)
+
+    matrix = np.zeros((dimension, dimension))
+    probes = []
+    for axis in range(dimension):
+        basis = [0.0] * dimension
+        basis[axis] = step
+        column = np.asarray(itk_transform.TransformPoint(basis), dtype=float)
+        probes.append(column)
+        matrix[:, axis] = (column - offset) / step
+
+    _reject_non_finite(itk_transform, matrix, offset)
+    _check_affine_model(itk_transform, matrix, offset, probes)
+    return matrix, offset
+
+
+def _homogeneous(matrix: np.ndarray, offset: np.ndarray) -> np.ndarray:
+    """``y = A x + b`` as a square matrix acting on homogeneous coordinates."""
+    dimension = offset.shape[0]
+    result = np.eye(dimension + 1)
+    result[:dimension, :dimension] = matrix
+    result[:dimension, dimension] = offset
+    return result
+
+
+def _matrix_offset_direct(itk_transform, dimension: int):
+    """``(matrix, offset)`` read from the transform's own numbers, or ``None``.
+
+    Every ``MatrixOffsetTransformBase`` -- an affine, and the rigid, rotation
+    and similarity types built on it -- evaluates
+    ``y = GetMatrix() x + GetOffset()`` with the center of rotation already
+    folded into the offset, whatever it stores its parameters as. Reading that
+    pair beats recomposing it from three evaluations, which is a difference of
+    nearly equal points: a transform combining a large offset with a small
+    matrix coefficient, as nanometre coordinates produce, loses the
+    coefficient to cancellation and would be persisted as a singular mapping.
+
+    ``None`` for a transform that carries no such pair, which then falls back
+    to probing.
+    """
+    try:
+        import itk
+    except ImportError:  # a transform this package did not get from itk
+        return None
+    try:
+        # A CompositeTransform hands its children out as base pointers, which
+        # expose neither accessor until they are cast back to their own type.
+        itk_transform = itk.down_cast(itk_transform)
+    except (AttributeError, TypeError, RuntimeError):
+        return None
+
+    if hasattr(itk_transform, "GetNumberOfTransforms"):
+        # ITK applies the *last* transform in the queue first, so the
+        # homogeneous matrices multiply left to right in queue order.
+        total = np.eye(dimension + 1)
+        for index in range(itk_transform.GetNumberOfTransforms()):
+            decoded = _matrix_offset_direct(
+                itk_transform.GetNthTransform(index), dimension
+            )
+            if decoded is None:
+                return None
+            total = total @ _homogeneous(*decoded)
+        return total[:dimension, :dimension], total[:dimension, dimension]
+
+    if hasattr(itk_transform, "GetMatrix") and hasattr(itk_transform, "GetOffset"):
+        return (
+            np.asarray(itk.array_from_matrix(itk_transform.GetMatrix()), dtype=float),
+            np.asarray(itk_transform.GetOffset(), dtype=float),
+        )
+    if hasattr(itk_transform, "GetOffset"):
+        # itk.TranslationTransform, which has an offset and no matrix.
+        return np.eye(dimension), np.asarray(itk_transform.GetOffset(), dtype=float)
+    return None
+
+
+def _matrix_offset_from_itk(itk_transform, dimension: int):
+    """Reduce a native ``itk.Transform`` to a single matrix and offset."""
+    for name in ("GetInputSpaceDimension", "GetOutputSpaceDimension"):
+        # Left to ITK a mismatch surfaces as "Expecting an itkPointD2, an int,
+        # a float, ...", which names neither the transform nor `dims`, or as a
+        # shape error from comparing points of two different lengths.
+        declared = getattr(itk_transform, name, None)
+        if declared is not None and int(declared()) != dimension:
+            spaces = (
+                f"{itk_transform.GetInputSpaceDimension()}D to "
+                f"{itk_transform.GetOutputSpaceDimension()}D"
+            )
+            msg = (
+                f"{type(itk_transform).__name__} maps {spaces}, but the "
+                f"coordinate system has {dimension} spatial axes"
+            )
+            raise ValueError(msg)
+
+    decoded = _matrix_offset_direct(itk_transform, dimension)
+    if decoded is None:
+        return _matrix_offset_by_probing(itk_transform, dimension)
+    matrix, offset = decoded
+    _reject_non_finite(itk_transform, matrix, offset)
+    _check_affine_model(itk_transform, matrix, offset, (matrix,))
     return matrix, offset
 
 
@@ -305,7 +403,7 @@ def _matrix_offset_from_itkwasm(entry, dimension: int):
     # The name check above only covers the parameterizations known at the time
     # of writing; ITK's own answer covers the rest.
     _reject_non_linear(rebuilt)
-    return _matrix_offset_by_probing(rebuilt, dimension)
+    return _matrix_offset_from_itk(rebuilt, dimension)
 
 
 def _itk_matrix_offset(transform, dimension: int):
@@ -323,11 +421,18 @@ def _itk_matrix_offset(transform, dimension: int):
             )
             raise NotImplementedError(msg)
         _reject_non_linear(transform)
-        return _matrix_offset_by_probing(transform, dimension)
+        return _matrix_offset_from_itk(transform, dimension)
 
-    entries = (
-        [transform] if isinstance(transform, ItkWasmTransform) else list(transform)
-    )
+    if isinstance(transform, ItkWasmTransform):
+        entries = [transform]
+    elif isinstance(transform, Sequence) and not isinstance(transform, (str, bytes)):
+        entries = list(transform)
+    else:
+        msg = (
+            f"unsupported transform input {type(transform).__name__}. Expected an "
+            "itk.Transform, an itkwasm.Transform, or an ITK-Wasm TransformList."
+        )
+        raise TypeError(msg)
     if not entries:
         msg = "transform list is empty"
         raise ValueError(msg)
@@ -336,14 +441,25 @@ def _itk_matrix_offset(transform, dimension: int):
     # matrices multiply left to right in list order.
     total = np.eye(dimension + 1)
     for entry in entries:
+        if not isinstance(entry, ItkWasmTransform):
+            # itk.transformread returns a list of native transforms, which
+            # looks like a TransformList and decodes like nothing at all.
+            msg = (
+                f"transform list entry is a {type(entry).__name__}, not an "
+                "itkwasm.Transform. A list of native itk.Transform objects is "
+                "not an ITK-Wasm transform list: compose them into an "
+                "itk.CompositeTransform, or pass a single itk.Transform."
+            )
+            raise TypeError(msg)
         if _parameterization_name(entry.transformType) == "Composite":
             # A parameterless 'Composite' entry is ambiguous. The ITK-Wasm
             # pipeline writes one as a grouping header before the children,
             # but itk.dict_from_transform never writes a header at all: there
             # it is a *nested* composite whose children the serialization
-            # dropped, at any position including the first. Decoding past one
-            # would silently compose the wrong mapping, so refuse the entry
-            # wherever it appears and name the ways out.
+            # dropped (InsightSoftwareConsortium/ITK#6792), at any position
+            # including the first. Decoding past one would silently compose
+            # the wrong mapping, so refuse the entry wherever it appears and
+            # name the ways out.
             msg = (
                 "a 'Composite' entry in an ITK-Wasm transform list cannot be "
                 "decoded: itk.dict_from_transform drops a nested composite's "
@@ -353,11 +469,7 @@ def _itk_matrix_offset(transform, dimension: int):
                 "leading header entry and pass the children."
             )
             raise NotImplementedError(msg)
-        matrix, offset = _matrix_offset_from_itkwasm(entry, dimension)
-        homogeneous = np.eye(dimension + 1)
-        homogeneous[:dimension, :dimension] = matrix
-        homogeneous[:dimension, dimension] = offset
-        total = total @ homogeneous
+        total = total @ _homogeneous(*_matrix_offset_from_itkwasm(entry, dimension))
     return total[:dimension, :dimension], total[:dimension, dimension]
 
 
@@ -380,12 +492,36 @@ def _permutation_from_itk(spatial) -> np.ndarray:
     return permutation
 
 
-def _frame_geometry(fixed, moving, itk_dims):
-    """The direction matrices and origins ``ngff_image_to_itk_image`` gives
-    the two images, in ITK component order."""
+def _inverse_direction(direction: np.ndarray) -> np.ndarray:
+    """The inverse of an RFC-4 direction matrix.
+
+    Every column names one LPS axis with a sign, so the matrix is a signed
+    permutation: orthogonal, and its transpose is its exact inverse. Going
+    through ``np.linalg.inv`` would round where the transpose does not, and
+    would answer a direction that somehow came through singular with a
+    ``LinAlgError`` rather than with geometry.
+    """
+    return direction.T
+
+
+class _FrameGeometry(NamedTuple):
+    """The direction matrices and origins of an image pair, in ITK order.
+
+    A tuple, so it still unpacks straight into :func:`_change_of_frame`, whose
+    arguments it names in order.
+    """
+
+    direction_in: np.ndarray
+    direction_out: np.ndarray
+    origin_in: np.ndarray
+    origin_out: np.ndarray
+
+
+def _frame_geometry(fixed, moving, itk_dims) -> _FrameGeometry:
+    """The geometry ``ngff_image_to_itk_image`` gives the two images."""
     from .itk_transform_resample_bounding_box import _itk_direction
 
-    return (
+    return _FrameGeometry(
         _itk_direction(fixed, itk_dims),
         _itk_direction(moving, itk_dims),
         np.array([float(fixed.translation[d]) for d in itk_dims]),
@@ -414,7 +550,7 @@ def _change_of_frame(
     would not be enough. With no anatomical orientation every direction is
     the identity and the mapping comes back unchanged.
     """
-    inverse_out = np.linalg.inv(direction_out)
+    inverse_out = _inverse_direction(direction_out)
     identity = np.eye(len(origin_in))
     conjugated = inverse_out @ matrix @ direction_in
     shifted = (

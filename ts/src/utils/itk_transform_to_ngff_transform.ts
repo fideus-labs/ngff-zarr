@@ -26,7 +26,7 @@
 
 import type { Transform, TransformList } from "itk-wasm";
 import type { NgffImage } from "../types/ngff_image.ts";
-import { changeOfFrame, frameGeometry } from "./itk_direction.ts";
+import { changeOfFrame, optionalFrameGeometry } from "./itk_direction.ts";
 import {
   type Affine,
   createAffine,
@@ -234,6 +234,12 @@ export interface FrameImages {
  * @param transform An ITK-Wasm `Transform` or `TransformList`.
  * @param dims The axis names of the coordinate system the result should be
  *   expressed on, in RFC-5 (Zarr) order. Only the spatial axes take part.
+ * @param frames The `fixed` and `moving` images the transform was produced on.
+ *   An ITK transform acts on ITK physical space, which includes the direction
+ *   matrix derived from RFC-4 anatomical orientation; an RFC-5 transformation
+ *   acts on the intrinsic coordinate systems. Passing both lets the conversion
+ *   change frames exactly. Omitting them is exact only when neither image
+ *   carries an anatomical orientation; pass both or neither.
  * @returns The matrix and offset over the spatial axes, in Zarr order.
  */
 export function itkTransformToNgffMatrix(
@@ -268,9 +274,10 @@ export function itkTransformToNgffMatrix(
       // A parameterless 'Composite' entry is ambiguous. The ITK-Wasm
       // pipeline writes one as a grouping header before the children, but
       // itk.dict_from_transform never writes a header at all: there it is a
-      // *nested* composite whose children the serialization dropped, at any
-      // position including the first. Decoding past one would silently
-      // compose the wrong mapping, so refuse it wherever it appears.
+      // *nested* composite whose children the serialization dropped
+      // (InsightSoftwareConsortium/ITK#6792), at any position including the
+      // first. Decoding past one would silently compose the wrong mapping,
+      // so refuse it wherever it appears.
       throw new Error(
         `a 'Composite' entry in an ITK-Wasm transform list cannot be ` +
           `decoded: the serialization drops a nested composite's children, ` +
@@ -299,13 +306,10 @@ export function itkTransformToNgffMatrix(
     (_, row) => total[row][dimension],
   );
 
-  if ((frames.fixed === undefined) !== (frames.moving === undefined)) {
-    throw new Error("pass both fixed and moving, or neither");
-  }
-  if (frames.fixed !== undefined && frames.moving !== undefined) {
+  const itkOrder = SPATIAL_DIMS.filter((dim) => spatial.includes(dim));
+  const geometry = optionalFrameGeometry(frames.fixed, frames.moving, itkOrder);
+  if (geometry !== undefined) {
     // ITK physical space -> the intrinsic systems: phi_m^-1 . T . phi_f.
-    const itkDims = SPATIAL_DIMS.filter((dim) => spatial.includes(dim));
-    const geometry = frameGeometry(frames.fixed, frames.moving, itkDims);
     ({ matrix, offset } = changeOfFrame(
       matrix,
       offset,
@@ -320,7 +324,6 @@ export function itkTransformToNgffMatrix(
   // ITK orders components by name (x, then y, then z), so the mapping is
   // built by name rather than by reversing, which is only equivalent for
   // the canonical (z, y, x).
-  const itkOrder = SPATIAL_DIMS.filter((dim) => spatial.includes(dim));
   const order = spatial.map((dim) => itkOrder.indexOf(dim));
   return {
     matrix: order.map((row) => order.map((col) => matrix[row][col])),
@@ -347,6 +350,8 @@ export function itkTransformToNgffMatrix(
  *   and translation, so a bare `translation` or an `affine` belongs in the
  *   multiscales-level `coordinateTransformations` instead. Pass `false` to
  *   always get an `affine`.
+ * @param frames The `fixed` and `moving` images the transform was produced on;
+ *   see {@link itkTransformToNgffMatrix}. Pass both or neither.
  * @returns An RFC-5 coordinate transformation over `dims`.
  */
 export function itkTransformToNgffTransform(

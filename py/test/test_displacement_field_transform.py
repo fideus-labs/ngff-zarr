@@ -74,12 +74,17 @@ def _transform_point(transform, point):
     return np.array(transform.TransformPoint([float(value) for value in point]))
 
 
-@pytest.mark.parametrize("ndim", [2, 3])
-def test_round_trip_matches_transform_point(ndim):
+@pytest.mark.parametrize(
+    "dims",
+    # The canonical orders, and one of each dimensionality that reversing
+    # would bind to the wrong ITK axis.
+    [("y", "x"), ("x", "y"), ("z", "y", "x"), ("x", "z", "y")],
+)
+def test_round_trip_matches_transform_point(dims):
+    ndim = len(dims)
     size = (5, 4, 3)[:ndim]
     spacing = (0.5, 2.0, 1.5)[:ndim]
     origin = (10.0, 20.0, -3.0)[:ndim]
-    dims = CANONICAL[ndim]
     original = _field_transform(size, spacing, origin)
 
     transform, field = itk_displacement_field_to_ngff_transform(
@@ -91,8 +96,8 @@ def test_round_trip_matches_transform_point(ndim):
     assert transform.interpolation == "linear"
     assert tuple(field.dims) == ("c", *dims)
     assert field.axes_types == {"c": "displacement"}
-    assert field.data.shape == (ndim, *size[::-1])
     itk_order = [dim for dim in ("x", "y", "z") if dim in dims]
+    assert field.data.shape == (ndim, *(size[itk_order.index(d)] for d in dims))
     for dim in dims:
         assert field.scale[dim] == spacing[itk_order.index(dim)]
         assert field.translation[dim] == origin[itk_order.index(dim)]
@@ -285,6 +290,49 @@ def test_frames_are_applied_point_by_point(moving_orientation):
         np.testing.assert_allclose(
             _transform_point(rebuilt, point), _transform_point(original, point)
         )
+
+
+def test_a_non_spatial_axis_in_dims_is_ignored():
+    """``dims`` is usually the image's own dimension names, channel axis and
+    all. ITK has no non-spatial axis, so the linear path drops them; the field
+    path drops them the same way rather than refuse the caller's ``dims``."""
+    original = _field_transform((3, 2), (1.0, 1.5), (0.0, -2.0))
+    transform, field = itk_displacement_field_to_ngff_transform(
+        original, ("y", "x"), path="w"
+    )
+
+    entry = ngff_transform_to_itk_transform(
+        transform, ("c", "y", "x"), fields={"w": field}
+    )
+
+    assert entry[0].transformType.inputDimension == 2
+    rebuilt = _native(entry)
+    for point in _points_inside(original):
+        np.testing.assert_allclose(
+            _transform_point(rebuilt, point), _transform_point(original, point)
+        )
+
+
+def test_an_oriented_field_needs_its_images_to_reach_physical_space():
+    """Going back to ITK without them would silently drop the orientation.
+
+    The message names the way through for a bounding box, whose RFC-5 branch
+    works on the intrinsic systems and cannot take the pair.
+    """
+    size, spacing, origin = (4, 3, 5), (1.0, 1.0, 1.0), (0.0, 0.0, 0.0)
+    fixed = _frame_image(size, spacing, origin, RAS)
+    from ngff_zarr.itk_transform_resample_bounding_box import _itk_direction
+
+    original = _field_transform(
+        size, spacing, origin, direction=_itk_direction(fixed, ["x", "y", "z"])
+    )
+    transform, field = itk_displacement_field_to_ngff_transform(
+        original, CANONICAL[3], path="w", fixed=fixed, moving=fixed
+    )
+    assert field.axes_orientations == RAS
+
+    with pytest.raises(ValueError, match="itk_transform_resample_bounding_box"):
+        ngff_transform_to_itk_transform(transform, CANONICAL[3], fields={"w": field})
 
 
 def test_grid_direction_must_match_the_fixed_image():

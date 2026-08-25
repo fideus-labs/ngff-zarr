@@ -12,9 +12,11 @@ import * as zarr from "zarrita";
 import type { Image, TransformList } from "itk-wasm";
 import { NgffImage } from "../types/ngff_image.ts";
 import type { V06Transform } from "../types/zarr_metadata.ts";
+import type { NgffMultiscales } from "../types/multiscales.ts";
 import { identityDirection, itkDirection } from "../utils/itk_direction.ts";
 export { itkDirection };
 import { ngffTransformToItkTransform } from "../utils/ngff_transform_to_itk_transform.ts";
+import { ngffDisplacementFieldToItkTransform } from "../utils/displacement_field_transform.ts";
 
 const SPATIAL_DIMS = ["x", "y", "z"];
 
@@ -34,6 +36,15 @@ export interface ItkTransformResampleBoundingBoxOptions {
    * bound. Use 0 for the tight region, or more for wider kernels.
    */
   padding?: number;
+  /**
+   * The field images an RFC-5 `displacements` transformation points at, keyed
+   * by its `path`. Required for a `displacements` transformation, ignored
+   * otherwise. A field carrying an anatomical orientation is refused here,
+   * since this branch works on the intrinsic systems where none applies:
+   * convert it with `ngffDisplacementFieldToItkTransform`, passing `fixed`
+   * and `moving`, and pass the transform list that returns.
+   */
+  fields?: Record<string, NgffImage | NgffMultiscales>;
 }
 
 /**
@@ -289,6 +300,24 @@ export function metadataOnlyItkImage(
   return itkImage;
 }
 
+/** The field `fields` holds for a `displacements` transform, with a message. */
+function fieldFor(
+  transform: { path: string },
+  fields: Record<string, NgffImage | NgffMultiscales> | undefined,
+): NgffImage | NgffMultiscales {
+  const field = fields?.[transform.path];
+  if (field === undefined) {
+    const available = Object.keys(fields ?? {}).sort().join(", ");
+    throw new Error(
+      `the displacements transform points at '${transform.path}', but no ` +
+        `field was passed for it (fields given: [${available}]). Load it ` +
+        `with fromOmeZarr(\`\${store}/${transform.path}\`) and pass ` +
+        `{ fields: { "${transform.path}": field } }.`,
+    );
+  }
+  return field;
+}
+
 function isV06Transform(value: unknown): value is V06Transform {
   return typeof value === "object" && value !== null && "type" in value &&
     typeof (value as { type: unknown }).type === "string";
@@ -334,7 +363,6 @@ export async function resampleBoundingBoxShared(
   checkGeometry("fixed", fixed, fixedSpatial);
   checkGeometry("moving", moving, fixedSpatial);
 
-  // ITK orders points fastest-axis-first, the reverse of the Zarr order.
   // ITK orders points fastest-axis-first by name: x, then y, then z.
   // Reversing the dims is only right for the canonical (z, y, x).
   const itkDims = SPATIAL_DIMS.filter((dim) => fixedSpatial.includes(dim));
@@ -374,7 +402,15 @@ export async function resampleBoundingBoxShared(
     fixedDirection = itkDirection(fixed, itkDims);
     movingDirection = itkDirection(moving, itkDims);
   } else if (isV06Transform(transform)) {
-    transformList = ngffTransformToItkTransform(transform, fixed.dims);
+    transformList = transform.type === "displacements"
+      // The field is an array, so it comes in beside the transformation
+      // rather than inside it.
+      ? await ngffDisplacementFieldToItkTransform(
+        transform,
+        fieldFor(transform, options.fields),
+        fixedSpatial,
+      )
+      : ngffTransformToItkTransform(transform, fixed.dims);
     // An RFC-5 transformation is defined on the intrinsic coordinate system,
     // which carries no direction matrix.
     fixedDirection = identityDirection(itkDims.length);

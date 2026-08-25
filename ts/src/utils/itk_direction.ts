@@ -137,6 +137,25 @@ export function frameGeometry(
 }
 
 /**
+ * The frame geometry of an optional image pair, or `undefined` for neither.
+ *
+ * The counterpart of Python's `_check_frame_images`: every converter takes the
+ * pair as two optional arguments and every one of them owes the same rule, so
+ * it lives here rather than in each of them.
+ */
+export function optionalFrameGeometry(
+  fixed: NgffImage | undefined,
+  moving: NgffImage | undefined,
+  itkDims: string[],
+): FrameGeometry | undefined {
+  if ((fixed === undefined) !== (moving === undefined)) {
+    throw new Error("pass both fixed and moving, or neither");
+  }
+  if (fixed === undefined || moving === undefined) return undefined;
+  return frameGeometry(fixed, moving, itkDims);
+}
+
+/**
  * Re-express `y = A x + t` through a change of frame on each side.
  *
  * `ngffImageToItkImage` builds each image with `origin = translation` and the

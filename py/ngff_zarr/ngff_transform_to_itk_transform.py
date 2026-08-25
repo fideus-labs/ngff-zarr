@@ -241,15 +241,16 @@ def ngff_transform_to_itk_transform(
     :param transform: An RFC-5 (OME-Zarr v0.6) coordinate transformation:
         a linear mapping, or a ``displacements`` transformation.
     :type  transform: Transform
+
+    :param dims: The axis names of the coordinate system the transformation is
+        defined on, in RFC-5 (Zarr) order. Only the spatial axes take part.
+    :type  dims: Sequence[str]
+
     :param fields: The field images a ``displacements`` transformation points
         at, keyed by its ``path``: an ``NgffImage``, or the ``NgffMultiscales``
         read from ``f"{store}/{transform.path}"``. Required for a
         ``displacements`` transformation, ignored otherwise.
     :type  fields: Mapping[str, NgffImage | NgffMultiscales], optional
-
-    :param dims: The axis names of the coordinate system the transformation is
-        defined on, in RFC-5 (Zarr) order.
-    :type  dims: Sequence[str]
 
     :param fixed: The fixed and moving images the transform relates. Passing
         both lets the conversion re-express the intrinsic-space mapping on ITK
@@ -270,10 +271,13 @@ def ngff_transform_to_itk_transform(
             ngff_displacement_field_to_itk_transform,
         )
 
+        # ITK has no notion of a non-spatial axis, and neither has a field:
+        # take the same spatial subset the linear path below takes, so `dims`
+        # can be the image's own dimension names on either branch.
         return ngff_displacement_field_to_itk_transform(
             transform,
             _fields_entry(transform, fields),
-            dims,
+            [dim for dim in dims if dim in _SPATIAL_DIMS],
             fixed=fixed,
             moving=moving,
         )
@@ -294,6 +298,7 @@ def ngff_transform_to_itk_transform(
         _change_of_frame,
         _check_frame_images,
         _frame_geometry,
+        _inverse_direction,
     )
 
     spatial = [dim for dim in dims if dim in _SPATIAL_DIMS]
@@ -307,8 +312,8 @@ def ngff_transform_to_itk_transform(
         matrix, offset = _change_of_frame(
             matrix,
             offset,
-            np.linalg.inv(direction_fixed),
-            np.linalg.inv(direction_moving),
+            _inverse_direction(direction_fixed),
+            _inverse_direction(direction_moving),
             origin_fixed,
             origin_moving,
         )

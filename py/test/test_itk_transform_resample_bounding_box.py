@@ -18,12 +18,14 @@ import pytest
 from ngff_zarr import (
     RAS,
     NgffImage,
+    itk_displacement_field_to_ngff_transform,
     itk_transform_resample_bounding_box,
     ngff_image_to_itk_image,
 )
 from ngff_zarr.itk_transform_resample_bounding_box import (
     _itk_direction,
     _metadata_only_itk_image,
+    _shifted_translation,
 )
 from ngff_zarr.ngff_transform_to_itk_transform import _ngff_transform_to_itk_matrix
 from ngff_zarr.v06.zarr_metadata import (
@@ -532,6 +534,27 @@ def test_crop_is_lazy_and_shifts_the_translation():
     assert np.prod(cropped.data.shape) < 0.01 * np.prod(moving.data.shape)
 
 
+def test_crop_binds_itk_axes_by_name_in_a_non_canonical_order():
+    """A sub-grid's origin moves along the *oriented* axes.
+
+    ``translation`` is keyed by name while the direction matrix is in ITK
+    component order, so the shift has to be read back by name too. Reversing
+    ``dims`` gives that order for ``zyx`` and ``yx``, and for nothing else.
+    """
+    moving = _image(
+        "xyz",
+        {"x": 32, "y": 32, "z": 32},
+        {"x": 0.5, "y": 1.0, "z": 2.0},
+        {"x": 3.0, "y": 2.0, "z": 1.0},
+        RAS,
+    )
+
+    shifted = _shifted_translation(moving, {"x": 4, "y": 6, "z": 8})
+
+    # RAS is diag(-1, -1, 1) in ITK order, so x and y count backwards.
+    assert shifted == pytest.approx({"x": 1.0, "y": -4.0, "z": 17.0})
+
+
 def test_crop_preserves_orientation_and_scale():
     moving = _image(
         "zyx",
@@ -742,6 +765,33 @@ def test_non_linear_displacement_field_is_supported():
     assert bounding_box.corners_max == {"y": 34.0, "x": 36.0}
     assert bounding_box.start_index == {"y": 2, "x": 4}
     assert bounding_box.size == {"y": 34, "x": 34}
+
+
+def test_rfc5_displacements_matches_the_itk_field_it_came_from():
+    """The RFC-5 branch has to reach the same region for a field as for an
+    affine, which means the field it points at has to reach the pipeline."""
+    itk = pytest.importorskip("itk")
+
+    fixed = _image("yx", {"y": 8, "x": 8}, {"y": 8.0, "x": 8.0}, {"y": 0.0, "x": 0.0})
+    moving = _image(
+        "yx", {"y": 64, "x": 64}, {"y": 1.0, "x": 1.0}, {"y": 0.0, "x": 0.0}
+    )
+    warp = _constant_displacement_field(itk, [5.0, -3.0], size=8, spacing=8.0)
+
+    via_itk = itk_transform_resample_bounding_box(warp, fixed, moving)
+    transform, field = itk_displacement_field_to_ngff_transform(
+        warp, ("y", "x"), path="warp"
+    )
+    via_rfc5 = itk_transform_resample_bounding_box(
+        transform, fixed, moving, fields={"warp": field}
+    )
+
+    assert via_rfc5.start_index == via_itk.start_index
+    assert via_rfc5.size == via_itk.size
+
+    # Without the field there is nothing to convert, and the message says so.
+    with pytest.raises(ValueError, match="no field was passed"):
+        itk_transform_resample_bounding_box(transform, fixed, moving)
 
 
 def test_float_displacement_field_matches_double():

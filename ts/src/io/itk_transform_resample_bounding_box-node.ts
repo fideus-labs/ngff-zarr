@@ -31,13 +31,16 @@ import {
  *   geometry is built the way {@link ngffImageToItkImage} builds it, including
  *   the direction matrix derived from RFC-4 anatomical orientation.
  *
- * In both cases the transform maps *fixed* points into *moving* space.
+ * In both cases the transform maps *fixed* points into *moving* space. An ITK
+ * transform need not be linear; an RFC-5 transformation is converted first, so
+ * it must be a linear mapping or a `displacements` transformation whose field
+ * is passed in `options.fields`.
  *
  * @param transform An RFC-5 coordinate transformation or an ITK-Wasm
  *   `TransformList`.
  * @param fixed The image whose grid is resampled. Geometry only.
  * @param moving The image to be sampled. Geometry only.
- * @param options Padding options.
+ * @param options `padding`, and `fields` for a `displacements` transformation.
  * @returns The region, keyed by dimension name in Zarr order.
  */
 export function itkTransformResampleBoundingBox(

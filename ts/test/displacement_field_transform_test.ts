@@ -195,12 +195,16 @@ Deno.test("components follow dims order", async () => {
   assertEquals(xy.field.scale, { c: 1, x: 0.5, y: 2.0 });
 });
 
-for (const ndim of [2, 3]) {
-  Deno.test(`round trip gives back the entry (${ndim}D)`, async () => {
+// The canonical orders, and one of each dimensionality that reversing would
+// bind to the wrong ITK axis.
+for (
+  const dims of [["y", "x"], ["x", "y"], ["z", "y", "x"], ["x", "z", "y"]]
+) {
+  Deno.test(`round trip gives back the entry (${dims.join("")})`, async () => {
+    const ndim = dims.length;
     const size = [5, 4, 3].slice(0, ndim);
     const spacing = [0.5, 2.0, 1.5].slice(0, ndim);
     const origin = [10.0, 20.0, -3.0].slice(0, ndim);
-    const dims = CANONICAL[ndim];
     const entry = fieldTransform(size, spacing, origin);
 
     const { transform, field } = await itkDisplacementFieldToNgffTransform(
@@ -208,8 +212,11 @@ for (const ndim of [2, 3]) {
       dims,
       { path: "warp" },
     );
-    assertEquals(field.data.shape, [ndim, ...size.slice().reverse()]);
     const itkOrder = ["x", "y", "z"].slice(0, ndim);
+    assertEquals(field.data.shape, [
+      ndim,
+      ...dims.map((dim) => size[itkOrder.indexOf(dim)]),
+    ]);
     for (const dim of dims) {
       assertEquals(field.scale[dim], spacing[itkOrder.indexOf(dim)]);
       assertEquals(field.translation[dim], origin[itkOrder.indexOf(dim)]);

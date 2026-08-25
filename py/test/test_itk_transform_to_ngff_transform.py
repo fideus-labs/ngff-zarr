@@ -225,11 +225,9 @@ def test_simplify_can_be_disabled():
 
 
 def test_itk_transform_with_angle_parameters_is_converted():
-    """Euler stores an angle, not a matrix, so decoding parameters would fail.
-
-    The conversion probes the mapping instead, which is independent of how the
-    transform packs its parameters.
-    """
+    """Euler stores an angle, not a matrix, so reading its parameters would
+    need type-specific arithmetic. Every ``MatrixOffsetTransformBase`` answers
+    ``GetMatrix``/``GetOffset`` alike, whatever it stores underneath."""
     itk = pytest.importorskip("itk")
 
     euler = itk.Euler2DTransform[itk.D].New()
@@ -464,35 +462,57 @@ def _float32_affine(matrix, translation):
     return transform
 
 
-# Stored as the nearest doubles; recovery is compared against those doubles,
-# so the tolerance below covers only the probing arithmetic itself.
+# Stored as the nearest doubles; every recovery below is compared against
+# those doubles rather than against the decimals.
 _ROTATION_3D = [[1.0, 0.0, 0.0], [0.0, 0.8, 0.6], [0.0, -0.6, 0.8]]
 
 
-@pytest.mark.parametrize("offset", [0.0, 1e3, 1e8, 1e12, 1e15])
-def test_probing_survives_an_offset_that_dwarfs_the_matrix(offset):
-    """``T(e_j) - T(0)`` cancels catastrophically when the offset is large.
-
-    A step fixed at 1 keeps no significant digit of the matrix once the offset
-    reaches 1e15, and the recovered transform silently collapses towards a
-    zero matrix. Worse, the check point has to grow with it: one fixed near
-    the origin cannot tell a zeroed matrix from a correct one, because the
-    offset dominates the prediction either way.
-
-    Nanometre coordinates put real electron-microscopy data in this range.
-    """
+def _affine_3d(matrix, offset):
     itk = pytest.importorskip("itk")
 
     transform = itk.AffineTransform[itk.D, 3].New()
-    transform.SetMatrix(itk.matrix_from_array(np.asarray(_ROTATION_3D)))
-    transform.SetTranslation([offset] * 3)
+    transform.SetMatrix(itk.matrix_from_array(np.asarray(matrix, dtype=float)))
+    transform.SetTranslation([float(offset)] * 3)
     transform.SetCenter([0.0] * 3)
+    return transform
 
-    matrix, _ = itk_transform_to_ngff_matrix(transform, ("z", "y", "x"))
+
+@pytest.mark.parametrize("offset", [0.0, 1e3, 1e8, 1e12, 1e15])
+@pytest.mark.parametrize("coefficient", [1.0, 1e-20])
+def test_an_offset_that_dwarfs_the_matrix_does_not_swallow_it(offset, coefficient):
+    """The matrix must survive an offset of any magnitude beside it.
+
+    Nanometre coordinates put real electron-microscopy data in the 1e15 range,
+    where a matrix read back from ``T(e_j) - T(0)`` would be pure cancellation
+    noise: at a coefficient of 1e-20 the difference rounds to zero outright,
+    and a transform that inverts is persisted as one that does not. Reading
+    ``GetMatrix``/``GetOffset`` has no such limit, so equality is exact.
+    """
+    rotation = np.asarray(_ROTATION_3D) * coefficient
+    matrix, _ = itk_transform_to_ngff_matrix(
+        _affine_3d(rotation, offset), ("z", "y", "x")
+    )
 
     reversal = np.eye(3)[::-1]
-    expected = reversal @ np.asarray(_ROTATION_3D) @ reversal
-    assert np.allclose(matrix, expected, rtol=0, atol=1e-12)
+    assert np.array_equal(matrix, reversal @ rotation @ reversal)
+
+
+def test_probing_follows_the_offset_scale():
+    """The fallback path, for a transform that carries no matrix of its own.
+
+    Probing is a difference of two nearly equal points, so a step fixed at 1
+    keeps no significant digit once the offset reaches 1e15 and the recovered
+    matrix collapses towards zero. Following the offset's own magnitude keeps
+    the two terms comparable; the check point has to grow with it too, since
+    one fixed near the origin cannot tell a zeroed matrix from a correct one.
+    """
+    from ngff_zarr.itk_transform_to_ngff_transform import _matrix_offset_by_probing
+
+    expected = np.asarray(_ROTATION_3D)
+    for offset in (0.0, 1e3, 1e8, 1e12, 1e15):
+        matrix, recovered = _matrix_offset_by_probing(_affine_3d(expected, offset), 3)
+        assert np.allclose(matrix, expected, rtol=0, atol=1e-12)
+        assert np.allclose(recovered, [offset] * 3)
 
 
 @pytest.mark.parametrize("offset", [0.0, 1e3, 1e8])
@@ -513,15 +533,18 @@ def test_single_precision_transforms_are_not_rejected_as_non_linear(offset):
     assert np.allclose(matrix, expected, rtol=0, atol=1e-6)
 
 
-def test_probing_survives_hidden_large_intermediates():
+def test_a_composite_with_hidden_large_intermediates_converts():
     """A composite may pass through internal frames that dwarf its outputs.
 
     Two translations out to a global frame at 1e9 and back leave T(x) - x
     exactly constant, but the rounding of those hidden intermediates lands in
-    the probed values. A tolerance measured against the *output* rejects such
+    every evaluation. A tolerance measured against the *output* rejects such
     transforms as non-linear; measured against the working scale it must not.
+    Composing the children keeps the intermediates out of the result entirely,
+    so both routes are checked here.
     """
     itk = pytest.importorskip("itk")
+    from ngff_zarr.itk_transform_to_ngff_transform import _matrix_offset_by_probing
 
     big = 1e9
     composite = itk.CompositeTransform[itk.D, 3].New()
@@ -533,9 +556,12 @@ def test_probing_survives_hidden_large_intermediates():
     composite.AddTransform(backward)
 
     matrix, offset = itk_transform_to_ngff_matrix(composite, ("z", "y", "x"))
+    assert np.array_equal(matrix, np.eye(3))
+    assert np.array_equal(offset, [1.5, -3.125, 5.25])
 
-    assert np.allclose(matrix, np.eye(3), rtol=0, atol=1e-12)
-    assert np.allclose(offset, [1.5, -3.125, 5.25])
+    probed, probed_offset = _matrix_offset_by_probing(composite, 3)
+    assert np.allclose(probed, np.eye(3), rtol=0, atol=1e-12)
+    assert np.allclose(probed_offset, [5.25, -3.125, 1.5])
 
 
 def test_the_affine_check_still_refuses_a_near_affine_transform():
@@ -563,14 +589,16 @@ def test_the_affine_check_still_refuses_a_near_affine_transform():
 
 
 @pytest.mark.parametrize("magnitude", [1e-6, 1.0, 1e6])
-def test_probing_accepts_a_genuinely_linear_transform(magnitude):
+def test_a_genuinely_linear_transform_is_accepted(magnitude):
     """The affine check must not fire on ordinary float error.
 
-    Probing recomposes the mapping from three evaluations, so the check
-    compares two arithmetic paths rather than a value against itself. It has to
-    stay quiet across the range of magnitudes a registration produces.
+    It compares two arithmetic paths -- the recovered model against the
+    transform's own evaluation -- rather than a value against itself, so it
+    has to stay quiet across the range of magnitudes a registration produces,
+    whichever route recovered the model.
     """
     itk = pytest.importorskip("itk")
+    from ngff_zarr.itk_transform_to_ngff_transform import _matrix_offset_by_probing
 
     euler = itk.Euler3DTransform[itk.D].New()
     euler.SetRotation(0.3, -0.7, 1.1)
@@ -578,10 +606,50 @@ def test_probing_accepts_a_genuinely_linear_transform(magnitude):
     euler.SetCenter([0.5 * magnitude, magnitude, -1.5 * magnitude])
 
     matrix, offset = itk_transform_to_ngff_matrix(euler, ("z", "y", "x"))
+    _matrix_offset_by_probing(euler, 3)
 
     point = np.array([12.0, -34.0, 56.0]) * magnitude  # (z, y, x)
     expected = np.asarray(euler.TransformPoint(point[::-1].tolist()))[::-1]
     assert np.allclose(matrix @ point + offset, expected)
+
+
+def test_a_transform_whose_matrix_contradicts_its_mapping_is_refused():
+    """``IsLinear()`` and the stored matrix can both be wrong at once.
+
+    ``AzimuthElevationToCartesianTransform`` inherits ``AffineTransform``, so
+    it carries an identity matrix and offset and reports itself linear, while
+    overriding ``TransformPoint`` with a spherical-to-Cartesian mapping
+    (InsightSoftwareConsortium/ITK#6791). Nothing but confronting the model
+    with an evaluation catches it.
+    """
+    itk = pytest.importorskip("itk")
+    template = getattr(itk, "AzimuthElevationToCartesianTransform", None)
+    if template is None:  # not every ITK build wraps it
+        pytest.skip("this ITK build does not wrap AzimuthElevationToCartesian")
+
+    transform = template[itk.D, 3].New()
+    assert transform.IsLinear()  # the upstream defect this guards against
+    assert np.array_equal(itk.array_from_matrix(transform.GetMatrix()), np.eye(3))
+
+    with pytest.raises(NotImplementedError, match="only linear"):
+        itk_transform_to_ngff_transform(transform, ("z", "y", "x"))
+
+
+def test_a_transform_of_the_wrong_dimensionality_is_named():
+    """Left to ITK this is a SWIG TypeError naming an ``itkPointD2``."""
+    itk = pytest.importorskip("itk")
+
+    with pytest.raises(ValueError, match="maps 2D to 2D, but the coordinate system"):
+        itk_transform_to_ngff_matrix(
+            itk.AffineTransform[itk.D, 2].New(), ("z", "y", "x")
+        )
+
+
+@pytest.mark.parametrize("transform", [5, "affine", None, {"affine": 1}])
+def test_an_input_that_is_no_transform_at_all_is_named(transform):
+    """Not 'int object is not iterable' from inside a list() call."""
+    with pytest.raises(TypeError, match="unsupported transform input"):
+        itk_transform_to_ngff_matrix(transform, ("y", "x"))
 
 
 def _itkwasm_scale(scale, center):
@@ -795,9 +863,9 @@ def test_a_composite_entry_is_refused_at_any_position(position):
         itk_transform_to_ngff_matrix(entries, ("y", "x"))
 
 
-def test_a_nested_native_composite_converts_by_probing():
-    """The safe route for any composite, nested included: probing evaluates
-    the native transform, so no serialization can drop its children."""
+def test_a_nested_native_composite_converts_exactly():
+    """The safe route for any composite, nested included: the native transform
+    still holds its children, so no serialization can drop them."""
     itk = pytest.importorskip("itk")
 
     inner = itk.CompositeTransform[itk.D, 2].New()

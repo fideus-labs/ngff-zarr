@@ -46,7 +46,14 @@ import { NgffImage } from "../types/ngff_image.ts";
 import type { NgffMultiscales } from "../types/multiscales.ts";
 import type { Displacements } from "../types/zarr_metadata.ts";
 import { toNgffImage } from "../io/to_ngff_image.ts";
-import { directionRows, frameGeometry, itkDirection } from "./itk_direction.ts";
+import {
+  changeOfFrame,
+  directionRows,
+  type FrameGeometry,
+  itkDirection,
+  optionalFrameGeometry,
+  transposed,
+} from "./itk_direction.ts";
 
 const SPATIAL_DIMS = ["x", "y", "z"];
 
@@ -62,13 +69,6 @@ interface ItkField {
   origin: number[];
   spacing: number[];
   direction: number[][];
-}
-
-interface Frames {
-  directionIn: number[][];
-  directionOut: number[][];
-  originIn: number[];
-  originOut: number[];
 }
 
 /** The fixed and moving images a converted field relates. */
@@ -120,31 +120,71 @@ function allClose(left: number[][], right: number[][]): boolean {
   );
 }
 
-function transposed(matrix: number[][]): number[][] {
-  return matrix[0].map((_, col) => matrix.map((row) => row[col]));
-}
-
 function matvec(matrix: number[][], vector: number[]): number[] {
   return matrix.map((row) =>
     row.reduce((sum, value, col) => sum + value * vector[col], 0)
   );
 }
 
-function frames(
-  fixed: NgffImage | undefined,
-  moving: NgffImage | undefined,
-  dims: string[],
-): Frames | undefined {
-  if ((fixed === undefined) !== (moving === undefined)) {
-    throw new Error("pass both fixed and moving, or neither");
-  }
-  if (fixed === undefined || moving === undefined) return undefined;
-  const geometry = frameGeometry(fixed, moving, itkAxisOrder(dims));
+/**
+ * The frame pair of two images with no orientation and no translation.
+ *
+ * With it the terms below all vanish, so the conversion that changes frames
+ * and the one that does not are the same arithmetic rather than two branches.
+ */
+function unorientedFrames(dimension: number): FrameGeometry {
+  const zero = new Array<number>(dimension).fill(0);
   return {
-    directionIn: geometry.directionFixed,
-    directionOut: geometry.directionMoving,
-    originIn: geometry.originFixed,
-    originOut: geometry.originMoving,
+    directionFixed: identity(dimension),
+    directionMoving: identity(dimension),
+    originFixed: zero,
+    originMoving: zero,
+  };
+}
+
+/** `D_out`, `M - I` and `b`: the per-point terms of the two conversions. */
+interface FrameTerms {
+  directionOut: number[][];
+  shiftMatrix: number[][];
+  shiftVector: number[];
+  /** Whether either `q` term is non-zero; a shared frame makes both vanish. */
+  shifts: boolean;
+}
+
+/**
+ * The per-point terms relating ITK vectors and RFC-5 displacements.
+ *
+ * An ITK vector is a difference of two *physical* points; an RFC-5
+ * displacement is a difference of two *intrinsic* points. Writing
+ * `phi_out^-1 . phi_in` as `q -> M q + b` -- the change of frame the affine
+ * conversion applies, given the identity as its mapping -- the defining
+ * identity `phi_out(q + d(q)) = phi_in(q) + v(q)` rearranges to
+ *
+ *     d(q) = D_out^-1 v + (M - I) q + b
+ *     v(q) = D_out (d - (M - I) q - b)
+ *
+ * so one derivation serves both directions. The two `q` terms vanish when the
+ * images share a frame, leaving `d = D_out^-1 v`.
+ */
+function frameTerms(frame: FrameGeometry): FrameTerms {
+  const dimension = frame.originFixed.length;
+  const { matrix, offset } = changeOfFrame(
+    identity(dimension),
+    new Array<number>(dimension).fill(0),
+    frame.directionFixed,
+    frame.directionMoving,
+    frame.originFixed,
+    frame.originMoving,
+  );
+  const shiftMatrix = matrix.map((row, i) =>
+    row.map((value, j) => value - (i === j ? 1 : 0))
+  );
+  return {
+    directionOut: frame.directionMoving,
+    shiftMatrix,
+    shiftVector: offset,
+    shifts: shiftMatrix.some((row) => row.some((value) => value !== 0)) ||
+      offset.some((value) => value !== 0),
   };
 }
 
@@ -300,10 +340,11 @@ export async function itkDisplacementFieldToNgffTransform(
     );
   }
   const itkDims = itkAxisOrder(dims);
-  const frame = frames(options.fixed, options.moving, dims);
-
-  let gridOrigin: number[];
-  let toIntrinsic: (vector: number[], point: number[]) => number[];
+  let frame = optionalFrameGeometry(
+    options.fixed,
+    options.moving,
+    itkDims,
+  );
   if (frame === undefined) {
     if (!allClose(direction, identity(dimension))) {
       throw new Error(
@@ -313,43 +354,32 @@ export async function itkDisplacementFieldToNgffTransform(
           "resample the field onto the fixed grid.",
       );
     }
-    gridOrigin = origin;
-    toIntrinsic = (vector) => vector;
-  } else {
-    if (!allClose(direction, frame.directionIn)) {
-      throw new Error(
-        "the field's grid is not oriented like the fixed image: its " +
-          `direction is ${JSON.stringify(direction)} where the fixed image ` +
-          `gives ${JSON.stringify(frame.directionIn)}. Resample the field ` +
-          "onto the fixed grid first.",
-      );
-    }
-    const inverseIn = transposed(frame.directionIn);
-    const inverseOut = transposed(frame.directionOut);
-    gridOrigin = matvec(
-      inverseIn,
-      origin.map((value, i) => value - frame.originIn[i]),
-    ).map((value, i) => value + frame.originIn[i]);
-    const shared = allClose(frame.directionIn, frame.directionOut) &&
-      frame.originIn.every((value, i) =>
-        Math.abs(value - frame.originOut[i]) <= 1e-9
-      );
-    toIntrinsic = shared
-      ? (vector) => matvec(inverseOut, vector)
-      : (vector, point) => {
-        const rotated = matvec(
-          frame.directionIn,
-          point.map((value, i) => value - frame.originIn[i]),
-        );
-        const shifted = vector.map(
-          (value, i) =>
-            value + rotated[i] + frame.originIn[i] - frame.originOut[i],
-        );
-        return matvec(inverseOut, shifted).map(
-          (value, i) => value + frame.originOut[i] - point[i],
-        );
-      };
+    frame = unorientedFrames(dimension);
+  } else if (!allClose(direction, frame.directionFixed)) {
+    throw new Error(
+      "the field's grid is not oriented like the fixed image: its " +
+        `direction is ${JSON.stringify(direction)} where the fixed image ` +
+        `gives ${JSON.stringify(frame.directionFixed)}. Resample the field ` +
+        "onto the fixed grid first.",
+    );
   }
+
+  // The field's grid follows phi_in^-1, so its origin moves and its spacing
+  // does not.
+  const gridOrigin = matvec(
+    transposed(frame.directionFixed),
+    origin.map((value, i) => value - frame.originFixed[i]),
+  ).map((value, i) => value + frame.originFixed[i]);
+
+  // d(q) = D_out^-1 v + (M - I) q + b -- see frameTerms.
+  const terms = frameTerms(frame);
+  const inverseOut = transposed(terms.directionOut);
+  const toIntrinsic = (vector: number[], point: number[]): number[] => {
+    const rotated = matvec(inverseOut, vector);
+    if (!terms.shifts) return rotated;
+    const shift = matvec(terms.shiftMatrix, point);
+    return rotated.map((value, i) => value + shift[i] + terms.shiftVector[i]);
+  };
 
   // (c, *dims) with components in dims order, C-contiguous.
   const shape = dims.map((dim) => size[itkDims.indexOf(dim)]);
@@ -520,10 +550,7 @@ export async function ngffDisplacementFieldToItkTransform(
   const translation = itkDims.map((dim) => image.translation[dim]);
   const ownDirection = directionRows(itkDirection(image, itkDims), dimension);
 
-  const frame = frames(frames_.fixed, frames_.moving, dims);
-  let origin: number[];
-  let direction: number[][];
-  let toPhysical: (displacement: number[], point: number[]) => number[];
+  let frame = optionalFrameGeometry(frames_.fixed, frames_.moving, itkDims);
   if (frame === undefined) {
     if (!allClose(ownDirection, identity(dimension))) {
       throw new Error(
@@ -531,43 +558,34 @@ export async function ngffDisplacementFieldToItkTransform(
           "moving images so its grid is placed in their frame",
       );
     }
-    origin = translation;
-    direction = identity(dimension);
-    toPhysical = (displacement) => displacement;
-  } else {
-    if (
-      !allClose(ownDirection, identity(dimension)) &&
-      !allClose(ownDirection, frame.directionIn)
-    ) {
-      throw new Error(
-        "the field's orientation is not the fixed image's: it gives " +
-          `${JSON.stringify(ownDirection)} where the fixed image gives ` +
-          `${JSON.stringify(frame.directionIn)}`,
-      );
-    }
-    origin = matvec(
-      frame.directionIn,
-      translation.map((value, i) => value - frame.originIn[i]),
-    ).map((value, i) => value + frame.originIn[i]);
-    direction = frame.directionIn;
-    const shared = allClose(frame.directionIn, frame.directionOut) &&
-      frame.originIn.every((value, i) =>
-        Math.abs(value - frame.originOut[i]) <= 1e-9
-      );
-    toPhysical = shared
-      ? (displacement) => matvec(frame.directionOut, displacement)
-      : (displacement, point) => {
-        const moved = matvec(
-          frame.directionOut,
-          displacement.map((value, i) => value + point[i] - frame.originOut[i]),
-        ).map((value, i) => value + frame.originOut[i]);
-        const rotated = matvec(
-          frame.directionIn,
-          point.map((value, i) => value - frame.originIn[i]),
-        );
-        return moved.map((value, i) => value - rotated[i] - frame.originIn[i]);
-      };
+    frame = unorientedFrames(dimension);
+  } else if (
+    !allClose(ownDirection, identity(dimension)) &&
+    !allClose(ownDirection, frame.directionFixed)
+  ) {
+    throw new Error(
+      "the field's orientation is not the fixed image's: it gives " +
+        `${JSON.stringify(ownDirection)} where the fixed image gives ` +
+        `${JSON.stringify(frame.directionFixed)}`,
+    );
   }
+
+  const direction = frame.directionFixed;
+  const origin = matvec(
+    direction,
+    translation.map((value, i) => value - frame.originFixed[i]),
+  ).map((value, i) => value + frame.originFixed[i]);
+
+  // v(q) = D_out (d - (M - I) q - b) -- see frameTerms.
+  const terms = frameTerms(frame);
+  const toPhysical = (displacement: number[], point: number[]): number[] => {
+    if (!terms.shifts) return matvec(terms.directionOut, displacement);
+    const shift = matvec(terms.shiftMatrix, point);
+    return matvec(
+      terms.directionOut,
+      displacement.map((value, i) => value - shift[i] - terms.shiftVector[i]),
+    );
+  };
 
   if (
     transform.interpolation !== undefined &&

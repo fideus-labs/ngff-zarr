@@ -21,16 +21,13 @@ Axis order
 
 Frames
     An ITK vector is a difference of two physical points. An RFC-5
-    displacement is a difference of two intrinsic points, ``d = q' - q``. With
-    ``phi(q) = D (q - o) + o`` relating each image's intrinsic system to ITK
-    physical space (``D`` from RFC-4 orientation, ``o`` the translation), a
-    vector ``v`` sampled at the input grid point ``q`` becomes::
-
-        d(q) = D_out^-1 (v + D_in (q - o_in) + o_in - o_out) + o_out - q
-
-    which collapses to ``d = D^-1 v`` when both images share a frame. The
-    field's own grid follows ``phi_in^-1``, so ``translation = D_in^-1 (o_f -
-    o_in) + o_in`` and the spacing is unchanged.
+    displacement is a difference of two intrinsic points, ``d = q' - q``, so
+    the two differ by more than a rotation as soon as the images sit in
+    different frames. Both directions follow from one identity,
+    ``phi_out(q + d(q)) = phi_in(q) + v(q)``, worked out in
+    :func:`_frame_terms` on top of the affine conversion's change of frame.
+    The field's own grid follows ``phi_in^-1``, so its origin moves and its
+    spacing does not.
 
 Grid direction
     RFC-5 maps the field's array coordinates to the input system with the
@@ -49,6 +46,7 @@ from collections.abc import Mapping, Sequence
 
 import numpy as np
 
+from .itk_transform_to_ngff_transform import _FrameGeometry
 from .ngff_image import NgffImage
 from .v06.zarr_metadata import Displacements
 
@@ -63,11 +61,12 @@ def _check_dims(dims: Sequence[str]) -> tuple[str, ...]:
     from .itk_transform_to_ngff_transform import _SPATIAL_DIMS
 
     dims = tuple(dims)
-    if not dims or any(dim not in _SPATIAL_DIMS for dim in dims):
+    other = [dim for dim in dims if dim not in _SPATIAL_DIMS]
+    if not dims or other:
         msg = (
-            f"a displacement field is defined on spatial axes only; got dims "
-            f"{dims}. ITK has no notion of a time or channel axis, and RFC-5 "
-            "requires one field dimension per input axis."
+            f"a displacement field is defined on spatial axes only; dims {dims} "
+            f"name {other or 'none'}. ITK has no notion of a time or channel "
+            "axis, and RFC-5 requires one field dimension per input axis."
         )
         raise ValueError(msg)
     if len(set(dims)) != len(dims):
@@ -89,37 +88,56 @@ def _frames(fixed, moving, dims):
     return _frame_geometry(fixed, moving, _itk_axis_order(dims))
 
 
-def _grid_points(shape, origin, spacing):
-    """Every grid point's coordinates, ``(*shape, N)`` in ITK component order.
+def _unoriented_frames(dimension: int) -> _FrameGeometry:
+    """The frame pair of two images with no orientation and no translation.
 
-    ``shape`` is the field's ``[z][y][x]`` layout, so the index arrays come
-    out slowest-axis-first and are reversed into ITK order.
+    With it the terms below all vanish, so the conversion that changes frames
+    and the one that does not are the same arithmetic rather than two branches.
     """
-    indices = np.stack(np.indices(shape)[::-1], axis=-1).astype(np.float64)
-    return origin + spacing * indices
+    identity = np.eye(dimension)
+    zero = np.zeros(dimension)
+    return _FrameGeometry(identity, identity, zero, zero)
 
 
-def _vectors_to_intrinsic(
-    vectors, origin, spacing, direction_in, direction_out, origin_in, origin_out
-):
-    """ITK physical vectors to RFC-5 displacements, per grid point."""
-    inverse_out = np.linalg.inv(direction_out)
-    if np.allclose(direction_in, direction_out) and np.allclose(origin_in, origin_out):
-        return vectors @ inverse_out.T
-    points = _grid_points(vectors.shape[:-1], origin, spacing)
-    shifted = vectors + (points - origin_in) @ direction_in.T + origin_in - origin_out
-    return shifted @ inverse_out.T + origin_out - points
+def _frame_terms(frames: _FrameGeometry):
+    """The per-point terms relating ITK vectors and RFC-5 displacements.
+
+    An ITK vector is a difference of two *physical* points; an RFC-5
+    displacement is a difference of two *intrinsic* points. Writing
+    ``phi_out^-1 . phi_in`` as ``q -> M q + b`` -- the change of frame the
+    affine conversion applies, given the identity as its mapping -- the
+    defining identity ``phi_out(q + d(q)) = phi_in(q) + v(q)`` rearranges to
+
+        d(q) = D_out^-1 v + (M - I) q + b
+        v(q) = D_out (d - (M - I) q - b)
+
+    so one derivation serves both directions. The two ``q`` terms vanish when
+    the images share a frame, leaving ``d = D_out^-1 v``.
+
+    :return: ``(D_out, M - I, b)``.
+    """
+    from .itk_transform_to_ngff_transform import _change_of_frame
+
+    dimension = len(frames.origin_in)
+    matrix, offset = _change_of_frame(np.eye(dimension), np.zeros(dimension), *frames)
+    return frames.direction_out, matrix - np.eye(dimension), offset
 
 
-def _vectors_to_physical(
-    displacements, origin, spacing, direction_in, direction_out, origin_in, origin_out
-):
-    """RFC-5 displacements to ITK physical vectors, per grid point."""
-    if np.allclose(direction_in, direction_out) and np.allclose(origin_in, origin_out):
-        return displacements @ direction_out.T
-    points = _grid_points(displacements.shape[:-1], origin, spacing)
-    moved = (displacements + points - origin_out) @ direction_out.T + origin_out
-    return moved - (points - origin_in) @ direction_in.T - origin_in
+def _grid_shift(shape, origin, spacing, matrix, vector):
+    """``matrix q + vector`` at every grid point, or ``None`` when it is zero.
+
+    ``shape`` is the field's ``[z][y][x]`` layout, so the index arrays come out
+    slowest-axis-first and are reversed into ITK component order. The result is
+    ``(*shape, N)``, ready to add to or subtract from the field.
+    """
+    if not matrix.any() and not vector.any():
+        return None
+    indices = np.stack(np.indices(shape, dtype=np.float64)[::-1], axis=-1)
+    return (origin + spacing * indices) @ matrix.T + vector
+
+
+def _is_identity(matrix: np.ndarray) -> bool:
+    return bool(np.array_equal(matrix, np.eye(len(matrix))))
 
 
 def _decode_field(transform):
@@ -288,7 +306,7 @@ def itk_displacement_field_to_ngff_transform(
     """
     import dask.array
 
-    from .itk_transform_to_ngff_transform import _itk_axis_order
+    from .itk_transform_to_ngff_transform import _inverse_direction, _itk_axis_order
 
     dims = _check_dims(dims)
     vectors, origin, spacing, direction = _decode_field(transform)
@@ -312,34 +330,40 @@ def itk_displacement_field_to_ngff_transform(
                 "orientation, or resample the field onto the fixed grid."
             )
             raise ValueError(msg)
-        grid_origin = origin
-        displacements = vectors
-    else:
-        direction_in, direction_out, origin_in, origin_out = frames
-        if not np.allclose(direction, direction_in):
-            msg = (
-                "the field's grid is not oriented like the fixed image: its "
-                f"direction is {direction.tolist()} where the fixed image gives "
-                f"{direction_in.tolist()}. Resample the field onto the fixed "
-                "grid first."
-            )
-            raise ValueError(msg)
-        grid_origin = np.linalg.inv(direction_in) @ (origin - origin_in) + origin_in
-        displacements = _vectors_to_intrinsic(
-            vectors,
-            grid_origin,
-            spacing,
-            direction_in,
-            direction_out,
-            origin_in,
-            origin_out,
+        frames = _unoriented_frames(dimension)
+    elif not np.allclose(direction, frames.direction_in):
+        msg = (
+            "the field's grid is not oriented like the fixed image: its "
+            f"direction is {direction.tolist()} where the fixed image gives "
+            f"{frames.direction_in.tolist()}. Resample the field onto the fixed "
+            "grid first."
         )
+        raise ValueError(msg)
 
-    # [z][y][x][c] with ITK components -> (c, *dims) with components in dims order.
+    # The field's grid follows phi_in^-1, so its origin moves and its spacing
+    # does not.
+    grid_origin = (
+        _inverse_direction(frames.direction_in) @ (origin - frames.origin_in)
+        + frames.origin_in
+    )
+
+    direction_out, shift_matrix, shift_vector = _frame_terms(frames)
+    inverse_out = _inverse_direction(direction_out)
+    displacements = vectors if _is_identity(inverse_out) else vectors @ inverse_out.T
+    shift = _grid_shift(
+        vectors.shape[:-1], grid_origin, spacing, shift_matrix, shift_vector
+    )
+    if shift is not None:
+        displacements = displacements + shift
+
+    # [z][y][x][c] with ITK components -> (c, *dims) with components in dims
+    # order. The transposes are views; indexing the component axis is the one
+    # copy, and it lands contiguous.
     field = np.moveaxis(displacements, -1, 0)
     field = np.transpose(field, [0] + [1 + canonical.index(dim) for dim in dims])
-    field = field[[itk_dims.index(dim) for dim in dims]]
-    field = np.ascontiguousarray(field, dtype=vectors.dtype)
+    field = field[[itk_dims.index(dim) for dim in dims]].astype(
+        vectors.dtype, copy=False
+    )
 
     scale = {_COMPONENT_DIM: 1.0}
     translation = {_COMPONENT_DIM: 0.0}
@@ -458,10 +482,11 @@ def ngff_displacement_field_to_itk_transform(
 
     itk_dims = _itk_axis_order(dims)
     canonical = list(reversed(itk_dims))
-    # (c, *dims) with components in dims order -> [z][y][x][c] with ITK components.
-    arranged = data[[dims.index(dim) for dim in itk_dims]]
-    arranged = np.transpose(arranged, [0] + [1 + dims.index(dim) for dim in canonical])
-    displacements = np.moveaxis(arranged, 0, -1)
+    # (c, *dims) with components in dims order -> [z][y][x][c] with ITK
+    # components. The transpose is a view; indexing the component axis, which
+    # the transpose has moved last, is the one copy.
+    arranged = np.transpose(data, [1 + dims.index(dim) for dim in canonical] + [0])
+    displacements = arranged[..., [dims.index(dim) for dim in itk_dims]]
 
     spacing = np.array([float(field.scale[dim]) for dim in itk_dims])
     translation = np.array([float(field.translation[dim]) for dim in itk_dims])
@@ -469,37 +494,40 @@ def ngff_displacement_field_to_itk_transform(
 
     frames = _frames(fixed, moving, dims)
     if frames is None:
-        if not np.allclose(own_direction, np.eye(dimension)):
+        if not _is_identity(own_direction):
+            # An ITK transform lives in physical space, and without the images
+            # there is nothing to say where the oriented grid sits in it.
             msg = (
-                "the field carries an anatomical orientation; pass the fixed and "
-                "moving images so its grid is placed in their frame"
+                "the field carries an anatomical orientation, so its grid "
+                "cannot be placed in ITK physical space on its own; pass the "
+                "fixed and moving images. itk_transform_resample_bounding_box "
+                "has no place for them, because its RFC-5 branch works on the "
+                "intrinsic systems where no orientation applies: call "
+                "ngff_transform_to_itk_transform with both images yourself and "
+                "hand the bounding box the ITK transform it returns."
             )
             raise ValueError(msg)
-        origin = translation
-        direction = np.eye(dimension)
-        vectors = displacements
-    else:
-        direction_in, direction_out, origin_in, origin_out = frames
-        if not np.allclose(own_direction, np.eye(dimension)) and not np.allclose(
-            own_direction, direction_in
-        ):
-            msg = (
-                "the field's orientation is not the fixed image's: it gives "
-                f"{own_direction.tolist()} where the fixed image gives "
-                f"{direction_in.tolist()}"
-            )
-            raise ValueError(msg)
-        origin = direction_in @ (translation - origin_in) + origin_in
-        direction = direction_in
-        vectors = _vectors_to_physical(
-            displacements,
-            translation,
-            spacing,
-            direction_in,
-            direction_out,
-            origin_in,
-            origin_out,
+        frames = _unoriented_frames(dimension)
+    elif not _is_identity(own_direction) and not np.allclose(
+        own_direction, frames.direction_in
+    ):
+        msg = (
+            "the field's orientation is not the fixed image's: it gives "
+            f"{own_direction.tolist()} where the fixed image gives "
+            f"{frames.direction_in.tolist()}"
         )
+        raise ValueError(msg)
+
+    direction = frames.direction_in
+    origin = direction @ (translation - frames.origin_in) + frames.origin_in
+
+    direction_out, shift_matrix, shift_vector = _frame_terms(frames)
+    shift = _grid_shift(
+        displacements.shape[:-1], translation, spacing, shift_matrix, shift_vector
+    )
+    vectors = displacements if shift is None else displacements - shift
+    if not _is_identity(direction_out):
+        vectors = vectors @ direction_out.T
 
     if transform.interpolation not in (None, "linear"):
         warnings.warn(
@@ -513,7 +541,7 @@ def ngff_displacement_field_to_itk_transform(
         value_type = FloatTypes.Float32
     else:
         value_type = FloatTypes.Float64
-        vectors = vectors.astype(np.float64)
+        vectors = vectors.astype(np.float64, copy=False)
     size = np.array(displacements.shape[:-1][::-1], dtype=np.float64)
     fixed_parameters = np.concatenate(
         [size, origin, spacing, direction.ravel(order="C")]

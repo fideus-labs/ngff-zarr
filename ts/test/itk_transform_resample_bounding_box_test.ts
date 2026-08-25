@@ -27,6 +27,7 @@ import {
   createScale,
   createTransformSequence,
   createTranslation,
+  itkDisplacementFieldToNgffTransform,
   itkTransformResampleBoundingBox,
   itkTransformToNgffTransform,
   NgffImage,
@@ -778,6 +779,82 @@ Deno.test("the RFC-5 branch ignores anatomical orientation", async () => {
   assertEquals(oriented.size, plain.size);
 });
 
+Deno.test("an RFC-5 displacements transform reaches the same region", async () => {
+  // The RFC-5 branch has to reach the same region for a field as for an
+  // affine, which means the field it points at has to reach the pipeline.
+  const size = [8, 8];
+  const spacing = [8.0, 8.0];
+  const shift = [5.0, -3.0];
+  const parameters = new Float64Array(size[0] * size[1] * 2);
+  for (let i = 0; i < parameters.length; i += 2) {
+    parameters[i] = shift[0];
+    parameters[i + 1] = shift[1];
+  }
+  const warp = {
+    transformType: {
+      transformParameterization: "DisplacementField",
+      parametersValueType: "float64",
+      inputDimension: 2,
+      outputDimension: 2,
+    },
+    name: "DisplacementFieldTransform",
+    inputSpaceName: "",
+    outputSpaceName: "",
+    numberOfFixedParameters: 10,
+    numberOfParameters: parameters.length,
+    fixedParameters: new Float64Array([
+      ...size,
+      0,
+      0,
+      ...spacing,
+      1,
+      0,
+      0,
+      1,
+    ]),
+    parameters,
+    metadata: new Map(),
+    // deno-lint-ignore no-explicit-any
+  } as any;
+
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 8, x: 8 },
+    { y: 8, x: 8 },
+    {
+      y: 0,
+      x: 0,
+    },
+  );
+  const moving = await geometryImage(["y", "x"], { y: 64, x: 64 }, {
+    y: 1,
+    x: 1,
+  }, { y: 0, x: 0 });
+
+  const viaItk = await itkTransformResampleBoundingBox([warp], fixed, moving);
+  const { transform, field } = await itkDisplacementFieldToNgffTransform(
+    warp,
+    ["y", "x"],
+    { path: "warp" },
+  );
+  const viaRfc5 = await itkTransformResampleBoundingBox(
+    transform,
+    fixed,
+    moving,
+    { fields: { warp: field } },
+  );
+
+  assertEquals(viaRfc5.startIndex, viaItk.startIndex);
+  assertEquals(viaRfc5.size, viaItk.size);
+
+  // Without the field there is nothing to convert, and the message says so.
+  await assertRejects(
+    () => itkTransformResampleBoundingBox(transform, fixed, moving),
+    Error,
+    "no field was passed",
+  );
+});
+
 Deno.test("converting with frames matches the ITK path on oriented images", async () => {
   // The acceptance test for the change of frame: an ITK transform acts on
   // physical space (direction matrix included), the RFC-5 branch on the
@@ -859,12 +936,28 @@ Deno.test("converting with frames matches the ITK path on oriented images", asyn
   assertEquals(viaRfc5.startIndex, viaItk.startIndex);
   assertEquals(viaRfc5.size, viaItk.size);
 
-  // Passing only one image is refused; unoriented frames are a no-op.
+  // Passing only one image is refused.
   assertThrows(
     () =>
       itkTransformToNgffTransform(transform, ["z", "y", "x"], true, { fixed }),
     Error,
     "both fixed and moving",
+  );
+
+  // Passing an unoriented pair is a no-op: every direction is the identity
+  // and the change of frame comes back with the mapping it was given.
+  const plain = await geometryImage(
+    ["z", "y", "x"],
+    { z: 8, y: 8, x: 8 },
+    { z: 1, y: 2, x: 3 },
+    { z: 1.3, y: -2.7, x: 5.1 },
+  );
+  assertEquals(
+    itkTransformToNgffTransform(transform, ["z", "y", "x"], false, {
+      fixed: plain,
+      moving: plain,
+    }),
+    itkTransformToNgffTransform(transform, ["z", "y", "x"], false),
   );
 });
 

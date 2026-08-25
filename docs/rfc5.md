@@ -236,6 +236,11 @@ RFC-5 `sequence` applies its first entry first while an ITK transform list
 applies its last entry first, and ITK's center of rotation is folded into the
 offset since an RFC-5 affine has none.
 
+A `displacements` transformation converts too, with
+`itk_displacement_field_to_ngff_transform` and its inverse: the field is an
+array rather than a handful of numbers, so those return, and take, the field
+image alongside the transformation.
+
 Building on that, `itk_transform_resample_bounding_box` computes which region
 of a moving image a resample through the transformation would read, from
 geometry alone. See [Out-of-core resampling](./itk.md#out-of-core-resampling)

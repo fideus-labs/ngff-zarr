@@ -28,7 +28,11 @@
 
 import type { Transform, TransformList } from "itk-wasm";
 import type { NgffImage } from "../types/ngff_image.ts";
-import { changeOfFrame, frameGeometry, transposed } from "./itk_direction.ts";
+import {
+  changeOfFrame,
+  optionalFrameGeometry,
+  transposed,
+} from "./itk_direction.ts";
 import type { V06Transform } from "../types/zarr_metadata.ts";
 
 const SPATIAL_DIMS = ["x", "y", "z"];
@@ -297,15 +301,12 @@ export function ngffTransformToItkTransform(
   let { matrix, offset } = ngffTransformToItkMatrix(transform, dims);
   const dimension = offset.length;
 
-  if ((frames.fixed === undefined) !== (frames.moving === undefined)) {
-    throw new Error("pass both fixed and moving, or neither");
-  }
-  if (frames.fixed !== undefined && frames.moving !== undefined) {
+  const spatial = dims.filter((dim) => SPATIAL_DIMS.includes(dim));
+  const itkDims = SPATIAL_DIMS.filter((dim) => spatial.includes(dim));
+  const geometry = optionalFrameGeometry(frames.fixed, frames.moving, itkDims);
+  if (geometry !== undefined) {
     // The intrinsic systems -> ITK physical space: phi_m . T . phi_f^-1,
     // which is the same change of frame with the directions inverted.
-    const spatial = dims.filter((dim) => SPATIAL_DIMS.includes(dim));
-    const itkDims = SPATIAL_DIMS.filter((dim) => spatial.includes(dim));
-    const geometry = frameGeometry(frames.fixed, frames.moving, itkDims);
     ({ matrix, offset } = changeOfFrame(
       matrix,
       offset,

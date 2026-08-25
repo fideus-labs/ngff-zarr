@@ -3,7 +3,7 @@
 """Find the region of a moving image needed to resample a fixed image grid."""
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -220,7 +220,7 @@ def _shifted_translation(ngff_image: NgffImage, starts: dict) -> dict:
     """
     translation = dict(ngff_image.translation)
     spatial = _spatial_dims(ngff_image)
-    itk_dims = list(reversed(spatial))
+    itk_dims = [dim for dim in _SPATIAL_DIMS if dim in spatial]
     direction = _itk_direction(ngff_image, itk_dims)
     offset = direction @ np.array(
         [starts.get(dim, 0) * ngff_image.scale[dim] for dim in itk_dims], dtype=float
@@ -393,6 +393,8 @@ def itk_transform_resample_bounding_box(
     fixed: NgffImage,
     moving: NgffImage,
     padding: int = 1,
+    *,
+    fields: Mapping[str, object] | None = None,
 ) -> ResampleBoundingBox:
     """Compute the moving-image region needed to resample a fixed image grid.
 
@@ -416,6 +418,10 @@ def itk_transform_resample_bounding_box(
       :func:`ngff_zarr.ngff_image_to_itk_image` builds it, including the
       direction matrix derived from RFC-4 anatomical orientation.
 
+    An ITK transform need not be linear. An RFC-5 transformation is converted
+    first, so it must be one this package can convert: a linear mapping, or a
+    ``displacements`` transformation whose field is passed in ``fields``.
+
     In both cases the transform maps *fixed* points into *moving* space.
 
     :param transform: An RFC-5 coordinate transformation, an ``itk.Transform``,
@@ -431,6 +437,16 @@ def itk_transform_resample_bounding_box(
         linear interpolation, which reads one neighbor beyond the continuous
         index bound. Use 0 for the tight region, or more for wider kernels.
     :type  padding: int
+
+    :param fields: The field images an RFC-5 ``displacements`` transformation
+        points at, keyed by its ``path``, as
+        :func:`ngff_zarr.ngff_transform_to_itk_transform` takes them. Required
+        for a ``displacements`` transformation, ignored otherwise. A field
+        carrying an anatomical orientation is refused here, since this branch
+        works on the intrinsic systems where none applies: convert it with
+        :func:`ngff_zarr.ngff_transform_to_itk_transform`, passing ``fixed``
+        and ``moving``, and pass the ITK transform it returns.
+    :type  fields: Mapping[str, NgffImage | NgffMultiscales], optional
 
     :return: The region, keyed by dimension name in Zarr order.
     :rtype: ResampleBoundingBox
@@ -497,7 +513,9 @@ def itk_transform_resample_bounding_box(
         )
 
     if _is_ngff_transform(transform):
-        transform_list = ngff_transform_to_itk_transform(transform, fixed.dims)
+        transform_list = ngff_transform_to_itk_transform(
+            transform, fixed.dims, fields=fields
+        )
         # An RFC-5 transformation is defined on the intrinsic coordinate
         # system, which carries no direction matrix.
         fixed_direction = np.eye(len(itk_dims))

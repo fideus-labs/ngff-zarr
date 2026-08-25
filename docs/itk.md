@@ -9,7 +9,7 @@ Bidirectional type conversion that preserves spatial metadata is available with
 
 Once represented as an `NgffImage`, a multiscale representation can be generated
 with `to_multiscales`. And an OME-Zarr can be generated from the multiscales
-with `to_ngff_zarr`. For more information, see the
+with `to_ome_zarr`. For more information, see the
 [Python interface documentation](./python.md).
 
 ## ITK Python
@@ -148,7 +148,7 @@ so that is the knob to reach for when the peak is still too high:
 ```python
 >>> import dask                                         # doctest: +SKIP
 >>> with dask.config.set(num_workers=4):                # doctest: +SKIP
-...     nz.to_ngff_zarr("resampled.zarr",
+...     nz.to_ome_zarr("resampled.zarr",
 ...         nz.to_multiscales(resampled, scale_factors=[]))
 ```
 
@@ -263,6 +263,8 @@ Transforms convert in both directions, mirroring `itk_image_to_ngff_image` and
 | `ngff_transform_to_itk_transform` | RFC-5 to ITK |
 | `itk_transform_to_ngff_transform` | ITK to RFC-5 |
 | `itk_transform_to_ngff_matrix` | ITK to RFC-5, as raw numbers |
+| `ngff_displacement_field_to_itk_transform` | RFC-5 `displacements` to an ITK field |
+| `itk_displacement_field_to_ngff_transform` | ITK field to RFC-5 `displacements` |
 
 `itk_transform_to_ngff_matrix` returns the `(matrix, offset)` pair in Zarr axis
 order instead of an RFC-5 dataclass. Reach for it to *inspect* a registration
@@ -273,8 +275,10 @@ simplifies by default, `itk_transform_to_ngff_transform` may hand back a
 Both reconcile the two conventions that differ between the specifications:
 
 - **Axis order.** RFC-5 orders parameters like the Zarr array, so a `zyx` image
-  has `z` first; ITK orders points fastest-axis-first. The spatial block is
-  reversed in both rows and columns.
+  has `z` first; ITK orders points fastest-axis-first *by name*: x, then y,
+  then z. The spatial block is permuted in both rows and columns by that
+  naming, which for the canonical `zyx` is the axis reversal and for any other
+  order is not.
 - **Composition order.** An RFC-5 `sequence` applies its *first* entry first,
   while an ITK transform list applies its *last* entry first. The chain is
   collapsed into a single affine so the result does not depend on that
@@ -288,10 +292,16 @@ offset as `b = t + c - A c`, so the mapping is preserved exactly.
 
 `itk_transform_to_ngff_transform` is what lets a registration be written into
 the OME-Zarr store. It accepts any linear ITK transform, including the
-`CompositeTransform` an Elastix registration returns, and it recovers the
-mapping by evaluating the transform rather than by decoding its parameters --
-so parameterizations that store angles or a quaternion (`Euler2DTransform`,
-`VersorRigid3DTransform`, ...) convert just as well as an `AffineTransform`:
+`CompositeTransform` an Elastix registration returns. Every ITK transform built
+on `MatrixOffsetTransformBase` answers `GetMatrix()` and `GetOffset()`, center
+of rotation already folded in, whatever it stores underneath, so
+parameterizations that hold angles or a quaternion (`Euler2DTransform`,
+`VersorRigid3DTransform`, ...) convert exactly and just as well as an
+`AffineTransform`; a composite composes its children the same way. A transform
+carrying no such pair is recovered by evaluating it at the origin and along
+each axis instead. Either way the result is confronted with one more
+evaluation, so a transform whose matrix does not describe what it actually
+does is refused rather than written:
 
 ```python
 >>> import itk
@@ -357,7 +367,11 @@ transformation going the other way. RFC-5 represents deformations with its
 
 Computing a bounding box from an **ITK** transform does not require linearity
 -- that is the section above. An RFC-5 `displacements` transformation is
-converted first, so it needs its field there too.
+converted first, so `itk_transform_resample_bounding_box` takes the same
+`fields=` mapping to find its field. Because that branch works on the intrinsic
+systems, where no direction matrix applies, a field carrying an anatomical
+orientation is refused there: convert it with `ngff_transform_to_itk_transform`
+and its `fixed=`/`moving=` pair, and pass the ITK transform that returns.
 
 ### Displacement fields
 
@@ -369,7 +383,7 @@ functions stay free of any I/O:
 
 ```python
 >>> transform, field = nz.itk_displacement_field_to_ngff_transform(  # doctest: +SKIP
-...     warp, multiscales.metadata.dimension_names, path='displacement_field')
+...     warp, ['z', 'y', 'x'], path='displacement_field')
 >>> nz.to_ome_zarr(  # doctest: +SKIP
 ...     'registered.ome.zarr/displacement_field',
 ...     nz.to_multiscales(field, scale_factors=[]), version='0.6')
@@ -382,11 +396,15 @@ functions stay free of any I/O:
 
 `warp` may be an `itk.DisplacementFieldTransform`, the vector `itk.Image` or
 `itkwasm.Image` a registration tool writes the field as, or an ITK-Wasm
-`DisplacementField` transform. The field comes back as an `NgffImage` whose
-first axis holds the components (`type: "displacement"`) followed by the
-spatial axes, with the grid's spacing and origin as its scale and translation.
-Its components follow the axes of `dims`, as RFC-5 requires, so an ITK `(dx,
-dy, dz)` vector is stored as `(dz, dy, dx)` on a `zyx` image.
+`DisplacementField` transform. Here `dims` names the spatial axes and nothing
+else: ITK has no notion of a time or channel axis, and RFC-5 wants one field
+component per input axis.
+
+The field comes back as an `NgffImage` whose first axis holds the components
+(`type: "displacement"`) followed by the spatial axes, with the grid's spacing
+and origin as its scale and translation. Its components follow the axes of
+`dims`, as RFC-5 requires, so an ITK `(dx, dy, dz)` vector is stored as
+`(dz, dy, dx)` on a `zyx` image.
 
 Going back, pass the field the transform points at, loaded from the same
 store, keyed by its `path`:
@@ -398,6 +416,8 @@ store, keyed by its `path`:
 >>> itk_transforms = nz.ngff_transform_to_itk_transform(  # doctest: +SKIP
 ...     transform, imported.metadata.dimension_names,
 ...     fields={transform.path: field})
+>>> region = nz.itk_transform_resample_bounding_box(  # doctest: +SKIP
+...     transform, fixed, moving, fields={transform.path: field})
 ```
 
 The result is an ITK-Wasm `TransformList` with one `DisplacementField` entry;
@@ -427,11 +447,14 @@ untransformed.
 In the TypeScript package the equivalents are `ngffTransformToItkTransform`,
 `itkTransformToNgffTransform` and `itkTransformToNgffMatrix`, and for fields
 `itkDisplacementFieldToNgffTransform` and `ngffDisplacementFieldToItkTransform`,
-both async since the field is read from and written to a Zarr array. TypeScript
-has no `itk` package to fall back on, so only parameterizations that carry a
-matrix (`Identity`, `Translation`, `Scale`, `Affine`) or a field
-(`DisplacementField`) convert there; angle- and quaternion-based ones must be
-converted to an affine first.
+both async since the field is read from and written to a Zarr array.
+`itkTransformResampleBoundingBox` takes the fields as an option there rather
+than an argument, `{ fields: { [path]: field } }`, and
+`ngffTransformToItkTransform` stays synchronous by leaving fields to the pair
+above. TypeScript has no `itk` package to fall back on, so only
+parameterizations that carry a matrix (`Identity`, `Translation`, `Scale`,
+`Affine`) or a field (`DisplacementField`) convert there; angle- and
+quaternion-based ones must be converted to an affine first.
 
 ## TypeScript
 
