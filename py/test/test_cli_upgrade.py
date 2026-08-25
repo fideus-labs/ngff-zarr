@@ -28,7 +28,13 @@ pytestmark = pytest.mark.skipif(
 )
 
 # The on-disk ``ome.version`` string each API version is written as.
-DISK_VERSION = {"0.4": "0.4", "0.5": "0.5", "0.6": "0.6rc0"}
+DISK_VERSION = {
+    "0.4": "0.4",
+    "0.5": "0.5",
+    "0.6": "0.6rc0",
+    # Unlike 0.6 this is itself the on-disk string.
+    "0.9.dev1": "0.9.dev1",
+}
 
 # Metadata sidecars across Zarr v2 and v3, excluded when isolating chunk data.
 _METADATA_NAMES = {"zarr.json", ".zarray", ".zattrs", ".zgroup", ".zmetadata"}
@@ -136,6 +142,26 @@ def test_write_to_new_store_0_4_to_0_5(tmp_path):
 
     # The source store is completely unchanged.
     assert _all_files_digest(src) == source_before
+
+
+def test_in_place_upgrade_0_6_to_0_9dev1(tmp_path):
+    """``--to 0.9.dev1`` is a real CLI target, not just a library one.
+
+    ``upgrade_ome_zarr`` accepts 0.9.dev1, so the CLI in front of it must
+    offer the same set or the RFC-3 target is reachable from Python only.
+    """
+    store = tmp_path / "image.ome.zarr"
+    _write_source(str(store), "0.6")
+    chunks_before = _chunk_files(store)
+
+    result = _run_ngff_zarr("upgrade", str(store), "--to", "0.9.dev1")
+    assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+
+    root = zarr.open_group(str(store), mode="r", zarr_format=3)
+    assert root.attrs["ome"]["version"] == DISK_VERSION["0.9.dev1"]
+
+    # Same Zarr format on both sides, so this stays metadata-only.
+    assert _chunk_files(store) == chunks_before
 
 
 def test_in_place_cross_format_downgrade_exits_nonzero(tmp_path):

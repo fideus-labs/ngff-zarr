@@ -45,6 +45,8 @@ The main Python package provides:
 - Optional OME-Zarr data model validation during reading
 - Writes OME-Zarr v0.4 to v0.6
 - v0.6 adds RFC-5 coordinate systems and transformations
+- Reads and writes the opt-in development version `0.9.dev1`, which adopts RFC-3
+  (expanded axis count, names, types and order)
 - [Sharded Zarr] stores
 - Optional writing via zarr-python 2, zarr-python 3, [zarrista] or zarrita (TypeScript)
 - [Anatomical orientation metadata](./docs/rfc4.md) (RFC-4)
@@ -67,7 +69,7 @@ The TypeScript package provides universal OME-Zarr support for modern JavaScript
 - 🦕 **Deno-first** with first-class TypeScript support
 - 📦 **Universal compatibility** - Works in Deno, Node.js, and browsers
 - 🔍 **Type-safe** with Zod schema validation
-- 🗂️ **OME-Zarr v0.4, v0.5, and v0.6** support (v0.6 adds RFC-5 coordinate systems and transformations)
+- 🗂️ **OME-Zarr v0.4, v0.5, and v0.6** support (v0.6 adds RFC-5 coordinate systems and transformations), plus the opt-in development version `0.9.dev1` which adopts RFC-3 (expanded axis count, names, types and order)
 - 🌐 **Web ready** - No filesystem dependencies, works with remote stores
 - 🏗️ **Mirrors Python API** - Familiar interfaces for Python users
 - 📚 **Lazy loading** - Efficient handling of large datasets

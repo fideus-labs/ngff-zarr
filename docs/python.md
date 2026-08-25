@@ -213,7 +213,7 @@ To read an OME-Zarr file, use [`from_ngff_zarr`], which returns the
 >>> multiscales = nz.from_ngff_zarr('cthead1.ome.zarr')
 ```
 
-OME-Zarr version 0.1 to 0.6 is supported. Version 0.6 adds RFC-5 coordinate systems and transformations.
+OME-Zarr version 0.1 to 0.6 is supported. Version 0.6 adds RFC-5 coordinate systems and transformations. The opt-in development version `0.9.dev1` additionally adopts RFC-3, that expands supported axis counts, names, types and order.
 
 The `store` argument accepts:
 
@@ -551,8 +551,10 @@ boundary (0.5/0.6 to 0.4) -- cannot preserve chunk keys and raises a
 
 **Write-to-new-store.** When an `output` store distinct from `input` is given,
 the source is read lazily and re-written to `output` at the requested version
-through the standard write pipeline. Every supported transition (0.4, 0.5, 0.6,
-in either direction) works in this mode, and the source store is never erased.
+through the standard write pipeline. Every transition among 0.4, 0.5, 0.6 and
+0.9.dev1 works in this mode whenever the target version can express the axis
+model, and the source store is never erased. An RFC-3 axis model is refused
+below 0.9.dev1, so a store using one only converts upward.
 
 Upgrade a 0.5 store to 0.6 in place, keeping every array chunk:
 

@@ -40,7 +40,7 @@ export interface UpgradeOmeZarrOptions {
    */
   output?: string | MemoryStore;
   /** Target OME-Zarr specification version. Defaults to `"0.6"`. */
-  version?: "0.4" | "0.5" | "0.6";
+  version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
   /** Validate the source metadata against the NGFF schema while reading. */
   validate?: boolean;
   /**
@@ -55,12 +55,18 @@ export interface UpgradeOmeZarrOptions {
 export interface UpgradeOmeZarrDeps {
   fromOmeZarr: (
     store: UpgradeInput,
-    options?: { validate?: boolean; version?: "0.4" | "0.5" | "0.6" },
+    options?: {
+      validate?: boolean;
+      version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
+    },
   ) => Promise<NgffMultiscales>;
   toOmeZarr: (
     store: string | MemoryStore | zarr.FetchStore,
     multiscales: NgffMultiscales,
-    options?: { overwrite?: boolean; version?: "0.4" | "0.5" | "0.6" },
+    options?: {
+      overwrite?: boolean;
+      version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
+    },
   ) => Promise<void>;
   /**
    * Resolve `input` to a writable store for an in-place rewrite. Must reject a
@@ -95,8 +101,17 @@ function onDiskVersion(rootAttrs: Record<string, unknown>): string | undefined {
   return typeof version === "string" ? version : undefined;
 }
 
-/** The `ome.version` string a store written at `version` carries. */
-function onDiskVersionFor(version: "0.4" | "0.5" | "0.6"): string {
+/**
+ * The `ome.version` string a store written at `version` carries.
+ *
+ * Only `0.6` differs from what the caller passes: it is tagged with the
+ * pre-release the bundled schemas carry. `0.9.dev1` is itself the on-disk
+ * string and is returned unchanged, matching the Python port's
+ * `_ondisk_version_for`.
+ */
+function onDiskVersionFor(
+  version: "0.4" | "0.5" | "0.6" | "0.9.dev1",
+): string {
   return version === "0.6" ? V06_ONDISK_VERSION : version;
 }
 
