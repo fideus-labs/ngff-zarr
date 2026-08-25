@@ -23,9 +23,12 @@ class Metadata:
     type: str | None = None
     metadata: MethodMetadata | None = None
     #: Unrecognized keys captured on read (see
-    #: :attr:`ngff_zarr.v04.zarr_metadata.Metadata.extra`). Carried across
-    #: version conversion so a value read back through ``to_version`` retains
-    #: the field; a read-side validation aid that is never serialized.
+    #: :attr:`ngff_zarr.v04.zarr_metadata.Metadata.extra`). A read-side
+    #: validation aid that is never serialized, and that ``to_version`` does
+    #: not carry: converted metadata starts with an empty ``extra``, which
+    #: ``test_clean_roundtrip_read_has_empty_extra`` pins. The namespacing
+    #: rules that read it run inside the parser of the version that captured
+    #: it, before any conversion.
     extra: dict = field(default_factory=dict)
 
     def to_version(
