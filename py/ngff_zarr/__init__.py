@@ -9,6 +9,7 @@ from ._supported_versions import (
     V06_ONDISK_VERSION,
     NgffVersion,
 )
+from ._zarrista_utils import open_array
 from .cli_input_to_ngff_image import cli_input_to_ngff_image
 from .codecs import codec_from_name, get_available_codecs
 from .compute_omero import (
@@ -148,6 +149,7 @@ __all__ = [
     "to_ngff_zarr",
     "ScaleStrategy",
     "from_ome_zarr",
+    "open_array",
     "from_ngff_zarr",
     "upgrade_ome_zarr",
     "detect_cli_io_backend",

@@ -55,6 +55,7 @@ __all__ = [
     "has_consolidated_metadata",
     "is_zarrista_array",
     "normalize_store",
+    "open_array",
     "open_lazy_array",
     "open_local_node",
     "open_ozx_store",
@@ -99,6 +100,37 @@ def _native_contiguous(value) -> np.ndarray:
     return value
 
 
+def _normalize_selection(shape, selection) -> tuple[tuple[slice, ...], list[int]]:
+    """``selection`` as one slice per axis, and the axes an integer index drops.
+
+    An ellipsis and missing trailing axes expand to full slices. An integer
+    becomes the length-1 slice zarrista reads it as, and its axis is reported
+    so numpy semantics, where the axis is dropped, can be restored.
+    """
+    if not isinstance(selection, tuple):
+        selection = (selection,)
+    ndim = len(shape)
+    if Ellipsis in selection:
+        explicit = [index for index in selection if index is not Ellipsis]
+        fill = (slice(None),) * (ndim - len(explicit))
+        at = selection.index(Ellipsis)
+        selection = selection[:at] + fill + selection[at + 1 :]
+        selection = tuple(index for index in selection if index is not Ellipsis)
+    selection = selection + (slice(None),) * (ndim - len(selection))
+    normalized = []
+    dropped = []
+    for axis, index in enumerate(selection):
+        if isinstance(index, (int, np.integer)):
+            index = int(index)
+            if index < 0:
+                index += shape[axis]
+            normalized.append(slice(index, index + 1))
+            dropped.append(axis)
+        else:
+            normalized.append(index)
+    return tuple(normalized), dropped
+
+
 class _ZarristaArrayAdapter:
     """Minimal numpy-protocol surface over a zarrista ``Array`` for dask.
 
@@ -132,26 +164,8 @@ class _ZarristaArrayAdapter:
         # zarrista treats an integer index like a length-1 slice, keeping the
         # axis; dask's fused getters rely on numpy semantics where integer
         # indices drop it. Normalize integers to slices and squeeze after.
-        if not isinstance(selection, tuple):
-            selection = (selection,)
-        if Ellipsis in selection:
-            explicit = [index for index in selection if index is not Ellipsis]
-            fill = (slice(None),) * (self.ndim - len(explicit))
-            at = selection.index(Ellipsis)
-            selection = selection[:at] + fill + selection[at + 1 :]
-            selection = tuple(index for index in selection if index is not Ellipsis)
-        drop_axes = []
-        normalized = []
-        for axis, index in enumerate(selection):
-            if isinstance(index, (int, np.integer)):
-                index = int(index)
-                if index < 0:
-                    index += self.shape[axis]
-                normalized.append(slice(index, index + 1))
-                drop_axes.append(axis)
-            else:
-                normalized.append(index)
-        result = self._fetch(tuple(normalized))
+        normalized, drop_axes = _normalize_selection(self.shape, selection)
+        result = self._fetch(normalized)
         if drop_axes:
             result = np.squeeze(result, axis=tuple(drop_axes))
         return result
@@ -926,10 +940,13 @@ def _local_node_attrs(dirpath: Path, doc: dict, zarr_format: int) -> AttrsDict:
 
 
 class LocalZarrArray:
-    """Read-only handle for an array node within a local directory store.
+    """Handle for an array node within a local directory store.
 
-    Exposes ``shape``/``attrs`` for node inspection and :meth:`to_dask` for
-    lazy pixel access through zarrista.
+    Exposes the node's ``shape``, ``dtype``, ``chunks`` and ``attrs``, numpy
+    style ``[]`` reads and writes through zarrista, and :meth:`to_dask` for
+    lazy pixel access. A write lands on the stored chunks it covers, so a
+    producer filling a store created with ``metadata_only=True`` needs no
+    lock while its regions follow the chunk grid.
     """
 
     def __init__(self, store_root: Path, path: str, zarr_format: int, doc: dict):
@@ -940,6 +957,43 @@ class LocalZarrArray:
         self.ndim = len(self.shape)
         dirpath = store_root.joinpath(*path.split("/")) if path else store_root
         self.attrs = _local_node_attrs(dirpath, doc, zarr_format)
+        self._adapter: _ZarristaArrayAdapter | None = None
+
+    def _array(self) -> _ZarristaArrayAdapter:
+        if self._adapter is None:
+            arr = open_zarrista_array(self._store_root, self.path or None)
+            self._adapter = _ZarristaArrayAdapter(arr, self._store_root, self.path)
+        return self._adapter
+
+    @property
+    def dtype(self) -> np.dtype:
+        return self._array().dtype
+
+    @property
+    def chunks(self) -> tuple[int, ...]:
+        """The stored chunk grid, the inner chunk shape of a sharded array."""
+        arr = self._array()._arr
+        if arr.is_sharded:
+            return tuple(int(c) for c in arr.subchunk_shape)
+        return tuple(int(c) for c in arr.chunk_shape([0] * arr.ndim))
+
+    def __getitem__(self, selection) -> np.ndarray:
+        return self._array()[selection]
+
+    def __setitem__(self, selection, value) -> None:
+        normalized, dropped = _normalize_selection(self.shape, selection)
+        region = tuple(
+            len(range(*index.indices(size)))
+            for index, size in zip(normalized, self.shape)
+        )
+        # numpy semantics for the value: an integer index drops its axis, a
+        # scalar or a smaller array broadcasts over the region.
+        numpy_shape = tuple(
+            size for axis, size in enumerate(region) if axis not in dropped
+        )
+        value = np.asarray(value).astype(self.dtype, copy=False)
+        value = np.broadcast_to(value, numpy_shape).reshape(region)
+        self._array()[normalized] = value
 
     def to_dask(self) -> dask.array.Array:
         return open_zarrista_lazy(self._store_root, self.path or None)
@@ -1014,6 +1068,26 @@ def open_local_node(store, node_path=None, *, zarr_format: int):
     if node_type == "array":
         return LocalZarrArray(root, path, zarr_format, doc)
     return LocalZarrGroup(root, path, zarr_format, doc)
+
+
+def open_array(store, path: str | None = None) -> LocalZarrArray:
+    """Open the array at ``path`` within the local directory store ``store``.
+
+    The handle reads and writes regions through zarrista and needs no other
+    Zarr library: ``to_ome_zarr(..., metadata_only=True)`` creates the arrays
+    of a store, and this opens one of them for a producer to fill. The node
+    is looked up as zarr format 3 first, then format 2.
+    """
+    for zarr_format in (3, 2):
+        node = open_local_node(store, path, zarr_format=zarr_format)
+        if node is None:
+            continue
+        if isinstance(node, LocalZarrArray):
+            return node
+        raise ValueError(
+            f"'{path}' in '{normalize_store(store)}' is a group, not an array."
+        )
+    raise FileNotFoundError(f"No array at '{path}' in '{normalize_store(store)}'.")
 
 
 def consolidate_metadata(path, zarr_format: int) -> None:

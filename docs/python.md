@@ -416,7 +416,6 @@ at once whatever the image size.
 
 ```python
 import dask.array as da
-import zarr
 
 shape = (1, 4096, 8192, 8192)
 chunks = (1, 64, 512, 512)
@@ -425,7 +424,7 @@ image = nz.to_ngff_image(placeholder, dims=['c', 'z', 'y', 'x'])
 multiscales = nz.to_multiscales(image, scale_factors=[], chunks=chunks, cache=False)
 nz.to_ome_zarr('volume.ome.zarr', multiscales, version='0.5', metadata_only=True)
 
-level0 = zarr.open_array('volume.ome.zarr', path='scale0/image', mode='r+')
+level0 = nz.open_array('volume.ome.zarr', multiscales.metadata.datasets[0].path)
 for z in range(0, shape[1], 64):
     level0[:, z:z + 64] = compute_slab(z)
 ```
@@ -438,10 +437,10 @@ no pyramid graph is built; coarser levels can be appended later with
 Choose the chunk grid from the regions the producer writes: when every region
 covers whole chunks (whole shards when `chunks_per_shard` is set), each chunk
 has exactly one writer, so no locking and no read-modify-write is needed, and
-the fill stays safe across processes and cluster ranks. Any Zarr writer can
-fill the arrays; `to_ome_zarr` is not involved, and the example above uses
-zarr-python, which ngff-zarr does not depend on. Chunks that are never written
-read back as the fill value.
+the fill stays safe across processes and cluster ranks. The handle from
+`open_array` reads and writes regions through zarrista, and any other Zarr
+writer can fill the arrays as well; `to_ome_zarr` is not involved. Chunks that
+are never written read back as the fill value.
 
 ### Append coarser levels to an existing store
 
