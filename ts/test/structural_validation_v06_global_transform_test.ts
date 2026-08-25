@@ -26,8 +26,8 @@ import {
   ValidationError,
 } from "../src/utils/structural_validation.ts";
 import {
-  createScale,
   type CoordinateSystem,
+  createScale,
   type Metadata,
 } from "../src/types/zarr_metadata.ts";
 

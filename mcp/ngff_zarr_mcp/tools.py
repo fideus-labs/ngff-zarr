@@ -23,7 +23,9 @@ from ngff_zarr import (  # type: ignore[import-untyped]
 try:
     from ngff_zarr import validate as validate_ngff
 except ImportError:
-    validate_ngff = None
+    # Rebinding the name to None is what the call site tests for; mypy sees the
+    # function type from the import above.
+    validate_ngff = None  # type: ignore[assignment]
 
 
 from .models import (
@@ -405,7 +407,10 @@ async def validate_ome_zarr(store_path: str) -> ValidationResult:
             # without it a 0.6 array coordinate system or an RFC-3 axis model is
             # measured against the v0.4 caps and reported as a false failure.
             try:
-                validate_structural(multiscales.metadata, version=version)
+                validate_structural(
+                    multiscales.metadata,  # type: ignore[arg-type]
+                    version=version,
+                )
             except ValidationError as structural_error:
                 errors.append(f"Structural validation failed: {structural_error}")
             except ImportError:
