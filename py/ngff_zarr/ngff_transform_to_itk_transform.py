@@ -31,8 +31,13 @@ import numpy as np
 
 from .v06.zarr_metadata import (
     Affine,
+    Bijection,
+    ByDimension,
+    ByDimensionItem,
+    Coordinates,
     Displacements,
     Identity,
+    MapAxis,
     Rotation,
     Scale,
     Transform,
@@ -118,6 +123,30 @@ def _homogeneous_from_transform(transform: Transform, ndim: int) -> np.ndarray:
             matrix = _homogeneous_from_transform(sub_transform, ndim) @ matrix
         return matrix
 
+    if isinstance(transform, MapAxis):
+        if len(transform.mapAxis) != ndim:
+            msg = (
+                f"mapAxis transformation permutes {len(transform.mapAxis)} axes "
+                f"but the coordinate system has {ndim}"
+            )
+            raise ValueError(msg)
+        matrix = np.zeros((ndim + 1, ndim + 1))
+        matrix[ndim, ndim] = 1.0
+        # The value at position i names the input axis that becomes output
+        # axis i, so the row for output i selects that input.
+        for output_axis, input_axis in enumerate(transform.mapAxis):
+            matrix[output_axis, input_axis] = 1.0
+        return matrix
+
+    if isinstance(transform, ByDimension):
+        return _homogeneous_from_by_dimension(transform, ndim)
+
+    if isinstance(transform, Bijection):
+        # The forward direction is the mapping; RFC-5 keeps the inverse
+        # alongside it so a reader need not invert the forward one, which is
+        # what ITK does for an affine anyway.
+        return _homogeneous_from_transform(transform.forward, ndim)
+
     # ``ngff_zarr.Scale`` and friends are the v0.4 dataclasses, which carry the
     # same parameters under the same names but do not share the v0.6 base
     # class. Accept them rather than making callers hunt for the v0.6 twin.
@@ -133,11 +162,71 @@ def _homogeneous_from_transform(transform: Transform, ndim: int) -> np.ndarray:
 
     msg = (
         f"transformation type '{transform_type or type(transform).__name__}'"
-        " cannot be converted to an ITK transform. Only identity, scale, "
-        "translation, rotation, affine and sequences of them describe a linear "
-        "mapping that ITK can represent as a single affine transform."
+        " cannot be converted to an ITK transform. identity, scale, "
+        "translation, rotation, affine, mapAxis, byDimension, bijection and "
+        "sequences of them describe a linear mapping that ITK can represent as "
+        "a single affine transform; displacements and coordinates convert to a "
+        "displacement field, given the field they point at."
     )
     raise NotImplementedError(msg)
+
+
+def _homogeneous_from_by_dimension(transform: ByDimension, ndim: int) -> np.ndarray:
+    """Assemble a byDimension transformation into one homogeneous matrix.
+
+    Each item is a lower-dimensional transformation between two subsets of
+    axes, so its own matrix is written into the rows its ``output_axes`` name
+    and the columns its ``input_axes`` name. Axes no item produces would leave
+    a zero row, which collapses the image rather than transforming it, so a
+    gap is refused here rather than resampled.
+    """
+    matrix = np.zeros((ndim + 1, ndim + 1))
+    matrix[ndim, ndim] = 1.0
+    for item in transform.transformations:
+        block, offset = _by_dimension_item_block(item, ndim)
+        for row, output_axis in enumerate(item.output_axes):
+            for column, input_axis in enumerate(item.input_axes):
+                matrix[output_axis, input_axis] = block[row, column]
+            matrix[output_axis, ndim] = offset[row]
+
+    produced = transform.produced_output_axes
+    missing = sorted(set(range(ndim)) - produced)
+    if missing:
+        msg = (
+            f"byDimension transformation produces output axes {sorted(produced)}, "
+            f"leaving {missing} of the {ndim} axes of the coordinate system "
+            "unset; every output axis must be produced by exactly one item"
+        )
+        raise ValueError(msg)
+    return matrix
+
+
+def _by_dimension_item_block(
+    item: ByDimensionItem, ndim: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """One byDimension item as a matrix and offset over its own axes."""
+    if len(item.input_axes) != len(item.output_axes):
+        msg = (
+            f"byDimension item of type '{item.transformation.type}' maps "
+            f"{len(item.input_axes)} input axes to {len(item.output_axes)} "
+            "output axes; only a square mapping converts to an ITK transform"
+        )
+        raise ValueError(msg)
+    for axes in (item.input_axes, item.output_axes):
+        beyond = [axis for axis in axes if axis >= ndim]
+        if beyond:
+            msg = (
+                f"byDimension axis indices {beyond} exceed the {ndim} axes of "
+                "the coordinate system"
+            )
+            raise ValueError(msg)
+    if len(set(item.input_axes)) != len(item.input_axes):
+        msg = f"byDimension input axes {item.input_axes} name an axis twice"
+        raise ValueError(msg)
+
+    sub_ndim = len(item.input_axes)
+    homogeneous = _homogeneous_from_transform(item.transformation, sub_ndim)
+    return homogeneous[:sub_ndim, :sub_ndim], homogeneous[:sub_ndim, sub_ndim]
 
 
 def _as_matrix(values, path: str | None, field: str) -> np.ndarray:
@@ -167,7 +256,8 @@ def _ngff_transform_to_itk_matrix(
 
     :param transform: An RFC-5 (OME-Zarr v0.6) coordinate transformation. It
         must describe a linear mapping -- ``identity``, ``scale``,
-        ``translation``, ``rotation``, ``affine``, or a ``sequence`` of those.
+        ``translation``, ``rotation``, ``affine``, ``mapAxis``,
+        ``byDimension``, ``bijection``, or a ``sequence`` of those.
     :type  transform: Transform
 
     :param dims: The axis names of the coordinate system the transformation is
@@ -235,21 +325,24 @@ def ngff_transform_to_itk_transform(
 
     A linear transformation is collapsed into a single ``Affine`` entry, so
     the result is independent of ITK's own list-composition order. A
-    ``displacements`` transformation becomes a single ``DisplacementField``
-    entry built from the field passed in ``fields``.
+    ``displacements`` or ``coordinates`` transformation becomes a single
+    ``DisplacementField`` entry built from the field passed in ``fields``.
 
     :param transform: An RFC-5 (OME-Zarr v0.6) coordinate transformation:
-        a linear mapping, or a ``displacements`` transformation.
+        a linear mapping -- ``identity``, ``scale``, ``translation``,
+        ``rotation``, ``affine``, ``mapAxis``, ``byDimension``, ``bijection``,
+        or a ``sequence`` of them -- or a ``displacements`` or ``coordinates``
+        transformation.
     :type  transform: Transform
 
     :param dims: The axis names of the coordinate system the transformation is
         defined on, in RFC-5 (Zarr) order. Only the spatial axes take part.
     :type  dims: Sequence[str]
 
-    :param fields: The field images a ``displacements`` transformation points
-        at, keyed by its ``path``: an ``NgffImage``, or the ``NgffMultiscales``
-        read from ``f"{store}/{transform.path}"``. Required for a
-        ``displacements`` transformation, ignored otherwise.
+    :param fields: The field images a ``displacements`` or ``coordinates``
+        transformation points at, keyed by its ``path``: an ``NgffImage``, or
+        the ``NgffMultiscales`` read from ``f"{store}/{transform.path}"``.
+        Required for those two, ignored otherwise.
     :type  fields: Mapping[str, NgffImage | NgffMultiscales], optional
 
     :param fixed: The fixed and moving images the transform relates. Passing
@@ -265,7 +358,7 @@ def ngff_transform_to_itk_transform(
     :return: A single-entry ITK-Wasm ``TransformList``.
     :rtype: list[itkwasm.Transform]
     """
-    if isinstance(transform, Displacements):
+    if isinstance(transform, (Displacements, Coordinates)):
         from .displacement_field_transform import (
             _fields_entry,
             ngff_displacement_field_to_itk_transform,

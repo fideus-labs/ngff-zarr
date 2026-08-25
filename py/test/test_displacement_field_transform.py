@@ -24,7 +24,11 @@ from ngff_zarr import (
     to_ome_zarr,
 )
 from ngff_zarr.rfc4 import RAS
-from ngff_zarr.v06.zarr_metadata import CoordinateSystemIdentifier, Displacements
+from ngff_zarr.v06.zarr_metadata import (
+    Coordinates,
+    CoordinateSystemIdentifier,
+    Displacements,
+)
 
 itk = pytest.importorskip("itk")
 
@@ -413,3 +417,98 @@ def test_single_precision_is_preserved():
     )
     assert entry.transformType.parametersValueType == FloatTypes.Float32
     assert entry.parameters.dtype == np.float32
+
+
+def _as_coordinates(field, dims):
+    """The ``coordinates`` field holding what ``field`` displaces from.
+
+    A coordinates field gives the absolute output position of each grid point
+    where a displacements field gives the offset, so the two differ by the
+    position of the grid point itself, in the field's own intrinsic system.
+    """
+    data = np.asarray(field.data)
+    grid = np.meshgrid(
+        *[
+            field.translation[dim] + field.scale[dim] * np.arange(extent)
+            for dim, extent in zip(dims, data.shape[1:])
+        ],
+        indexing="ij",
+    )
+    return NgffImage(
+        data=da.from_array(data + np.stack(grid)),
+        dims=field.dims,
+        scale=dict(field.scale),
+        translation=dict(field.translation),
+        axes_types={"c": "coordinate"},
+        axes_orientations=field.axes_orientations,
+    )
+
+
+@pytest.mark.parametrize("dims", [("y", "x"), ("z", "y", "x")])
+def test_a_coordinates_field_maps_points_like_the_displacements_it_equals(dims):
+    ndim = len(dims)
+    size = (5, 4, 3)[:ndim]
+    original = _field_transform(
+        size, (0.5, 2.0, 1.5)[:ndim], (10.0, 20.0, -3.0)[:ndim], seed=3
+    )
+    displacements, field = itk_displacement_field_to_ngff_transform(
+        original, dims, path="warp"
+    )
+    coordinates = Coordinates(path="warp", interpolation="linear")
+
+    rebuilt = _native(
+        ngff_transform_to_itk_transform(
+            coordinates, dims, fields={"warp": _as_coordinates(field, dims)}
+        )
+    )
+    for point in _points_inside(original):
+        np.testing.assert_allclose(
+            _transform_point(rebuilt, point),
+            _transform_point(original, point),
+            atol=1e-9,
+        )
+
+
+def test_a_coordinates_field_changes_frames_like_a_displacements_one():
+    size, spacing, origin = (4, 3, 5), (1.0, 2.0, 0.5), (5.0, -2.0, 8.0)
+    dims = CANONICAL[3]
+    itk_dims = ["x", "y", "z"]
+    fixed = _frame_image(size, spacing, origin, RAS)
+    moving = _frame_image(size, spacing, (1.0, 1.0, 1.0), None)
+    from ngff_zarr.resample_bounding_box import _itk_direction
+
+    original = _field_transform(
+        size, spacing, origin, direction=_itk_direction(fixed, itk_dims), seed=11
+    )
+    displacements, field = itk_displacement_field_to_ngff_transform(
+        original, dims, path="warp", fixed=fixed, moving=moving
+    )
+
+    rebuilt = _native(
+        ngff_transform_to_itk_transform(
+            Coordinates(path="warp"),
+            dims,
+            fields={"warp": _as_coordinates(field, dims)},
+            fixed=fixed,
+            moving=moving,
+        )
+    )
+    for point in _points_inside(original):
+        np.testing.assert_allclose(
+            _transform_point(rebuilt, point), _transform_point(original, point)
+        )
+
+
+def test_a_coordinates_transform_wants_a_coordinate_component_axis():
+    original = _field_transform((3, 2), (1.0, 1.5), (0.0, -2.0))
+    _, field = itk_displacement_field_to_ngff_transform(original, ("y", "x"), path="w")
+
+    with pytest.raises(ValueError, match="exactly one axis of type 'coordinate'"):
+        ngff_transform_to_itk_transform(
+            Coordinates(path="w"), ("y", "x"), fields={"w": field}
+        )
+
+
+def test_a_coordinates_transform_names_itself_when_its_field_is_missing():
+    with pytest.raises(ValueError, match="the coordinates transform points at"):
+        ngff_transform_to_itk_transform(Coordinates(path="w"), ("y", "x"), fields={})

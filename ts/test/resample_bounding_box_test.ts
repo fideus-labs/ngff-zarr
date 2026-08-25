@@ -22,7 +22,10 @@ import {
 import * as zarr from "zarrita";
 import {
   createAffine,
+  createBijection,
+  createByDimension,
   createIdentity,
+  createMapAxis,
   createRotation,
   createScale,
   createTransformSequence,
@@ -1123,4 +1126,109 @@ Deno.test("unusable pipeline index arrays are rejected", async () => {
       message,
     );
   }
+});
+
+Deno.test("a mapAxis region matches the oracle", async () => {
+  const dims = ["z", "y", "x"];
+  const fixed = await geometryImage(dims, { z: 12, y: 20, x: 16 }, {
+    z: 2,
+    y: 1,
+    x: 0.5,
+  }, { z: 3, y: -4, x: 6 });
+  const moving = await geometryImage(dims, { z: 64, y: 64, x: 64 }, {
+    z: 1,
+    y: 1,
+    x: 1,
+  }, { z: 0, y: 0, x: 0 });
+
+  const region = await resampleBoundingBox(
+    createMapAxis([1, 2, 0]),
+    fixed,
+    moving,
+    { padding: 1 },
+  );
+
+  // Output axis i takes input axis mapAxis[i], so row i selects that column.
+  const { start, size } = oracleRegion(
+    [[0, 1, 0], [0, 0, 1], [1, 0, 0]],
+    [0, 0, 0],
+    [12, 20, 16],
+    [2, 1, 0.5],
+    [3, -4, 6],
+    [1, 1, 1],
+    [0, 0, 0],
+    1,
+  );
+  assertEquals(dims.map((dim) => region.startIndex[dim]), start);
+  assertEquals(dims.map((dim) => region.size[dim]), size);
+});
+
+Deno.test("a byDimension region matches the oracle", async () => {
+  const dims = ["z", "y", "x"];
+  const fixed = await geometryImage(dims, { z: 10, y: 24, x: 24 }, {
+    z: 1,
+    y: 0.5,
+    x: 0.5,
+  }, { z: -2, y: 1, x: 4 });
+  const moving = await geometryImage(dims, { z: 64, y: 128, x: 128 }, {
+    z: 1,
+    y: 0.25,
+    x: 0.25,
+  }, { z: 0, y: 0, x: 0 });
+
+  const region = await resampleBoundingBox(
+    createByDimension([
+      {
+        transformation: createTranslation([5]),
+        input_axes: [0],
+        output_axes: [0],
+      },
+      {
+        transformation: createAffine([[0.8, -0.6, 2], [0.6, 0.8, -3]]),
+        input_axes: [1, 2],
+        output_axes: [1, 2],
+      },
+    ]),
+    fixed,
+    moving,
+    { padding: 2 },
+  );
+
+  const { start, size } = oracleRegion(
+    [[1, 0, 0], [0, 0.8, -0.6], [0, 0.6, 0.8]],
+    [5, 2, -3],
+    [10, 24, 24],
+    [1, 0.5, 0.5],
+    [-2, 1, 4],
+    [1, 0.25, 0.25],
+    [0, 0, 0],
+    2,
+  );
+  assertEquals(dims.map((dim) => region.startIndex[dim]), start);
+  assertEquals(dims.map((dim) => region.size[dim]), size);
+});
+
+Deno.test("a bijection region follows its forward direction", async () => {
+  const fixed = await geometryImage(["y", "x"], { y: 16, x: 16 }, {
+    y: 1,
+    x: 1,
+  }, { y: 0, x: 0 });
+  const moving = await geometryImage(["y", "x"], { y: 128, x: 128 }, {
+    y: 1,
+    x: 1,
+  }, { y: 0, x: 0 });
+  const forward = createScale([2, 4]);
+
+  const region = await resampleBoundingBox(
+    createBijection(forward, createScale([0.5, 0.25])),
+    fixed,
+    moving,
+    { padding: 1 },
+  );
+  const directly = await resampleBoundingBox(forward, fixed, moving, {
+    padding: 1,
+  });
+
+  assertEquals(region.startIndex, directly.startIndex);
+  assertEquals(region.size, directly.size);
 });

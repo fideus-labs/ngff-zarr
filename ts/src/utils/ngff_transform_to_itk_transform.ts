@@ -33,12 +33,23 @@ import {
   optionalFrameGeometry,
   transposed,
 } from "./itk_direction.ts";
-import type { V06Transform } from "../types/zarr_metadata.ts";
+import type {
+  ByDimension,
+  ByDimensionItem,
+  V06Transform,
+} from "../types/zarr_metadata.ts";
 
 const SPATIAL_DIMS = ["x", "y", "z"];
 
 /** A square matrix stored as an array of rows. */
 type Matrix = number[][];
+
+function zeroMatrix(size: number): Matrix {
+  return Array.from(
+    { length: size },
+    () => Array.from({ length: size }, () => 0),
+  );
+}
 
 function identityMatrix(size: number): Matrix {
   return Array.from(
@@ -188,15 +199,111 @@ function homogeneousFromTransform(
       return matrix;
     }
 
+    case "mapAxis": {
+      if (transform.mapAxis.length !== ndim) {
+        throw new Error(
+          `mapAxis transformation permutes ${transform.mapAxis.length} axes ` +
+            `but the coordinate system has ${ndim}`,
+        );
+      }
+      const matrix = zeroMatrix(ndim + 1);
+      matrix[ndim][ndim] = 1;
+      // The value at position i names the input axis that becomes output
+      // axis i, so the row for output i selects that input.
+      transform.mapAxis.forEach((inputAxis, outputAxis) => {
+        matrix[outputAxis][inputAxis] = 1;
+      });
+      return matrix;
+    }
+
+    case "byDimension":
+      return homogeneousFromByDimension(transform, ndim);
+
+    case "bijection":
+      // The forward direction is the mapping; RFC-5 keeps the inverse
+      // alongside it so a reader need not invert the forward one, which is
+      // what ITK does for an affine anyway.
+      return homogeneousFromTransform(transform.forward, ndim);
+
     default:
       throw new Error(
         `transformation type '${
           (transform as { type: string }).type
-        }' cannot be converted to an ITK transform. Only identity, scale, ` +
-          `translation, rotation, affine and sequences of them describe a ` +
-          `linear mapping that ITK can represent as a single affine transform.`,
+        }' cannot be converted to an ITK transform. identity, scale, ` +
+          `translation, rotation, affine, mapAxis, byDimension, bijection ` +
+          `and sequences of them describe a linear mapping that ITK can ` +
+          `represent as a single affine transform; displacements and ` +
+          `coordinates convert to a displacement field, given the field ` +
+          `they point at.`,
       );
   }
+}
+
+/**
+ * Assemble a byDimension transformation into one homogeneous matrix.
+ *
+ * Each item is a lower-dimensional transformation between two subsets of
+ * axes, so its own matrix is written into the rows its `output_axes` name and
+ * the columns its `input_axes` name. Axes no item produces would leave a zero
+ * row, which collapses the image rather than transforming it, so a gap is
+ * refused here rather than resampled.
+ */
+function homogeneousFromByDimension(
+  transform: ByDimension,
+  ndim: number,
+): Matrix {
+  const matrix = zeroMatrix(ndim + 1);
+  matrix[ndim][ndim] = 1;
+  const produced = new Set<number>();
+
+  for (const item of transform.transformations) {
+    const block = byDimensionItemBlock(item, ndim);
+    item.output_axes.forEach((outputAxis, row) => {
+      item.input_axes.forEach((inputAxis, col) => {
+        matrix[outputAxis][inputAxis] = block[row][col];
+      });
+      matrix[outputAxis][ndim] = block[row][item.input_axes.length];
+      produced.add(outputAxis);
+    });
+  }
+
+  const missing = Array.from({ length: ndim }, (_, axis) => axis)
+    .filter((axis) => !produced.has(axis));
+  if (missing.length > 0) {
+    throw new Error(
+      `byDimension transformation produces output axes ` +
+        `[${Array.from(produced).sort((a, b) => a - b).join(", ")}], leaving ` +
+        `[${missing.join(", ")}] of the ${ndim} axes of the coordinate ` +
+        `system unset; every output axis must be produced by exactly one item`,
+    );
+  }
+  return matrix;
+}
+
+/** One byDimension item as a homogeneous matrix over its own axes. */
+function byDimensionItemBlock(item: ByDimensionItem, ndim: number): Matrix {
+  if (item.input_axes.length !== item.output_axes.length) {
+    throw new Error(
+      `byDimension item of type '${item.transformation.type}' maps ` +
+        `${item.input_axes.length} input axes to ${item.output_axes.length} ` +
+        `output axes; only a square mapping converts to an ITK transform`,
+    );
+  }
+  const beyond = [...item.input_axes, ...item.output_axes]
+    .filter((axis) => axis >= ndim);
+  if (beyond.length > 0) {
+    throw new Error(
+      `byDimension axis indices [${beyond.join(", ")}] exceed the ${ndim} ` +
+        `axes of the coordinate system`,
+    );
+  }
+  if (new Set(item.input_axes).size !== item.input_axes.length) {
+    throw new Error(
+      `byDimension input axes [${item.input_axes.join(", ")}] name an axis ` +
+        `twice`,
+    );
+  }
+  return homogeneousFromTransform(item.transformation, item.input_axes.length);
 }
 
 /** An ITK matrix and offset for the spatial axes, fastest-axis-first. */
@@ -218,7 +325,7 @@ export interface ItkMatrixAndOffset {
  * @internal
  * @param transform An RFC-5 (OME-Zarr v0.6) coordinate transformation. It must
  *   describe a linear mapping: `identity`, `scale`, `translation`, `rotation`,
- *   `affine`, or a `sequence` of those.
+ *   `affine`, `mapAxis`, `byDimension`, `bijection`, or a `sequence` of those.
  * @param dims The axis names of the coordinate system the transformation is
  *   defined on, in RFC-5 (Zarr) order, e.g. `["z", "y", "x"]`.
  * @returns The matrix and offset for the spatial axes, in ITK order. ITK has no
@@ -291,11 +398,11 @@ export function ngffTransformToItkTransform(
   dims: string[],
   frames: { fixed?: NgffImage; moving?: NgffImage } = {},
 ): TransformList {
-  if (transform.type === "displacements") {
+  if (transform.type === "displacements" || transform.type === "coordinates") {
     throw new Error(
-      `the displacements transform points at '${transform.path}'; convert ` +
-        "it with ngffDisplacementFieldToItkTransform, passing the field " +
-        "loaded from that path",
+      `the ${transform.type} transform points at '${transform.path}'; ` +
+        "convert it with ngffDisplacementFieldToItkTransform, passing the " +
+        "field loaded from that path",
     );
   }
   let { matrix, offset } = ngffTransformToItkMatrix(transform, dims);

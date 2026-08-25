@@ -123,18 +123,21 @@ the moving chunks directly, so a chunk that several blocks need is read and
 decoded once. The full moving image is never loaded, and nothing runs until
 the result is computed.
 
-`resample` takes an ITK or ITK-Wasm transform, so the RFC-5
-`Affine` above is converted first; `ngff_transform_to_itk_transform` keeps the
-axis order straight (see [Converting transforms](#converting-transforms)).
+`resample` takes the same two kinds of transform as
+`resample_bounding_box`, the RFC-5 `Affine` above included:
 
 ```python
->>> itk_transform = nz.ngff_transform_to_itk_transform(  # doctest: +SKIP
-...     transform, dims=['y', 'x'])
->>> resampled = nz.resample(              # doctest: +SKIP
-...     itk_transform, fixed, moving)
+>>> resampled = nz.resample(transform, fixed, moving)   # doctest: +SKIP
 >>> nz.to_ome_zarr("resampled.zarr",                    # doctest: +SKIP
 ...     nz.to_multiscales(resampled))
 ```
+
+An RFC-5 transformation is read on the intrinsic coordinate systems in both
+functions, so anatomical orientation does not enter and the region reported
+for a transformation is the region resampling it reads. An ITK transform is
+read on ITK physical space, direction matrix included. `fields=` carries the
+field of a `displacements` or `coordinates` transformation, as it does for the
+bounding box.
 
 Resampling runs through `itkwasm-downsample`, so no native ITK build is needed
 and the result does not depend on the platform.
@@ -358,20 +361,31 @@ takes any RFC-5 type. `multiscales > datasets` takes exactly one entry, and only
 a single `scale`, a single `identity`, or a two-element `sequence` of scale and
 translation: a bare `translation` and an `affine` are both rejected there.
 
-Linear transforms and displacement fields convert; other deformations do not.
-A B-spline or a velocity field has no RFC-5 equivalent, so such an ITK
-transform raises `NotImplementedError`, as does an RFC-5 `coordinates`
-transformation going the other way. RFC-5 represents deformations with its
-`displacements` and `coordinates` field types, described in the
-[RFC-5 documentation](./rfc5.md); the first of those is covered next.
+Every RFC-5 transformation type converts to ITK. `identity`, `scale`,
+`translation`, `rotation`, `affine`, `mapAxis`, `byDimension` and `bijection`,
+and any `sequence` of them, describe a linear mapping, and each is folded into
+the single affine ITK gets: a `mapAxis` becomes its permutation matrix, a
+`byDimension` writes each item into the rows its `output_axes` name, and a
+`bijection` contributes its `forward` direction, since ITK inverts an affine
+itself. A `byDimension` that leaves an output axis unproduced is refused rather
+than resampled, because the zero row it would leave collapses the image.
+`displacements` and `coordinates` become a `DisplacementField`, given the field
+they point at; the two differ by the position of the grid point itself, which
+the conversion subtracts, since ITK has no absolute-coordinate transform.
+
+Going the other way is narrower, because an ITK transform is either affine or a
+field. A B-spline or a velocity field has no RFC-5 equivalent and raises
+`NotImplementedError`; a field comes back as `displacements` rather than
+`coordinates`.
 
 Computing a bounding box from an **ITK** transform does not require linearity
--- that is the section above. An RFC-5 `displacements` transformation is
-converted first, so `resample_bounding_box` takes the same
-`fields=` mapping to find its field. Because that branch works on the intrinsic
-systems, where no direction matrix applies, a field carrying an anatomical
-orientation is refused there: convert it with `ngff_transform_to_itk_transform`
-and its `fixed=`/`moving=` pair, and pass the ITK transform that returns.
+-- that is the section above. An RFC-5 `displacements` or `coordinates`
+transformation is converted first, so `resample_bounding_box` and `resample`
+take the same `fields=` mapping to find its field. Because that branch works on
+the intrinsic systems, where no direction matrix applies, a field carrying an
+anatomical orientation is refused there: convert it with
+`ngff_transform_to_itk_transform` and its `fixed=`/`moving=` pair, and pass the
+ITK transform that returns.
 
 ### Displacement fields
 

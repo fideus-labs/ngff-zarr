@@ -224,26 +224,35 @@ is identical.
 
 ### Interoperating with ITK
 
-Linear transformations convert to and from ITK in both directions, with
-`ngff_transform_to_itk_transform` and `itk_transform_to_ngff_transform`. The
-second is how a registration result gets into the store: convert the
-`CompositeTransform` an Elastix registration returns and attach it to the
-multiscales metadata as shown above.
+Every transformation in the table above converts to ITK with
+`ngff_transform_to_itk_transform`, and `itk_transform_to_ngff_transform`
+converts back. The second is how a registration result gets into the store:
+convert the `CompositeTransform` an Elastix registration returns and attach it
+to the multiscales metadata as shown above.
 
-Both reconcile the places where the conventions differ: RFC-5 orders
+`identity`, `scale`, `translation`, `rotation`, `affine`, `mapAxis`,
+`byDimension`, `bijection` and any `sequence` of them describe a linear mapping
+and are folded into the single affine ITK gets. A `mapAxis` becomes its
+permutation matrix, a `byDimension` writes each item into the rows its
+`output_axes` name, and a `bijection` contributes its `forward` direction.
+
+Both directions reconcile the places where the conventions differ: RFC-5 orders
 parameters in Zarr axis order while ITK orders them fastest-axis-first, an
 RFC-5 `sequence` applies its first entry first while an ITK transform list
 applies its last entry first, and ITK's center of rotation is folded into the
 offset since an RFC-5 affine has none.
 
-A `displacements` transformation converts too, with
+A `displacements` or `coordinates` transformation converts too, with
 `itk_displacement_field_to_ngff_transform` and its inverse: the field is an
 array rather than a handful of numbers, so those return, and take, the field
-image alongside the transformation.
+image alongside the transformation. Both reach ITK as a displacement field,
+since ITK has no absolute-coordinate transform; coming back, a field is
+`displacements`.
 
-Building on that, `resample_bounding_box` computes which region
-of a moving image a resample through the transformation would read, from
-geometry alone. See [Out-of-core resampling](./itk.md#out-of-core-resampling)
+Building on that, `resample_bounding_box` computes which region of a moving
+image a resample through the transformation would read, from geometry alone,
+and `resample` resamples the grid block by block through the same
+transformation. See [Out-of-core resampling](./itk.md#out-of-core-resampling)
 and [Converting transforms](./itk.md#converting-transforms).
 
 ## TypeScript

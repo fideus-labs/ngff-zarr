@@ -519,3 +519,157 @@ Deno.test("single precision is preserved", async () => {
   assertEquals(String(back.transformType.parametersValueType), "float32");
   assertEquals(back.parameters instanceof Float32Array, true);
 });
+
+/**
+ * The `coordinates` field holding what `field` displaces from.
+ *
+ * A coordinates field gives the absolute output position of each grid point
+ * where a displacements field gives the offset, so the two differ by the
+ * position of the grid point itself, in the field's own intrinsic system.
+ */
+async function asCoordinates(
+  field: NgffImage,
+  dims: string[],
+): Promise<NgffImage> {
+  const shape = field.data.shape as number[];
+  const source = await fieldData(field);
+  const voxels = shape.slice(1).reduce((a, b) => a * b, 1);
+  const strides = new Array<number>(dims.length);
+  let step = 1;
+  for (let axis = dims.length - 1; axis >= 0; axis--) {
+    strides[axis] = step;
+    step *= shape[1 + axis];
+  }
+  const values = new Float64Array(source.length);
+  for (let component = 0; component < dims.length; component++) {
+    const dim = dims[component];
+    for (let voxel = 0; voxel < voxels; voxel++) {
+      const index = Math.floor(voxel / strides[component]) %
+        shape[1 + component];
+      values[component * voxels + voxel] = source[component * voxels + voxel] +
+        field.translation[dim] + field.scale[dim] * index;
+    }
+  }
+  const data = await zarr.create(zarr.root(new Map()).resolve("coords"), {
+    shape,
+    chunk_shape: shape,
+    data_type: "float64",
+    fill_value: 0,
+  });
+  await zarr.set(data, null, {
+    data: values,
+    shape,
+    stride: [voxels, ...strides],
+  });
+  return new NgffImage({
+    data,
+    dims: field.dims,
+    scale: field.scale,
+    translation: field.translation,
+    name: "coordinates",
+    axesUnits: undefined,
+    axesTypes: { c: "coordinate" },
+    axesOrientations: field.axesOrientations,
+    computedCallbacks: undefined,
+  });
+}
+
+for (const dims of [["y", "x"], ["z", "y", "x"]]) {
+  Deno.test(
+    `a coordinates field converts like the displacements it equals (${
+      dims.join("")
+    })`,
+    async () => {
+      const ndim = dims.length;
+      const size = [5, 4, 3].slice(0, ndim);
+      const entry = fieldTransform(
+        size,
+        [0.5, 2.0, 1.5].slice(0, ndim),
+        [10.0, 20.0, -3.0].slice(0, ndim),
+        undefined,
+        3,
+      );
+      const { transform, field } = await itkDisplacementFieldToNgffTransform(
+        entry,
+        dims,
+        { path: "warp" },
+      );
+
+      const [viaDisplacements] = await ngffDisplacementFieldToItkTransform(
+        transform,
+        field,
+        dims,
+      );
+      const [viaCoordinates] = await ngffDisplacementFieldToItkTransform(
+        { type: "coordinates", path: "warp", interpolation: "linear" },
+        await asCoordinates(field, dims),
+        dims,
+      );
+
+      assertAllClose(
+        viaCoordinates.parameters as unknown as ArrayLike<number>,
+        viaDisplacements.parameters as unknown as ArrayLike<number>,
+      );
+      assertAllClose(
+        viaCoordinates.fixedParameters as unknown as ArrayLike<number>,
+        viaDisplacements.fixedParameters as unknown as ArrayLike<number>,
+      );
+    },
+  );
+}
+
+Deno.test("a coordinates field changes frames like a displacements one", async () => {
+  const size = [4, 3, 5];
+  const spacing = [1.0, 2.0, 0.5];
+  const origin = [5.0, -2.0, 8.0];
+  const dims = CANONICAL[3];
+  const itkDims = ["x", "y", "z"];
+  const fixed = await frameImage(size, spacing, origin, RAS);
+  const moving = await frameImage(size, spacing, [1.0, 1.0, 1.0]);
+  const direction = directionRows(itkDirection(fixed, itkDims), 3);
+  const entry = fieldTransform(size, spacing, origin, direction, 11);
+
+  const { transform, field } = await itkDisplacementFieldToNgffTransform(
+    entry,
+    dims,
+    { path: "warp", fixed, moving },
+  );
+
+  const [viaDisplacements] = await ngffDisplacementFieldToItkTransform(
+    transform,
+    field,
+    dims,
+    { fixed, moving },
+  );
+  const [viaCoordinates] = await ngffDisplacementFieldToItkTransform(
+    { type: "coordinates", path: "warp" },
+    await asCoordinates(field, dims),
+    dims,
+    { fixed, moving },
+  );
+
+  assertAllClose(
+    viaCoordinates.parameters as unknown as ArrayLike<number>,
+    viaDisplacements.parameters as unknown as ArrayLike<number>,
+  );
+});
+
+Deno.test("a coordinates transform wants a coordinate component axis", async () => {
+  const entry = fieldTransform([3, 2], [1, 1.5], [0, -2]);
+  const { field } = await itkDisplacementFieldToNgffTransform(
+    entry,
+    ["y", "x"],
+    { path: "w" },
+  );
+
+  await assertRejects(
+    () =>
+      ngffDisplacementFieldToItkTransform(
+        { type: "coordinates", path: "w" },
+        field,
+        ["y", "x"],
+      ),
+    Error,
+    "exactly one axis of type 'coordinate'",
+  );
+});

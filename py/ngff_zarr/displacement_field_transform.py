@@ -48,7 +48,7 @@ import numpy as np
 
 from .itk_transform_to_ngff_transform import _FrameGeometry
 from .ngff_image import NgffImage
-from .v06.zarr_metadata import Displacements
+from .v06.zarr_metadata import Coordinates, Displacements
 
 #: The name given to the component axis of a converted field. RFC-5 puts that
 #: axis after a time axis and before the spatial ones, with
@@ -399,26 +399,32 @@ def itk_displacement_field_to_ngff_transform(
 
 
 def ngff_displacement_field_to_itk_transform(
-    transform: Displacements,
+    transform: Displacements | Coordinates,
     field,
     dims: Sequence[str],
     *,
     fixed: NgffImage | None = None,
     moving: NgffImage | None = None,
 ) -> list:
-    """Convert an RFC-5 ``displacements`` transform and its field to ITK.
+    """Convert an RFC-5 ``displacements`` or ``coordinates`` transform to ITK.
 
     The counterpart of :func:`itk_displacement_field_to_ngff_transform`, and
     what :func:`~ngff_zarr.ngff_transform_to_itk_transform` calls when handed
-    a ``displacements`` transform with its field. The field is the image
-    stored at ``transform.path``; load it with
+    a field transform with its field. The field is the image stored at
+    ``transform.path``; load it with
     ``from_ome_zarr(f"{store}/{transform.path}")``.
 
-    :param transform: The ``displacements`` transform.
-    :type  transform: Displacements
+    A ``coordinates`` field holds the absolute output position of each grid
+    point where a ``displacements`` field holds the offset from it. The two
+    differ by the position of the grid point itself, so both reach ITK as one
+    ``DisplacementField``: ITK has no absolute-coordinate transform.
+
+    :param transform: The ``displacements`` or ``coordinates`` transform.
+    :type  transform: Displacements | Coordinates
     :param field: The field image: an ``NgffImage`` whose component axis is
-        the one with ``axes_types`` ``displacement``, followed by ``dims`` in
-        order; or an ``NgffMultiscales``, whose finest level is used.
+        the one with ``axes_types`` ``displacement`` (``coordinate`` for a
+        ``coordinates`` transform), followed by ``dims`` in order; or an
+        ``NgffMultiscales``, whose finest level is used.
     :param dims: The spatial axis names of the input coordinate system, in
         RFC-5 (Zarr) order.
     :type  dims: Sequence[str]
@@ -442,31 +448,34 @@ def ngff_displacement_field_to_itk_transform(
     from .resample_bounding_box import _itk_direction
 
     dims = _check_dims(dims)
+    absolute = transform.type == "coordinates"
+    component_type = "coordinate" if absolute else "displacement"
     if hasattr(field, "images") and hasattr(field, "metadata"):
         # A read multiscales keeps the axis types in its metadata, not on the
-        # image: the component axis is the one typed "displacement" there.
+        # image: the component axis is the one typed there.
         axes = field.metadata.intrinsic_coordinate_system.axes
-        component_dims = [axis.name for axis in axes if axis.type == "displacement"]
+        component_dims = [axis.name for axis in axes if axis.type == component_type]
         field = field.images[0]
     else:
         component_dims = [
             dim
             for dim, axis_type in (field.axes_types or {}).items()
-            if axis_type == "displacement"
+            if axis_type == component_type
         ]
     if len(component_dims) != 1:
         msg = (
-            "the field image must have exactly one axis of type 'displacement' "
-            f"(axes_types on an NgffImage, the axes metadata of a multiscales); "
-            f"got {component_dims or 'none'} on dims {tuple(field.dims)}"
+            f"the field image must have exactly one axis of type "
+            f"'{component_type}' (axes_types on an NgffImage, the axes metadata "
+            f"of a multiscales); got {component_dims or 'none'} on dims "
+            f"{tuple(field.dims)}"
         )
         raise ValueError(msg)
     expected_dims = (component_dims[0], *dims)
     if tuple(field.dims) != expected_dims:
         msg = (
-            f"the field's dims are {tuple(field.dims)}; a displacements transform "
-            f"over dims {dims} needs {expected_dims}: the component axis first, "
-            "then the input axes in order"
+            f"the field's dims are {tuple(field.dims)}; a {transform.type} "
+            f"transform over dims {dims} needs {expected_dims}: the component "
+            "axis first, then the input axes in order"
         )
         raise ValueError(msg)
 
@@ -500,11 +509,11 @@ def ngff_displacement_field_to_itk_transform(
             msg = (
                 "the field carries an anatomical orientation, so its grid "
                 "cannot be placed in ITK physical space on its own; pass the "
-                "fixed and moving images. resample_bounding_box "
-                "has no place for them, because its RFC-5 branch works on the "
-                "intrinsic systems where no orientation applies: call "
+                "fixed and moving images. resample_bounding_box and resample "
+                "have no place for them, because their RFC-5 branch works on "
+                "the intrinsic systems where no orientation applies: call "
                 "ngff_transform_to_itk_transform with both images yourself and "
-                "hand the bounding box the ITK transform it returns."
+                "hand them the ITK transform it returns."
             )
             raise ValueError(msg)
         frames = _unoriented_frames(dimension)
@@ -522,8 +531,13 @@ def ngff_displacement_field_to_itk_transform(
     origin = direction @ (translation - frames.origin_in) + frames.origin_in
 
     direction_out, shift_matrix, shift_vector = _frame_terms(frames)
+    # ``shift_matrix`` is ``M - I``, so subtracting it turns an RFC-5
+    # displacement into an ITK vector. A coordinates field holds ``q + d``
+    # rather than ``d``, so subtracting ``M`` instead removes the grid point
+    # along with the frame term, in one pass over the grid.
+    grid_matrix = shift_matrix + np.eye(dimension) if absolute else shift_matrix
     shift = _grid_shift(
-        displacements.shape[:-1], translation, spacing, shift_matrix, shift_vector
+        displacements.shape[:-1], translation, spacing, grid_matrix, shift_vector
     )
     vectors = displacements if shift is None else displacements - shift
     if not _is_identity(direction_out):
@@ -531,7 +545,7 @@ def ngff_displacement_field_to_itk_transform(
 
     if transform.interpolation not in (None, "linear"):
         warnings.warn(
-            f"the displacements transform asks for '{transform.interpolation}' "
+            f"the {transform.type} transform asks for '{transform.interpolation}' "
             "interpolation; ITK interpolates a displacement field linearly. RFC-5 "
             "leaves the choice to the consumer.",
             stacklevel=2,
@@ -565,12 +579,14 @@ def ngff_displacement_field_to_itk_transform(
     ]
 
 
-def _fields_entry(transform: Displacements, fields: Mapping[str, object] | None):
+def _fields_entry(
+    transform: Displacements | Coordinates, fields: Mapping[str, object] | None
+):
     """The field ``fields`` holds for ``transform``, with a message otherwise."""
     if not fields or transform.path not in fields:
         available = sorted(fields) if fields else []
         msg = (
-            f"the displacements transform points at '{transform.path}', but no "
+            f"the {transform.type} transform points at '{transform.path}', but no "
             f"field was passed for it (fields given: {available}). Load it with "
             f'from_ome_zarr(f"{{store}}/{transform.path}") and pass '
             f"fields={{'{transform.path}': field}}."

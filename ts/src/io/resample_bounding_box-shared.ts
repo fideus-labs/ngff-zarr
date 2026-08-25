@@ -37,8 +37,8 @@ export interface ResampleBoundingBoxOptions {
    */
   padding?: number;
   /**
-   * The field images an RFC-5 `displacements` transformation points at, keyed
-   * by its `path`. Required for a `displacements` transformation, ignored
+   * The field images an RFC-5 `displacements` or `coordinates` transformation
+   * points at, keyed by its `path`. Required for those two, ignored
    * otherwise. A field carrying an anatomical orientation is refused here,
    * since this branch works on the intrinsic systems where none applies:
    * convert it with `ngffDisplacementFieldToItkTransform`, passing `fixed`
@@ -300,16 +300,16 @@ export function metadataOnlyItkImage(
   return itkImage;
 }
 
-/** The field `fields` holds for a `displacements` transform, with a message. */
+/** The field `fields` holds for a field transform, with a message. */
 function fieldFor(
-  transform: { path: string },
+  transform: { type: string; path: string },
   fields: Record<string, NgffImage | NgffMultiscales> | undefined,
 ): NgffImage | NgffMultiscales {
   const field = fields?.[transform.path];
   if (field === undefined) {
     const available = Object.keys(fields ?? {}).sort().join(", ");
     throw new Error(
-      `the displacements transform points at '${transform.path}', but no ` +
+      `the ${transform.type} transform points at '${transform.path}', but no ` +
         `field was passed for it (fields given: [${available}]). Load it ` +
         `with fromOmeZarr(\`\${store}/${transform.path}\`) and pass ` +
         `{ fields: { "${transform.path}": field } }.`,
@@ -402,15 +402,16 @@ export async function resampleBoundingBoxShared(
     fixedDirection = itkDirection(fixed, itkDims);
     movingDirection = itkDirection(moving, itkDims);
   } else if (isV06Transform(transform)) {
-    transformList = transform.type === "displacements"
-      // The field is an array, so it comes in beside the transformation
-      // rather than inside it.
-      ? await ngffDisplacementFieldToItkTransform(
-        transform,
-        fieldFor(transform, options.fields),
-        fixedSpatial,
-      )
-      : ngffTransformToItkTransform(transform, fixed.dims);
+    transformList =
+      transform.type === "displacements" || transform.type === "coordinates"
+        // The field is an array, so it comes in beside the transformation
+        // rather than inside it.
+        ? await ngffDisplacementFieldToItkTransform(
+          transform,
+          fieldFor(transform, options.fields),
+          fixedSpatial,
+        )
+        : ngffTransformToItkTransform(transform, fixed.dims);
     // An RFC-5 transformation is defined on the intrinsic coordinate system,
     // which carries no direction matrix.
     fixedDirection = identityDirection(itkDims.length);

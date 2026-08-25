@@ -515,3 +515,96 @@ def test_non_spatial_dims_are_rejected():
 
     with pytest.raises(ValueError, match="non-spatial dims"):
         resample(_identity(2), fixed, moving)
+
+
+def _oriented(image, orientations):
+    from dataclasses import replace
+
+    return replace(image, axes_orientations=orientations)
+
+
+def test_an_rfc5_transformation_resamples_like_the_itk_transform_it_equals():
+    """The two entry points differ in convention, not in the pixels they read.
+
+    RFC-5 orders the translation in ``dims`` order and ITK orders it
+    fastest-axis-first, so the same shift is written two ways; the resampled
+    grids must come out identical.
+    """
+    from ngff_zarr.v06.zarr_metadata import Translation
+
+    moving = _image(
+        "yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 0, "x": 0}, chunks=(16, 16)
+    )
+    fixed = _image(
+        "yx",
+        {"y": 48, "x": 40},
+        {"y": 1, "x": 1},
+        {"y": 2.0, "x": 3.0},
+        chunks=(16, 16),
+    )
+
+    through_rfc5 = resample(Translation(translation=[3.5, -2.25]), fixed, moving)
+    through_itk = resample(_translation(2, [-2.25, 3.5]), fixed, moving)
+
+    np.testing.assert_array_equal(
+        np.asarray(through_rfc5.data), np.asarray(through_itk.data)
+    )
+
+
+def test_an_rfc5_map_axis_resamples_like_the_affine_it_equals():
+    from ngff_zarr.v06.zarr_metadata import Affine, MapAxis
+
+    moving = _image("yx", {"y": 32, "x": 32}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+    fixed = _image(
+        "yx", {"y": 32, "x": 32}, {"y": 1, "x": 1}, {"y": 0, "x": 0}, chunks=(8, 8)
+    )
+
+    swapped = resample(MapAxis(mapAxis=[1, 0]), fixed, moving)
+    as_affine = resample(
+        Affine(affine=[[0.0, 1.0, 0.0], [1.0, 0.0, 0.0]]), fixed, moving
+    )
+
+    np.testing.assert_array_equal(np.asarray(swapped.data), np.asarray(as_affine.data))
+    # Swapping y and x transposes the sampled grid.
+    np.testing.assert_allclose(
+        np.asarray(swapped.data), np.asarray(moving.data).T, atol=1e-5
+    )
+
+
+def test_an_rfc5_transformation_ignores_anatomical_orientation():
+    """RFC-5 acts on the intrinsic systems, where no direction matrix applies.
+
+    The fixed and moving images are given opposite orientations, so an ITK
+    transform would be resampled through two different physical frames. An
+    RFC-5 identity must still return the moving pixels, and must read the
+    region ``resample_bounding_box`` reports for the same transformation.
+    """
+    from ngff_zarr.rfc4 import LPS, RAS
+    from ngff_zarr.v06.zarr_metadata import Identity
+
+    moving = _image("yx", {"y": 24, "x": 24}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+    fixed = _image(
+        "yx", {"y": 24, "x": 24}, {"y": 1, "x": 1}, {"y": 0, "x": 0}, chunks=(8, 8)
+    )
+    fixed_ras = _oriented(fixed, {"y": RAS["y"], "x": RAS["x"]})
+    moving_lps = _oriented(moving, {"y": LPS["y"], "x": LPS["x"]})
+
+    result = resample(Identity(), fixed_ras, moving_lps)
+
+    np.testing.assert_allclose(
+        np.asarray(result.data), np.asarray(moving.data), atol=1e-5
+    )
+    assert result.axes_orientations == fixed_ras.axes_orientations
+
+    region = resample_bounding_box(Identity(), fixed_ras, moving_lps)
+    assert region.clamped() == {"y": (0, 24), "x": (0, 24)}
+
+
+def test_a_displacements_transformation_needs_its_field():
+    from ngff_zarr.v06.zarr_metadata import Displacements
+
+    moving = _image("yx", {"y": 16, "x": 16}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+    fixed = _image("yx", {"y": 16, "x": 16}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+
+    with pytest.raises(ValueError, match="no field was passed"):
+        resample(Displacements(path="warp"), fixed, moving)

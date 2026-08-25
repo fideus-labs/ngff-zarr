@@ -30,8 +30,13 @@ from ngff_zarr.resample_bounding_box import (
 )
 from ngff_zarr.v06.zarr_metadata import (
     Affine,
+    Bijection,
+    ByDimension,
+    ByDimensionItem,
+    Coordinates,
     Displacements,
     Identity,
+    MapAxis,
     Rotation,
     Scale,
     TransformSequence,
@@ -930,3 +935,127 @@ def test_unusable_pipeline_index_arrays_are_rejected(
     fixed = _image("yx", {"y": 4, "x": 4}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
     with pytest.raises(ValueError, match=match):
         resample_bounding_box(_identity(2), fixed, fixed)
+
+
+def test_map_axis_region_matches_the_oracle():
+    """A permutation reaches the region the matrix it stands for reaches."""
+    spatial = ("z", "y", "x")
+    fixed = _image(
+        spatial,
+        {"z": 12, "y": 20, "x": 16},
+        {"z": 2.0, "y": 1.0, "x": 0.5},
+        {"z": 3.0, "y": -4.0, "x": 6.0},
+    )
+    moving = _image(
+        spatial,
+        {"z": 64, "y": 64, "x": 64},
+        {"z": 1.0, "y": 1.0, "x": 1.0},
+        {"z": 0.0, "y": 0.0, "x": 0.0},
+    )
+    # Output axis i takes input axis mapAxis[i], so row i selects that column.
+    matrix = np.array([[0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]])
+
+    bounding_box = resample_bounding_box(
+        MapAxis(mapAxis=[1, 2, 0]), fixed, moving, padding=1
+    )
+
+    expected_start, expected_size = _oracle_region(
+        matrix, np.zeros(3), fixed, moving, spatial, 1
+    )
+    assert [bounding_box.start_index[d] for d in spatial] == expected_start.tolist()
+    assert [bounding_box.size[d] for d in spatial] == expected_size.tolist()
+
+
+def test_by_dimension_region_matches_the_oracle():
+    spatial = ("z", "y", "x")
+    fixed = _image(
+        spatial,
+        {"z": 10, "y": 24, "x": 24},
+        {"z": 1.0, "y": 0.5, "x": 0.5},
+        {"z": -2.0, "y": 1.0, "x": 4.0},
+    )
+    moving = _image(
+        spatial,
+        {"z": 64, "y": 128, "x": 128},
+        {"z": 1.0, "y": 0.25, "x": 0.25},
+        {"z": 0.0, "y": 0.0, "x": 0.0},
+    )
+    transform = ByDimension(
+        transformations=[
+            ByDimensionItem(
+                transformation=Translation(translation=[5.0]),
+                input_axes=[0],
+                output_axes=[0],
+            ),
+            ByDimensionItem(
+                transformation=Affine(affine=[[0.8, -0.6, 2.0], [0.6, 0.8, -3.0]]),
+                input_axes=[1, 2],
+                output_axes=[1, 2],
+            ),
+        ]
+    )
+    matrix = np.array([[1.0, 0.0, 0.0], [0.0, 0.8, -0.6], [0.0, 0.6, 0.8]])
+    offset = np.array([5.0, 2.0, -3.0])
+
+    bounding_box = resample_bounding_box(transform, fixed, moving, padding=2)
+
+    expected_start, expected_size = _oracle_region(
+        matrix, offset, fixed, moving, spatial, 2
+    )
+    assert [bounding_box.start_index[d] for d in spatial] == expected_start.tolist()
+    assert [bounding_box.size[d] for d in spatial] == expected_size.tolist()
+
+
+def test_bijection_region_follows_its_forward_direction():
+    spatial = ("y", "x")
+    fixed = _image(spatial, {"y": 16, "x": 16}, {"y": 1.0, "x": 1.0}, {"y": 0, "x": 0})
+    moving = _image(
+        spatial, {"y": 128, "x": 128}, {"y": 1.0, "x": 1.0}, {"y": 0, "x": 0}
+    )
+    forward = Scale(scale=[2.0, 4.0])
+    transform = Bijection(forward=forward, inverse=Scale(scale=[0.5, 0.25]))
+
+    bounding_box = resample_bounding_box(transform, fixed, moving, padding=1)
+    directly = resample_bounding_box(forward, fixed, moving, padding=1)
+
+    assert bounding_box.start_index == directly.start_index
+    assert bounding_box.size == directly.size
+
+
+def test_rfc5_coordinates_matches_the_displacements_it_equals():
+    """A coordinates field names the same points a displacements field does."""
+    itk = pytest.importorskip("itk")
+
+    fixed = _image("yx", {"y": 8, "x": 8}, {"y": 8.0, "x": 8.0}, {"y": 0.0, "x": 0.0})
+    moving = _image(
+        "yx", {"y": 64, "x": 64}, {"y": 1.0, "x": 1.0}, {"y": 0.0, "x": 0.0}
+    )
+    warp = _constant_displacement_field(itk, [5.0, -3.0], size=8, spacing=8.0)
+    displacements, field = itk_displacement_field_to_ngff_transform(
+        warp, ("y", "x"), path="warp"
+    )
+
+    grid = np.meshgrid(
+        *[
+            field.translation[dim] + field.scale[dim] * np.arange(extent)
+            for dim, extent in zip(("y", "x"), field.data.shape[1:])
+        ],
+        indexing="ij",
+    )
+    absolute = NgffImage(
+        data=da.from_array(np.asarray(field.data) + np.stack(grid)),
+        dims=field.dims,
+        scale=dict(field.scale),
+        translation=dict(field.translation),
+        axes_types={"c": "coordinate"},
+    )
+
+    via_displacements = resample_bounding_box(
+        displacements, fixed, moving, fields={"warp": field}
+    )
+    via_coordinates = resample_bounding_box(
+        Coordinates(path="warp"), fixed, moving, fields={"warp": absolute}
+    )
+
+    assert via_coordinates.start_index == via_displacements.start_index
+    assert via_coordinates.size == via_displacements.size

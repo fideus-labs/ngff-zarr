@@ -44,7 +44,7 @@ import * as zarr from "zarrita";
 import type { Image, Transform, TransformList } from "itk-wasm";
 import { NgffImage } from "../types/ngff_image.ts";
 import type { NgffMultiscales } from "../types/multiscales.ts";
-import type { Displacements } from "../types/zarr_metadata.ts";
+import type { Coordinates, Displacements } from "../types/zarr_metadata.ts";
 import { toNgffImage } from "../io/to_ngff_image.ts";
 import {
   changeOfFrame,
@@ -470,17 +470,22 @@ export async function itkDisplacementFieldToNgffTransform(
 }
 
 /**
- * Convert an RFC-5 `displacements` transform and its field to ITK.
+ * Convert an RFC-5 `displacements` or `coordinates` transform to ITK.
  *
  * The counterpart of {@link itkDisplacementFieldToNgffTransform}. The field
  * is the image stored at `transform.path`; load it with
  * `fromOmeZarr(`${store}/${transform.path}`)`.
  *
- * @param transform The `displacements` transform.
+ * A `coordinates` field holds the absolute output position of each grid point
+ * where a `displacements` field holds the offset from it. The two differ by
+ * the position of the grid point itself, so both reach ITK as one
+ * `DisplacementField`: ITK has no absolute-coordinate transform.
+ *
+ * @param transform The `displacements` or `coordinates` transform.
  * @param field The field image: an `NgffImage` whose component axis is the one
- *   with `axesTypes` `displacement`, followed by `dims` in order; or an
- *   `NgffMultiscales`, whose finest level is used and whose metadata names the
- *   component axis.
+ *   with `axesTypes` `displacement` (`coordinate` for a `coordinates`
+ *   transform), followed by `dims` in order; or an `NgffMultiscales`, whose
+ *   finest level is used and whose metadata names the component axis.
  * @param dims The spatial axis names of the input coordinate system, in RFC-5
  *   (Zarr) order.
  * @param frames The fixed and moving images the field relates; see
@@ -492,30 +497,36 @@ export async function itkDisplacementFieldToNgffTransform(
  *   or if its orientation is not the fixed image's.
  */
 export async function ngffDisplacementFieldToItkTransform(
-  transform: Displacements,
+  transform: Displacements | Coordinates,
   field: NgffImage | NgffMultiscales,
   dims: string[],
   frames_: FieldFrames = {},
 ): Promise<TransformList> {
   checkDims(dims);
+  // A coordinates field holds the absolute output position of each grid point
+  // where a displacements field holds the offset from it, so the two differ by
+  // the position of the grid point itself. ITK has no absolute-coordinate
+  // transform, so both reach it as one DisplacementField.
+  const absolute = transform.type === "coordinates";
+  const componentType = absolute ? "coordinate" : "displacement";
   let componentDims: string[];
   let image: NgffImage;
   if ("images" in field && "metadata" in field) {
     // A read multiscales keeps the axis types in its metadata, not on the
-    // image: the component axis is the one typed "displacement" there.
+    // image: the component axis is the one typed there.
     componentDims = field.metadata.axes
-      .filter((axis) => axis.type === "displacement")
+      .filter((axis) => axis.type === componentType)
       .map((axis) => axis.name);
     image = field.images[0];
   } else {
     image = field;
     componentDims = Object.entries(image.axesTypes ?? {})
-      .filter(([, type]) => type === "displacement")
+      .filter(([, type]) => type === componentType)
       .map(([dim]) => dim);
   }
   if (componentDims.length !== 1) {
     throw new Error(
-      "the field image must have exactly one axis of type 'displacement' " +
+      `the field image must have exactly one axis of type '${componentType}' ` +
         "(axesTypes on an NgffImage, the axes metadata of a multiscales); " +
         `got [${componentDims.join(", ")}] on dims [${image.dims.join(", ")}]`,
     );
@@ -526,7 +537,7 @@ export async function ngffDisplacementFieldToItkTransform(
     image.dims.some((dim, i) => dim !== expectedDims[i])
   ) {
     throw new Error(
-      `the field's dims are [${image.dims.join(", ")}]; a displacements ` +
+      `the field's dims are [${image.dims.join(", ")}]; a ${transform.type} ` +
         `transform over dims [${dims.join(", ")}] needs ` +
         `[${expectedDims.join(", ")}]: the component axis first, then the ` +
         "input axes in order",
@@ -576,14 +587,20 @@ export async function ngffDisplacementFieldToItkTransform(
     translation.map((value, i) => value - frame.originFixed[i]),
   ).map((value, i) => value + frame.originFixed[i]);
 
-  // v(q) = D_out (d - (M - I) q - b) -- see frameTerms.
+  // v(q) = D_out (d - (M - I) q - b) -- see frameTerms. A coordinates field
+  // holds q + d rather than d, so the grid point comes off along with the
+  // frame term, which is subtracting M q rather than (M - I) q.
   const terms = frameTerms(frame);
   const toPhysical = (displacement: number[], point: number[]): number[] => {
-    if (!terms.shifts) return matvec(terms.directionOut, displacement);
+    if (!terms.shifts && !absolute) {
+      return matvec(terms.directionOut, displacement);
+    }
     const shift = matvec(terms.shiftMatrix, point);
     return matvec(
       terms.directionOut,
-      displacement.map((value, i) => value - shift[i] - terms.shiftVector[i]),
+      displacement.map((value, i) =>
+        value - shift[i] - terms.shiftVector[i] - (absolute ? point[i] : 0)
+      ),
     );
   };
 
@@ -592,7 +609,7 @@ export async function ngffDisplacementFieldToItkTransform(
     transform.interpolation !== "linear"
   ) {
     console.warn(
-      `the displacements transform asks for '${transform.interpolation}' ` +
+      `the ${transform.type} transform asks for '${transform.interpolation}' ` +
         "interpolation; ITK interpolates a displacement field linearly. " +
         "RFC-5 leaves the choice to the consumer.",
     );

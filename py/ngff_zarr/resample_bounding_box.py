@@ -315,6 +315,9 @@ _NGFF_TRANSFORM_TYPES = frozenset(
         "translation",
         "rotation",
         "affine",
+        "mapAxis",
+        "byDimension",
+        "bijection",
         "sequence",
         "coordinates",
         "displacements",
@@ -419,8 +422,11 @@ def resample_bounding_box(
       direction matrix derived from RFC-4 anatomical orientation.
 
     An ITK transform need not be linear. An RFC-5 transformation is converted
-    first, so it must be one this package can convert: a linear mapping, or a
-    ``displacements`` transformation whose field is passed in ``fields``.
+    first, so it must be one this package can convert: a linear mapping --
+    ``identity``, ``scale``, ``translation``, ``rotation``, ``affine``,
+    ``mapAxis``, ``byDimension``, ``bijection``, or a ``sequence`` of them --
+    or a ``displacements`` or ``coordinates`` transformation whose field is
+    passed in ``fields``.
 
     In both cases the transform maps *fixed* points into *moving* space.
 
@@ -438,10 +444,10 @@ def resample_bounding_box(
         index bound. Use 0 for the tight region, or more for wider kernels.
     :type  padding: int
 
-    :param fields: The field images an RFC-5 ``displacements`` transformation
-        points at, keyed by its ``path``, as
+    :param fields: The field images an RFC-5 ``displacements`` or
+        ``coordinates`` transformation points at, keyed by its ``path``, as
         :func:`ngff_zarr.ngff_transform_to_itk_transform` takes them. Required
-        for a ``displacements`` transformation, ignored otherwise. A field
+        for those two, ignored otherwise. A field
         carrying an anatomical orientation is refused here, since this branch
         works on the intrinsic systems where none applies: convert it with
         :func:`ngff_zarr.ngff_transform_to_itk_transform`, passing ``fixed``
