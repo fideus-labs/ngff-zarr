@@ -5,6 +5,7 @@ import json
 import shutil
 import tempfile
 import warnings
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
@@ -16,6 +17,7 @@ from itkwasm import array_like_to_numpy_array
 from ._store_types import StoreLike
 from ._supported_versions import V06_ONDISK_VERSION, NgffVersion
 from ._zarrista_utils import (
+    OME_ROOT_KEYS,
     _ZarristaArrayAdapter,
     create_zarrista_group,
     create_zarrista_subgroup,
@@ -613,8 +615,41 @@ def _root_ome_attrs(metadata_dict: dict, version: str) -> dict:
     return attrs
 
 
-#: Root attributes the writer owns, across every OME-Zarr version.
-_OME_ROOT_ATTRS = frozenset({"multiscales", "omero", "ome"})
+def _check_root_attributes(attributes: Mapping[str, Any] | None) -> dict:
+    """The root attributes a caller writes beside the OME metadata."""
+    if not attributes:
+        return {}
+    owned = sorted(OME_ROOT_KEYS.intersection(attributes))
+    if owned:
+        raise ValueError(
+            f"root_attributes cannot set {owned}: the writer derives the OME "
+            "metadata from the multiscales."
+        )
+    return dict(attributes)
+
+
+def update_root_attributes(store: StoreLike, attributes: Mapping[str, Any]) -> None:
+    """Merge ``attributes`` into the root attributes of an existing OME-Zarr store.
+
+    Keys beside the OME metadata hold application metadata, such as a fact
+    only known once the last region of a store created with
+    ``metadata_only=True`` has been written. Existing keys are replaced and
+    the others kept; the OME keys cannot be set this way. Consolidated
+    metadata is refreshed when the store carries it.
+    """
+    attributes = _check_root_attributes(attributes)
+    if not attributes:
+        return
+    store_path = normalize_store(store)
+    for zarr_format in (3, 2):
+        if read_group_attributes(store_path, zarr_format=zarr_format) is not None:
+            break
+    else:
+        raise ValueError(f"No OME-Zarr root group at '{store_path}'.")
+    consolidated = has_consolidated_metadata(store_path, zarr_format)
+    create_zarrista_group(store_path, attributes, zarr_format)
+    if consolidated:
+        _zarrista_consolidate_metadata(store_path, zarr_format)
 
 
 def _foreign_root_attrs(store: StoreLike) -> dict:
@@ -638,7 +673,7 @@ def _foreign_root_attrs(store: StoreLike) -> dict:
             return {
                 key: value
                 for key, value in attributes.items()
-                if key not in _OME_ROOT_ATTRS
+                if key not in OME_ROOT_KEYS
             }
     return {}
 
@@ -648,15 +683,19 @@ def _create_zarr_root(
     version: str,
     overwrite: bool,
     metadata_dict: dict,
+    root_attributes: dict | None = None,
 ):
     """Create and configure the root Zarr group with proper attributes.
 
     The group metadata is written through the zarrista compatibility layer
     and the returned handle is a ``zarrista.Group``. An overwrite keeps the
-    root attributes the writer does not own.
+    root attributes the writer does not own; ``root_attributes`` are written
+    over them, and the OME keys over both.
     """
     zarr_format = 2 if version == "0.4" else 3
     attributes = _foreign_root_attrs(store) if overwrite else {}
+    if root_attributes:
+        attributes.update(root_attributes)
     attributes.update(_root_ome_attrs(metadata_dict, version))
     return create_zarrista_group(store, attributes, zarr_format, overwrite=overwrite)
 
@@ -1325,6 +1364,7 @@ def to_ome_zarr(
     :type  store: StoreLike
 
     :param multiscales: NgffMultiscales OME-NGFF image pixel data and metadata. Can be generated with ngff_zarr.to_multiscales.
+        Its ``root_attributes`` are written beside the OME metadata at the root of the store.
     :type  multiscales: NgffMultiscales
 
     :param version: OME-Zarr specification version. For .ozx files, version 0.5 is required.
@@ -1514,6 +1554,7 @@ def _to_ngff_zarr_impl(
         )
     if overwrite:
         _guard_overwrite_of_source_store(multiscales, store_path)
+    root_attributes = _check_root_attributes(multiscales.root_attributes)
     metadata, dimension_names, _ = _prepare_metadata(multiscales, version)
     _gate_top_level_transforms(metadata, version)
     if start_level:
@@ -1533,11 +1574,11 @@ def _to_ngff_zarr_impl(
     if start_level:
         kept = copy.deepcopy(metadata_dict)
         kept["datasets"] = kept["datasets"][:start_level]
-        _create_zarr_root(store, version, overwrite, kept)
+        _create_zarr_root(store, version, overwrite, kept, root_attributes)
         if has_consolidated_metadata(store, zarr_format):
             _zarrista_consolidate_metadata(store, zarr_format)
     else:
-        _create_zarr_root(store, version, overwrite, metadata_dict)
+        _create_zarr_root(store, version, overwrite, metadata_dict, root_attributes)
 
     if version == "0.4" and kwargs.get("compressors") is not None:
         raise ValueError(
@@ -1710,7 +1751,7 @@ def _to_ngff_zarr_impl(
         )
 
     if start_level:
-        _create_zarr_root(store, version, False, metadata_dict)
+        _create_zarr_root(store, version, False, metadata_dict, root_attributes)
 
     # Clean up callbacks
     for image in multiscales.images:

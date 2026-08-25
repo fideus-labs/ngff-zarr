@@ -379,6 +379,31 @@ for a chunk shape of `(64, 64, 64)`.
 Sharded stores are written through the same zarrista direct-write path as
 regular stores; no extra options are required.
 
+### Root attributes
+
+Keys beside the OME metadata at the root of a store hold application
+metadata: a direction matrix, provenance, a processing log. `from_ome_zarr`
+reads them into `multiscales.root_attributes`, `to_ome_zarr` writes them back
+beside the OME keys, and an overwrite of an existing store keeps the ones
+already there. The OME keys themselves (`multiscales`, `omero`, `ome`) are
+derived from the multiscales and cannot be set this way.
+
+```python
+multiscales.root_attributes = {'acquisition': {'direction': [0, -1, 0, 1, 0, 0, 0, 0, 1]}}
+nz.to_ome_zarr('image.ome.zarr', multiscales, version='0.5')
+
+nz.from_ome_zarr('image.ome.zarr').root_attributes
+# {'acquisition': {'direction': [0, -1, 0, 1, 0, 0, 0, 0, 1]}}
+```
+
+A fact known only once the data is on disk, such as the bound of a field
+filled region by region, goes in afterwards; existing keys are replaced and
+the others kept:
+
+```python
+nz.update_root_attributes('image.ome.zarr', {'acquisition': {'max_displacement': 3.2}})
+```
+
 ### Create the store before its data
 
 A producer that drives its own computation, such as an acquisition writer

@@ -37,6 +37,14 @@ class NgffMultiscales:
     the level still carries the key recorded here; a level whose data has been
     replaced is written as given.
     """
+    root_attributes: dict[str, Any] | None = None
+    """Root attributes beside the OME metadata of the store.
+
+    :func:`from_ome_zarr` fills them with every root key the OME-Zarr writer
+    does not own, and :func:`to_ome_zarr` writes them back beside the OME
+    keys, so application metadata such as provenance follows the image
+    through a round trip.
+    """
 
     def to_ome_zarr(self, store: StoreLike, **kwargs: Any) -> None:
         """Write this multiscale image to an OME-Zarr store.

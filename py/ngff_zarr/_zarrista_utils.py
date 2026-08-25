@@ -47,6 +47,7 @@ from .rfc9_zip import ZipReadStore, is_ozx_path
 __all__ = [
     "LocalZarrArray",
     "LocalZarrGroup",
+    "OME_ROOT_KEYS",
     "consolidate_metadata",
     "create_zarrista_array",
     "create_zarrista_group",
@@ -68,6 +69,9 @@ __all__ = [
 
 _BLOSC_SHUFFLE_TO_INT = {"noshuffle": 0, "shuffle": 1, "bitshuffle": 2}
 _BLOSC_SHUFFLE_TO_STR = {v: k for k, v in _BLOSC_SHUFFLE_TO_INT.items()}
+
+#: Root attribute keys the OME-Zarr writer owns, across every version.
+OME_ROOT_KEYS = frozenset({"multiscales", "omero", "ome"})
 
 
 def _native_contiguous(value) -> np.ndarray:
