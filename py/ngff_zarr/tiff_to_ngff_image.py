@@ -973,12 +973,12 @@ def _build_multiscales_from_pyramid(
                 else:
                     target_unit = ome_translation_units[dim]
                 translation[dim] = _convert_unit_value(
-                    ome_translation.get(dim),
+                    ome_translation.get(dim, 0.0),
                     ome_translation_units[dim],
                     target_unit,
                 )
             else:
-                translation[dim] = ome_translation.get(dim)
+                translation[dim] = ome_translation.get(dim, 0.0)
 
     # Create base NgffImage
     ngff_image_0 = to_ngff_image(
@@ -1463,12 +1463,12 @@ def _read_tiff_series(
                         else:
                             target_unit = ome_translation_units[dim]
                         translation[dim] = _convert_unit_value(
-                            ome_translation.get(dim),
+                            ome_translation.get(dim, 0),
                             ome_translation_units[dim],
                             target_unit,
                         )
                     else:
-                        translation[dim] = ome_translation.get(dim)
+                        translation[dim] = ome_translation.get(dim, 0)
 
             # Convert to NgffImage
             ngff_image = to_ngff_image(
