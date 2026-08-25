@@ -2,17 +2,36 @@
 # SPDX-License-Identifier: MIT
 """Structural validation for OME-Zarr v0.4 image/multiscales metadata.
 
-This module implements the OME-Zarr v0.4 specification MUSTs that a JSON
-Schema cannot express, layered conceptually on top of the schema validation
-performed by :mod:`ngff_zarr.validate` (which checks the raw attribute dict).
-Where schema validation answers "is this shaped like OME-Zarr?", the rules
-here answer "does this obey the spec's structural invariants?" -- e.g. axis
-counts, axis ordering, coordinate-transformation arity, finest-to-coarsest
-dataset ordering, and OMERO channel color format.
+This module implements the OME-Zarr specification MUSTs, layered conceptually
+on top of the schema validation performed by :mod:`ngff_zarr.validate` (which
+checks the raw attribute dict). Where schema validation answers "is this shaped
+like OME-Zarr?", the rules here answer "does this obey the spec's structural
+invariants?" -- e.g. axis counts, axis ordering, coordinate-transformation
+arity, finest-to-coarsest dataset ordering, and OMERO channel color format.
+
+Most of these MUSTs are beyond what a JSON Schema states: the equality of a
+vector's length and the axis count, an ordering across datasets, a consistency
+between two documents. Three rules sit differently, and the overlap is
+deliberate rather than an oversight:
+
+* ``axis-count`` restates ``minItems: 2`` and ``maxItems: 5`` on the axes
+  definition of the 0.4 and 0.5 schemas. It is kept because it is the only
+  check on an axis count for a caller without the extra, and because at 0.6 the
+  schema relaxes ``minItems`` to 1 while the rule holds the floor at 2.
+* ``axis-names-unique`` looks like the schemas' ``uniqueItems: true`` and is
+  stronger. ``uniqueItems`` compares whole axis objects, so two axes sharing a
+  ``name`` but differing in ``unit`` satisfy it and the rule still refuses them.
+* ``omero-channel-color-format`` would be a ``pattern``, and no bundled schema
+  declares one: 0.6 types ``color`` as a bare string. Until upstream constrains
+  it, this rule is the only check on the format.
+
+``test_rules_against_schemas.py`` measures each of those three claims, so a
+schema tightened upstream fails there rather than leaving this text false.
 
 The rules are pure Python (standard library only) and operate on already
 parsed metadata, so they run without the optional ``[validate]`` extra
-(``jsonschema``) installed. One rule is the exception:
+(``jsonschema``) installed, which is the second reason a schema-expressible
+rule earns its place here. One rule is the exception:
 :func:`validate_axis_orientation` delegates to
 :func:`~ngff_zarr.rfc4_validation.validate_rfc4_orientation`, which imports
 ``jsonschema``, so a document where some axis carries a non-empty
