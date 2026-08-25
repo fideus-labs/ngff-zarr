@@ -418,31 +418,32 @@ def test_tiff_file_to_ngff_images_with_ome_translation():
     tiff_path = tmpdir / "ome_with_translation.ome.tiff"
 
     pixel_size = 1
-    pixel_size_unit = "nm"
+    default_unit = "micrometer"
 
     size_x, size_y, size_z = 100, 100, 10
-    position_x, position_y, position_z = 1.1, 2.2, 3.3
+    position = {'x': 1.1, 'y': 2.2, 'z': 3.3}
     ome_unit = "µm"
     nplanes = size_z
 
-    expected_position_x = _convert_unit_value(position_x, ome_unit, pixel_size_unit)
-    expected_position_y = _convert_unit_value(position_y, ome_unit, pixel_size_unit)
-    expected_position_z = _convert_unit_value(position_z, ome_unit, pixel_size_unit)
+    expected_position = {
+        dim: _convert_unit_value(position[dim], ome_unit, default_unit)
+        for dim in 'xyz'
+    }
 
     metadata_xyz = {
         "DimensionOrder": "XYZCT",
         "PhysicalSizeX": pixel_size,
-        "PhysicalSizeXUnit": pixel_size_unit,
+        "PhysicalSizeXUnit": default_unit,
         "PhysicalSizeY": pixel_size,
-        "PhysicalSizeYUnit": pixel_size_unit,
+        "PhysicalSizeYUnit": default_unit,
         "PhysicalSizeZ": pixel_size,
-        "PhysicalSizeZUnit": pixel_size_unit,
+        "PhysicalSizeZUnit": default_unit,
         "Plane": {
-            "PositionX": [position_x] * nplanes,
+            "PositionX": [position['x']] * nplanes,
             "PositionXUnit": [ome_unit] * nplanes,
-            "PositionY": [position_y] * nplanes,
+            "PositionY": [position['y']] * nplanes,
             "PositionYUnit": [ome_unit] * nplanes,
-            "PositionZ": [position_z] * nplanes,
+            "PositionZ": [position['z']] * nplanes,
             "PositionZUnit": [ome_unit] * nplanes,
         },
     }
@@ -450,22 +451,20 @@ def test_tiff_file_to_ngff_images_with_ome_translation():
     metadata_xy = {
         "DimensionOrder": "XYZCT",
         "PhysicalSizeX": pixel_size,
-        "PhysicalSizeXUnit": pixel_size_unit,
+        "PhysicalSizeXUnit": default_unit,
         "PhysicalSizeY": pixel_size,
-        "PhysicalSizeYUnit": pixel_size_unit,
+        "PhysicalSizeYUnit": default_unit,
         "Plane": {
-            "PositionX": [position_x] * nplanes,
+            "PositionX": [position['x']] * nplanes,
             "PositionXUnit": [ome_unit] * nplanes,
-            "PositionY": [position_y] * nplanes,
+            "PositionY": [position['y']] * nplanes,
             "PositionYUnit": [ome_unit] * nplanes,
-            "PositionZ": [position_z] * nplanes,
-            "PositionZUnit": [ome_unit] * nplanes,
         },
     }
 
-    for metadata, has_z in zip([metadata_xy, metadata_xyz], [False, True]):
+    for metadata, expected_dims in zip([metadata_xy, metadata_xyz], ['xy', 'xyz']):
         with tifffile.TiffWriter(tiff_path, ome=True) as tif:
-            if has_z:
+            if 'z' in expected_dims:
                 data = np.random.rand(size_z, size_y, size_x).astype(np.float32)
                 data_downscaled = np.random.rand(size_z // 2, size_y // 2, size_x // 2).astype(np.float32)
             else:
@@ -497,9 +496,9 @@ def test_tiff_file_to_ngff_images_with_ome_translation():
 
             # Check translation was extracted from OME metadata
             assert img.translation is not None
-            assert img.translation["x"] == pytest.approx(expected_position_x)
-            assert img.translation["y"] == pytest.approx(expected_position_y)
-            assert img.translation["z"] == pytest.approx(expected_position_z)
+            for dim in expected_dims:
+                assert (_convert_unit_value(img.translation[dim], img.axes_units[dim], default_unit)
+                        == pytest.approx(expected_position[dim]))
 
 
 def test_tiff_file_to_ngff_images_simple_rgb():
