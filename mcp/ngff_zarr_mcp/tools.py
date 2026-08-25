@@ -390,14 +390,22 @@ async def validate_ome_zarr(store_path: str) -> ValidationResult:
                     validate_ngff(root_attrs, version=version or "0.4")
                 except ImportError:
                     warnings.append(_SCHEMA_PASS_SKIPPED)
+                except ValueError as no_schema:
+                    # A version ngff-zarr bundles no schema tree for. That says
+                    # nothing about the document, so it is a pass that did not
+                    # run rather than a failure.
+                    warnings.append(f"Schema validation did not run: {no_schema}")
                 except Exception as validation_error:
                     errors.append(f"Schema validation failed: {validation_error}")
 
             # The structural rules carry the spec MUSTs no JSON Schema states,
             # among them the finest-to-coarsest dataset order. They read the
-            # parsed model, so they run on the multiscales loaded above.
+            # parsed model, so they run on the multiscales loaded above. The
+            # detected version is passed on: several rules are gated on it, and
+            # without it a 0.6 array coordinate system or an RFC-3 axis model is
+            # measured against the v0.4 caps and reported as a false failure.
             try:
-                validate_structural(multiscales.metadata)
+                validate_structural(multiscales.metadata, version=version)
             except ValidationError as structural_error:
                 errors.append(f"Structural validation failed: {structural_error}")
             except ImportError:
