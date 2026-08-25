@@ -241,6 +241,15 @@ class MapAxis(BaseTransform):
                 )
 
 
+#: ``projectAxis`` may add or drop at most this many axes at once, which is the
+#: ``maxItems`` its schema sets on ``droppedInputs`` and ``createdOutputs``. The
+#: companion ``maximum: 4`` on each index is deliberately not mirrored here: it
+#: follows from the five-axis cap of 0.4 through 0.6, which RFC-3 lifts at
+#: 0.9.dev1, so an index is bounded by the coordinate system it points into
+#: (checked in ``validate``) rather than by a constant.
+_PROJECT_AXIS_MAX_OPERATIONS = 3
+
+
 @dataclass(kw_only=True)
 class ProjectAxis(BaseTransform):
     """A projection that drops input axes and inserts zero-valued output axes.
@@ -281,6 +290,11 @@ class ProjectAxis(BaseTransform):
                 )
             if len(set(indices)) != len(indices):
                 raise ValueError(f"{field_name} indices must be unique; got {indices}")
+            if len(indices) > _PROJECT_AXIS_MAX_OPERATIONS:
+                raise ValueError(
+                    f"{field_name} may name at most "
+                    f"{_PROJECT_AXIS_MAX_OPERATIONS} axes; got {indices}"
+                )
 
     def validate(self, coordinateSystems: list[CoordinateSystem] | None = None) -> None:
         self._check_intrinsic()

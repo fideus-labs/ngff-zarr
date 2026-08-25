@@ -68,7 +68,7 @@ export const ProjectAxisTransformationSchema: z.ZodType<{
   .object({
     type: z.literal("projectAxis"),
     droppedInputs: z
-      .array(z.number().int().nonnegative())
+      .array(z.number().int().nonnegative().max(4))
       .min(1)
       .max(3)
       .refine((indices) => new Set(indices).size === indices.length, {
@@ -76,7 +76,7 @@ export const ProjectAxisTransformationSchema: z.ZodType<{
       })
       .optional(),
     createdOutputs: z
-      .array(z.number().int().nonnegative())
+      .array(z.number().int().nonnegative().max(4))
       .min(1)
       .max(3)
       .refine((indices) => new Set(indices).size === indices.length, {
