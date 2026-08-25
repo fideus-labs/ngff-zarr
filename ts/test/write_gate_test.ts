@@ -204,6 +204,32 @@ Deno.test("write gate - message bytes match the Python port", () => {
   assertEquals(sixAxis.message, CANONICAL_GATE_MESSAGE_AXIS_COUNT);
 });
 
+Deno.test("the browser reader routes a 0.9.dev1 store through the v0.6 reader", async () => {
+  // The browser build dispatched on `isV06Version` alone, which does not cover
+  // 0.9.dev1, so a store this package's own 0.9 writer produced fell through to
+  // the v0.4/v0.5 parser and failed on its absent flat `axes`.
+  const { toNgffZarr } = await import("../src/mod.ts");
+  const { fromOmeZarr } = await import("../src/io/from_ngff_zarr-browser.ts");
+  const { fromNgffZarr } = await import("../src/mod.ts");
+
+  const testStorePath = new URL(
+    "../../py/test/data/input/v04/6001240.zarr",
+    import.meta.url,
+  );
+  const resolvedPath = testStorePath.pathname.replace(/^\/([A-Za-z]:)/, "$1");
+  const source = await fromNgffZarr(resolvedPath, { version: "0.4" });
+
+  const store: Map<string, Uint8Array> = new Map();
+  await toNgffZarr(store, source, { version: "0.9.dev1" });
+
+  const read = await fromOmeZarr(store, { version: "0.9.dev1" });
+  assertEquals(
+    read.metadata.axes.map((ax) => ax.name),
+    source.metadata.axes.map((ax) => ax.name),
+  );
+  assertEquals(read.metadata.version, "0.9.dev1");
+});
+
 Deno.test("0.9.dev1 round-trip goes through the v0.6 reader", async () => {
   // `isV06Version` does not cover 0.9.dev1, so a store tagged 0.9.dev1 would
   // otherwise fall through to the v0.4 reader and fail on its coordinate

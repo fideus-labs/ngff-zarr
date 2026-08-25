@@ -277,8 +277,13 @@ def _gate_top_level_transforms(metadata, version: str) -> None:
     coordinate systems, and the schema requires both ``input`` and ``output``
     to name one. The writer serializes whatever the model holds, so a missing
     reference would produce a store the validated reader rejects.
+
+    0.9.dev1 is the 0.6 model with the axis restrictions relaxed, so its
+    inter-system transforms carry the same requirement and the gate covers it.
     """
-    if version != "0.6" or not metadata.coordinateTransformations:
+    if version not in ("0.6", NgffVersion.V09dev1.value):
+        return
+    if not metadata.coordinateTransformations:
         return
     for index, transform in enumerate(metadata.coordinateTransformations):
         for side in ("input", "output"):
