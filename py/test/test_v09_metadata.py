@@ -206,12 +206,69 @@ def test_axes_property_is_not_a_field():
     assert metadata.axes == metadata.coordinateSystems[0].axes
 
 
-def test_no_bundled_schema_is_reported_explicitly():
-    """``load_schema`` names the missing 0.9.dev1 schema instead of failing on I/O."""
+def test_the_0_9_dev1_schemas_are_bundled():
+    """``spec/0.9`` holds the schemas of the 0.9.dev1 release."""
     from ngff_zarr.validate import load_schema
 
-    with pytest.raises(ValueError, match="0.9.dev1"):
-        load_schema(version="0.9.dev1")
+    assert load_schema(version="0.9.dev1", model="_version")["enum"] == ["0.9.dev1"]
+    assert (
+        load_schema(version="0.9.dev1", model="image")["$id"]
+        == "https://ngff.openmicroscopy.org/0.9.dev1/schemas/image.schema"
+    )
+
+
+def test_a_0_9_dev1_store_reads_with_validate(tmp_path):
+    """The schema pass runs at 0.9.dev1 as it does at every bundled version."""
+    import dask.array as da
+    import ngff_zarr as nz
+    import numpy as np
+
+    image = nz.NgffImage(
+        da.zeros((1, 8, 8), dtype=np.uint8, chunks=(1, 8, 8)),
+        ["c", "y", "x"],
+        {"c": 1.0, "y": 1.0, "x": 1.0},
+        {"c": 0.0, "y": 0.0, "x": 0.0},
+    )
+    store = str(tmp_path / "s.ome.zarr")
+    nz.to_ome_zarr(
+        store,
+        nz.to_multiscales(image, scale_factors=[2], cache=False),
+        version="0.9.dev1",
+    )
+
+    assert len(nz.from_ome_zarr(store, validate=True).images) == 2
+
+
+def test_a_broken_0_9_dev1_store_is_refused(tmp_path):
+    import json
+    from pathlib import Path
+
+    import dask.array as da
+    import ngff_zarr as nz
+    from jsonschema.exceptions import ValidationError
+
+    image = nz.NgffImage(
+        da.zeros((1, 8, 8), dtype=np.uint8, chunks=(1, 8, 8)),
+        ["c", "y", "x"],
+        {"c": 1.0, "y": 1.0, "x": 1.0},
+        {"c": 0.0, "y": 0.0, "x": 0.0},
+    )
+    store = str(tmp_path / "s.ome.zarr")
+    nz.to_ome_zarr(
+        store,
+        nz.to_multiscales(image, scale_factors=[], cache=False),
+        version="0.9.dev1",
+    )
+
+    doc_path = Path(store) / "zarr.json"
+    doc = json.loads(doc_path.read_text())
+    doc["attributes"]["ome"]["multiscales"][0]["coordinateSystems"][0]["axes"][0].pop(
+        "name"
+    )
+    doc_path.write_text(json.dumps(doc, indent=4))
+
+    with pytest.raises(ValidationError):
+        nz.from_ome_zarr(store, validate=True)
 
 
 def test_version_is_supported():

@@ -40,9 +40,9 @@ supported by `ngff-zarr`.
   and transformations.
 - **OME-Zarr 0.9.dev1**: Reads and writes the development version that adopts
   RFC-3, which extends support for the number, names, types and order
-  of axes. It is opt-in: pass `version="0.9.dev1"` explicitly. The default
-  target is unchanged, and OME publishes no JSON Schema for it yet, so schema
-  validation is unavailable at that version.
+  of axes. It is opt-in: pass `version="0.9.dev1"` explicitly, the default
+  target is unchanged. The schemas of the `0.9.dev1` release are bundled, so
+  `validate=True` checks a store at that version as it does at any other.
 
 ## High Content Screening (HCS)
 

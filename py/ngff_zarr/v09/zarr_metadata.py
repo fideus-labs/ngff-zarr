@@ -335,8 +335,11 @@ class Metadata:
         Dataset transform parsing and ``NgffImage`` construction are delegated
         to the v0.6 reader. Handled here first:
 
-        1. ``validate=True`` is refused: no ``0.9.dev1`` JSON Schema is
-           published, so no ``spec/0.9.dev1/schemas`` tree is bundled.
+        1. ``validate=True`` runs the schema pass against the bundled
+           ``spec/0.9`` tree, which holds the schemas of the ``0.9.dev1``
+           release. The delegate then runs with ``validate=False``: it would
+           otherwise measure the document against the schemas of its own
+           version.
         2. A 0.5-shaped entry (flat ``axes``, no ``coordinateSystems``) is
            normalized to a single ``intrinsic`` coordinate system, so either
            shape is readable.
@@ -348,12 +351,13 @@ class Metadata:
         from ..v06.zarr_metadata import Metadata as Metadata_v06
 
         if validate:
-            raise NotImplementedError(
-                "Schema validation is unavailable for OME-Zarr 0.9.dev1: OME has "
-                "published no JSON Schema for it, so ngff-zarr ships no "
-                "spec/0.9.dev1/schemas tree. Read with validate=False and use "
-                "ngff_zarr.validate_structural() for the structural rules."
-            )
+            # The 0.9.dev series records its version on the ``ome`` namespace,
+            # as 0.6 does, and the bundled ``spec/0.9`` tree carries the
+            # ``0.9.dev1`` tag its ``_version.schema`` binds.
+            from ..validate import validate as validate_ngff
+
+            schema_version = str(root_attrs.get("ome", {}).get("version") or "0.9.dev1")
+            validate_ngff(root_attrs, version=schema_version)
 
         if "ome" not in root_attrs or "multiscales" not in root_attrs.get("ome", {}):
             raise ValueError(
