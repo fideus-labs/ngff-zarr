@@ -1572,10 +1572,13 @@ def _to_ngff_zarr_impl(
     # Appending names only the levels it keeps until the new arrays are in
     # place, so an interrupted call leaves a store that reads as those levels.
     if start_level:
+        # Read before the rewrite: at zarr format 3 _create_zarr_root writes a
+        # fresh zarr.json without consolidated_metadata.
+        was_consolidated = has_consolidated_metadata(store, zarr_format)
         kept = copy.deepcopy(metadata_dict)
         kept["datasets"] = kept["datasets"][:start_level]
         _create_zarr_root(store, version, overwrite, kept, root_attributes)
-        if has_consolidated_metadata(store, zarr_format):
+        if was_consolidated:
             _zarrista_consolidate_metadata(store, zarr_format)
     else:
         _create_zarr_root(store, version, overwrite, metadata_dict, root_attributes)
@@ -1721,15 +1724,32 @@ def _to_ngff_zarr_impl(
                     f"[green]Writing scale {index + 1} of {nscales}"
                 )
 
-            # For small arrays, write in one go
+            # For small arrays, write in one go, clamping a shard wider than
+            # the array as the other two paths do. Only the sharding case goes
+            # through the resolver: its other branch re-derives chunks from the
+            # leading dask chunk, partial after a slice (issue #488).
+            small_chunks, small_shards, small_internal_chunk_shape = (
+                chunks,
+                shards,
+                internal_chunk_shape,
+            )
+            if sharding_kwargs and "_shard_shape" in sharding_kwargs:
+                (
+                    _,
+                    small_chunks,
+                    small_shards,
+                    small_internal_chunk_shape,
+                ) = _resolve_scale_chunks(
+                    arr, chunks, sharding_kwargs, internal_chunk_shape, shards
+                )
             region = tuple([slice(arr.shape[i]) for i in range(arr.ndim)])
             _write_array_with_zarrista(
                 store_path,
                 path,
                 arr,
-                chunks,
-                shards,
-                internal_chunk_shape,
+                small_chunks,
+                small_shards,
+                small_internal_chunk_shape,
                 zarr_format,
                 dimension_names,
                 region,
