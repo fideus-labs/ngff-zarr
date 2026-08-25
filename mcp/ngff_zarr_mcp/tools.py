@@ -8,26 +8,22 @@ from pathlib import Path
 
 from ngff_zarr import (  # type: ignore[import-untyped]
     Methods,
+    ValidationError,
     cli_input_to_ngff_image,
     detect_cli_io_backend,
     from_ome_zarr,
     to_multiscales,
     to_ome_zarr,
+    validate_structural,
 )
 
-# Import validation function if available
+# The schema pass needs the ngff-zarr[validate] extra. Where it is missing the
+# tool says the pass did not run, rather than calling a store valid on the
+# strength of a check it never made.
 try:
     from ngff_zarr import validate as validate_ngff
 except ImportError:
-    # Fallback if ngff-zarr schema validation is unavailable (no-op stub whose
-    # signature mirrors ngff_zarr.validate).
-    def validate_ngff(
-        ngff_dict: dict,
-        version: str = "0.4",
-        model: str = "image",
-        strict: bool = False,
-    ) -> None:
-        pass
+    validate_ngff = None
 
 
 from .models import (
@@ -319,6 +315,12 @@ async def inspect_ome_zarr(store_path: str) -> StoreInfo:
         raise ValueError(f"Failed to inspect store: {str(e)}")
 
 
+_SCHEMA_PASS_SKIPPED = (
+    "Schema validation did not run: install the ngff-zarr[validate] extra to "
+    "check the metadata document against its JSON Schema."
+)
+
+
 async def validate_ome_zarr(store_path: str) -> ValidationResult:
     """Validate an OME-Zarr store."""
 
@@ -378,12 +380,29 @@ async def validate_ome_zarr(store_path: str) -> ValidationResult:
             except Exception:
                 version = "0.4"  # Default assumption
 
-            # Try ngff-zarr schema validation if available. ngff_zarr.validate
-            # expects the parsed NGFF metadata dict, not a store path.
+            # ngff_zarr.validate expects the parsed NGFF metadata dict, not a
+            # store path. A document the schema rejects is invalid, so the
+            # verdict belongs in errors and reaches the caller through `valid`.
+            if validate_ngff is None:
+                warnings.append(_SCHEMA_PASS_SKIPPED)
+            else:
+                try:
+                    validate_ngff(root_attrs, version=version or "0.4")
+                except ImportError:
+                    warnings.append(_SCHEMA_PASS_SKIPPED)
+                except Exception as validation_error:
+                    errors.append(f"Schema validation failed: {validation_error}")
+
+            # The structural rules carry the spec MUSTs no JSON Schema states,
+            # among them the finest-to-coarsest dataset order. They read the
+            # parsed model, so they run on the multiscales loaded above.
             try:
-                validate_ngff(root_attrs, version=version or "0.4")
-            except Exception as validation_error:
-                warnings.append(f"NGFF validation warning: {str(validation_error)}")
+                validate_structural(multiscales.metadata)
+            except ValidationError as structural_error:
+                errors.append(f"Structural validation failed: {structural_error}")
+            except ImportError:
+                # One rule, the RFC 4 orientation check, reaches for jsonschema.
+                warnings.append(_SCHEMA_PASS_SKIPPED)
 
         except Exception as e:
             errors.append(f"Failed to load as NGFF: {str(e)}")
