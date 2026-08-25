@@ -298,6 +298,33 @@ def test_project_axis_roundtrips():
     assert projection.output.name == "plane"
 
 
+@requires_zarr_v3
+def test_the_writer_refuses_a_transform_it_could_not_read_back():
+    """to_ome_zarr checks what from_ome_zarr checks.
+
+    A projection dropping one axis between two systems of equal size does not
+    reconcile them, so it is refused at write rather than on the read that
+    would follow.
+    """
+    array = rng.random(size=(8, 8, 8), dtype=np.float32)
+    image = nz.to_ngff_image(array, dims=["z", "y", "x"])
+    multiscales = nz.to_multiscales(image, scale_factors=[])
+    intrinsic = multiscales.metadata.intrinsic_coordinate_system
+
+    # Drops one of three axes but claims a three-axis output.
+    multiscales.metadata.coordinateTransformations = [
+        ProjectAxis(
+            droppedInputs=[0],
+            input=CoordinateSystemIdentifier(name=intrinsic.name),
+            output=CoordinateSystemIdentifier(name=intrinsic.name),
+        )
+    ]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with pytest.raises(ValueError, match="cannot read back"):
+            nz.to_ome_zarr(tmpdir, multiscales, version="0.6")
+
+
 def _three_axis_system(name: str = "system") -> CoordinateSystem:
     return CoordinateSystem(
         name=name,

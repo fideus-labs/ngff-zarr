@@ -241,12 +241,9 @@ class MapAxis(BaseTransform):
                 )
 
 
-#: ``projectAxis`` may add or drop at most this many axes at once, which is the
-#: ``maxItems`` its schema sets on ``droppedInputs`` and ``createdOutputs``. The
-#: companion ``maximum: 4`` on each index is deliberately not mirrored here: it
-#: follows from the five-axis cap of 0.4 through 0.6, which RFC-3 lifts at
-#: 0.9.dev1, so an index is bounded by the coordinate system it points into
-#: (checked in ``validate``) rather than by a constant.
+#: The ``maxItems`` the schema sets on ``droppedInputs`` and ``createdOutputs``.
+#: Its companion ``maximum: 4`` is not mirrored: an index is bounded by the
+#: coordinate system it points into, which ``validate`` checks.
 _PROJECT_AXIS_MAX_OPERATIONS = 3
 
 
@@ -254,14 +251,10 @@ _PROJECT_AXIS_MAX_OPERATIONS = 3
 class ProjectAxis(BaseTransform):
     """A projection that drops input axes and inserts zero-valued output axes.
 
-    ``droppedInputs`` holds the indices of the input coordinate vector to
-    remove; ``createdOutputs`` holds the indices of the output vector where a
-    zero is inserted. At least one of the two must be given. Dropping a
-    dimension loses information, so a projection is not invertible in general.
-
-    The output dimensionality is the input dimensionality less the dropped
-    axes plus the created ones, which is what ties the two lists to the
-    ``input`` and ``output`` coordinate systems when those resolve.
+    ``droppedInputs`` are indices of the input vector to remove,
+    ``createdOutputs`` indices of the output vector to zero-fill; at least one
+    is given. Output dimensionality is the input less the dropped plus the
+    created. Dropping loses information, so it is not invertible in general.
     """
 
     droppedInputs: list[int] | None = None

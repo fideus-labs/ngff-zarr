@@ -104,6 +104,19 @@ export function buildV06MultiscalesEntry(
           );
         }
       }
+      // The reader's own check, against the systems that get serialized: the
+      // intrinsic one built above when `metadata.coordinateSystems` is absent.
+      try {
+        validateV06Transform(transform, coordinateSystems);
+      } catch (invalid) {
+        throw new Error(
+          `multiscales coordinateTransformations[${index}] ` +
+            `(${transform.type}) would be written as a transform this ` +
+            `package cannot read back: ${
+              invalid instanceof Error ? invalid.message : String(invalid)
+            }`,
+        );
+      }
     });
     entry.coordinateTransformations = metadata.coordinateTransformations.map(
       serializeV06Transform,
@@ -559,10 +572,16 @@ export function validateV06Transform(
         );
       }
     }
+  } else if (transform.type === "sequence") {
+    for (const nested of transform.transformations) {
+      validateV06Transform(nested, coordinateSystems);
+    }
   } else if (transform.type === "byDimension") {
     const inputCount = axisCount(transform.input, coordinateSystems);
     const seenOutputAxes = new Set<number>();
     for (const item of transform.transformations) {
+      // The reader validates each child as it parses it.
+      validateV06Transform(item.transformation, coordinateSystems);
       const axes = [...item.inputAxes, ...item.outputAxes];
       if (!axes.every((axis) => Number.isInteger(axis))) {
         throw new Error(
@@ -622,6 +641,8 @@ export function validateV06Transform(
       }
     }
   } else if (transform.type === "bijection") {
+    validateV06Transform(transform.forward, coordinateSystems);
+    validateV06Transform(transform.inverse, coordinateSystems);
     const inputCount = axisCount(transform.input, coordinateSystems);
     const outputCount = axisCount(transform.output, coordinateSystems);
     if (

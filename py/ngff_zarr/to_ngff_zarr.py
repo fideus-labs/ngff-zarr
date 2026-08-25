@@ -280,11 +280,17 @@ def _gate_top_level_transforms(metadata, version: str) -> None:
 
     0.9.dev1 is the 0.6 model with the axis restrictions relaxed, so its
     inter-system transforms carry the same requirement and the gate covers it.
+
+    Each transform then runs the reader's ``validate_transform`` against the
+    systems it names, so a store this writes is one it can read back.
     """
     if version not in ("0.6", NgffVersion.V09dev1.value):
         return
     if not metadata.coordinateTransformations:
         return
+    from .v06.zarr_metadata import validate_transform
+
+    systems = getattr(metadata, "coordinateSystems", None)
     for index, transform in enumerate(metadata.coordinateTransformations):
         for side in ("input", "output"):
             reference = getattr(transform, side, None)
@@ -295,6 +301,14 @@ def _gate_top_level_transforms(metadata, version: str) -> None:
                     "OME-Zarr 0.6 requires every multiscale-level transformation "
                     "to name both its input and its output coordinate system"
                 )
+        try:
+            validate_transform(transform, systems)
+        except ValueError as invalid:
+            raise ValueError(
+                f"multiscales coordinateTransformations[{index}] "
+                f"({transform.type}) would be written as a transform this "
+                f"package cannot read back: {invalid}"
+            ) from invalid
 
 
 @dataclass(frozen=True)

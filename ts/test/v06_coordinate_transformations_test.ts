@@ -842,6 +842,100 @@ Deno.test("v0.6 read accepts the snake_case byDimension axis keys", async () => 
 
 // Mirrors test_coordinate_transformations.py: the mapAxis, byDimension and
 // bijection payloads survive the round-trip by value, not just by type.
+Deno.test("the writer refuses a transform it could not read back", async () => {
+  // A projection dropping one axis between two systems of equal size does not
+  // reconcile them, so it is refused at write. Mirrors
+  // test_the_writer_refuses_a_transform_it_could_not_read_back.
+  const multiscales = await buildMultiscales();
+  const intrinsic = multiscales.metadata.coordinateSystems![0];
+
+  multiscales.metadata.coordinateTransformations = [
+    {
+      type: "projectAxis",
+      droppedInputs: [0],
+      input: { name: intrinsic.name },
+      output: { name: intrinsic.name },
+    },
+  ];
+
+  const store: MemoryStore = new Map();
+  let message = "";
+  try {
+    await toOmeZarr(store, multiscales, { version: "0.6" });
+  } catch (error) {
+    message = error instanceof Error ? error.message : String(error);
+  }
+  if (!message.includes("cannot read back")) {
+    throw new Error(`expected the writer to refuse it; got: ${message}`);
+  }
+});
+
+Deno.test("the writer checks against the intrinsic system it will serialize", async () => {
+  // With no explicit coordinateSystems the writer builds the intrinsic one from
+  // the axes and serializes it, so that is what the reader resolves against and
+  // what the transform must reconcile.
+  const multiscales = await buildMultiscales();
+  const axes = multiscales.metadata.coordinateSystems![0].axes;
+  delete (multiscales.metadata as { coordinateSystems?: unknown })
+    .coordinateSystems;
+  multiscales.metadata.axes = axes;
+  multiscales.metadata.coordinateTransformations = [
+    {
+      type: "projectAxis",
+      droppedInputs: [0],
+      input: { name: "intrinsic" },
+      output: { name: "intrinsic" },
+    },
+  ];
+
+  const store: MemoryStore = new Map();
+  await assertRejects(
+    () => toOmeZarr(store, multiscales, { version: "0.6" }),
+    Error,
+    "cannot read back",
+  );
+});
+
+Deno.test("the writer refuses an invalid transform nested in a wrapper", async () => {
+  // A wrapper is only as valid as what it holds, and the reader validates each
+  // child as it parses it. The writer has to reach the same verdict.
+  const bad = {
+    type: "projectAxis" as const,
+    droppedInputs: [0, 0],
+  };
+
+  for (
+    const wrapper of [
+      { type: "sequence" as const, transformations: [bad] },
+      { type: "bijection" as const, forward: bad, inverse: bad },
+      {
+        type: "byDimension" as const,
+        transformations: [
+          { transformation: bad, inputAxes: [0], outputAxes: [0] },
+        ],
+      },
+    ]
+  ) {
+    const multiscales = await buildMultiscales();
+    const intrinsic = multiscales.metadata.coordinateSystems![0];
+    multiscales.metadata.coordinateTransformations = [
+      {
+        ...wrapper,
+        input: { name: intrinsic.name },
+        output: { name: intrinsic.name },
+      } as V06Transform,
+    ];
+
+    const store: MemoryStore = new Map();
+    await assertRejects(
+      () => toOmeZarr(store, multiscales, { version: "0.6" }),
+      Error,
+      "cannot read back",
+      `${wrapper.type} should be refused`,
+    );
+  }
+});
+
 Deno.test("a projectAxis payload survives the round-trip", async () => {
   // Before projectAxis was modelled, a document using it passed the bundled
   // schema and the reader threw on an unsupported transform type.
@@ -990,9 +1084,11 @@ Deno.test("invalid mapAxis, byDimension and bijection metadata are rejected", as
     multiscales.metadata.coordinateTransformations = [transform];
 
     const store: MemoryStore = new Map();
-    await toOmeZarr(store, multiscales, { version: "0.6" });
+    // The writer refuses it, which is where the refusal now happens: it runs
+    // the reader's own check before serializing, so a store this package wrote
+    // is always one it can read back.
     await assertRejects(
-      () => fromOmeZarr(store),
+      () => toOmeZarr(store, multiscales, { version: "0.6" }),
       Error,
       undefined,
       `case '${name}' should be rejected`,
@@ -1017,8 +1113,12 @@ Deno.test("byDimension incomplete output coverage is rejected", async () => {
   multiscales.metadata.coordinateTransformations = [byDimension];
 
   const store: MemoryStore = new Map();
-  await toOmeZarr(store, multiscales, { version: "0.6" });
-  await assertRejects(() => fromOmeZarr(store), Error, "exactly once");
+  // Refused by the writer, which runs the reader's check before serializing.
+  await assertRejects(
+    () => toOmeZarr(store, multiscales, { version: "0.6" }),
+    Error,
+    "exactly once",
+  );
 });
 
 // A byDimension item may wrap any transformation, including a sequence; the
