@@ -1069,6 +1069,27 @@ Deno.test("validateV06Transform rejects fractional and out-of-range axes", () =>
 
 // OME-Zarr coordinate systems hold 2 to 5 axes; a mapAxis of another length
 // is rejected on read as well as by the zod schema.
+Deno.test("the mapAxis arity bound stands down at 0.9.dev1", () => {
+  // RFC-3 lifts the five-axis cap and the 0.9.dev1 mapAxis definition declares
+  // neither minItems nor maxItems, so a permutation over six axes is a valid
+  // 0.9.dev1 document. Mirrors test_map_axis_arity_is_unbounded_at_0_9_dev1.
+  validateV06Transform(createMapAxis([5, 4, 3, 2, 1, 0]), [], "0.9.dev1");
+  validateV06Transform(createMapAxis([0]), [], "0.9.dev1");
+
+  // The permutation rule holds at every version.
+  assertThrows(
+    () => validateV06Transform(createMapAxis([0, 0, 1]), [], "0.9.dev1"),
+    Error,
+    "permutation",
+  );
+  // And the arity still binds below 0.9.dev1.
+  assertThrows(
+    () => validateV06Transform(createMapAxis([5, 4, 3, 2, 1, 0]), [], "0.6"),
+    Error,
+    "between 2 and 5",
+  );
+});
+
 Deno.test("validateV06Transform bounds the mapAxis arity", () => {
   for (const indices of [[0], [], [5, 4, 3, 2, 1, 0]]) {
     assertThrows(

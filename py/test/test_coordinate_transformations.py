@@ -275,11 +275,50 @@ def test_map_axis_must_be_a_permutation():
         MapAxis(mapAxis=[0, 1, 3])
 
 
-def test_map_axis_arity_is_bounded():
-    """OME-Zarr coordinate systems hold 2 to 5 axes; mapAxis matches."""
+def test_map_axis_arity_is_bounded_below_0_9_dev1():
+    """Through 0.6 a coordinate system holds 2 to 5 axes; mapAxis matches.
+
+    The bound is checked at validation rather than at construction: it mirrors
+    the minItems and maxItems those schemas set, and ``__post_init__`` has no
+    version to consult.
+    """
     for indices in ([0], [], [5, 4, 3, 2, 1, 0]):
         with pytest.raises(ValueError, match="between 2 and 5"):
-            MapAxis(mapAxis=indices)
+            MapAxis(mapAxis=indices).validate()
+
+
+def test_map_axis_arity_is_unbounded_at_0_9_dev1():
+    """RFC-3 lifts the five-axis cap, and the 0.9.dev1 mapAxis sets no bound.
+
+    Its schema declares neither minItems nor maxItems, so a permutation over
+    six axes is a valid 0.9.dev1 document and the model must read it.
+    """
+    MapAxis(mapAxis=[5, 4, 3, 2, 1, 0]).validate(version="0.9.dev1")
+    MapAxis(mapAxis=[0]).validate(version="0.9.dev1")
+
+
+def test_a_nested_map_axis_follows_the_document_version():
+    """A wrapper carries the version to what it holds.
+
+    Without that, a six-axis permutation inside a sequence or a bijection
+    still met the v0.6 arity even in a 0.9.dev1 document.
+    """
+    six = MapAxis(mapAxis=[5, 4, 3, 2, 1, 0])
+
+    TransformSequence(transformations=[six]).validate(version="0.9.dev1")
+    Bijection(forward=six, inverse=six).validate(version="0.9.dev1")
+
+    with pytest.raises(ValueError, match="between 2 and 5"):
+        TransformSequence(transformations=[six]).validate(version="0.6")
+    with pytest.raises(ValueError, match="between 2 and 5"):
+        Bijection(forward=six, inverse=six).validate(version="0.6")
+
+
+def test_map_axis_is_a_permutation_at_every_version():
+    """The permutation rule holds regardless of the version."""
+    for ngff_version in (None, "0.6", "0.9.dev1"):
+        with pytest.raises(ValueError, match="permutation"):
+            MapAxis(mapAxis=[0, 0, 1]).validate(version=ngff_version)
 
 
 def test_axis_indices_must_be_integers():
