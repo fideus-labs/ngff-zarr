@@ -966,19 +966,19 @@ def _build_multiscales_from_pyramid(
     translation = None
     if ome_translation:
         translation = {}
-        for dim in ome_translation:
+        for dim in ('z', 'y', 'x'):
             if ome_translation_units and dim in ome_translation_units:
                 if axes_units and dim in axes_units:
-                    unit = axes_units[dim]
+                    target_unit = axes_units[dim]
                 else:
-                    unit = ome_translation_units.get(dim)
+                    target_unit = ome_translation_units[dim]
                 translation[dim] = _convert_unit_value(
-                    ome_translation[dim],
-                    ome_translation_units.get(dim),
-                    unit,
+                    ome_translation.get(dim),
+                    ome_translation_units[dim],
+                    target_unit,
                 )
             else:
-                translation[dim] = ome_translation[dim]
+                translation[dim] = ome_translation.get(dim)
 
     # Create base NgffImage
     ngff_image_0 = to_ngff_image(
@@ -1456,19 +1456,19 @@ def _read_tiff_series(
             translation = None
             if ome_translation:
                 translation = {}
-                for dim in ome_translation:
+                for dim in ('z', 'y', 'x'):
                     if ome_translation_units and dim in ome_translation_units:
                         if axes_units and dim in axes_units:
-                            unit = axes_units[dim]
+                            target_unit = axes_units[dim]
                         else:
-                            unit = ome_translation_units.get(dim)
+                            target_unit = ome_translation_units[dim]
                         translation[dim] = _convert_unit_value(
-                            ome_translation[dim],
-                            ome_translation_units.get(dim),
-                            unit,
+                            ome_translation.get(dim),
+                            ome_translation_units[dim],
+                            target_unit,
                         )
                     else:
-                        translation[dim] = ome_translation[dim]
+                        translation[dim] = ome_translation.get(dim)
 
             # Convert to NgffImage
             ngff_image = to_ngff_image(
