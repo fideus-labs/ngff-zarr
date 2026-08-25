@@ -268,17 +268,18 @@ def test_numpy_to_zarr_dtype_rejects_unsupported():
         _numpy_to_zarr_dtype(np.dtype("datetime64[s]"))
 
 
+@pytest.mark.filterwarnings("ignore:use_tensorstore is deprecated:DeprecationWarning")
 @pytest.mark.parametrize("dtype_str", [">u2", ">f4"])
 @pytest.mark.parametrize("version", VERSION_PARAMS)
-def test_big_endian_tensorstore_roundtrip(tmp_path, version, dtype_str):
-    """Writing big-endian input via the TensorStore backend round-trips."""
-    pytest.importorskip("tensorstore")
+def test_big_endian_zarrista_roundtrip(tmp_path, version, dtype_str):
+    """Writing big-endian input via the zarrista fast path round-trips."""
+    pytest.importorskip("zarrista")
 
     expected = _ramp(dtype_str)
     image = to_ngff_image(expected, dims=["y", "x"])
     multiscales = to_multiscales(image, scale_factors=[])
 
-    store_path = tmp_path / f"ts_{version}.zarr"
+    store_path = tmp_path / f"zarrista_{version}.zarr"
     to_ngff_zarr(str(store_path), multiscales, version=version, use_tensorstore=True)
 
     back = np.asarray(from_ngff_zarr(str(store_path)).images[0].data)

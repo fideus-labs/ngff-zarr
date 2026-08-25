@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 name = "ngff-zarr"
 description = 'A lean and kind Open Microscopy Environment (OME) Next Generation File Format (NGFF) Zarr implementation.'
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "MIT"
 keywords = []
 authors = [{ name = "Matt McCormick", email = "matt@fideus.io" }]
@@ -20,7 +20,6 @@ classifiers = [
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
@@ -34,13 +33,17 @@ dependencies = [
   "importlib_resources",
   "itkwasm >= 1.0b183",
   "itkwasm-downsample >= 2.0.2",
+  # Chunk decoding for the pure-Python v2/bytes-mapping store reader
+  # (was previously a transitive dependency of zarr-python).
+  "numcodecs",
   "numpy",
+  "packaging",
   "platformdirs",
   "psutil; sys_platform != \"emscripten\"",
   "rich",
   "rich-argparse",
   "typing_extensions",
-  "zarr",
+  "zarrista",
 ]
 dynamic = ["version"]
 
@@ -72,25 +75,25 @@ cli = [
   "imagecodecs>=2025.3.30,<2026.5.0",
   "ngff-zarr[remote]",
 ]
-tensorstore = ["tensorstore"]
 remote = [
-  "fsspec",
-  "aiohttp",
-  "requests",
-  "s3fs",
-  "gcsfs",
-  "adlfs",
+  # Remote URL reads route through zarrista's async API backed by obstore.
+  # Remote writes are not supported: write to a local directory and upload
+  # afterwards.
+  "obstore",
 ]
 test = [
   "pytest >=6",
   "pooch",
-  "deepdiff"
+  "deepdiff",
+  # zarr-python is a test-only dependency: it verifies round-trip
+  # compatibility of zarrista-written stores with the reference reader.
+  "zarr",
 ]
 validate = [
   "jsonschema"
 ]
 docs = [ "furo>=2024.7.18,<2025", "myst-parser>=3.0.1,<4", "sphinx>=7.4.7,<8", "sphinx-autodoc2>=0.5.0,<0.6", "sphinx-copybutton>=0.5.2,<0.6", "sphinx-design>=0.6.0,<0.7", "sphinxext-opengraph>=0.9.1,<0.10", "sphinx-autobuild>=2024.4.16,<2025"]
-all = ["ngff-zarr[cli]", "ngff-zarr[docs]", "ngff-zarr[test]", "ngff-zarr[validate]", "ngff-zarr[tensorstore]", "ngff-zarr[remote]"]
+all = ["ngff-zarr[cli]", "ngff-zarr[docs]", "ngff-zarr[test]", "ngff-zarr[validate]", "ngff-zarr[remote]"]
 
 
 [tool.coverage.report]
@@ -199,23 +202,20 @@ ngff-zarr = { path = ".", editable = true }
 
 [tool.pixi.environments]
 default = { solve-group = "default" }
-test = { features = ["test", "dask-image", "itk", "cli", "validate", "tensorstore", "remote"], solve-group = "default" }
-test-py310 = { features = ["test", "dask-image", "itk", "cli", "validate", "tensorstore", "remote", "py310"], solve-group = "py310" }
-test-py311 = { features = ["test", "dask-image", "itk", "cli", "validate", "tensorstore", "remote", "py311"], solve-group = "py311" }
-test-py312 = { features = ["test", "dask-image", "itk", "cli", "validate", "tensorstore", "remote", "py312"], solve-group = "py312" }
-test-py313 = { features = ["test", "dask-image", "itk", "cli", "validate", "tensorstore", "remote", "py313"], solve-group = "py313" }
+test = { features = ["test", "dask-image", "itk", "cli", "validate", "remote"], solve-group = "default" }
+test-py311 = { features = ["test", "dask-image", "itk", "cli", "validate", "remote", "py311"], solve-group = "py311" }
+test-py312 = { features = ["test", "dask-image", "itk", "cli", "validate", "remote", "py312"], solve-group = "py312" }
+test-py313 = { features = ["test", "dask-image", "itk", "cli", "validate", "remote", "py313"], solve-group = "py313" }
+test-zarr2 = { features = ["test", "dask-image", "itk", "cli", "validate", "remote", "zarr2"], solve-group = "zarr2" }
 lint = { features = ["lint"], no-default-feature = true, solve-group = "default" }
 docs = { features = ["docs"], no-default-feature = true, solve-group = "default" }
 data = { features = ["data"], no-default-feature = true, solve-group = "default" }
 
 [tool.pixi.feature.test.dependencies]
-python = ">=3.10,<3.15.0"
+python = ">=3.11,<3.15.0"
 
 # Per-version Python pins so the pixi CI can exercise every supported
 # interpreter. The unpinned `test` environment tracks the latest version.
-[tool.pixi.feature.py310.dependencies]
-python = "3.10.*"
-
 [tool.pixi.feature.py311.dependencies]
 python = "3.11.*"
 
@@ -224,6 +224,16 @@ python = "3.12.*"
 
 [tool.pixi.feature.py313.dependencies]
 python = "3.13.*"
+
+# zarr-python 2.x reference-reader leg: the test extra's unpinned `zarr`
+# resolves 3.x on every supported interpreter, so this feature pins the
+# 2.x major to keep zarrista-written stores verified against both reader
+# majors (the round-trip compatibility contract).
+[tool.pixi.feature.zarr2.dependencies]
+python = "3.11.*"
+
+[tool.pixi.feature.zarr2.pypi-dependencies]
+zarr = ">=2.18,<3"
 
 [tool.pixi.feature.test.tasks]
 test = { cmd = "pytest", description = "Run the test suite" }

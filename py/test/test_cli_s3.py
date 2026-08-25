@@ -46,14 +46,10 @@ S3_URI = (
         ),
     ],
 )
-@pytest.mark.skipif(
-    not hasattr(cli.zarr.storage, "FsspecStore"),
-    reason="zarr-python 3 storage options path",
-)
 def test_cli_configures_remote_storage_options(
     monkeypatch, argv, expected_input, expected_storage_options
 ):
-    """S3 defaults to anonymous access but accepts explicit fsspec options."""
+    """S3 defaults to anonymous access but accepts explicit storage options."""
     multiscales = object()
     from_ome_zarr = Mock(return_value=multiscales)
     render = Mock()
@@ -65,41 +61,6 @@ def test_cli_configures_remote_storage_options(
     from_ome_zarr.assert_called_once_with(
         expected_input, storage_options=expected_storage_options
     )
-    assert render.call_args.args[4] is multiscales
-
-
-@pytest.mark.parametrize(
-    ("extra_args", "expected_storage_options"),
-    [
-        pytest.param([], {"anon": True}, id="anonymous-s3"),
-        pytest.param(
-            [
-                "--storage-options",
-                '{"anon": false, "profile": "research"}',
-            ],
-            {"anon": False, "profile": "research"},
-            id="authenticated-s3",
-        ),
-    ],
-)
-def test_cli_configures_zarr2_s3_store(
-    monkeypatch, extra_args, expected_storage_options
-):
-    """Zarr 2 receives S3 options through FSStore instead of the v3-only API."""
-    multiscales = object()
-    legacy_store = object()
-    from_ome_zarr = Mock(return_value=multiscales)
-    fs_store = Mock(return_value=legacy_store)
-    render = Mock()
-    monkeypatch.delattr(cli.zarr.storage, "FsspecStore", raising=False)
-    monkeypatch.setattr(cli.zarr.storage, "FSStore", fs_store, raising=False)
-    monkeypatch.setattr(cli, "from_ome_zarr", from_ome_zarr)
-    monkeypatch.setattr(cli, "_multiscales_to_ngff_zarr", render)
-
-    cli.main(["--quiet", "-i", S3_URI, *extra_args])
-
-    fs_store.assert_called_once_with(S3_URI, mode="r", **expected_storage_options)
-    from_ome_zarr.assert_called_once_with(legacy_store, storage_options=None)
     assert render.call_args.args[4] is multiscales
 
 

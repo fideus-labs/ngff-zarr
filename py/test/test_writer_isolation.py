@@ -18,9 +18,14 @@ from packaging import version
 
 zarr_version = version.parse(zarr.__version__)
 
-pytestmark = pytest.mark.skipif(
-    zarr_version < version.parse("3.0.0b1"), reason="zarr version < 3.0.0b1"
-)
+pytestmark = [
+    pytest.mark.skipif(
+        zarr_version < version.parse("3.0.0b1"), reason="zarr version < 3.0.0b1"
+    ),
+    pytest.mark.filterwarnings(
+        "ignore:use_tensorstore is deprecated:DeprecationWarning"
+    ),
+]
 
 
 def _multiscales(shape=(128, 256, 256), dtype=np.uint16):
@@ -32,24 +37,25 @@ def _scale0_metadata(store_path):
     return json.loads((Path(store_path) / "scale0" / "image" / "zarr.json").read_text())
 
 
-def test_tensorstore_matches_zarr_python_by_default():
-    """Left unset, TensorStore applies its own defaults: sharded, uncompressed."""
-    pytest.importorskip("tensorstore")
+def test_zarrista_matches_zarr_python_by_default():
+    """Left unset, the fast-path backend must land on zarr-python's defaults,
+    not its own (the tensorstore backend once wrote sharded, uncompressed)."""
+    pytest.importorskip("zarrista")
     ms = _multiscales()
 
     written = {}
-    for use_tensorstore in (False, True):
+    for use_fast_path in (False, True):
         with tempfile.TemporaryDirectory() as tmpdir:
-            to_ngff_zarr(tmpdir, ms, version="0.5", use_tensorstore=use_tensorstore)
+            to_ngff_zarr(tmpdir, ms, version="0.5", use_tensorstore=use_fast_path)
             meta = _scale0_metadata(tmpdir)
-            written[use_tensorstore] = (
+            written[use_fast_path] = (
                 meta["chunk_grid"]["configuration"]["chunk_shape"],
                 [codec["name"] for codec in meta["codecs"]],
             )
 
     assert written[True] == written[False], (
         f"backends disagree: zarr-python wrote {written[False]}, "
-        f"tensorstore wrote {written[True]}"
+        f"zarrista wrote {written[True]}"
     )
     assert "sharding_indexed" not in written[True][1], (
         "sharding was never requested via chunks_per_shard"
@@ -63,10 +69,10 @@ def test_tensorstore_matches_zarr_python_by_default():
     [True, False],
     ids=["explicit-shuffle", "evolved-from-dtype"],
 )
-def test_tensorstore_honours_requested_compressor(explicit_shuffle):
+def test_zarrista_honours_requested_compressor(explicit_shuffle):
     """A supplied codec must reach the store with the same configuration
     zarr-python would write, not just the same name."""
-    pytest.importorskip("tensorstore")
+    pytest.importorskip("zarrista")
     # Import from the submodule: recent zarr no longer re-exports the codec
     # classes from zarr.codecs.
     from zarr.codecs.blosc import BloscCodec, BloscShuffle
@@ -78,24 +84,24 @@ def test_tensorstore_honours_requested_compressor(explicit_shuffle):
     ms = _multiscales()
 
     written = {}
-    for use_tensorstore in (False, True):
+    for use_fast_path in (False, True):
         with tempfile.TemporaryDirectory() as tmpdir:
             to_ngff_zarr(
                 tmpdir,
                 ms,
                 version="0.5",
-                use_tensorstore=use_tensorstore,
+                use_tensorstore=use_fast_path,
                 compressors=compressors,
             )
             codecs = _scale0_metadata(tmpdir)["codecs"]
-            written[use_tensorstore] = next(
+            written[use_fast_path] = next(
                 (codec for codec in codecs if codec["name"] == "blosc"), None
             )
 
     assert written[False] is not None, "zarr-python did not write blosc"
     assert written[True] == written[False], (
         f"backends disagree: zarr-python wrote {written[False]}, "
-        f"tensorstore wrote {written[True]}"
+        f"zarrista wrote {written[True]}"
     )
 
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/well.schema",
+  "$id": "https://ngff.openmicroscopy.org/0.6rc0/schemas/well.schema",
   "title": "Well",
   "description": "OME-Zarr well.",
   "type": "object",
@@ -48,7 +48,7 @@
           ]
         },
         "version": {
-          "$ref": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/_version.schema"
+          "$ref": "https://ngff.openmicroscopy.org/0.6rc0/schemas/_version.schema"
         }
       },
       "required": [

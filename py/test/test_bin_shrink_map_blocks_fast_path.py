@@ -16,7 +16,6 @@ import zarr
 from ngff_zarr import Methods, to_multiscales, to_ngff_image, to_ngff_zarr
 from ngff_zarr.methods._support import _can_use_map_blocks_fast_path
 from packaging import version
-from zarr.storage import MemoryStore
 
 zarr_version = version.parse(zarr.__version__)
 
@@ -87,7 +86,7 @@ class TestCanUseMapBlocksFastPath:
 class TestItkwasmBinShrinkFastPath:
     """End-to-end tests exercising the fast path via ITKWASM_BIN_SHRINK."""
 
-    def test_2d_yx(self):
+    def test_2d_yx(self, tmp_path):
         """Simple 2D (y, x) with evenly divisible chunks."""
         data = np.random.randint(0, 256, (128, 128), dtype=np.uint8)
         image = to_ngff_image(data, dims=("y", "x"))
@@ -98,10 +97,10 @@ class TestItkwasmBinShrinkFastPath:
         assert multiscales.images[1].data.shape == (64, 64)
         assert multiscales.images[2].data.shape == (32, 32)
 
-        store = MemoryStore()
+        store = tmp_path / "test.ome.zarr"
         to_ngff_zarr(store, multiscales)
 
-    def test_3d_zyx(self):
+    def test_3d_zyx(self, tmp_path):
         """3D (z, y, x) with evenly divisible chunks."""
         data = np.random.randint(0, 256, (32, 64, 64), dtype=np.uint8)
         image = to_ngff_image(data, dims=("z", "y", "x"))
@@ -112,10 +111,10 @@ class TestItkwasmBinShrinkFastPath:
         assert multiscales.images[1].data.shape == (16, 32, 32)
         assert multiscales.images[2].data.shape == (8, 16, 16)
 
-        store = MemoryStore()
+        store = tmp_path / "test.ome.zarr"
         to_ngff_zarr(store, multiscales)
 
-    def test_tczyx_fast_path(self):
+    def test_tczyx_fast_path(self, tmp_path):
         """5D (t, c, z, y, x) with evenly divisible spatial chunks."""
         data = np.random.randint(0, 256, (2, 2, 32, 64, 64), dtype=np.uint8)
         image = to_ngff_image(data, dims=("t", "c", "z", "y", "x"))
@@ -131,10 +130,10 @@ class TestItkwasmBinShrinkFastPath:
         assert multiscales.images[1].data.shape[3] == 32  # y
         assert multiscales.images[1].data.shape[4] == 32  # x
 
-        store = MemoryStore()
+        store = tmp_path / "test.ome.zarr"
         to_ngff_zarr(store, multiscales)
 
-    def test_zyxc_vector_mode(self):
+    def test_zyxc_vector_mode(self, tmp_path):
         """4D (z, y, x, c) with few channels -> vector mode on fast path."""
         data = np.random.randint(0, 255, (16, 32, 32, 3), dtype=np.uint8)
         image = to_ngff_image(data, dims=("z", "y", "x", "c"))
@@ -146,7 +145,7 @@ class TestItkwasmBinShrinkFastPath:
         assert multiscales.images[1].dims == ("c", "z", "y", "x")
         assert multiscales.images[1].data.shape == (3, 8, 16, 16)
 
-        store = MemoryStore()
+        store = tmp_path / "test.ome.zarr"
         to_ngff_zarr(store, multiscales)
 
     def test_zyxc_many_channels(self):
@@ -214,7 +213,7 @@ class TestItkwasmBinShrinkFastPath:
         std_arr = ms_std.images[1].data.compute()
         np.testing.assert_array_equal(fast_arr, std_arr[: fast_arr.shape[0], :])
 
-    def test_custom_out_chunks(self):
+    def test_custom_out_chunks(self, tmp_path):
         """Fast path respects a user-specified out_chunks that differs from input."""
         data = np.random.randint(0, 256, (128, 128), dtype=np.uint8)
         image = to_ngff_image(da.from_array(data, chunks=(64, 64)), dims=("y", "x"))
@@ -227,7 +226,7 @@ class TestItkwasmBinShrinkFastPath:
         assert downsampled.chunksize[0] == 16
         assert downsampled.chunksize[1] == 16
 
-        store = MemoryStore()
+        store = tmp_path / "test.ome.zarr"
         to_ngff_zarr(store, multiscales)
 
     def test_smaller_dask_graph(self):
@@ -268,7 +267,7 @@ class TestItkwasmBinShrinkFastPath:
 class TestItkBinShrinkFastPath:
     """End-to-end tests exercising the fast path via ITK_BIN_SHRINK."""
 
-    def test_2d_yx(self):
+    def test_2d_yx(self, tmp_path):
         """Simple 2D (y, x) with evenly divisible chunks."""
         data = np.random.randint(0, 256, (128, 128), dtype=np.uint8)
         image = to_ngff_image(data, dims=("y", "x"))
@@ -279,10 +278,10 @@ class TestItkBinShrinkFastPath:
         assert multiscales.images[1].data.shape == (64, 64)
         assert multiscales.images[2].data.shape == (32, 32)
 
-        store = MemoryStore()
+        store = tmp_path / "test.ome.zarr"
         to_ngff_zarr(store, multiscales)
 
-    def test_3d_zyx(self):
+    def test_3d_zyx(self, tmp_path):
         """3D (z, y, x) with evenly divisible chunks."""
         data = np.random.randint(0, 256, (32, 64, 64), dtype=np.uint8)
         image = to_ngff_image(data, dims=("z", "y", "x"))
@@ -293,7 +292,7 @@ class TestItkBinShrinkFastPath:
         assert multiscales.images[1].data.shape == (16, 32, 32)
         assert multiscales.images[2].data.shape == (8, 16, 16)
 
-        store = MemoryStore()
+        store = tmp_path / "test.ome.zarr"
         to_ngff_zarr(store, multiscales)
 
     def test_smaller_dask_graph(self):

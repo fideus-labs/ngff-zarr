@@ -4,7 +4,7 @@
 
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import dask.array as da
 import numpy as np
@@ -18,6 +18,7 @@ from ngff_zarr.v04.zarr_metadata import (
     PlateRow,
     PlateWell,
 )
+from packaging import version
 
 
 @pytest.fixture
@@ -96,6 +97,10 @@ def test_to_hcs_zarr_uses_correct_zarr_format_v04(basic_plate_metadata):
         assert attrs["ome"]["version"] == "0.4"
 
 
+@pytest.mark.skipif(
+    version.parse(zarr.__version__).major < 3,
+    reason="reading the zarr format 3 output requires zarr-python 3",
+)
 def test_to_hcs_zarr_uses_correct_zarr_format_v05(basic_plate_metadata):
     """Test that to_hcs_zarr uses zarr format 3 for NGFF version 0.5."""
     basic_plate_metadata.version = "0.5"
@@ -107,10 +112,8 @@ def test_to_hcs_zarr_uses_correct_zarr_format_v05(basic_plate_metadata):
         # Call the function
         to_hcs_zarr(plate, str(output_path))
 
-        # For zarr-python >= 3, zarr format 3 creates zarr.json
-        # For zarr-python < 3, it still uses .zgroup/.zattrs
-        # We check that the function was called with the right parameters
-        # by inspecting the metadata structure which should follow v0.5 conventions
+        # NGFF 0.5 always writes zarr format 3 (zarr.json); verify the
+        # metadata structure follows the v0.5 conventions.
 
         root = zarr.open_group(str(output_path), mode="r")
         attrs = root.attrs.asdict()
@@ -120,162 +123,36 @@ def test_to_hcs_zarr_uses_correct_zarr_format_v05(basic_plate_metadata):
         assert attrs["ome"]["version"] == "0.5"
 
 
-@patch("ngff_zarr.hcs.zarr.open_group")
-@patch("ngff_zarr.hcs.pkg_version.parse")
-def test_to_hcs_zarr_zarr_format_parameter_v04(
-    mock_version_parse, mock_open_group, basic_plate_metadata
-):
-    """Test that to_hcs_zarr passes the correct zarr_format parameter for v0.4."""
-    # Mock zarr-python version 3+
-    mock_version = MagicMock()
-    mock_version.major = 3
-    mock_version_parse.return_value = mock_version
-
-    # Mock the zarr group
-    mock_group = MagicMock()
-    mock_open_group.return_value = mock_group
-
+@patch("ngff_zarr.hcs.create_zarrista_group")
+def test_to_hcs_zarr_path_store_uses_zarrista(mock_create_group, basic_plate_metadata):
+    """Path stores dispatch plate-group creation to the zarrista compat layer."""
     basic_plate_metadata.version = "0.4"
     plate = HCSPlate(None, basic_plate_metadata)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         test_path = str(Path(tmpdir) / "test_store")
 
-        # Call the function
         to_hcs_zarr(plate, test_path)
 
-        # Verify that zarr.open_group was called with zarr_format=2
-        mock_open_group.assert_called_once_with(test_path, mode="w", zarr_format=2)
+        args, kwargs = mock_create_group.call_args
+        assert args[0] == test_path
+        assert args[1]["ome"]["plate"]["name"] == "Test Plate"
+        assert args[2] == 2  # zarr format follows the NGFF version
+        assert kwargs["overwrite"] is True
 
 
-@patch("ngff_zarr.hcs.zarr.open_group")
-@patch("ngff_zarr.hcs.pkg_version.parse")
-def test_to_hcs_zarr_zarr_format_parameter_v05(
-    mock_version_parse, mock_open_group, basic_plate_metadata
-):
-    """Test that to_hcs_zarr passes the correct zarr_format parameter for v0.5."""
-    # Mock zarr-python version 3+
-    mock_version = MagicMock()
-    mock_version.major = 3
-    mock_version_parse.return_value = mock_version
-
-    # Mock the zarr group
-    mock_group = MagicMock()
-    mock_open_group.return_value = mock_group
-
-    basic_plate_metadata.version = "0.5"
-    plate = HCSPlate(None, basic_plate_metadata)
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        test_path = str(Path(tmpdir) / "test_store")
-
-        # Call the function
-        to_hcs_zarr(plate, test_path)
-
-        # Verify that zarr.open_group was called with zarr_format=3
-        mock_open_group.assert_called_once_with(test_path, mode="w", zarr_format=3)
-
-
-@patch("ngff_zarr.hcs.zarr.open_group")
-@patch("ngff_zarr.hcs.pkg_version.parse")
-def test_to_hcs_zarr_legacy_zarr_version(
-    mock_version_parse, mock_open_group, basic_plate_metadata
-):
-    """Test that to_hcs_zarr handles legacy zarr-python versions correctly."""
-    # Mock zarr-python version 2.x
-    mock_version = MagicMock()
-    mock_version.major = 2
-    mock_version_parse.return_value = mock_version
-
-    # Mock the zarr group
-    mock_group = MagicMock()
-    mock_open_group.return_value = mock_group
-
-    basic_plate_metadata.version = "0.4"
-    plate = HCSPlate(None, basic_plate_metadata)
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        test_path = str(Path(tmpdir) / "test_store")
-
-        # Call the function
-        to_hcs_zarr(plate, test_path)
-
-        # Verify that zarr.open_group was called without zarr_format parameter
-        mock_open_group.assert_called_once_with(test_path, mode="w")
-
-
-@patch("ngff_zarr.hcs.zarr.open_group")
-@patch("ngff_zarr.hcs.pkg_version.parse")
 @patch("ngff_zarr.hcs.to_ome_zarr")
-@patch("pathlib.Path.mkdir")
-def test_write_hcs_well_image_zarr_format_v04(
-    mock_mkdir,
-    mock_to_ngff_zarr,
-    mock_version_parse,
-    mock_open_group,
+@patch("ngff_zarr.hcs.create_zarrista_subgroup")
+def test_write_hcs_well_image_path_store_uses_zarrista(
+    mock_create_subgroup,
+    mock_to_ome_zarr,
     basic_plate_metadata,
     sample_multiscales,
 ):
-    """Test that write_hcs_well_image uses zarr format 2 for NGFF version 0.4."""
-    # Mock zarr-python version 3+
-    mock_version = MagicMock()
-    mock_version.major = 3
-    mock_version_parse.return_value = mock_version
-
-    # Mock the zarr group and its attributes
-    mock_group = MagicMock()
-    mock_group.attrs = {}
-    mock_open_group.return_value = mock_group
-
-    basic_plate_metadata.version = "0.4"
-
+    """Path stores dispatch well-group writes to the zarrista compat layer."""
     with tempfile.TemporaryDirectory() as tmpdir:
         store_path = str(Path(tmpdir) / "test_store")
 
-        # Call the function
-        write_hcs_well_image(
-            store=store_path,
-            multiscales=sample_multiscales,
-            plate_metadata=basic_plate_metadata,
-            row_name="A",
-            column_name="1",
-            field_index=0,
-            version="0.4",
-        )
-
-        # Verify that zarr.open_group was called with zarr_format=2
-        mock_open_group.assert_called_once_with(store_path, mode="a", zarr_format=2)
-
-
-@patch("ngff_zarr.hcs.zarr.open_group")
-@patch("ngff_zarr.hcs.pkg_version.parse")
-@patch("ngff_zarr.hcs.to_ome_zarr")
-@patch("pathlib.Path.mkdir")
-def test_write_hcs_well_image_zarr_format_v05(
-    mock_mkdir,
-    mock_to_ngff_zarr,
-    mock_version_parse,
-    mock_open_group,
-    basic_plate_metadata,
-    sample_multiscales,
-):
-    """Test that write_hcs_well_image uses zarr format 3 for NGFF version 0.5."""
-    # Mock zarr-python version 3+
-    mock_version = MagicMock()
-    mock_version.major = 3
-    mock_version_parse.return_value = mock_version
-
-    # Mock the zarr group and its attributes
-    mock_group = MagicMock()
-    mock_group.attrs = {}
-    mock_open_group.return_value = mock_group
-
-    basic_plate_metadata.version = "0.5"
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        store_path = str(Path(tmpdir) / "test_store")
-
-        # Call the function
         write_hcs_well_image(
             store=store_path,
             multiscales=sample_multiscales,
@@ -286,8 +163,13 @@ def test_write_hcs_well_image_zarr_format_v05(
             version="0.5",
         )
 
-        # Verify that zarr.open_group was called with zarr_format=3
-        mock_open_group.assert_called_once_with(store_path, mode="a", zarr_format=3)
+        args, _kwargs = mock_create_subgroup.call_args
+        assert args[0] == store_path
+        assert args[1] == "A/1"
+        assert args[2]["ome"]["well"]["images"][0]["path"] == "0"
+        assert args[3] == 3  # zarr format follows the NGFF version
+        # The root group was created through the compat layer (mode="a" style).
+        assert (Path(store_path) / "zarr.json").exists()
 
 
 def test_zarr_format_selection_logic():

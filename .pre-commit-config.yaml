@@ -14,7 +14,8 @@ repos:
     rev: "v4.6.0"
     hooks:
       - id: check-added-large-files
-        exclude: ^mcp/test/data/input/MR-head\.nrrd$
+        # Example notebooks are stored with their outputs, figures included.
+        exclude: ^(mcp/test/data/input/MR-head\.nrrd|py/examples/.*\.ipynb)$
       - id: check-case-conflict
       - id: check-symlinks
       - id: check-json
@@ -43,7 +44,8 @@ repos:
     rev: "v2.2.5"
     hooks:
       - id: codespell
-        exclude: ts/deno.lock
+        # Executed example notebooks embed base64 figures.
+        exclude: ^(ts/deno\.lock|py/examples/.*\.ipynb)$
 
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: "v0.9.0.5"

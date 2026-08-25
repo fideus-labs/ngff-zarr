@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/image.schema",
+  "$id": "https://ngff.openmicroscopy.org/0.6rc0/schemas/image.schema",
   "title": "Image",
   "description": "OME-Zarr image.",
   "type": "object",
@@ -16,7 +16,7 @@
           "$ref": "#/$defs/multiscales"
         },
         "version": {
-          "$ref": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/_version.schema"
+          "$ref": "https://ngff.openmicroscopy.org/0.6rc0/schemas/_version.schema"
         }
       },
       "required": [
@@ -56,14 +56,14 @@
                         "description": "A single scale transformation",
                         "allOf": [
                           {
-                            "$ref": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/coordinate_transformations.schema#/$defs/scale"
+                            "$ref": "https://ngff.openmicroscopy.org/0.6rc0/schemas/coordinate_transformations.schema#/$defs/scale"
                           },
                           {
                             "type": "object",
                             "properties": {
                               "input": {
                                 "allOf": [
-                                  {"$ref": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/coordinate_transformations.schema#/$defs/inputOutput"},
+                                  {"$ref": "https://ngff.openmicroscopy.org/0.6rc0/schemas/coordinate_transformations.schema#/$defs/inputOutput"},
                                   {
                                     "required": ["path"]
                                   }
@@ -71,7 +71,7 @@
                               },
                               "output": {
                                 "allOf": [
-                                  {"$ref": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/coordinate_transformations.schema#/$defs/inputOutput"},
+                                  {"$ref": "https://ngff.openmicroscopy.org/0.6rc0/schemas/coordinate_transformations.schema#/$defs/inputOutput"},
                                   {
                                     "required": ["name"]
                                   }
@@ -86,13 +86,13 @@
                       {
                         "description": "A single identity transformation",
                         "allOf": [
-                          {"$ref": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/coordinate_transformations.schema#/$defs/identity"},
+                          {"$ref": "https://ngff.openmicroscopy.org/0.6rc0/schemas/coordinate_transformations.schema#/$defs/identity"},
                           {
                             "type": "object",
                             "properties": {
                               "input": {
                                 "allOf": [
-                                  {"$ref": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/coordinate_transformations.schema#/$defs/inputOutput"},
+                                  {"$ref": "https://ngff.openmicroscopy.org/0.6rc0/schemas/coordinate_transformations.schema#/$defs/inputOutput"},
                                   {
                                     "required": ["path"]
                                   }
@@ -100,7 +100,7 @@
                               },
                               "output": {
                                 "allOf": [
-                                  {"$ref": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/coordinate_transformations.schema#/$defs/inputOutput"},
+                                  {"$ref": "https://ngff.openmicroscopy.org/0.6rc0/schemas/coordinate_transformations.schema#/$defs/inputOutput"},
                                   {
                                     "required": ["name"]
                                   }
@@ -121,8 +121,8 @@
                             "type": "array",
                             "items": {
                               "oneOf": [
-                                {"$ref": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/coordinate_transformations.schema#/$defs/scale"},
-                                {"$ref": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/coordinate_transformations.schema#/$defs/translation"}
+                                {"$ref": "https://ngff.openmicroscopy.org/0.6rc0/schemas/coordinate_transformations.schema#/$defs/scale"},
+                                {"$ref": "https://ngff.openmicroscopy.org/0.6rc0/schemas/coordinate_transformations.schema#/$defs/translation"}
                               ]
                             },
                             "minItems": 2,
@@ -130,7 +130,7 @@
                           },
                           "input": {
                             "allOf": [
-                              {"$ref": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/coordinate_transformations.schema#/$defs/inputOutput"},
+                              {"$ref": "https://ngff.openmicroscopy.org/0.6rc0/schemas/coordinate_transformations.schema#/$defs/inputOutput"},
                               {
                                 "required": ["path"]
                               }
@@ -138,7 +138,7 @@
                           },
                           "output": {
                             "allOf": [
-                              {"$ref": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/coordinate_transformations.schema#/$defs/inputOutput"},
+                              {"$ref": "https://ngff.openmicroscopy.org/0.6rc0/schemas/coordinate_transformations.schema#/$defs/inputOutput"},
                               {
                                 "required": ["name"]
                               }
@@ -165,7 +165,7 @@
             "type": "array",
             "minItems": 1,
             "items": {
-              "$ref": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/coordinate_systems.schema#/$defs/coordinateSystem"
+              "$ref": "https://ngff.openmicroscopy.org/0.6rc0/schemas/coordinate_systems.schema#/$defs/coordinateSystem"
             }
           },
           "coordinateTransformations": {
@@ -174,67 +174,31 @@
             "items": {
               "allOf": [
                 {
-                  "$ref": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/coordinate_transformations.schema#/$defs/coordinateTransformation",
+                  "$ref": "https://ngff.openmicroscopy.org/0.6rc0/schemas/coordinate_transformations.schema#/$defs/coordinateTransformation",
                   "description": "Parameters of any possible transform"
                 },
                 {
-                  "oneOf": [
-                    {
+                  "type": "object",
+                  "description": "Transformations between two named coordinate systems same metadata document or in a child labels group",
+                  "properties": {
+                    "input": {
                       "type": "object",
-                      "description": "Transformations between two coordinate systems referenced by name in the same metadata document",
                       "properties": {
-                        "input": {
-                          "type": "object",
-                          "properties": {
-                            "name": {"type": "string"}
-                          },
-                          "required": ["name"],
-                          "additionalProperties": false,
-                          "description": "Must reference a coordinate system defined in the same metadata document (path empty)"
-                        },
-                        "output": {
-                          "type": "object",
-                          "properties": {
-                            "name": {"type": "string"}
-                          },
-                          "required": ["name"],
-                          "additionalProperties": false,
-                          "description": "Must reference a coordinate system defined in the same metadata document (path empty)"
-                        }
+                        "name": {"type": "string"}
                       },
-                      "required": ["input", "output"]
+                      "required": ["name"],
+                      "description": "Reference to named coordinate system in the same metadata document (path empty) or in a child labels group (path to the labels group)"
                     },
-                    {
+                    "output": {
                       "type": "object",
-                      "description": "Transformations pointing from a coordinate system in the same metadata document to a coordinate system defined externally by a path to a multiscale dataset",
                       "properties": {
-                        "input": {
-                          "type": "object",
-                          "properties": {
-                            "name": {"type": "string"}
-                          },
-                          "required": ["name"],
-                          "additionalProperties": false
-                        },
-                        "output": {
-                          "type": "object",
-                          "properties": {
-                            "name": {"type": "string"},
-                            "path": {
-                              "type": "string",
-                              "description": "Allows only relative, downward paths to prevent referencing external metadata documents",
-                              "not": {
-                                "pattern": "^(\\.\\./|/)"
-                              }
-                            }
-                          },
-                          "required": ["name", "path"],
-                          "additionalProperties": false
-                        }
+                        "name": {"type": "string"}
                       },
-                      "required": ["input", "output"]
+                      "required": ["name"],
+                      "description": "Reference to named coordinate system in the same metadata document (path empty) or in a child labels group (path to the labels group)"
                     }
-                  ]
+                  },
+                  "required": ["input", "output"]
                 }
               ]
             }

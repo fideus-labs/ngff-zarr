@@ -8,10 +8,9 @@ import pytest
 from ngff_zarr import from_ngff_zarr, to_multiscales, to_ngff_image, to_ngff_zarr
 from ngff_zarr.ngff_image import NgffImage
 from ngff_zarr.rfc4 import LPS, RAS
-from zarr.storage import MemoryStore
 
 
-def test_rfc4_validation_integration_with_lps():
+def test_rfc4_validation_integration_with_lps(tmp_path):
     """Test RFC4 validation works with LPS coordinate system in a full workflow."""
     pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
 
@@ -31,7 +30,7 @@ def test_rfc4_validation_integration_with_lps():
 
     # Convert to multiscales and store to zarr
     multiscales = to_multiscales(ngff_image)
-    store = MemoryStore()
+    store = tmp_path / "test.ome.zarr"
     to_ngff_zarr(store, multiscales, version="0.4")
 
     # Read back with validation enabled - should pass (no validation errors)
@@ -40,7 +39,7 @@ def test_rfc4_validation_integration_with_lps():
     assert len(multiscales_back.images) == 1
 
 
-def test_rfc4_validation_integration_with_ras():
+def test_rfc4_validation_integration_with_ras(tmp_path):
     """Test RFC4 validation works with RAS coordinate system in a full workflow."""
     pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
 
@@ -60,7 +59,7 @@ def test_rfc4_validation_integration_with_ras():
 
     # Convert to multiscales and store to zarr
     multiscales = to_multiscales(ngff_image)
-    store = MemoryStore()
+    store = tmp_path / "test.ome.zarr"
     to_ngff_zarr(store, multiscales, version="0.4")
 
     # Read back with validation enabled - should pass (no validation errors)
@@ -69,7 +68,7 @@ def test_rfc4_validation_integration_with_ras():
     assert len(multiscales_back.images) == 1
 
 
-def test_rfc4_validation_integration_mixed_axes():
+def test_rfc4_validation_integration_mixed_axes(tmp_path):
     """Test RFC4 validation works with time and channel axes mixed in."""
     pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
 
@@ -89,7 +88,7 @@ def test_rfc4_validation_integration_mixed_axes():
 
     # Convert to multiscales and store to zarr
     multiscales = to_multiscales(ngff_image)
-    store = MemoryStore()
+    store = tmp_path / "test.ome.zarr"
     to_ngff_zarr(store, multiscales, version="0.4")
 
     # Read back with validation enabled - should pass (no validation errors)
@@ -98,7 +97,7 @@ def test_rfc4_validation_integration_mixed_axes():
     assert len(multiscales_back.images) == 1
 
 
-def test_rfc4_validation_no_orientation():
+def test_rfc4_validation_no_orientation(tmp_path):
     """Test that validation passes when no orientation metadata is present."""
     pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
 
@@ -117,7 +116,7 @@ def test_rfc4_validation_no_orientation():
 
     # Convert to multiscales and store to zarr
     multiscales = to_multiscales(ngff_image)
-    store = MemoryStore()
+    store = tmp_path / "test.ome.zarr"
     to_ngff_zarr(store, multiscales, version="0.4")
 
     # Read back with validation enabled - should pass (no orientation to validate)

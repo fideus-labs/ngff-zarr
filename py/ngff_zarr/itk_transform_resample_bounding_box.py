@@ -94,9 +94,9 @@ class ResampleBoundingBox:
         if self.is_empty:
             return None
         bounds = self.clamped()
-        translation = dict(moving.translation)
-        for dim, (start, _) in bounds.items():
-            translation[dim] = moving.translation[dim] + start * moving.scale[dim]
+        translation = _shifted_translation(
+            moving, {dim: start for dim, (start, _stop) in bounds.items()}
+        )
         return NgffImage(
             data=moving.data[self.slices(moving.dims)],
             dims=moving.dims,
@@ -205,6 +205,32 @@ def _check_region_contains_corners(result: dict, itk_dims: Sequence[str]) -> Non
                 "mismatch between the fixed and moving images."
             )
             raise ValueError(msg)
+
+
+def _shifted_translation(ngff_image: NgffImage, starts: dict) -> dict:
+    """Translation of the sub-grid of ``ngff_image`` that starts at ``starts``.
+
+    ITK places index ``i`` at ``origin + direction @ (i * spacing)`` and
+    :func:`ngff_image_to_itk_image` uses ``translation`` as the origin, so the
+    origin of a sub-grid is the translation moved by the index offset rotated
+    through the RFC-4 direction matrix. Dimensions with no orientation, and
+    non-spatial dimensions, move along their own axis.
+    """
+    translation = dict(ngff_image.translation)
+    spatial = _spatial_dims(ngff_image)
+    itk_dims = list(reversed(spatial))
+    direction = _itk_direction(ngff_image, itk_dims)
+    offset = direction @ np.array(
+        [starts.get(dim, 0) * ngff_image.scale[dim] for dim in itk_dims], dtype=float
+    )
+    for index, dim in enumerate(itk_dims):
+        translation[dim] = ngff_image.translation[dim] + float(offset[index])
+    for dim in ngff_image.dims:
+        if dim not in spatial and dim in starts:
+            translation[dim] = (
+                ngff_image.translation[dim] + starts[dim] * ngff_image.scale[dim]
+            )
+    return translation
 
 
 def _itk_direction(ngff_image: NgffImage, itk_dims: Sequence[str]) -> np.ndarray:

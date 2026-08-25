@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: MIT
 
 from .__about__ import __version__
-from ._supported_versions import SUPPORTED_VERSIONS
+from ._supported_versions import SUPPORTED_VERSIONS, V06_ONDISK_VERSION
 from .cli_input_to_ngff_image import cli_input_to_ngff_image
 from .codecs import codec_from_name, get_available_codecs
 from .compute_omero import (
@@ -24,6 +24,7 @@ from .hcs import (
     write_hcs_well_image,
 )
 from .itk_image_to_ngff_image import itk_image_to_ngff_image
+from .itk_transform_resample import itk_transform_resample
 from .itk_transform_resample_bounding_box import (
     ResampleBoundingBox,
     itk_transform_resample_bounding_box,
@@ -109,6 +110,7 @@ from .validate import validate
 __all__ = [
     "__version__",
     "SUPPORTED_VERSIONS",
+    "V06_ONDISK_VERSION",
     "config",
     # OMERO computation
     "compute_omero_from_ngff_image",
@@ -123,6 +125,7 @@ __all__ = [
     "extract_omero_metadata_from_nibabel",
     "ngff_image_to_itk_image",
     # Out-of-core resampling
+    "itk_transform_resample",
     "itk_transform_resample_bounding_box",
     "ResampleBoundingBox",
     "memory_usage",

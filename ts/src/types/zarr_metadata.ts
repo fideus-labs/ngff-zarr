@@ -129,19 +129,19 @@ export interface MapAxis {
 
 /**
  * One lower-dimensional transformation of a byDimension transform. The
- * `input_axes` and `output_axes` arrays hold zero-based axis indices into the
+ * `inputAxes` and `outputAxes` arrays hold zero-based axis indices into the
  * parent byDimension's input and output coordinate systems.
  */
 export interface ByDimensionItem {
   transformation: V06Transform;
-  input_axes: number[];
-  output_axes: number[];
+  inputAxes: number[];
+  outputAxes: number[];
 }
 
 /**
  * RFC 5 byDimension transformation (v0.6): a high dimensional transform built
  * from lower dimensional ones. Every axis index of the output coordinate
- * system appears in exactly one item's `output_axes`.
+ * system appears in exactly one item's `outputAxes`.
  */
 export interface ByDimension {
   transformations: ByDimensionItem[];
@@ -377,8 +377,8 @@ export function createByDimension(
   return {
     transformations: transformations.map((item) => ({
       transformation: item.transformation,
-      input_axes: [...item.input_axes],
-      output_axes: [...item.output_axes],
+      inputAxes: [...item.inputAxes],
+      outputAxes: [...item.outputAxes],
     })),
     type: "byDimension",
   };

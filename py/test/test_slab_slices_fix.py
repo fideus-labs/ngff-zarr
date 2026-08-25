@@ -24,6 +24,10 @@ zarr_version_major = packaging.version.parse(zarr.__version__).major
 
 ome_zarr_versions = ["0.4"] + (["0.5"] if zarr_version_major >= 3 else [])
 
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:use_tensorstore is deprecated:DeprecationWarning"
+)
+
 
 @pytest.mark.parametrize("ome_zarr_version", ome_zarr_versions)
 def test_slab_slices_regional_writing(ome_zarr_version):
@@ -50,7 +54,7 @@ def test_slab_slices_regional_writing(ome_zarr_version):
       - slice_planes    = False                            (PR #447 code path)
       - num_slabs       = ceil(32 / 16) = 2
     """
-    pytest.importorskip("tensorstore")
+    pytest.importorskip("zarrista")
 
     default_mem_target = config.memory_target
 
@@ -114,7 +118,7 @@ def test_slab_slices_with_non_divisible_shape(ome_zarr_version):
       - num_slabs       = ceil(20 / 8) = 3
       - slabs           = z[0:8], z[8:16], z[16:20]  (last is partial)
     """
-    pytest.importorskip("tensorstore")
+    pytest.importorskip("zarrista")
 
     default_mem_target = config.memory_target
 

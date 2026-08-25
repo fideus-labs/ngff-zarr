@@ -6,8 +6,8 @@ import re
 from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING, Literal, Union
 
+from .._store_types import StoreLike
 from .._supported_versions import NgffVersion
-from .._zarr_types import StoreLike
 
 # Import RFC 4 support
 from ..rfc4 import AnatomicalOrientation
@@ -421,9 +421,9 @@ class Metadata:
         import posixpath
         import sys
 
-        import dask.array
         import packaging.version
 
+        from .._zarrista_utils import open_lazy_array
         from ..ngff_image import NgffImage
         from ..parse_metadata import _parse_omero, _raw_axes
         from ..rfc4_validation import (
@@ -541,7 +541,7 @@ class Metadata:
             if subpath:
                 dataset_path = posixpath.join(subpath, dataset_path)
 
-            data = dask.array.from_zarr(store, component=dataset_path)
+            data = open_lazy_array(store, dataset_path)
             # Convert endianness to native if needed
             if (sys.byteorder == "little" and data.dtype.byteorder == ">") or (
                 sys.byteorder == "big" and data.dtype.byteorder == "<"

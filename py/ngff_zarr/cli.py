@@ -14,8 +14,6 @@ import sys
 from pathlib import Path
 
 import dask.utils
-import zarr
-import zarr.storage
 from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
@@ -31,12 +29,7 @@ from rich.progress import (
 from rich.spinner import Spinner
 from rich_argparse import RichHelpFormatter
 
-if hasattr(zarr.storage, "DirectoryStore"):
-    LocalStore = zarr.storage.DirectoryStore
-else:
-    LocalStore = zarr.storage.LocalStore
-
-from ._zarr_types import StoreLike
+from ._store_types import StoreLike
 from .cli_input_to_ngff_image import cli_input_to_ngff_image
 from .compute_omero import compute_omero_from_multiscales
 from .config import config
@@ -77,7 +70,7 @@ def _parse_storage_options(value: str) -> dict[str, object]:
 def _resolve_cli_input_store(
     input_path: str, storage_options: dict[str, object] | None
 ) -> tuple[StoreLike, dict[str, object] | None]:
-    """Apply CLI remote storage options across supported zarr versions."""
+    """Normalize a remote input URL and apply the CLI storage-option defaults."""
     scheme, separator, remainder = input_path.partition("://")
     normalized_scheme = f"{scheme.lower()}{separator}"
     if separator and normalized_scheme in _REMOTE_SCHEMES:
@@ -85,15 +78,6 @@ def _resolve_cli_input_store(
 
     if storage_options is None and input_path.startswith("s3://"):
         storage_options = {"anon": True}
-
-    is_remote = input_path.startswith(_REMOTE_SCHEMES)
-    if (
-        is_remote
-        and storage_options is not None
-        and not hasattr(zarr.storage, "FsspecStore")
-    ):
-        store = zarr.storage.FSStore(input_path, mode="r", **storage_options)
-        return store, None
 
     return input_path, storage_options
 
@@ -336,7 +320,7 @@ def _series_output_target(
         output_path = Path(args.output)
         base = str(output_path.parent / output_path.stem)
     derived = f"{base}_{series_name}.ome.zarr"
-    return LocalStore(derived), derived
+    return derived, derived
 
 
 def _multiscales_to_ngff_zarr(
@@ -359,10 +343,10 @@ def _multiscales_to_ngff_zarr(
             )
         return
     if args.use_tensorstore:
-        if hasattr(output_store, "root"):
-            output_store = output_store.root
-        else:
-            output_store = output_store.path
+        live.console.print(
+            "[yellow]Warning: --use-tensorstore is deprecated; "
+            "using the zarrista backend."
+        )
 
     codec_kwargs = {}
     if args.compression_level is not None and args.codec is None:
@@ -667,9 +651,10 @@ def _convert_main(argv: list[str] | None = None) -> None:
         type=_parse_storage_options,
         metavar="JSON",
         help=(
-            "JSON object of fsspec options for remote inputs, such as "
-            '\'{"anon": false, "requester_pays": true}\'. S3 inputs default '
-            "to anonymous access when this option is omitted."
+            "JSON object of storage options for remote inputs, such as "
+            '\'{"anon": false, "region_name": "us-west-2"}\'. fsspec-style '
+            "names are translated to their obstore equivalents. S3 inputs "
+            "default to anonymous access when this option is omitted."
         ),
     )
     processing_group.add_argument("--memory-target", help="Memory limit, e.g. 4GB")
@@ -679,7 +664,7 @@ def _convert_main(argv: list[str] | None = None) -> None:
     processing_group.add_argument(
         "--use-tensorstore",
         action="store_true",
-        help="Use the TensorStore library for I/O",
+        help="Deprecated: now uses the zarrista backend for I/O",
     )
     processing_group.add_argument(
         "--codec",
@@ -737,7 +722,7 @@ def _convert_main(argv: list[str] | None = None) -> None:
         cache_dir = Path(args.cache_dir).resolve()
         if not cache_dir.exists():
             Path.makedirs(cache_dir, parents=True)
-        config.cache_store = LocalStore(cache_dir)
+        config.cache_store = cache_dir
 
     console = _build_console()
     progress = RichProgress(
@@ -804,11 +789,8 @@ def _convert_main(argv: list[str] | None = None) -> None:
         )
     output_store = None
     if args.output and output_backend is ConversionBackend.NGFF_ZARR:
-        # Handle .ozx files - just pass the path, to_ngff_zarr will handle it
-        if args.output.endswith(".ozx"):
-            output_store = args.output
-        else:
-            output_store = LocalStore(args.output)
+        # Pass the path directly; to_ngff_zarr handles .ozx and directories.
+        output_store = args.output
 
     subtitle = "[red]generation"
     if not args.output:

@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from ._zarr_types import StoreLike
+from ._store_types import StoreLike
 from .methods import Methods
 from .ngff_image import NgffImage
 from .v04.zarr_metadata import Metadata as Metadata_v04

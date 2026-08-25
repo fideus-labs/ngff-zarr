@@ -88,6 +88,22 @@ export function buildV06MultiscalesEntry(
     metadata.coordinateTransformations &&
     metadata.coordinateTransformations.length > 0
   ) {
+    // From 0.6 a transform on the multiscales entry maps between two named
+    // coordinate systems, and the schema requires both `input` and `output`
+    // to name one. Serializing whatever the model holds would produce a store
+    // the validated reader rejects.
+    metadata.coordinateTransformations.forEach((transform, index) => {
+      for (const side of ["input", "output"] as const) {
+        if (transform[side]?.name === undefined) {
+          throw new Error(
+            `multiscales coordinateTransformations[${index}] ` +
+              `(${transform.type}) names no ${side} coordinate system; ` +
+              "OME-Zarr 0.6 requires every multiscale-level transformation " +
+              "to name both its input and its output coordinate system",
+          );
+        }
+      }
+    });
     entry.coordinateTransformations = metadata.coordinateTransformations.map(
       serializeV06Transform,
     );
@@ -157,8 +173,8 @@ export function serializeV06Transform(
     case "byDimension":
       out.transformations = transform.transformations.map((item) => ({
         transformation: serializeV06Transform(item.transformation),
-        input_axes: item.input_axes,
-        output_axes: item.output_axes,
+        inputAxes: item.inputAxes,
+        outputAxes: item.outputAxes,
       }));
       break;
     case "bijection":
@@ -264,7 +280,7 @@ function parseV06Transform(
           if (item === null || typeof item !== "object") {
             throw new Error(
               "Invalid byDimension transform: each item must be an object " +
-                "holding 'transformation', 'input_axes' and 'output_axes'",
+                "holding 'transformation', 'inputAxes' and 'outputAxes'",
             );
           }
           return {
@@ -273,8 +289,17 @@ function parseV06Transform(
               coordinateSystemNames,
               coordinateSystems,
             ),
-            input_axes: asIntegerArray(item.input_axes, "byDimension"),
-            output_axes: asIntegerArray(item.output_axes, "byDimension"),
+            // ngff-zarr 0.29.0 wrote these two keys in snake_case; the spec
+            // and the 0.6rc0 schema spell them inputAxes and outputAxes, which
+            // is what is written now. Both spellings are read.
+            inputAxes: asIntegerArray(
+              item.inputAxes ?? item.input_axes,
+              "byDimension",
+            ),
+            outputAxes: asIntegerArray(
+              item.outputAxes ?? item.output_axes,
+              "byDimension",
+            ),
           };
         },
       );
@@ -402,7 +427,7 @@ export function validateV06Transform(
     const inputCount = axisCount(transform.input, coordinateSystems);
     const seenOutputAxes = new Set<number>();
     for (const item of transform.transformations) {
-      const axes = [...item.input_axes, ...item.output_axes];
+      const axes = [...item.inputAxes, ...item.outputAxes];
       if (!axes.every((axis) => Number.isInteger(axis))) {
         throw new Error(
           `byDimension axis indices must be integers; got [${axes}]`,
@@ -415,14 +440,14 @@ export function validateV06Transform(
       }
       if (
         inputCount !== undefined &&
-        item.input_axes.some((axis) => axis >= inputCount)
+        item.inputAxes.some((axis) => axis >= inputCount)
       ) {
         throw new Error(
-          `byDimension input axes [${item.input_axes}] exceed the ` +
+          `byDimension input axes [${item.inputAxes}] exceed the ` +
             `${inputCount} axes of coordinate system '${transform.input?.name}'`,
         );
       }
-      for (const axis of item.output_axes) {
+      for (const axis of item.outputAxes) {
         if (seenOutputAxes.has(axis)) {
           throw new Error(
             "byDimension output axes must each be produced by exactly one " +
@@ -434,13 +459,13 @@ export function validateV06Transform(
       const dimensions = itemDimensions(item.transformation);
       if (
         dimensions !== undefined &&
-        (item.input_axes.length !== dimensions ||
-          item.output_axes.length !== dimensions)
+        (item.inputAxes.length !== dimensions ||
+          item.outputAxes.length !== dimensions)
       ) {
         throw new Error(
           `byDimension item of type '${item.transformation.type}' is ` +
-            `${dimensions}-dimensional but maps ${item.input_axes.length} ` +
-            `input axes to ${item.output_axes.length} output axes`,
+            `${dimensions}-dimensional but maps ${item.inputAxes.length} ` +
+            `input axes to ${item.outputAxes.length} output axes`,
         );
       }
     }

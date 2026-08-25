@@ -1,11 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+import copy
+import warnings
 from abc import ABC
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Union
 
-from .._supported_versions import NgffVersion
-from .._zarr_types import StoreLike
+from .._store_types import StoreLike
+from .._supported_versions import (
+    V06_ONDISK_VERSION,
+    V06_SUPERSEDED_TAGS,
+    NgffVersion,
+)
 from ..rfc4 import AnatomicalOrientation
 from ..v04.zarr_metadata import (
     AxesType as AxesTypeV04,
@@ -241,57 +247,67 @@ def _item_dimensions(transformation: "Transform") -> int | None:
     return None
 
 
+_BY_DIMENSION_LEGACY_KEYS = {"input_axes": "inputAxes", "output_axes": "outputAxes"}
+
+
 @dataclass
 class ByDimensionItem:
     """One lower-dimensional transformation of a byDimension transform.
 
-    ``input_axes`` and ``output_axes`` hold zero-based axis indices into the
+    ``inputAxes`` and ``outputAxes`` hold zero-based axis indices into the
     parent byDimension's input and output coordinate systems.
     """
 
     transformation: Transform
-    input_axes: list[int]
-    output_axes: list[int]
+    inputAxes: list[int]
+    outputAxes: list[int]
 
     def __post_init__(self) -> None:
         self._check_intrinsic()
 
     def _check_intrinsic(self) -> None:
-        axes = list(self.input_axes) + list(self.output_axes)
+        axes = list(self.inputAxes) + list(self.outputAxes)
         _require_integer_axes(axes, "byDimension")
         if any(axis < 0 for axis in axes):
             raise ValueError(
                 f"byDimension axis indices must be non-negative; got {axes}"
             )
-        if len(set(self.output_axes)) != len(self.output_axes):
+        if len(set(self.outputAxes)) != len(self.outputAxes):
             raise ValueError(
                 "byDimension output axes must each be produced by exactly "
-                f"one transformation; {self.output_axes} repeats an axis"
+                f"one transformation; {self.outputAxes} repeats an axis"
             )
         dimensions = _item_dimensions(self.transformation)
         if dimensions is not None and (
-            len(self.input_axes) != dimensions or len(self.output_axes) != dimensions
+            len(self.inputAxes) != dimensions or len(self.outputAxes) != dimensions
         ):
             raise ValueError(
                 f"byDimension item of type '{self.transformation.type}' is "
-                f"{dimensions}-dimensional but maps {len(self.input_axes)} "
-                f"input axes to {len(self.output_axes)} output axes"
+                f"{dimensions}-dimensional but maps {len(self.inputAxes)} "
+                f"input axes to {len(self.outputAxes)} output axes"
             )
 
     @classmethod
     def from_dict(
         cls, data: dict, coordinateSystems: list[CoordinateSystem] | None = None
     ) -> "ByDimensionItem":
+        # ngff-zarr 0.43.0 wrote these two keys in snake_case; the spec and the
+        # 0.6rc0 schema spell them inputAxes and outputAxes, which is what is
+        # written now. Both spellings are read, the spec one taking precedence
+        # when a document carries both.
+        for legacy, canonical in _BY_DIMENSION_LEGACY_KEYS.items():
+            if legacy in data and canonical not in data:
+                data = {**data, canonical: data[legacy]}
         _require_keys(
-            data, ("transformation", "input_axes", "output_axes"), "byDimension item"
+            data, ("transformation", "inputAxes", "outputAxes"), "byDimension item"
         )
         (transformation,) = Metadata._parse_transforms(
             [data["transformation"]], coordinateSystems or []
         )
         return cls(
             transformation=transformation,
-            input_axes=list(data["input_axes"]),
-            output_axes=list(data["output_axes"]),
+            inputAxes=list(data["inputAxes"]),
+            outputAxes=list(data["outputAxes"]),
         )
 
 
@@ -300,7 +316,7 @@ class ByDimension(BaseTransform):
     """A high dimensional transform built from lower dimensional ones.
 
     Every axis index of the output coordinate system appears in exactly one
-    item's ``output_axes``.
+    item's ``outputAxes``.
     """
 
     transformations: list[ByDimensionItem]
@@ -310,23 +326,23 @@ class ByDimension(BaseTransform):
         self._check_intrinsic()
 
     def _check_intrinsic(self) -> None:
-        seen_output_axes: set[int] = set()
+        seen_outputAxes: set[int] = set()
         for item in self.transformations:
-            duplicated = seen_output_axes.intersection(item.output_axes)
+            duplicated = seen_outputAxes.intersection(item.outputAxes)
             if duplicated:
                 raise ValueError(
                     "byDimension output axes must each be produced by exactly "
                     f"one transformation; axis {sorted(duplicated)} appears "
                     "more than once"
                 )
-            seen_output_axes.update(item.output_axes)
+            seen_outputAxes.update(item.outputAxes)
 
     @property
-    def produced_output_axes(self) -> set[int]:
+    def produced_outputAxes(self) -> set[int]:
         """The output axis indices the items produce, taken together."""
         axes: set[int] = set()
         for item in self.transformations:
-            axes.update(item.output_axes)
+            axes.update(item.outputAxes)
         return axes
 
     def validate(self, coordinateSystems: list[CoordinateSystem] | None = None) -> None:
@@ -337,15 +353,15 @@ class ByDimension(BaseTransform):
         input_count = _resolved_axis_count(self.input, coordinateSystems)
         if input_count is not None:
             for item in self.transformations:
-                if any(axis >= input_count for axis in item.input_axes):
+                if any(axis >= input_count for axis in item.inputAxes):
                     raise ValueError(
-                        f"byDimension input axes {item.input_axes} exceed the "
+                        f"byDimension input axes {item.inputAxes} exceed the "
                         f"{input_count} axes of coordinate system "
                         f"'{self.input.name}'"
                     )
         output_count = _resolved_axis_count(self.output, coordinateSystems)
         if output_count is not None:
-            produced = self.produced_output_axes
+            produced = self.produced_outputAxes
             if produced != set(range(output_count)):
                 raise ValueError(
                     "byDimension items must cover every output axis exactly "
@@ -484,6 +500,17 @@ class Metadata:
 
         # find the cs in the list of coordinate systems with the same name as the output
         return next(cs for cs in self.coordinateSystems if cs.name == output_cs[0].name)
+
+    @property
+    def axes(self) -> list[Axis]:
+        """The intrinsic coordinate system's axes.
+
+        A property, not a field, so ``dataclasses.asdict`` and
+        ``dataclasses.fields`` ignore it and the serialized entry is unchanged.
+        The axis rules in :mod:`ngff_zarr.structural_validation` read
+        ``metadata.axes``.
+        """
+        return self.intrinsic_coordinate_system.axes
 
     def to_version(
         self, version: Union[str, NgffVersion]
@@ -658,8 +685,7 @@ class Metadata:
         import posixpath
         import sys
 
-        import dask.array
-
+        from .._zarrista_utils import open_lazy_array
         from ..ngff_image import NgffImage
         from ..parse_metadata import _parse_omero, _raw_axes
         from ..rfc4_validation import (
@@ -676,15 +702,34 @@ class Metadata:
 
         if validate:
             # From 0.6 the version is recorded on the ``ome`` namespace rather
-            # than on each multiscales entry, and it is the pre-release string
-            # ("0.6.dev4") that the bundled 0.6 schemas are tagged with. The
-            # per-entry value is the fallback, as on the v0.4 read path.
+            # than on each multiscales entry, as the pre-release string the
+            # store was written with. The per-entry value is the fallback, as
+            # on the v0.4 read path.
             schema_version = str(
                 root_attrs["ome"].get("version")
                 or root_attrs["ome"]["multiscales"][0].get("version")
                 or "0.6"
             )
-            validate_ngff(root_attrs, version=schema_version)
+            schema_attrs = root_attrs
+            if schema_version in V06_SUPERSEDED_TAGS:
+                # The bundled 0.6 schemas accept one tag, the pre-release they
+                # were published with. A store tagged with one an earlier
+                # release wrote differs from a valid store in that string
+                # alone, so the rest of the document is validated with the tag
+                # substituted, and the substitution is reported:
+                # ``upgrade_ome_zarr`` rewrites the tag in place.
+                warnings.warn(
+                    f"OME-Zarr store carries the superseded 0.6 pre-release tag "
+                    f"{schema_version!r}; the bundled schemas are tagged "
+                    f"{V06_ONDISK_VERSION.value!r}. Validating the rest of the "
+                    "document against them. upgrade_ome_zarr(store, "
+                    "version='0.6') rewrites the tag.",
+                    stacklevel=2,
+                )
+                schema_attrs = copy.deepcopy(root_attrs)
+                schema_attrs["ome"]["version"] = V06_ONDISK_VERSION.value
+                schema_version = V06_ONDISK_VERSION.value
+            validate_ngff(schema_attrs, version=schema_version)
 
             # RFC 4 validation for anatomical orientation. From v0.6 the axes
             # live in the intrinsic coordinate system, so they are read through
@@ -719,7 +764,7 @@ class Metadata:
             dataset_path = dataset["path"]
             if subpath:
                 dataset_path = posixpath.join(subpath, dataset_path)
-            data = dask.array.from_zarr(store, component=dataset_path)
+            data = open_lazy_array(store, dataset_path)
             # Convert endianness to native if needed
             if (sys.byteorder == "little" and data.dtype.byteorder == ">") or (
                 sys.byteorder == "big" and data.dtype.byteorder == "<"

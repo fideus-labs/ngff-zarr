@@ -231,6 +231,17 @@ This approach ensures:
 - Optimal chunk sizes for the output format
 - Compatibility with OME-Zarr viewers
 
+## Read Chunking
+
+TIFF files are read lazily from TIFF page primitives (no zarr-python
+involved): each dask chunk decodes one stored page, i.e. one 2D plane. For
+multi-page files (z-stacks, time series, channels) this yields natural
+per-plane chunking. For a very large *single-page* tiled image -- such as
+some whole-slide images -- the entire page is read as one chunk, so peak
+memory during conversion scales with the page size rather than the tile
+size. Output chunking is independent and controlled by the `chunks`
+argument of `to_multiscales()`.
+
 ## Common Issues and Troubleshooting
 
 ### Corrupted or Malformed TIFF Files

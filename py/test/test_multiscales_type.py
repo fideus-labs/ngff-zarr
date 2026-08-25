@@ -11,7 +11,6 @@ from ngff_zarr import (
     to_ngff_zarr,
 )
 from packaging import version
-from zarr.storage import MemoryStore
 
 zarr_version = version.parse(zarr.__version__)
 
@@ -21,7 +20,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_multiscales_type_roundtrip():
+def test_multiscales_type_roundtrip(tmp_path):
     """Test that multiscales type field is preserved during write/read roundtrip."""
     # Create test data
     data = np.random.randint(0, 256, (32, 64, 64)).astype(np.uint8)
@@ -43,7 +42,7 @@ def test_multiscales_type_roundtrip():
         assert multiscales.method == method
 
         # Write to zarr
-        store = MemoryStore()
+        store = tmp_path / f"{method.value}.ome.zarr"
         to_ngff_zarr(store, multiscales)
 
         # Read back from zarr
@@ -56,7 +55,7 @@ def test_multiscales_type_roundtrip():
         assert loaded_multiscales.metadata.type == method.value
 
 
-def test_multiscales_type_in_metadata():
+def test_multiscales_type_in_metadata(tmp_path):
     """Test that the type field appears correctly in the multiscales metadata."""
     # Create test data
     data = np.random.randint(0, 256, (16, 32, 32)).astype(np.uint8)
@@ -68,7 +67,7 @@ def test_multiscales_type_in_metadata():
     )
 
     # Write to zarr
-    store = MemoryStore()
+    store = tmp_path / "test.ome.zarr"
     to_ngff_zarr(store, multiscales)
 
     # Check the raw metadata contains the type field
@@ -85,7 +84,7 @@ def test_multiscales_type_in_metadata():
     assert metadata["type"] == "itkwasm_gaussian"
 
 
-def test_multiscales_type_none():
+def test_multiscales_type_none(tmp_path):
     """Test behavior when no method is specified."""
     # Create test data
     data = np.random.randint(0, 256, (16, 32, 32)).astype(np.uint8)
@@ -95,7 +94,7 @@ def test_multiscales_type_none():
     multiscales = to_multiscales(image, scale_factors=[2])
 
     # Write to zarr
-    store = MemoryStore()
+    store = tmp_path / "test.ome.zarr"
     to_ngff_zarr(store, multiscales)
 
     # Read back from zarr
@@ -106,7 +105,7 @@ def test_multiscales_type_none():
     assert loaded_multiscales.metadata.type == "itkwasm_gaussian"
 
 
-def test_legacy_zarr_without_type():
+def test_legacy_zarr_without_type(tmp_path):
     """Test reading zarr files that don't have the type field (backward compatibility)."""
     # Create test data
     data = np.random.randint(0, 256, (16, 32, 32)).astype(np.uint8)
@@ -114,7 +113,7 @@ def test_legacy_zarr_without_type():
     multiscales = to_multiscales(image, scale_factors=[2])
 
     # Write to zarr
-    store = MemoryStore()
+    store = tmp_path / "test.ome.zarr"
     to_ngff_zarr(store, multiscales)
 
     # Manually remove the type field to simulate legacy data
