@@ -4,7 +4,7 @@
 /**
  * RFC-5 to ITK transform bridge and resample bounding box tests.
  *
- * Mirrors `py/test/test_itk_transform_resample_bounding_box.py`. The expected
+ * Mirrors `py/test/test_resample_bounding_box.py`. The expected
  * regions are not taken from the pipeline itself: they come either from the
  * worked examples in the ITK-Wasm `resample-bounding-box` documentation, or
  * from `oracleRegion` below, which recomputes the region from first principles
@@ -28,13 +28,13 @@ import {
   createTransformSequence,
   createTranslation,
   itkDisplacementFieldToNgffTransform,
-  itkTransformResampleBoundingBox,
   itkTransformToNgffTransform,
   NgffImage,
   ngffTransformToItkTransform,
+  resampleBoundingBox,
 } from "../src/mod.ts";
 import { ngffTransformToItkMatrix } from "../src/utils/ngff_transform_to_itk_transform.ts";
-import { resampleBoundingBoxShared } from "../src/io/itk_transform_resample_bounding_box-shared.ts";
+import { resampleBoundingBoxShared } from "../src/io/resample_bounding_box-shared.ts";
 import { RAS } from "../src/types/rfc4.ts";
 import type { AnatomicalOrientation } from "../src/types/rfc4.ts";
 
@@ -174,7 +174,7 @@ Deno.test("an NGFF translation reproduces the documented 2D example", async () =
     x: 1,
   }, { y: 0, x: 0 });
 
-  const boundingBox = await itkTransformResampleBoundingBox(
+  const boundingBox = await resampleBoundingBox(
     createTranslation([5, 10]),
     fixed,
     moving,
@@ -200,7 +200,7 @@ Deno.test("padding is applied symmetrically", async () => {
   }, { y: 0, x: 0 });
   const transform = createTranslation([5, 10]);
 
-  const padded = await itkTransformResampleBoundingBox(
+  const padded = await resampleBoundingBox(
     transform,
     fixed,
     moving,
@@ -208,7 +208,7 @@ Deno.test("padding is applied symmetrically", async () => {
       padding: 1,
     },
   );
-  const tight = await itkTransformResampleBoundingBox(
+  const tight = await resampleBoundingBox(
     transform,
     fixed,
     moving,
@@ -244,7 +244,7 @@ Deno.test("an asymmetric 3D NGFF affine matches the oracle", async () => {
   const offset = [4, -6, 11];
   const affine = matrix.map((row, i) => [...row, offset[i]]);
 
-  const boundingBox = await itkTransformResampleBoundingBox(
+  const boundingBox = await resampleBoundingBox(
     createAffine(affine),
     fixed,
     moving,
@@ -325,7 +325,7 @@ Deno.test("sequence order survives the whole pipeline", async () => {
     x: 1,
   }, { y: 0, x: 0 });
 
-  const region = await itkTransformResampleBoundingBox(
+  const region = await resampleBoundingBox(
     createTransformSequence([
       createTranslation([0, 10]),
       createScale([1, 2]),
@@ -417,7 +417,7 @@ Deno.test("mismatched spatial dims are rejected", async () => {
   }, { y: 0, x: 0 });
 
   await assertRejects(
-    () => itkTransformResampleBoundingBox(identity(2), fixed, moving),
+    () => resampleBoundingBox(identity(2), fixed, moving),
     Error,
     "they must match",
   );
@@ -459,7 +459,7 @@ Deno.test("pixel data is never read", async () => {
     computedCallbacks: undefined,
   });
 
-  const boundingBox = await itkTransformResampleBoundingBox(
+  const boundingBox = await resampleBoundingBox(
     identity(2),
     image,
     image,
@@ -492,7 +492,7 @@ Deno.test("non-spatial axes are passed through", async () => {
     { t: 0, c: 0, z: 0, y: 0, x: 0 },
   );
 
-  const boundingBox = await itkTransformResampleBoundingBox(
+  const boundingBox = await resampleBoundingBox(
     itkTranslation([3, 2, 1]),
     fixed,
     moving,
@@ -520,7 +520,7 @@ Deno.test("a region outside the moving image is empty", async () => {
     x: 1,
   }, { y: 0, x: 0 });
 
-  const boundingBox = await itkTransformResampleBoundingBox(
+  const boundingBox = await resampleBoundingBox(
     itkTranslation([1000, 1000]),
     fixed,
     moving,
@@ -540,7 +540,7 @@ Deno.test("a negative start index is clamped, not wrapped", async () => {
     x: 1,
   }, { y: 0, x: 0 });
 
-  const boundingBox = await itkTransformResampleBoundingBox(
+  const boundingBox = await resampleBoundingBox(
     identity(2),
     fixed,
     moving,
@@ -562,7 +562,7 @@ Deno.test("the cropped translation shifts by start * scale", async () => {
     x: 2,
   }, { y: 0, x: 0 });
 
-  const boundingBox = await itkTransformResampleBoundingBox(
+  const boundingBox = await resampleBoundingBox(
     itkTranslation([0, 0]),
     fixed,
     moving,
@@ -581,7 +581,7 @@ Deno.test("the cropped translation shifts by start * scale", async () => {
 
 Deno.test("RAS orientation yields a non-identity direction", async () => {
   const { itkDirection } = await import(
-    "../src/io/itk_transform_resample_bounding_box-shared.ts"
+    "../src/io/resample_bounding_box-shared.ts"
   );
   const image = await geometryImage(
     ["z", "y", "x"],
@@ -596,7 +596,7 @@ Deno.test("RAS orientation yields a non-identity direction", async () => {
 
 Deno.test("a 3D-only orientation on a 2D image falls back to identity", async () => {
   const { itkDirection } = await import(
-    "../src/io/itk_transform_resample_bounding_box-shared.ts"
+    "../src/io/resample_bounding_box-shared.ts"
   );
   const { AnatomicalOrientationValues, createAnatomicalOrientation } =
     await import("../src/types/rfc4.ts");
@@ -634,7 +634,7 @@ Deno.test("an index range overflow is reported, not silently empty", async () =>
 
   await assertRejects(
     () =>
-      itkTransformResampleBoundingBox(identity(2), fixed, moving, {
+      resampleBoundingBox(identity(2), fixed, moving, {
         padding: 1,
       }),
     Error,
@@ -650,7 +650,7 @@ Deno.test("padding that is not a non-negative integer is rejected", async () => 
   for (const padding of [-1, 1.5, NaN, Infinity]) {
     await assertRejects(
       () =>
-        itkTransformResampleBoundingBox(identity(2), fixed, fixed, {
+        resampleBoundingBox(identity(2), fixed, fixed, {
           padding,
         }),
       Error,
@@ -662,7 +662,7 @@ Deno.test("padding that is not a non-negative integer is rejected", async () => 
 Deno.test("unsupported spatial dimensionality is rejected", async () => {
   const fixed = await geometryImage(["x"], { x: 8 }, { x: 1 }, { x: 0 });
   await assertRejects(
-    () => itkTransformResampleBoundingBox(identity(2), fixed, fixed),
+    () => resampleBoundingBox(identity(2), fixed, fixed),
     Error,
     "only 2 and 3 are supported",
   );
@@ -686,7 +686,7 @@ Deno.test("a missing scale entry is rejected rather than defaulted", async () =>
   });
 
   await assertRejects(
-    () => itkTransformResampleBoundingBox(identity(2), partial, fixed),
+    () => resampleBoundingBox(identity(2), partial, fixed),
     Error,
     "no entry for dimension 'x'",
   );
@@ -698,7 +698,7 @@ Deno.test("a non-finite scale is rejected", async () => {
     x: NaN,
   }, { y: 0, x: 0 });
   await assertRejects(
-    () => itkTransformResampleBoundingBox(identity(2), fixed, fixed),
+    () => resampleBoundingBox(identity(2), fixed, fixed),
     Error,
     "must be finite",
   );
@@ -710,7 +710,7 @@ Deno.test("a zero scale is rejected", async () => {
     x: 0,
   }, { y: 0, x: 0 });
   await assertRejects(
-    () => itkTransformResampleBoundingBox(identity(2), fixed, fixed),
+    () => resampleBoundingBox(identity(2), fixed, fixed),
     Error,
     "scale for dimension 'x' is zero",
   );
@@ -726,7 +726,7 @@ Deno.test("a degenerate fixed grid yields an empty region", async () => {
     x: 1,
   }, { y: 0, x: 0 });
 
-  const boundingBox = await itkTransformResampleBoundingBox(
+  const boundingBox = await resampleBoundingBox(
     identity(2),
     fixed,
     moving,
@@ -761,13 +761,13 @@ Deno.test("the RFC-5 branch ignores anatomical orientation", async () => {
 
   const plainImages = await geometry(false);
   const orientedImages = await geometry(true);
-  const plain = await itkTransformResampleBoundingBox(
+  const plain = await resampleBoundingBox(
     transform,
     plainImages.fixed,
     plainImages.moving,
     { padding: 0 },
   );
-  const oriented = await itkTransformResampleBoundingBox(
+  const oriented = await resampleBoundingBox(
     transform,
     orientedImages.fixed,
     orientedImages.moving,
@@ -831,13 +831,13 @@ Deno.test("an RFC-5 displacements transform reaches the same region", async () =
     x: 1,
   }, { y: 0, x: 0 });
 
-  const viaItk = await itkTransformResampleBoundingBox([warp], fixed, moving);
+  const viaItk = await resampleBoundingBox([warp], fixed, moving);
   const { transform, field } = await itkDisplacementFieldToNgffTransform(
     warp,
     ["y", "x"],
     { path: "warp" },
   );
-  const viaRfc5 = await itkTransformResampleBoundingBox(
+  const viaRfc5 = await resampleBoundingBox(
     transform,
     fixed,
     moving,
@@ -849,7 +849,7 @@ Deno.test("an RFC-5 displacements transform reaches the same region", async () =
 
   // Without the field there is nothing to convert, and the message says so.
   await assertRejects(
-    () => itkTransformResampleBoundingBox(transform, fixed, moving),
+    () => resampleBoundingBox(transform, fixed, moving),
     Error,
     "no field was passed",
   );
@@ -909,7 +909,7 @@ Deno.test("converting with frames matches the ITK path on oriented images", asyn
     // deno-lint-ignore no-explicit-any
   } as any];
 
-  const viaItk = await itkTransformResampleBoundingBox(
+  const viaItk = await resampleBoundingBox(
     transform,
     fixed,
     moving,
@@ -926,7 +926,7 @@ Deno.test("converting with frames matches the ITK path on oriented images", asyn
       moving,
     },
   );
-  const viaRfc5 = await itkTransformResampleBoundingBox(
+  const viaRfc5 = await resampleBoundingBox(
     converted,
     fixed,
     moving,
@@ -1043,7 +1043,7 @@ Deno.test("an ITK-Wasm transform list is accepted", async () => {
     metadata: new Map(),
   }];
 
-  const boundingBox = await itkTransformResampleBoundingBox(
+  const boundingBox = await resampleBoundingBox(
     transformList as never,
     fixed,
     moving,
@@ -1072,7 +1072,7 @@ Deno.test("an asymmetric 3D affine matches the oracle", () => {
       x: 0.25,
     }, { z: -5, y: 7, x: 3 });
 
-    const boundingBox = await itkTransformResampleBoundingBox(
+    const boundingBox = await resampleBoundingBox(
       itkAffine(reversed(matrix), [...offset].reverse()),
       fixed,
       moving,

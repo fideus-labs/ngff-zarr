@@ -438,8 +438,8 @@ def ngff_displacement_field_to_itk_transform(
     from itkwasm import FloatTypes, TransformParameterizations, TransformType
     from itkwasm import Transform as ItkWasmTransform
 
-    from .itk_transform_resample_bounding_box import _itk_direction
     from .itk_transform_to_ngff_transform import _itk_axis_order
+    from .resample_bounding_box import _itk_direction
 
     dims = _check_dims(dims)
     if hasattr(field, "images") and hasattr(field, "metadata"):
@@ -500,7 +500,7 @@ def ngff_displacement_field_to_itk_transform(
             msg = (
                 "the field carries an anatomical orientation, so its grid "
                 "cannot be placed in ITK physical space on its own; pass the "
-                "fixed and moving images. itk_transform_resample_bounding_box "
+                "fixed and moving images. resample_bounding_box "
                 "has no place for them, because its RFC-5 branch works on the "
                 "intrinsic systems where no orientation applies: call "
                 "ngff_transform_to_itk_transform with both images yourself and "

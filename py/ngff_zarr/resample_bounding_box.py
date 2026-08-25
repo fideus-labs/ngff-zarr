@@ -388,7 +388,7 @@ def _transform_from_dict(entry: dict):
     return ItkTransform(**entry)
 
 
-def itk_transform_resample_bounding_box(
+def resample_bounding_box(
     transform,
     fixed: NgffImage,
     moving: NgffImage,
@@ -458,7 +458,7 @@ def itk_transform_resample_bounding_box(
         the region spans more than the index range the pipeline can represent.
     :raises NotImplementedError: If the RFC-5 transformation is not linear.
     """
-    from itkwasm_downsample import resample_bounding_box
+    from itkwasm_downsample import resample_bounding_box as itkwasm_bounding_box
 
     if not isinstance(padding, int) or isinstance(padding, bool) or padding < 0:
         msg = f"padding must be a non-negative integer, got {padding!r}"
@@ -525,7 +525,7 @@ def itk_transform_resample_bounding_box(
         fixed_direction = _itk_direction(fixed, itk_dims)
         moving_direction = _itk_direction(moving, itk_dims)
 
-    result = resample_bounding_box(
+    result = itkwasm_bounding_box(
         transform_list,
         _metadata_only_itk_image(fixed, itk_dims, fixed_direction),
         _metadata_only_itk_image(moving, itk_dims, moving_direction),

@@ -6,16 +6,16 @@ import functools
 
 import numpy as np
 
-from .itk_transform_resample_bounding_box import (
+from .ngff_image import NgffImage
+from .resample_bounding_box import (
     _as_itk_transform_list,
     _check_geometry,
     _itk_direction,
     _metadata_only_itk_image,
     _shifted_translation,
     _spatial_dims,
-    itk_transform_resample_bounding_box,
+    resample_bounding_box,
 )
-from .ngff_image import NgffImage
 
 _INTERPOLATORS = (
     "linear",
@@ -207,7 +207,7 @@ def _resample_block(
     return np.asarray(resampled.data).reshape(grid_shape).astype(out_dtype, copy=False)
 
 
-def itk_transform_resample(
+def resample(
     transform,
     fixed: NgffImage,
     moving: NgffImage,
@@ -220,7 +220,7 @@ def itk_transform_resample(
     The result is a lazy :class:`NgffImage`: nothing is read or computed until
     the returned Dask array is. Each output block is resampled on its own from
     the moving chunks inside the region its resample reads, as reported by
-    :func:`ngff_zarr.itk_transform_resample_bounding_box`. The regions are
+    :func:`ngff_zarr.resample_bounding_box`. The regions are
     computed once, when the graph is built, and the blocks are tasks of a
     single Dask graph that reference the moving chunks directly, so a chunk
     that several blocks need is read and decoded once per computation. The
@@ -353,9 +353,7 @@ def itk_transform_resample(
         }
         shape = tuple(int(out_chunks[axis][index[axis]]) for axis in range(len(index)))
         grid = _block_grid(fixed, starts, shape)
-        region = itk_transform_resample_bounding_box(
-            transform_list, grid, moving, padding=padding
-        )
+        region = resample_bounding_box(transform_list, grid, moving, padding=padding)
         if region.is_empty:
             graph[(name, *index)] = (np.full, shape, default_value, dtype)
             continue

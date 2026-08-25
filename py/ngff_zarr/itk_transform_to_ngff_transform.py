@@ -519,7 +519,7 @@ class _FrameGeometry(NamedTuple):
 
 def _frame_geometry(fixed, moving, itk_dims) -> _FrameGeometry:
     """The geometry ``ngff_image_to_itk_image`` gives the two images."""
-    from .itk_transform_resample_bounding_box import _itk_direction
+    from .resample_bounding_box import _itk_direction
 
     return _FrameGeometry(
         _itk_direction(fixed, itk_dims),

@@ -239,7 +239,7 @@ def _frame_image(size, spacing, origin, orientations):
 
 def _phi(image, point_itk, itk_dims):
     """An image's intrinsic point to ITK physical space, ``D (q - o) + o``."""
-    from ngff_zarr.itk_transform_resample_bounding_box import _itk_direction
+    from ngff_zarr.resample_bounding_box import _itk_direction
 
     direction = _itk_direction(image, itk_dims)
     origin = np.array([image.translation[dim] for dim in itk_dims])
@@ -257,7 +257,7 @@ def test_frames_are_applied_point_by_point(moving_orientation):
     moving = _frame_image(
         size, spacing, (1.0, 1.0, 1.0), RAS if moving_orientation == "same" else None
     )
-    from ngff_zarr.itk_transform_resample_bounding_box import _itk_direction
+    from ngff_zarr.resample_bounding_box import _itk_direction
 
     direction_in = _itk_direction(fixed, itk_dims)
     assert not np.allclose(direction_in, np.eye(3))
@@ -321,7 +321,7 @@ def test_an_oriented_field_needs_its_images_to_reach_physical_space():
     """
     size, spacing, origin = (4, 3, 5), (1.0, 1.0, 1.0), (0.0, 0.0, 0.0)
     fixed = _frame_image(size, spacing, origin, RAS)
-    from ngff_zarr.itk_transform_resample_bounding_box import _itk_direction
+    from ngff_zarr.resample_bounding_box import _itk_direction
 
     original = _field_transform(
         size, spacing, origin, direction=_itk_direction(fixed, ["x", "y", "z"])
@@ -331,7 +331,7 @@ def test_an_oriented_field_needs_its_images_to_reach_physical_space():
     )
     assert field.axes_orientations == RAS
 
-    with pytest.raises(ValueError, match="itk_transform_resample_bounding_box"):
+    with pytest.raises(ValueError, match="resample_bounding_box"):
         ngff_transform_to_itk_transform(transform, CANONICAL[3], fields={"w": field})
 
 

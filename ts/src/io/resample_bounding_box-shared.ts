@@ -28,8 +28,8 @@ interface RawBoundingBox {
   corners: { min: number[]; max: number[] };
 }
 
-/** Options for {@link itkTransformResampleBoundingBox}. */
-export interface ItkTransformResampleBoundingBoxOptions {
+/** Options for {@link resampleBoundingBox}. */
+export interface ResampleBoundingBoxOptions {
   /**
    * Pixels of padding added per side. The default of 1 covers linear
    * interpolation, which reads one neighbor beyond the continuous index
@@ -338,7 +338,7 @@ export async function resampleBoundingBoxShared(
   transform: V06Transform | TransformList,
   fixed: NgffImage,
   moving: NgffImage,
-  options: ItkTransformResampleBoundingBoxOptions = {},
+  options: ResampleBoundingBoxOptions = {},
 ): Promise<ResampleBoundingBox> {
   const padding = options.padding ?? 1;
   if (!Number.isInteger(padding) || padding < 0) {

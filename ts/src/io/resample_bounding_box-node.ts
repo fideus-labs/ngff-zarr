@@ -8,10 +8,10 @@ import type { TransformList } from "itk-wasm";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { V06Transform } from "../types/zarr_metadata.ts";
 import {
-  type ItkTransformResampleBoundingBoxOptions,
   type ResampleBoundingBox,
+  type ResampleBoundingBoxOptions,
   resampleBoundingBoxShared,
-} from "./itk_transform_resample_bounding_box-shared.ts";
+} from "./resample_bounding_box-shared.ts";
 
 /**
  * Compute the moving-image region needed to resample a fixed image grid.
@@ -43,11 +43,11 @@ import {
  * @param options `padding`, and `fields` for a `displacements` transformation.
  * @returns The region, keyed by dimension name in Zarr order.
  */
-export function itkTransformResampleBoundingBox(
+export function resampleBoundingBox(
   transform: V06Transform | TransformList,
   fixed: NgffImage,
   moving: NgffImage,
-  options: ItkTransformResampleBoundingBoxOptions = {},
+  options: ResampleBoundingBoxOptions = {},
 ): Promise<ResampleBoundingBox> {
   return resampleBoundingBoxShared(
     resampleBoundingBoxNode,

@@ -376,7 +376,7 @@ def test_non_linear_transform_is_rejected_as_an_itkwasm_entry():
     and it would be written into the store without a word.
     """
     itk = pytest.importorskip("itk")
-    from ngff_zarr.itk_transform_resample_bounding_box import _as_itk_transform_list
+    from ngff_zarr.resample_bounding_box import _as_itk_transform_list
 
     displacement = _displacement_field_transform(itk)
     # A displacement field is refused with a pointer to its own conversion,
@@ -401,7 +401,7 @@ def test_non_linear_transform_is_rejected_as_an_itkwasm_entry():
 def test_non_linear_transform_is_rejected_without_itk(monkeypatch):
     """Refusing a deformation must not depend on the optional ``itk`` extra."""
     itk = pytest.importorskip("itk")
-    from ngff_zarr.itk_transform_resample_bounding_box import _as_itk_transform_list
+    from ngff_zarr.resample_bounding_box import _as_itk_transform_list
 
     entries = _as_itk_transform_list(_displacement_field_transform(itk))
 
@@ -698,7 +698,7 @@ def test_itkwasm_scale_agrees_with_the_native_itk_transform():
     ITK-Wasm entry is decoded from its parameters.
     """
     itk = pytest.importorskip("itk")
-    from ngff_zarr.itk_transform_resample_bounding_box import _as_itk_transform_list
+    from ngff_zarr.resample_bounding_box import _as_itk_transform_list
 
     scaling = itk.ScaleTransform[itk.D, 2].New()
     scaling.SetScale([2.0, 3.0])
@@ -1067,7 +1067,7 @@ def test_conversion_with_frames_matches_the_itk_path_on_oriented_images():
     """
     itk = pytest.importorskip("itk")
 
-    from ngff_zarr import itk_transform_resample_bounding_box
+    from ngff_zarr import resample_bounding_box
 
     # Fractional translations keep every corner away from an integer, so the
     # comparison cannot ride a floor/ceil knife edge.
@@ -1083,11 +1083,11 @@ def test_conversion_with_frames_matches_the_itk_path_on_oriented_images():
     )
     transform = _sheared_itk_affine(itk)
 
-    via_itk = itk_transform_resample_bounding_box(transform, fixed, moving, padding=0)
+    via_itk = resample_bounding_box(transform, fixed, moving, padding=0)
     converted = itk_transform_to_ngff_transform(
         transform, ("z", "y", "x"), fixed=fixed, moving=moving
     )
-    via_rfc5 = itk_transform_resample_bounding_box(converted, fixed, moving, padding=0)
+    via_rfc5 = resample_bounding_box(converted, fixed, moving, padding=0)
 
     assert via_rfc5.start_index == via_itk.start_index
     assert via_rfc5.size == via_itk.size

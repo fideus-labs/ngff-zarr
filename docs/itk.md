@@ -53,7 +53,7 @@ samples inside the transformed footprint of that grid. When the moving image is
 large, remote, or chunked, materializing all of it to resample a small
 overlapping region is wasteful.
 
-`itk_transform_resample_bounding_box` answers *which moving-image indices will
+`resample_bounding_box` answers *which moving-image indices will
 the resample actually read?* from image geometry alone. The pixel buffers are
 never touched and the Dask graphs are never computed, so both images can be
 described by a handful of numbers:
@@ -81,7 +81,7 @@ described by a handful of numbers:
 >>> transform = Affine(affine=[[1.0, 0.0, 12.0],
 ...                            [0.0, 1.0, -4.0]])
 >>>
->>> region = nz.itk_transform_resample_bounding_box(transform, fixed, moving)
+>>> region = nz.resample_bounding_box(transform, fixed, moving)
 >>> region.start_index
 {'y': 11, 'x': -5}
 >>> region.size
@@ -115,7 +115,7 @@ bound; pass `0` for the tight region or a larger value for wider kernels.
 
 ### Resampling the whole grid
 
-`itk_transform_resample` does the loop for you: it returns a lazy `NgffImage`
+`resample` does the loop for you: it returns a lazy `NgffImage`
 on the grid of `fixed`, where every block reads only the chunks of `moving`
 inside its own region and resamples that crop. The regions are computed when
 the graph is built, and the blocks are tasks of one Dask graph that reference
@@ -123,14 +123,14 @@ the moving chunks directly, so a chunk that several blocks need is read and
 decoded once. The full moving image is never loaded, and nothing runs until
 the result is computed.
 
-`itk_transform_resample` takes an ITK or ITK-Wasm transform, so the RFC-5
+`resample` takes an ITK or ITK-Wasm transform, so the RFC-5
 `Affine` above is converted first; `ngff_transform_to_itk_transform` keeps the
 axis order straight (see [Converting transforms](#converting-transforms)).
 
 ```python
 >>> itk_transform = nz.ngff_transform_to_itk_transform(  # doctest: +SKIP
 ...     transform, dims=['y', 'x'])
->>> resampled = nz.itk_transform_resample(              # doctest: +SKIP
+>>> resampled = nz.resample(              # doctest: +SKIP
 ...     itk_transform, fixed, moving)
 >>> nz.to_ome_zarr("resampled.zarr",                    # doctest: +SKIP
 ...     nz.to_multiscales(resampled))
@@ -220,7 +220,7 @@ is small.
 Displacement-field transforms work directly:
 
 ```python
->>> region = nz.itk_transform_resample_bounding_box(  # doctest: +SKIP
+>>> region = nz.resample_bounding_box(  # doctest: +SKIP
 ...     displacement_field_transform, fixed, moving)
 ```
 
@@ -232,7 +232,7 @@ the `itk.CompositeTransform` that Elastix returns:
 ```python
 >>> import itk
 >>> composite = registration_method.GetCombinedTransform()  # doctest: +SKIP
->>> region = nz.itk_transform_resample_bounding_box(  # doctest: +SKIP
+>>> region = nz.resample_bounding_box(  # doctest: +SKIP
 ...     composite, fixed_block, moving)
 ```
 
@@ -367,7 +367,7 @@ transformation going the other way. RFC-5 represents deformations with its
 
 Computing a bounding box from an **ITK** transform does not require linearity
 -- that is the section above. An RFC-5 `displacements` transformation is
-converted first, so `itk_transform_resample_bounding_box` takes the same
+converted first, so `resample_bounding_box` takes the same
 `fields=` mapping to find its field. Because that branch works on the intrinsic
 systems, where no direction matrix applies, a field carrying an anatomical
 orientation is refused there: convert it with `ngff_transform_to_itk_transform`
@@ -416,7 +416,7 @@ store, keyed by its `path`:
 >>> itk_transforms = nz.ngff_transform_to_itk_transform(  # doctest: +SKIP
 ...     transform, imported.metadata.dimension_names,
 ...     fields={transform.path: field})
->>> region = nz.itk_transform_resample_bounding_box(  # doctest: +SKIP
+>>> region = nz.resample_bounding_box(  # doctest: +SKIP
 ...     transform, fixed, moving, fields={transform.path: field})
 ```
 
@@ -448,7 +448,7 @@ In the TypeScript package the equivalents are `ngffTransformToItkTransform`,
 `itkTransformToNgffTransform` and `itkTransformToNgffMatrix`, and for fields
 `itkDisplacementFieldToNgffTransform` and `ngffDisplacementFieldToItkTransform`,
 both async since the field is read from and written to a Zarr array.
-`itkTransformResampleBoundingBox` takes the fields as an option there rather
+`resampleBoundingBox` takes the fields as an option there rather
 than an argument, `{ fields: { [path]: field } }`, and
 `ngffTransformToItkTransform` stays synchronous by leaving fields to the pair
 above. TypeScript has no `itk` package to fall back on, so only
@@ -458,7 +458,7 @@ quaternion-based ones must be converted to an affine first.
 
 ## TypeScript
 
-The TypeScript package provides `itkTransformResampleBoundingBox`. It is async,
+The TypeScript package provides `resampleBoundingBox`. It is async,
 takes options as an object, and returns a `ResampleBoundingBox` whose
 `selection()` yields a zarrita selection instead of Python slices. It accepts an
 RFC-5 transformation just as the Python function does:
@@ -466,11 +466,11 @@ RFC-5 transformation just as the Python function does:
 ```typescript
 import {
   createAffine,
-  itkTransformResampleBoundingBox,
+  resampleBoundingBox,
   zarrGet,
 } from "@fideus-labs/ngff-zarr";
 
-const region = await itkTransformResampleBoundingBox(
+const region = await resampleBoundingBox(
   createAffine([[1, 0, 12], [0, 1, -4]]),
   fixed,
   moving,
