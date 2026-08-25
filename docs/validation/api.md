@@ -44,9 +44,10 @@ from ngff_zarr import (
 `validate_structural(metadata, options=None, version=None)` runs the
 image/multiscales rules. When `options` is `None` it uses `ValidateOptions()`,
 i.e. `ValidationLevel.STRICT`. `version` is the OME-Zarr version the metadata
-declares; the axis rules are inert for the versions that adopt the RFC-3 axis
-model (see [[parity]]), so omitting it holds every store to the v0.4 axis
-caps. A `ValidationError` carries `.rule` (a `SpecRule`),
+declares; the axis count, type and order rules are inert for the versions that
+adopt the RFC-3 axis model (see [[parity]]), so omitting it holds every store to
+the v0.4 axis caps. `axis-names-unique` is never inert: RFC-3 states it and no
+released schema carries it. A `ValidationError` carries `.rule` (a `SpecRule`),
 `.message` (str), and `.location` (`str | None`); `str(exc)` is
 `Spec rule [<rule>] violated: <message>`.
 
