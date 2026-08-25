@@ -89,7 +89,10 @@ def _parse_omero(omero_data: Union[dict, None]) -> Omero | None:
                 color=None if color is None else str(color),
                 window=_parse_window(channel.get("window")),
                 label=None if label is None else str(label),
-                active=None if active is None else bool(active),
+                # Kept only when it is a boolean, as the TypeScript parser
+                # does: bool("false") and bool(1) are True, so coercing would
+                # make the two ports read the same document differently.
+                active=active if isinstance(active, bool) else None,
             )
         )
 

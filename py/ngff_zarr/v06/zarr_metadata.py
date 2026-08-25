@@ -938,7 +938,11 @@ class Metadata:
                 validate_structural,
             )
 
-            validate_structural(metadata, ValidateOptions(level=ValidationLevel.STRICT))
+            validate_structural(
+                metadata,
+                ValidateOptions(level=ValidationLevel.STRICT),
+                version=declared_version,
+            )
 
         return metadata, images
 
