@@ -365,7 +365,7 @@ Every RFC-5 transformation type converts to ITK. `identity`, `scale`,
 `translation`, `rotation`, `affine`, `mapAxis`, `byDimension` and `bijection`,
 and any `sequence` of them, describe a linear mapping, and each is folded into
 the single affine ITK gets: a `mapAxis` becomes its permutation matrix, a
-`byDimension` writes each item into the rows its `output_axes` name, and a
+`byDimension` writes each item into the rows its `outputAxes` name, and a
 `bijection` contributes its `forward` direction, since ITK inverts an affine
 itself. A `byDimension` that leaves an output axis unproduced is refused rather
 than resampled, because the zero row it would leave collapses the image.

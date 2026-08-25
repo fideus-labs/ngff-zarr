@@ -61,8 +61,8 @@ def _apply(transform, point):
     if isinstance(transform, ByDimension):
         result = np.zeros(point.shape)
         for item in transform.transformations:
-            sub = _apply(item.transformation, point[list(item.input_axes)])
-            for position, axis in enumerate(item.output_axes):
+            sub = _apply(item.transformation, point[list(item.inputAxes)])
+            for position, axis in enumerate(item.outputAxes):
                 result[axis] = sub[position]
         return result
     if isinstance(transform, Bijection):
@@ -118,13 +118,13 @@ MAPPING_CASES = [
             transformations=[
                 ByDimensionItem(
                     transformation=Translation(translation=[7.0]),
-                    input_axes=[0],
-                    output_axes=[0],
+                    inputAxes=[0],
+                    outputAxes=[0],
                 ),
                 ByDimensionItem(
                     transformation=Scale(scale=[2.0, 3.0]),
-                    input_axes=[1, 2],
-                    output_axes=[1, 2],
+                    inputAxes=[1, 2],
+                    outputAxes=[1, 2],
                 ),
             ]
         ),
@@ -136,13 +136,13 @@ MAPPING_CASES = [
             transformations=[
                 ByDimensionItem(
                     transformation=Scale(scale=[4.0]),
-                    input_axes=[0],
-                    output_axes=[2],
+                    inputAxes=[0],
+                    outputAxes=[2],
                 ),
                 ByDimensionItem(
                     transformation=Affine(affine=[[1.0, 0.5, 3.0], [0.0, 2.0, -1.0]]),
-                    input_axes=[1, 2],
-                    output_axes=[0, 1],
+                    inputAxes=[1, 2],
+                    outputAxes=[0, 1],
                 ),
             ]
         ),
@@ -154,13 +154,13 @@ MAPPING_CASES = [
             transformations=[
                 ByDimensionItem(
                     transformation=MapAxis(mapAxis=[1, 0]),
-                    input_axes=[0, 1],
-                    output_axes=[0, 1],
+                    inputAxes=[0, 1],
+                    outputAxes=[0, 1],
                 ),
                 ByDimensionItem(
                     transformation=Translation(translation=[-5.0]),
-                    input_axes=[2],
-                    output_axes=[2],
+                    inputAxes=[2],
+                    outputAxes=[2],
                 ),
             ]
         ),
@@ -242,12 +242,12 @@ def test_by_dimension_may_leave_a_non_spatial_axis_to_itself():
     transform = ByDimension(
         transformations=[
             ByDimensionItem(
-                transformation=Scale(scale=[0.25]), input_axes=[0], output_axes=[0]
+                transformation=Scale(scale=[0.25]), inputAxes=[0], outputAxes=[0]
             ),
             ByDimensionItem(
                 transformation=Translation(translation=[3.0, -4.0]),
-                input_axes=[1, 2],
-                output_axes=[1, 2],
+                inputAxes=[1, 2],
+                outputAxes=[1, 2],
             ),
         ]
     )
@@ -261,7 +261,7 @@ def test_by_dimension_that_leaves_an_output_axis_unset_is_refused():
     transform = ByDimension(
         transformations=[
             ByDimensionItem(
-                transformation=Scale(scale=[2.0]), input_axes=[0], output_axes=[0]
+                transformation=Scale(scale=[2.0]), inputAxes=[0], outputAxes=[0]
             )
         ]
     )
@@ -272,14 +272,14 @@ def test_by_dimension_that_leaves_an_output_axis_unset_is_refused():
 def test_by_dimension_item_of_unequal_arity_is_refused():
     item = ByDimensionItem(
         transformation=Affine(affine=[[1.0, 0.0, 2.0, 0.0]]),
-        input_axes=[0, 1, 2],
-        output_axes=[0],
+        inputAxes=[0, 1, 2],
+        outputAxes=[0],
     )
     transform = ByDimension(
         transformations=[
             item,
             ByDimensionItem(
-                transformation=Identity(), input_axes=[1, 2], output_axes=[1, 2]
+                transformation=Identity(), inputAxes=[1, 2], outputAxes=[1, 2]
             ),
         ]
     )
@@ -292,8 +292,8 @@ def test_by_dimension_axis_index_beyond_the_coordinate_system_is_refused():
         transformations=[
             ByDimensionItem(
                 transformation=Scale(scale=[2.0, 2.0]),
-                input_axes=[0, 5],
-                output_axes=[0, 1],
+                inputAxes=[0, 5],
+                outputAxes=[0, 1],
             )
         ]
     )
@@ -307,13 +307,13 @@ def test_by_dimension_matches_the_affine_it_is_equivalent_to():
         transformations=[
             ByDimensionItem(
                 transformation=Translation(translation=[7.0]),
-                input_axes=[0],
-                output_axes=[0],
+                inputAxes=[0],
+                outputAxes=[0],
             ),
             ByDimensionItem(
                 transformation=Scale(scale=[2.0, 3.0]),
-                input_axes=[1, 2],
-                output_axes=[1, 2],
+                inputAxes=[1, 2],
+                outputAxes=[1, 2],
             ),
         ]
     )

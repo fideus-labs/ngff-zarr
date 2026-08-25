@@ -1180,13 +1180,13 @@ Deno.test("a byDimension region matches the oracle", async () => {
     createByDimension([
       {
         transformation: createTranslation([5]),
-        input_axes: [0],
-        output_axes: [0],
+        inputAxes: [0],
+        outputAxes: [0],
       },
       {
         transformation: createAffine([[0.8, -0.6, 2], [0.6, 0.8, -3]]),
-        input_axes: [1, 2],
-        output_axes: [1, 2],
+        inputAxes: [1, 2],
+        outputAxes: [1, 2],
       },
     ]),
     fixed,

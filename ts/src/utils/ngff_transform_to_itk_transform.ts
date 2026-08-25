@@ -243,8 +243,8 @@ function homogeneousFromTransform(
  * Assemble a byDimension transformation into one homogeneous matrix.
  *
  * Each item is a lower-dimensional transformation between two subsets of
- * axes, so its own matrix is written into the rows its `output_axes` name and
- * the columns its `input_axes` name. Axes no item produces would leave a zero
+ * axes, so its own matrix is written into the rows its `outputAxes` name and
+ * the columns its `inputAxes` name. Axes no item produces would leave a zero
  * row, which collapses the image rather than transforming it, so a gap is
  * refused here rather than resampled.
  */
@@ -258,11 +258,11 @@ function homogeneousFromByDimension(
 
   for (const item of transform.transformations) {
     const block = byDimensionItemBlock(item, ndim);
-    item.output_axes.forEach((outputAxis, row) => {
-      item.input_axes.forEach((inputAxis, col) => {
+    item.outputAxes.forEach((outputAxis, row) => {
+      item.inputAxes.forEach((inputAxis, col) => {
         matrix[outputAxis][inputAxis] = block[row][col];
       });
-      matrix[outputAxis][ndim] = block[row][item.input_axes.length];
+      matrix[outputAxis][ndim] = block[row][item.inputAxes.length];
       produced.add(outputAxis);
     });
   }
@@ -282,14 +282,14 @@ function homogeneousFromByDimension(
 
 /** One byDimension item as a homogeneous matrix over its own axes. */
 function byDimensionItemBlock(item: ByDimensionItem, ndim: number): Matrix {
-  if (item.input_axes.length !== item.output_axes.length) {
+  if (item.inputAxes.length !== item.outputAxes.length) {
     throw new Error(
       `byDimension item of type '${item.transformation.type}' maps ` +
-        `${item.input_axes.length} input axes to ${item.output_axes.length} ` +
+        `${item.inputAxes.length} input axes to ${item.outputAxes.length} ` +
         `output axes; only a square mapping converts to an ITK transform`,
     );
   }
-  const beyond = [...item.input_axes, ...item.output_axes]
+  const beyond = [...item.inputAxes, ...item.outputAxes]
     .filter((axis) => axis >= ndim);
   if (beyond.length > 0) {
     throw new Error(
@@ -297,13 +297,13 @@ function byDimensionItemBlock(item: ByDimensionItem, ndim: number): Matrix {
         `axes of the coordinate system`,
     );
   }
-  if (new Set(item.input_axes).size !== item.input_axes.length) {
+  if (new Set(item.inputAxes).size !== item.inputAxes.length) {
     throw new Error(
-      `byDimension input axes [${item.input_axes.join(", ")}] name an axis ` +
+      `byDimension input axes [${item.inputAxes.join(", ")}] name an axis ` +
         `twice`,
     );
   }
-  return homogeneousFromTransform(item.transformation, item.input_axes.length);
+  return homogeneousFromTransform(item.transformation, item.inputAxes.length);
 }
 
 /** An ITK matrix and offset for the spatial axes, fastest-axis-first. */

@@ -175,8 +175,8 @@ def _homogeneous_from_by_dimension(transform: ByDimension, ndim: int) -> np.ndar
     """Assemble a byDimension transformation into one homogeneous matrix.
 
     Each item is a lower-dimensional transformation between two subsets of
-    axes, so its own matrix is written into the rows its ``output_axes`` name
-    and the columns its ``input_axes`` name. Axes no item produces would leave
+    axes, so its own matrix is written into the rows its ``outputAxes`` name
+    and the columns its ``inputAxes`` name. Axes no item produces would leave
     a zero row, which collapses the image rather than transforming it, so a
     gap is refused here rather than resampled.
     """
@@ -184,12 +184,12 @@ def _homogeneous_from_by_dimension(transform: ByDimension, ndim: int) -> np.ndar
     matrix[ndim, ndim] = 1.0
     for item in transform.transformations:
         block, offset = _by_dimension_item_block(item, ndim)
-        for row, output_axis in enumerate(item.output_axes):
-            for column, input_axis in enumerate(item.input_axes):
+        for row, output_axis in enumerate(item.outputAxes):
+            for column, input_axis in enumerate(item.inputAxes):
                 matrix[output_axis, input_axis] = block[row, column]
             matrix[output_axis, ndim] = offset[row]
 
-    produced = transform.produced_output_axes
+    produced = transform.produced_outputAxes
     missing = sorted(set(range(ndim)) - produced)
     if missing:
         msg = (
@@ -205,14 +205,14 @@ def _by_dimension_item_block(
     item: ByDimensionItem, ndim: int
 ) -> tuple[np.ndarray, np.ndarray]:
     """One byDimension item as a matrix and offset over its own axes."""
-    if len(item.input_axes) != len(item.output_axes):
+    if len(item.inputAxes) != len(item.outputAxes):
         msg = (
             f"byDimension item of type '{item.transformation.type}' maps "
-            f"{len(item.input_axes)} input axes to {len(item.output_axes)} "
+            f"{len(item.inputAxes)} input axes to {len(item.outputAxes)} "
             "output axes; only a square mapping converts to an ITK transform"
         )
         raise ValueError(msg)
-    for axes in (item.input_axes, item.output_axes):
+    for axes in (item.inputAxes, item.outputAxes):
         beyond = [axis for axis in axes if axis >= ndim]
         if beyond:
             msg = (
@@ -220,11 +220,11 @@ def _by_dimension_item_block(
                 "the coordinate system"
             )
             raise ValueError(msg)
-    if len(set(item.input_axes)) != len(item.input_axes):
-        msg = f"byDimension input axes {item.input_axes} name an axis twice"
+    if len(set(item.inputAxes)) != len(item.inputAxes):
+        msg = f"byDimension input axes {item.inputAxes} name an axis twice"
         raise ValueError(msg)
 
-    sub_ndim = len(item.input_axes)
+    sub_ndim = len(item.inputAxes)
     homogeneous = _homogeneous_from_transform(item.transformation, sub_ndim)
     return homogeneous[:sub_ndim, :sub_ndim], homogeneous[:sub_ndim, sub_ndim]
 

@@ -58,9 +58,9 @@ function apply(transform: V06Transform, point: number[]): number[] {
       for (const item of transform.transformations) {
         const sub = apply(
           item.transformation,
-          item.input_axes.map((axis) => point[axis]),
+          item.inputAxes.map((axis) => point[axis]),
         );
-        item.output_axes.forEach((axis, position) => {
+        item.outputAxes.forEach((axis, position) => {
           result[axis] = sub[position];
         });
       }
@@ -111,9 +111,9 @@ function assertMapsLikeTheOracle(transform: V06Transform, dims: string[]) {
 
 const item = (
   transformation: V06Transform,
-  input_axes: number[],
-  output_axes: number[],
-): ByDimensionItem => ({ transformation, input_axes, output_axes });
+  inputAxes: number[],
+  outputAxes: number[],
+): ByDimensionItem => ({ transformation, inputAxes, outputAxes });
 
 Deno.test("a mapAxis reversal maps like the oracle", () => {
   assertMapsLikeTheOracle(createMapAxis([2, 1, 0]), ["z", "y", "x"]);

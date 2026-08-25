@@ -234,7 +234,7 @@ to the multiscales metadata as shown above.
 `byDimension`, `bijection` and any `sequence` of them describe a linear mapping
 and are folded into the single affine ITK gets. A `mapAxis` becomes its
 permutation matrix, a `byDimension` writes each item into the rows its
-`output_axes` name, and a `bijection` contributes its `forward` direction.
+`outputAxes` name, and a `bijection` contributes its `forward` direction.
 
 Both directions reconcile the places where the conventions differ: RFC-5 orders
 parameters in Zarr axis order while ITK orders them fastest-axis-first, an

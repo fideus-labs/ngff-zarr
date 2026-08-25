@@ -984,13 +984,13 @@ def test_by_dimension_region_matches_the_oracle():
         transformations=[
             ByDimensionItem(
                 transformation=Translation(translation=[5.0]),
-                input_axes=[0],
-                output_axes=[0],
+                inputAxes=[0],
+                outputAxes=[0],
             ),
             ByDimensionItem(
                 transformation=Affine(affine=[[0.8, -0.6, 2.0], [0.6, 0.8, -3.0]]),
-                input_axes=[1, 2],
-                output_axes=[1, 2],
+                inputAxes=[1, 2],
+                outputAxes=[1, 2],
             ),
         ]
     )
