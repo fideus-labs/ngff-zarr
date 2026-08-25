@@ -966,23 +966,19 @@ def _build_multiscales_from_pyramid(
     translation = None
     if ome_translation:
         translation = {}
-        spatial_dims = ("z", "y", "x")
-        for dim in spatial_dims:
-            if dim in ome_translation:
-                if ome_translation_units:
-                    if axes_units is None:
-                        axes_units = {}
-                    if dim not in axes_units:
-                        axes_units[dim] = ome_translation_units.get(dim)
-                    translation[dim] = _convert_unit_value(
-                        ome_translation[dim],
-                        ome_translation_units.get(dim),
-                        axes_units.get(dim),
-                    )
+        for dim in ome_translation:
+            if ome_translation_units and dim in ome_translation_units:
+                if axes_units and dim in axes_units:
+                    unit = axes_units[dim]
                 else:
-                    translation[dim] = ome_translation[dim]
-            elif dim in dims:
-                translation[dim] = 0.0  # Default translation for spatial dims
+                    unit = ome_translation_units.get(dim)
+                translation[dim] = _convert_unit_value(
+                    ome_translation[dim],
+                    ome_translation_units.get(dim),
+                    unit,
+                )
+            else:
+                translation[dim] = ome_translation[dim]
 
     # Create base NgffImage
     ngff_image_0 = to_ngff_image(
@@ -1460,23 +1456,19 @@ def _read_tiff_series(
             translation = None
             if ome_translation:
                 translation = {}
-                spatial_dims = ("z", "y", "x")
-                for dim in spatial_dims:
-                    if dim in ome_translation:
-                        if ome_translation_units:
-                            if axes_units is None:
-                                axes_units = {}
-                            if dim not in axes_units:
-                                axes_units[dim] = ome_translation_units.get(dim)
-                            translation[dim] = _convert_unit_value(
-                                ome_translation[dim],
-                                ome_translation_units.get(dim),
-                                axes_units.get(dim),
-                            )
+                for dim in ome_translation:
+                    if ome_translation_units and dim in ome_translation_units:
+                        if axes_units and dim in axes_units:
+                            unit = axes_units[dim]
                         else:
-                            translation[dim] = ome_translation[dim]
-                    elif dim in dims:
-                        translation[dim] = 0.0  # Default translation for spatial dims
+                            unit = ome_translation_units.get(dim)
+                        translation[dim] = _convert_unit_value(
+                            ome_translation[dim],
+                            ome_translation_units.get(dim),
+                            unit,
+                        )
+                    else:
+                        translation[dim] = ome_translation[dim]
 
             # Convert to NgffImage
             ngff_image = to_ngff_image(
