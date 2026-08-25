@@ -842,6 +842,44 @@ Deno.test("v0.6 read accepts the snake_case byDimension axis keys", async () => 
 
 // Mirrors test_coordinate_transformations.py: the mapAxis, byDimension and
 // bijection payloads survive the round-trip by value, not just by type.
+Deno.test("a projectAxis payload survives the round-trip", async () => {
+  // Before projectAxis was modelled, a document using it passed the bundled
+  // schema and the reader threw on an unsupported transform type.
+  const multiscales = await buildMultiscales();
+  const intrinsic = multiscales.metadata.coordinateSystems![0];
+
+  multiscales.metadata.coordinateSystems!.push({
+    name: "plane",
+    axes: [
+      { name: "y", type: "space", unit: undefined },
+      { name: "x", type: "space", unit: undefined },
+    ],
+  });
+  multiscales.metadata.coordinateTransformations = [
+    {
+      type: "projectAxis",
+      droppedInputs: [0],
+      input: { name: intrinsic.name },
+      output: { name: "plane" },
+      name: "drop_z",
+    },
+  ];
+
+  const store: MemoryStore = new Map();
+  await toOmeZarr(store, multiscales, { version: "0.6" });
+  const imported = await fromOmeZarr(store);
+
+  const transforms = imported.metadata.coordinateTransformations!;
+  assertEquals(transforms.length, 1);
+  const projection = transforms[0];
+  if (projection.type !== "projectAxis") {
+    throw new Error("expected a projectAxis transform");
+  }
+  assertEquals(projection.droppedInputs, [0]);
+  assertEquals(projection.createdOutputs, undefined);
+  assertEquals(projection.output?.name, "plane");
+});
+
 Deno.test("mapAxis, byDimension and bijection payloads survive the round-trip", async () => {
   const multiscales = await buildMultiscales();
   const intrinsic = multiscales.metadata.coordinateSystems![0];

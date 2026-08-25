@@ -115,6 +115,23 @@ export interface Displacements {
 }
 
 /**
+ * RFC 5 projectAxis transformation (v0.6): a projection that drops input axes
+ * and inserts zero-valued output axes. `droppedInputs` holds the indices of
+ * the input coordinate vector to remove, `createdOutputs` the indices of the
+ * output vector where a zero is inserted; at least one of the two is given.
+ * Dropping a dimension loses information, so a projection is not invertible in
+ * general.
+ */
+export interface ProjectAxis {
+  droppedInputs?: number[];
+  createdOutputs?: number[];
+  type: "projectAxis";
+  input?: CoordinateSystemIdentifier;
+  output?: CoordinateSystemIdentifier;
+  name?: string;
+}
+
+/**
  * RFC 5 mapAxis transformation (v0.6): an axis permutation stored as a
  * transpose vector of integer indices. The value at position `i` names which
  * input axis becomes the `i`-th output axis; every zero-based input axis
@@ -193,6 +210,7 @@ export type V06Transform =
   | Coordinates
   | Displacements
   | MapAxis
+  | ProjectAxis
   | ByDimension
   | Bijection
   | TransformSequence;

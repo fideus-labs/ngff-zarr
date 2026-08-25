@@ -54,6 +54,49 @@ export const MapAxisTransformationSchema: z.ZodType<{
   name: z.string().optional(),
 });
 
+// Project Axis transformation: drops input axes and inserts zero-valued output
+// axes. At least one of droppedInputs and createdOutputs is given, and the
+// indices in each are unique.
+export const ProjectAxisTransformationSchema: z.ZodType<{
+  type: "projectAxis";
+  droppedInputs?: number[] | undefined;
+  createdOutputs?: number[] | undefined;
+  input?: string | string[] | undefined;
+  output?: string | string[] | undefined;
+  name?: string | undefined;
+}> = z
+  .object({
+    type: z.literal("projectAxis"),
+    droppedInputs: z
+      .array(z.number().int().nonnegative())
+      .min(1)
+      .max(3)
+      .refine((indices) => new Set(indices).size === indices.length, {
+        message: "droppedInputs indices must be unique",
+      })
+      .optional(),
+    createdOutputs: z
+      .array(z.number().int().nonnegative())
+      .min(1)
+      .max(3)
+      .refine((indices) => new Set(indices).size === indices.length, {
+        message: "createdOutputs indices must be unique",
+      })
+      .optional(),
+    input: z.union([z.string(), z.array(z.string())]).optional(),
+    output: z.union([z.string(), z.array(z.string())]).optional(),
+    name: z.string().optional(),
+  })
+  .refine(
+    (transform) =>
+      transform.droppedInputs !== undefined ||
+      transform.createdOutputs !== undefined,
+    {
+      message:
+        "projectAxis must declare droppedInputs, createdOutputs, or both",
+    },
+  );
+
 // Translation transformation
 export const TranslationTransformationSchema: z.ZodType<{
   type: "translation";
@@ -189,6 +232,14 @@ export type CoordinateTransformation =
   | ({ type: "mapAxis"; mapAxis: number[] } & TransformationCommon)
   | (
     & {
+      type: "projectAxis";
+      droppedInputs?: number[] | undefined;
+      createdOutputs?: number[] | undefined;
+    }
+    & TransformationCommon
+  )
+  | (
+    & {
       type: "translation";
       translation?: number[] | undefined;
       path?: string | undefined;
@@ -263,6 +314,7 @@ export const CoordinateTransformationSchema: z.ZodType<
   z.union([
     IdentityTransformationSchema,
     MapAxisTransformationSchema,
+    ProjectAxisTransformationSchema,
     TranslationTransformationSchema,
     ScaleTransformationSchema,
     AffineTransformationSchema,

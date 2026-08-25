@@ -45,12 +45,21 @@ The transformation data classes live in `ngff_zarr.v06.zarr_metadata`:
 | `Coordinates` | `coordinates` | `path: str`, `interpolation: str` |
 | `TransformSequence` | `sequence` | `transformations: list[Transform]` |
 | `MapAxis` | `mapAxis` | `mapAxis: list[int]` |
+| `ProjectAxis` | `projectAxis` | `droppedInputs: list[int]`, `createdOutputs: list[int]` |
 | `ByDimension` | `byDimension` | `transformations: list[ByDimensionItem]` |
 | `Bijection` | `bijection` | `forward: Transform`, `inverse: Transform` |
 
 `MapAxis` stores an axis permutation as a transpose vector: the value at
 position `i` is the input axis that becomes the `i`-th output axis, and every
 zero-based input axis index appears exactly once.
+
+`ProjectAxis` changes the dimensionality of a coordinate vector:
+`droppedInputs` names the indices of the input vector to remove and
+`createdOutputs` the indices of the output vector where a zero is inserted. At
+least one of the two is given, the indices in each are unique, and the output
+dimensionality is the input dimensionality less the dropped axes plus the
+created ones. Dropping an axis loses information, so a projection is not
+invertible in general.
 
 `ByDimension` builds a high dimensional transform from lower dimensional ones;
 each `ByDimensionItem` wraps a transformation with the `inputAxes` and `outputAxes`

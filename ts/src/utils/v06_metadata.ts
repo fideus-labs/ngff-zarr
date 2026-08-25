@@ -171,6 +171,14 @@ export function serializeV06Transform(
     case "mapAxis":
       out.mapAxis = transform.mapAxis;
       break;
+    case "projectAxis":
+      if (transform.droppedInputs !== undefined) {
+        out.droppedInputs = transform.droppedInputs;
+      }
+      if (transform.createdOutputs !== undefined) {
+        out.createdOutputs = transform.createdOutputs;
+      }
+      break;
     case "byDimension":
       out.transformations = transform.transformations.map((item) => ({
         transformation: serializeV06Transform(item.transformation),
@@ -271,6 +279,22 @@ function parseV06Transform(
         mapAxis: asIntegerArray(entry.mapAxis, "mapAxis"),
       };
       break;
+    case "projectAxis": {
+      transform = { type: "projectAxis" };
+      if (entry.droppedInputs !== undefined) {
+        transform.droppedInputs = asIntegerArray(
+          entry.droppedInputs,
+          "droppedInputs",
+        );
+      }
+      if (entry.createdOutputs !== undefined) {
+        transform.createdOutputs = asIntegerArray(
+          entry.createdOutputs,
+          "createdOutputs",
+        );
+      }
+      break;
+    }
     case "byDimension": {
       if (!Array.isArray(entry.transformations)) {
         throw new Error(
@@ -435,6 +459,85 @@ export function validateV06Transform(
         throw new Error(
           `mapAxis length ${indices.length} does not match the ${count} ` +
             `axes of coordinate system '${identifier?.name}'`,
+        );
+      }
+    }
+  } else if (transform.type === "projectAxis") {
+    const dropped = transform.droppedInputs;
+    const created = transform.createdOutputs;
+    if (dropped === undefined && created === undefined) {
+      throw new Error(
+        "projectAxis must declare droppedInputs, createdOutputs, or both",
+      );
+    }
+    for (
+      const [name, indices] of [
+        ["droppedInputs", dropped],
+        ["createdOutputs", created],
+      ] as const
+    ) {
+      if (indices === undefined) {
+        continue;
+      }
+      if (!indices.every((axis) => Number.isInteger(axis))) {
+        throw new Error(`${name} axis indices must be integers; got [${indices}]`);
+      }
+      if (indices.length === 0) {
+        throw new Error(`${name} must hold at least one index`);
+      }
+      if (indices.some((axis) => axis < 0)) {
+        throw new Error(
+          `${name} indices are zero-based positions and must not be ` +
+            `negative; got [${indices}]`,
+        );
+      }
+      if (new Set(indices).size !== indices.length) {
+        throw new Error(`${name} indices must be unique; got [${indices}]`);
+      }
+    }
+    const droppedCount = dropped?.length ?? 0;
+    const createdCount = created?.length ?? 0;
+    const inputCount = axisCount(transform.input, coordinateSystems);
+    const outputCount = axisCount(transform.output, coordinateSystems);
+    if (inputCount !== undefined) {
+      if (droppedCount > inputCount) {
+        throw new Error(
+          `projectAxis drops ${droppedCount} axes, more than the ` +
+            `${inputCount} axes of coordinate system ` +
+            `'${transform.input?.name}'`,
+        );
+      }
+      const beyond = (dropped ?? []).filter((axis) => axis >= inputCount);
+      if (beyond.length > 0) {
+        throw new Error(
+          `droppedInputs indices [${beyond}] are beyond the ${inputCount} ` +
+            `axes of coordinate system '${transform.input?.name}'`,
+        );
+      }
+    }
+    if (outputCount !== undefined) {
+      if (createdCount > outputCount) {
+        throw new Error(
+          `projectAxis creates ${createdCount} axes, more than the ` +
+            `${outputCount} axes of coordinate system ` +
+            `'${transform.output?.name}'`,
+        );
+      }
+      const beyond = (created ?? []).filter((axis) => axis >= outputCount);
+      if (beyond.length > 0) {
+        throw new Error(
+          `createdOutputs indices [${beyond}] are beyond the ${outputCount} ` +
+            `axes of coordinate system '${transform.output?.name}'`,
+        );
+      }
+    }
+    if (inputCount !== undefined && outputCount !== undefined) {
+      const expected = inputCount - droppedCount + createdCount;
+      if (expected !== outputCount) {
+        throw new Error(
+          `projectAxis maps ${inputCount} input axes to ${expected} output ` +
+            `axes, but coordinate system '${transform.output?.name}' ` +
+            `declares ${outputCount}`,
         );
       }
     }

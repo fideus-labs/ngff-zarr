@@ -17,6 +17,7 @@ from ngff_zarr.v06.zarr_metadata import (
     Displacements,
     Identity,
     MapAxis,
+    ProjectAxis,
     Rotation,
     Scale,
     TransformSequence,
@@ -254,6 +255,47 @@ def test_new_transform_payloads_roundtrip():
 
     assert imported_bijection.forward.path == "forward_field"
     assert imported_bijection.inverse.path == "inverse_field"
+
+
+@requires_zarr_v3
+def test_project_axis_roundtrips():
+    """A projectAxis transform survives a 0.6 write and read by value.
+
+    Before ``projectAxis`` was modelled, a document using it passed the
+    bundled schema and the reader raised ``Unsupported transform type``.
+    """
+    array = rng.random(size=(8, 8, 8), dtype=np.float32)
+    input_image = nz.to_ngff_image(
+        array,
+        dims=["z", "y", "x"],
+        scale={"z": 1.0, "y": 1.0, "x": 1.0},
+    )
+    multiscales = nz.to_multiscales(input_image, scale_factors=[])
+    intrinsic = multiscales.metadata.intrinsic_coordinate_system
+
+    plane = CoordinateSystem(
+        name="plane",
+        axes=[Axis(name="y", type="space"), Axis(name="x", type="space")],
+    )
+    multiscales.metadata.coordinateSystems.append(plane)
+    multiscales.metadata.coordinateTransformations = [
+        ProjectAxis(
+            droppedInputs=[0],
+            input=CoordinateSystemIdentifier(name=intrinsic.name),
+            output=CoordinateSystemIdentifier(name="plane"),
+            name="drop_z",
+        )
+    ]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        nz.to_ome_zarr(tmpdir, multiscales, version="0.6")
+        imported = nz.from_ome_zarr(tmpdir)
+
+    (projection,) = imported.metadata.coordinateTransformations
+    assert projection.type == "projectAxis"
+    assert projection.droppedInputs == [0]
+    assert projection.createdOutputs is None
+    assert projection.output.name == "plane"
 
 
 def _three_axis_system(name: str = "system") -> CoordinateSystem:

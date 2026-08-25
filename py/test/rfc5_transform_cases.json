@@ -576,6 +576,190 @@
           "path": "f"
         }
       }
+    },
+    {
+      "name": "projectAxis_remove_valid",
+      "ok": true,
+      "transformation": {
+        "type": "projectAxis",
+        "droppedInputs": [
+          0
+        ],
+        "input": {
+          "name": "s3"
+        },
+        "output": {
+          "name": "s2"
+        }
+      }
+    },
+    {
+      "name": "projectAxis_insert_valid",
+      "ok": true,
+      "transformation": {
+        "type": "projectAxis",
+        "createdOutputs": [
+          0
+        ],
+        "input": {
+          "name": "s2"
+        },
+        "output": {
+          "name": "s3"
+        }
+      }
+    },
+    {
+      "name": "projectAxis_remove_and_insert_valid",
+      "ok": true,
+      "transformation": {
+        "type": "projectAxis",
+        "droppedInputs": [
+          0
+        ],
+        "createdOutputs": [
+          1
+        ],
+        "input": {
+          "name": "s3"
+        },
+        "output": {
+          "name": "s3"
+        }
+      }
+    },
+    {
+      "name": "projectAxis_unresolved_systems_valid",
+      "ok": true,
+      "transformation": {
+        "type": "projectAxis",
+        "droppedInputs": [
+          2
+        ]
+      }
+    },
+    {
+      "name": "projectAxis_missing_op",
+      "ok": false,
+      "transformation": {
+        "type": "projectAxis"
+      }
+    },
+    {
+      "name": "projectAxis_remove_non_unique",
+      "ok": false,
+      "transformation": {
+        "type": "projectAxis",
+        "droppedInputs": [
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "name": "projectAxis_insert_non_unique",
+      "ok": false,
+      "transformation": {
+        "type": "projectAxis",
+        "createdOutputs": [
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "name": "projectAxis_remove_too_high_dim",
+      "ok": false,
+      "transformation": {
+        "type": "projectAxis",
+        "droppedInputs": [
+          3
+        ],
+        "input": {
+          "name": "s3"
+        },
+        "output": {
+          "name": "s2"
+        }
+      }
+    },
+    {
+      "name": "projectAxis_insert_too_high_dim",
+      "ok": false,
+      "transformation": {
+        "type": "projectAxis",
+        "createdOutputs": [
+          3
+        ],
+        "input": {
+          "name": "s2"
+        },
+        "output": {
+          "name": "s3"
+        }
+      }
+    },
+    {
+      "name": "projectAxis_remove_too_many",
+      "ok": false,
+      "transformation": {
+        "type": "projectAxis",
+        "droppedInputs": [
+          0,
+          1,
+          2
+        ],
+        "input": {
+          "name": "s2"
+        },
+        "output": {
+          "name": "s2"
+        }
+      }
+    },
+    {
+      "name": "projectAxis_insert_too_many",
+      "ok": false,
+      "transformation": {
+        "type": "projectAxis",
+        "createdOutputs": [
+          0,
+          1,
+          2
+        ],
+        "input": {
+          "name": "s2"
+        },
+        "output": {
+          "name": "s2"
+        }
+      }
+    },
+    {
+      "name": "projectAxis_dimension_mismatch",
+      "ok": false,
+      "transformation": {
+        "type": "projectAxis",
+        "droppedInputs": [
+          0
+        ],
+        "input": {
+          "name": "s3"
+        },
+        "output": {
+          "name": "s3"
+        }
+      }
+    },
+    {
+      "name": "projectAxis_negative_index",
+      "ok": false,
+      "transformation": {
+        "type": "projectAxis",
+        "droppedInputs": [
+          -1
+        ]
+      }
     }
   ]
 }
