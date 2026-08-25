@@ -358,7 +358,19 @@ def from_ome_zarr(
             "within the plate (e.g., 'plate.zarr/A/1/0' for well A1, field 0)."
         )
 
-    if version.startswith("0.6"):
+    if version == "0.9.dev1":
+        from .v09.zarr_metadata import Metadata
+
+        # No 0.9.dev1 JSON Schema is published; `validate` is forwarded so
+        # validate=True reports that rather than validating nothing.
+        metadata_obj, images = Metadata._from_zarr_attrs(
+            root_attrs, store, validate=validate, subpath=subpath
+        )
+        method, method_type, method_metadata = _extract_method_metadata(
+            root_attrs["ome"]["multiscales"][0]
+        )
+
+    elif version.startswith("0.6"):
         from .v06.zarr_metadata import Metadata
 
         metadata_obj, images = Metadata._from_zarr_attrs(
@@ -416,7 +428,11 @@ def from_ome_zarr(
             root_attrs["multiscales"][0]
         )
 
-    metadata_obj = metadata_obj.to_version("0.6")
+    # Normalize to the richest model the store can express. A 0.9.dev1 store
+    # stays 0.9.dev1; downgrading it to 0.6 would discard its RFC-3 axis model.
+    metadata_obj = metadata_obj.to_version(
+        "0.9.dev1" if version == "0.9.dev1" else "0.6"
+    )
     metadata_obj.type = method_type
     metadata_obj.metadata = method_metadata
 

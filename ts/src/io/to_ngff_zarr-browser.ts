@@ -20,7 +20,7 @@ export { isOzxPath } from "./rfc9_zip.ts";
 
 export interface ToOmeZarrOptions {
   overwrite?: boolean;
-  version?: "0.4" | "0.5" | "0.6";
+  version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
   chunksPerShard?: number | number[] | Record<string, number>;
   /**
    * Custom codec pipeline for array compression. When omitted the default

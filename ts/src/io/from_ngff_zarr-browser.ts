@@ -7,7 +7,7 @@ import * as zarr from "zarrita";
 import { MetadataSchema } from "../schemas/zarr_metadata.ts";
 import { NgffMultiscales } from "../types/multiscales.ts";
 import { NgffImage } from "../types/ngff_image.ts";
-import type { Units } from "../types/units.ts";
+import type { AxisUnit } from "../types/units.ts";
 import type { Metadata, Omero } from "../types/zarr_metadata.ts";
 import { extractMethodMetadata } from "../utils/parse_metadata.ts";
 import { fromZarrAttrsV06 } from "../utils/from_zarr_attrs.ts";
@@ -19,7 +19,7 @@ export interface FromOmeZarrOptions {
   /** Enable schema validation of OME-Zarr metadata. */
   validate?: boolean;
   /** Expected OME-Zarr version. */
-  version?: "0.4" | "0.5" | "0.6";
+  version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
   /**
    * Optional decoded-chunk cache passed to `zarrGet` calls.
    *
@@ -278,7 +278,7 @@ export async function fromOmeZarr(
           }
           return acc;
         },
-        {} as Record<string, Units>,
+        {} as Record<string, AxisUnit>,
       );
 
       const ngffImage = new NgffImage({
