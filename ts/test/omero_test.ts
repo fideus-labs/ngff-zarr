@@ -34,50 +34,50 @@ Deno.test("read omero metadata from test dataset", async () => {
 
   // Channel 0
   assertEquals(omero.channels[0].color, "FFFFFF");
-  assertEquals(omero.channels[0].window.min, 0.0);
-  assertEquals(omero.channels[0].window.max, 65535.0);
-  assertEquals(omero.channels[0].window.start, 0.0);
-  assertEquals(omero.channels[0].window.end, 1200.0);
+  assertEquals(omero.channels[0].window!.min, 0.0);
+  assertEquals(omero.channels[0].window!.max, 65535.0);
+  assertEquals(omero.channels[0].window!.start, 0.0);
+  assertEquals(omero.channels[0].window!.end, 1200.0);
   assertEquals(omero.channels[0].label, "cy 1");
 
   // Channel 1
   assertEquals(omero.channels[1].color, "FFFFFF");
-  assertEquals(omero.channels[1].window.min, 0.0);
-  assertEquals(omero.channels[1].window.max, 65535.0);
-  assertEquals(omero.channels[1].window.start, 0.0);
-  assertEquals(omero.channels[1].window.end, 1200.0);
+  assertEquals(omero.channels[1].window!.min, 0.0);
+  assertEquals(omero.channels[1].window!.max, 65535.0);
+  assertEquals(omero.channels[1].window!.start, 0.0);
+  assertEquals(omero.channels[1].window!.end, 1200.0);
   assertEquals(omero.channels[1].label, "cy 2");
 
   // Channel 2
   assertEquals(omero.channels[2].color, "FFFFFF");
-  assertEquals(omero.channels[2].window.min, 0.0);
-  assertEquals(omero.channels[2].window.max, 65535.0);
-  assertEquals(omero.channels[2].window.start, 0.0);
-  assertEquals(omero.channels[2].window.end, 1200.0);
+  assertEquals(omero.channels[2].window!.min, 0.0);
+  assertEquals(omero.channels[2].window!.max, 65535.0);
+  assertEquals(omero.channels[2].window!.start, 0.0);
+  assertEquals(omero.channels[2].window!.end, 1200.0);
   assertEquals(omero.channels[2].label, "cy 3");
 
   // Channel 3
   assertEquals(omero.channels[3].color, "FFFFFF");
-  assertEquals(omero.channels[3].window.min, 0.0);
-  assertEquals(omero.channels[3].window.max, 65535.0);
-  assertEquals(omero.channels[3].window.start, 0.0);
-  assertEquals(omero.channels[3].window.end, 1200.0);
+  assertEquals(omero.channels[3].window!.min, 0.0);
+  assertEquals(omero.channels[3].window!.max, 65535.0);
+  assertEquals(omero.channels[3].window!.start, 0.0);
+  assertEquals(omero.channels[3].window!.end, 1200.0);
   assertEquals(omero.channels[3].label, "cy 4");
 
   // Channel 4
   assertEquals(omero.channels[4].color, "0000FF");
-  assertEquals(omero.channels[4].window.min, 0.0);
-  assertEquals(omero.channels[4].window.max, 65535.0);
-  assertEquals(omero.channels[4].window.start, 0.0);
-  assertEquals(omero.channels[4].window.end, 5000.0);
+  assertEquals(omero.channels[4].window!.min, 0.0);
+  assertEquals(omero.channels[4].window!.max, 65535.0);
+  assertEquals(omero.channels[4].window!.start, 0.0);
+  assertEquals(omero.channels[4].window!.end, 5000.0);
   assertEquals(omero.channels[4].label, "DAPI");
 
   // Channel 5
   assertEquals(omero.channels[5].color, "FF0000");
-  assertEquals(omero.channels[5].window.min, 0.0);
-  assertEquals(omero.channels[5].window.max, 65535.0);
-  assertEquals(omero.channels[5].window.start, 0.0);
-  assertEquals(omero.channels[5].window.end, 100.0);
+  assertEquals(omero.channels[5].window!.min, 0.0);
+  assertEquals(omero.channels[5].window!.max, 65535.0);
+  assertEquals(omero.channels[5].window!.start, 0.0);
+  assertEquals(omero.channels[5].window!.end, 100.0);
   assertEquals(omero.channels[5].label, "Hyb probe");
 });
 
@@ -168,12 +168,12 @@ Deno.test("write omero metadata", async () => {
   assertExists(readOmero);
   assertEquals(readOmero.channels.length, 2);
   assertEquals(readOmero.channels[0].color, "008000");
-  assertEquals(readOmero.channels[0].window.start, 10.0);
-  assertEquals(readOmero.channels[0].window.end, 150.0);
+  assertEquals(readOmero.channels[0].window!.start, 10.0);
+  assertEquals(readOmero.channels[0].window!.end, 150.0);
   assertEquals(readOmero.channels[0].label, "Phalloidin");
   assertEquals(readOmero.channels[1].color, "0000FF");
-  assertEquals(readOmero.channels[1].window.start, 30.0);
-  assertEquals(readOmero.channels[1].window.end, 200.0);
+  assertEquals(readOmero.channels[1].window!.start, 30.0);
+  assertEquals(readOmero.channels[1].window!.end, 200.0);
   assertEquals(readOmero.channels[1].label, "");
 });
 
@@ -392,12 +392,12 @@ Deno.test("write omero metadata v0.5 - omero inside ome namespace", async () => 
   assertExists(readOmero);
   assertEquals(readOmero.channels.length, 2);
   assertEquals(readOmero.channels[0].color, "a52a2a");
-  assertEquals(readOmero.channels[0].window.start, 0.0);
-  assertEquals(readOmero.channels[0].window.end, 255.0);
+  assertEquals(readOmero.channels[0].window!.start, 0.0);
+  assertEquals(readOmero.channels[0].window!.end, 255.0);
   assertEquals(readOmero.channels[0].label, "C1-DAPI");
   assertEquals(readOmero.channels[1].color, "00aeef");
-  assertEquals(readOmero.channels[1].window.start, 0.0);
-  assertEquals(readOmero.channels[1].window.end, 255.0);
+  assertEquals(readOmero.channels[1].window!.start, 0.0);
+  assertEquals(readOmero.channels[1].window!.end, 255.0);
   assertEquals(readOmero.channels[1].label, "C2-Phalloidin");
 });
 
@@ -442,14 +442,14 @@ Deno.test("create omero channel and window", () => {
   };
 
   assertEquals(channel.color, "FF0000");
-  assertEquals(channel.window.min, 0.0);
-  assertEquals(channel.window.max, 255.0);
-  assertEquals(channel.window.start, 10.0);
-  assertEquals(channel.window.end, 200.0);
+  assertEquals(channel.window!.min, 0.0);
+  assertEquals(channel.window!.max, 255.0);
+  assertEquals(channel.window!.start, 10.0);
+  assertEquals(channel.window!.end, 200.0);
   assertEquals(channel.label, "Red Channel");
 
   // Test validation
-  validateColor(channel.color);
+  validateColor(channel.color!);
 });
 
 Deno.test("create omero metadata with multiple channels", () => {
@@ -482,5 +482,5 @@ Deno.test("create omero metadata with multiple channels", () => {
   assertEquals(omero.channels[2].label, "Blue");
 
   // Validate all colors
-  omero.channels.forEach((channel) => validateColor(channel.color));
+  omero.channels.forEach((channel) => validateColor(channel.color!));
 });

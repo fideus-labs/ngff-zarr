@@ -89,15 +89,15 @@ Deno.test("compute basic statistics for single channel", async () => {
   const channel = omero.channels[0];
 
   // Check min/max
-  assertEquals(channel.window.min, 0);
-  assertEquals(channel.window.max, 99);
+  assertEquals(channel.window!.min, 0);
+  assertEquals(channel.window!.max, 99);
 
   // Check quantiles are approximately correct
-  assertExists(channel.window.start);
-  assertExists(channel.window.end);
+  assertExists(channel.window!.start);
+  assertExists(channel.window!.end);
   // 2% of 100 values is ~2, 98% is ~97
-  assertEquals(channel.window.start! >= 0 && channel.window.start! <= 5, true);
-  assertEquals(channel.window.end! >= 94 && channel.window.end! <= 99, true);
+  assertEquals(channel.window!.start >= 0 && channel.window!.start <= 5, true);
+  assertEquals(channel.window!.end >= 94 && channel.window!.end <= 99, true);
 });
 
 Deno.test("single channel uses white color", async () => {
@@ -121,10 +121,10 @@ Deno.test("custom quantiles are respected", async () => {
   const channel = omero.channels[0];
   // 10% of 100 values is ~10, 90% is ~90
   assertEquals(
-    channel.window.start! >= 5 && channel.window.start! <= 15,
+    channel.window!.start! >= 5 && channel.window!.start! <= 15,
     true,
   );
-  assertEquals(channel.window.end! >= 85 && channel.window.end! <= 95, true);
+  assertEquals(channel.window!.end! >= 85 && channel.window!.end! <= 95, true);
 });
 
 Deno.test("custom color is applied", async () => {
@@ -176,16 +176,16 @@ Deno.test("per-channel statistics are computed", async () => {
   assertEquals(omero.channels.length, 3);
 
   // Channel 0: all zeros
-  assertEquals(omero.channels[0].window.min, 0);
-  assertEquals(omero.channels[0].window.max, 0);
+  assertEquals(omero.channels[0].window!.min, 0);
+  assertEquals(omero.channels[0].window!.max, 0);
 
   // Channel 1: all 100s
-  assertEquals(omero.channels[1].window.min, 100);
-  assertEquals(omero.channels[1].window.max, 100);
+  assertEquals(omero.channels[1].window!.min, 100);
+  assertEquals(omero.channels[1].window!.max, 100);
 
   // Channel 2: all 255s
-  assertEquals(omero.channels[2].window.min, 255);
-  assertEquals(omero.channels[2].window.max, 255);
+  assertEquals(omero.channels[2].window!.min, 255);
+  assertEquals(omero.channels[2].window!.max, 255);
 });
 
 Deno.test("multi-channel uses glasbey colors", async () => {
@@ -288,8 +288,8 @@ Deno.test("3D image without channel dimension", async () => {
   const omero = await computeOmeroFromNgffImage(image);
 
   assertEquals(omero.channels.length, 1);
-  assertEquals(omero.channels[0].window.min, 0);
-  assertEquals(omero.channels[0].window.max, 999);
+  assertEquals(omero.channels[0].window!.min, 0);
+  assertEquals(omero.channels[0].window!.max, 999);
 });
 
 Deno.test("4D image with channel dimension", async () => {
@@ -308,10 +308,10 @@ Deno.test("4D image with channel dimension", async () => {
   const omero = await computeOmeroFromNgffImage(image);
 
   assertEquals(omero.channels.length, 2);
-  assertEquals(omero.channels[0].window.min, 0);
-  assertEquals(omero.channels[0].window.max, 0);
-  assertEquals(omero.channels[1].window.min, 100);
-  assertEquals(omero.channels[1].window.max, 100);
+  assertEquals(omero.channels[0].window!.min, 0);
+  assertEquals(omero.channels[0].window!.max, 0);
+  assertEquals(omero.channels[1].window!.min, 100);
+  assertEquals(omero.channels[1].window!.max, 100);
 });
 
 // ============================================================================
@@ -325,8 +325,8 @@ Deno.test("handles NaN values", async () => {
   const omero = await computeOmeroFromNgffImage(image);
 
   // Should ignore NaN values
-  assertEquals(omero.channels[0].window.min, 1);
-  assertEquals(omero.channels[0].window.max, 9);
+  assertEquals(omero.channels[0].window!.min, 1);
+  assertEquals(omero.channels[0].window!.max, 9);
 });
 
 Deno.test("constant value array", async () => {
@@ -335,10 +335,10 @@ Deno.test("constant value array", async () => {
 
   const omero = await computeOmeroFromNgffImage(image);
 
-  assertEquals(omero.channels[0].window.min, 42);
-  assertEquals(omero.channels[0].window.max, 42);
-  assertEquals(omero.channels[0].window.start, 42);
-  assertEquals(omero.channels[0].window.end, 42);
+  assertEquals(omero.channels[0].window!.min, 42);
+  assertEquals(omero.channels[0].window!.max, 42);
+  assertEquals(omero.channels[0].window!.start, 42);
+  assertEquals(omero.channels[0].window!.end, 42);
 });
 
 Deno.test("integer dtype works correctly", async () => {
@@ -347,8 +347,8 @@ Deno.test("integer dtype works correctly", async () => {
 
   const omero = await computeOmeroFromNgffImage(image);
 
-  assertEquals(omero.channels[0].window.min, 0);
-  assertEquals(omero.channels[0].window.max, 255);
+  assertEquals(omero.channels[0].window!.min, 0);
+  assertEquals(omero.channels[0].window!.max, 255);
 });
 
 // ============================================================================
@@ -378,8 +378,8 @@ Deno.test("computeOmeroFromMultiscales uses highest resolution", async () => {
 
   assertEquals(omero.channels.length, 1);
   // Should have original full-resolution values
-  assertEquals(omero.channels[0].window.min, 0);
-  assertEquals(omero.channels[0].window.max, 63);
+  assertEquals(omero.channels[0].window!.min, 0);
+  assertEquals(omero.channels[0].window!.max, 63);
 });
 
 Deno.test("computeOmeroFromMultiscales passes through options", async () => {

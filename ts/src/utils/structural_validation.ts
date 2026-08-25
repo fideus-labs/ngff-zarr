@@ -643,8 +643,14 @@ export function validateOmeroColorHex(metadata: Metadata): void {
     return;
   }
   for (let i = 0; i < omero.channels.length; i++) {
+    const color = omero.channels[i].color;
+    // A channel with no color passes: whether the field may be absent is the
+    // schema's decision, not this rule's.
+    if (color === undefined) {
+      continue;
+    }
     try {
-      validateColor(omero.channels[i].color);
+      validateColor(color);
     } catch (error) {
       throw new ValidationError(
         SpecRule.OmeroChannelColorFormat,

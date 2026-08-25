@@ -38,11 +38,38 @@ AxesType = Union[AxesTypeV04, Literal["displacement"], Literal["coordinate"]]
 
 @dataclass
 class Axis:
+    #: The 0.6 axes schema requires only ``name`` and declares ``longName``,
+    #: so an axis carrying neither ``type`` nor ``longName`` is valid at this
+    #: version. ``type`` stays required at 0.4 and 0.5, where their schemas
+    #: require it.
     name: SupportedDims
-    type: AxesType
+    type: AxesType | None = None
     unit: Units | None = None
     orientation: AnatomicalOrientation | None = None
     discrete: bool | None = None
+    longName: str | None = None
+
+    @classmethod
+    def from_dict(cls, axis: dict) -> "Axis":
+        """Build an axis from a metadata entry, keeping the fields it declares.
+
+        The 0.6 axes schema sets no ``additionalProperties``, so a document may
+        carry a key this library does not model. Such a key is dropped with a
+        warning: the reader states what it ignored instead of failing on a
+        Python constructor, and a later spec release that adds a property is
+        read rather than refused.
+        """
+        known = {field for field in cls.__dataclass_fields__}
+        unknown = sorted(set(axis) - known)
+        if unknown:
+            name = axis.get("name", "<unnamed>")
+            warnings.warn(
+                f"Axis '{name}' carries {unknown}, which this version of "
+                "ngff-zarr does not model; the field(s) are ignored.",
+                UserWarning,
+                stacklevel=2,
+            )
+        return cls(**{key: value for key, value in axis.items() if key in known})
 
 
 @dataclass
@@ -795,7 +822,7 @@ class Metadata:
 
         coordinate_systems = []
         for cs in root_attrs.get("coordinateSystems", []):
-            axes = [Axis(**axis) for axis in cs["axes"]]
+            axes = [Axis.from_dict(axis) for axis in cs["axes"]]
 
             coordinate_systems.append(CoordinateSystem(name=cs["name"], axes=axes))
 

@@ -90,7 +90,7 @@ for (const cChunk of [1, 2, N_CHANNELS]) {
         assertEquals(omero.channels.length, N_CHANNELS);
         for (const [c, [min, max]] of expectedWindows().entries()) {
           assertEquals(
-            [omero.channels[c].window.min, omero.channels[c].window.max],
+            [omero.channels[c].window!.min, omero.channels[c].window!.max],
             [min, max],
             `channel ${c} statistics are wrong for chunk size ${cChunk}`,
           );

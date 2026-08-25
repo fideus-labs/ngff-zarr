@@ -230,19 +230,33 @@ class Dataset:
 
 @dataclass
 class OmeroWindow:
-    min: float
-    max: float
-    start: float
-    end: float
+    #: Every bound is optional, as in the OME-Zarr schema, which requires none
+    #: of them. A window that carries only some of its bounds is read with the
+    #: rest left unset rather than dropped.
+    min: float | None = None
+    max: float | None = None
+    start: float | None = None
+    end: float | None = None
 
 
 @dataclass
 class OmeroChannel:
-    color: str
-    window: OmeroWindow
+    #: ``color`` and ``window`` are optional so that a channel is read as
+    #: written. The list is positional, one entry per index of the ``c`` axis,
+    #: so a channel that cannot be fully built must still occupy its place.
+    color: str | None = None
+    window: OmeroWindow | None = None
     label: str | None = None
+    active: bool | None = None
 
     def validate_color(self):
+        """Raise when ``color`` is present and is not six hexadecimal digits.
+
+        A channel with no ``color`` passes: whether the field may be absent is
+        the schema's decision, not this predicate's.
+        """
+        if self.color is None:
+            return
         if not re.fullmatch(r"[0-9A-Fa-f]{6}", self.color):
             raise ValueError(f"Invalid color '{self.color}'. Must be 6 hex digits.")
 
@@ -250,6 +264,7 @@ class OmeroChannel:
 @dataclass
 class Omero:
     channels: list[OmeroChannel]
+    version: str | None = None
 
 
 @dataclass

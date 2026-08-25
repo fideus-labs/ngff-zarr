@@ -28,6 +28,7 @@ export interface Axis {
   unit: AxisUnit | undefined;
   orientation?: AxisOrientation | AnatomicalOrientation | undefined;
   discrete?: boolean;
+  longName?: string;
 }
 
 /**
@@ -210,8 +211,13 @@ export interface OmeroWindow {
 }
 
 export interface OmeroChannel {
-  color: string;
-  window: OmeroWindow;
+  /**
+   * `color` and `window` are optional so that a channel is read as written.
+   * The list is positional, one entry per index of the `c` axis, so a channel
+   * that cannot be fully built must still occupy its place.
+   */
+  color?: string;
+  window?: OmeroWindow;
   label?: string;
   active?: boolean;
 }

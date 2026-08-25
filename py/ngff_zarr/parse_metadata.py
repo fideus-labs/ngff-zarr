@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-from typing import Union
+from typing import Any, Union
 
 from ._supported_versions import NgffVersion
 from .methods import Methods
@@ -36,65 +36,65 @@ def _extract_method_metadata(
     return method, method_type, method_metadata
 
 
+def _parse_window(window_data: Any) -> OmeroWindow | None:
+    """Build an :class:`OmeroWindow` from whatever bounds a channel carries.
+
+    Stores in the wild write ``min``/``max``, ``start``/``end``, or both. When
+    only one pair is present it stands for the other, which is how this library
+    has always read them. A window with neither pair keeps the bounds it has
+    and leaves the rest unset rather than making the channel unreadable.
+    """
+    if not isinstance(window_data, dict):
+        return None
+
+    def number(key):
+        value = window_data.get(key)
+        return None if value is None else float(value)
+
+    minimum, maximum = number("min"), number("max")
+    start, end = number("start"), number("end")
+    if start is None and end is None:
+        start, end = minimum, maximum
+    elif minimum is None and maximum is None:
+        minimum, maximum = start, end
+    return OmeroWindow(min=minimum, max=maximum, start=start, end=end)
+
+
 def _parse_omero(omero_data: Union[dict, None]) -> Omero | None:
-    """Parse OMERO metadata dictionary into Omero dataclass."""
-    omero = None
-    if isinstance(omero_data, dict) and "channels" in omero_data:
-        channels_data = omero_data["channels"]
-        if isinstance(channels_data, list):
-            channels = []
-            for channel in channels_data:
-                if not isinstance(channel, dict) or "window" not in channel:
-                    continue
+    """Parse OMERO metadata into the :class:`Omero` dataclass.
 
-                window_data = channel["window"]
-                if not isinstance(window_data, dict):
-                    continue
+    One channel comes back per entry. The list is positional, one entry per
+    index of the ``c`` axis (:func:`~ngff_zarr.compute_omero
+    .compute_omero_from_ngff_image` writes it that way), so dropping a channel
+    that lacks a ``color`` or a ``window`` would silently renumber every
+    channel after it. A field the entry does not carry is left unset, and
+    whether it may be absent is the schema's decision.
+    """
+    if not isinstance(omero_data, dict) or "channels" not in omero_data:
+        return None
+    channels_data = omero_data["channels"]
+    if not isinstance(channels_data, list):
+        return None
 
-                # Handle backward compatibility for OMERO window metadata
-                # Some stores use min/max, others use start/end, some have both
-                if "start" in window_data and "end" in window_data:
-                    # New format with start/end
-                    start = float(window_data["start"])  # type: ignore
-                    end = float(window_data["end"])  # type: ignore
-                    if "min" in window_data and "max" in window_data:
-                        # Both formats present
-                        min_val = float(window_data["min"])  # type: ignore
-                        max_val = float(window_data["max"])  # type: ignore
-                    else:
-                        # Only start/end, use them as min/max
-                        min_val = start
-                        max_val = end
-                elif "min" in window_data and "max" in window_data:
-                    # Old format with min/max only
-                    min_val = float(window_data["min"])  # type: ignore
-                    max_val = float(window_data["max"])  # type: ignore
-                    # Use min/max as start/end for backward compatibility
-                    start = min_val
-                    end = max_val
-                else:
-                    # Invalid window data, skip this channel
-                    continue
+    channels = []
+    for channel in channels_data:
+        if not isinstance(channel, dict):
+            channels.append(OmeroChannel())
+            continue
+        color = channel.get("color")
+        label = channel.get("label")
+        active = channel.get("active")
+        channels.append(
+            OmeroChannel(
+                color=None if color is None else str(color),
+                window=_parse_window(channel.get("window")),
+                label=None if label is None else str(label),
+                active=None if active is None else bool(active),
+            )
+        )
 
-                channels.append(
-                    OmeroChannel(
-                        color=str(channel["color"]),  # type: ignore
-                        label=str(channel.get("label", None))
-                        if channel.get("label") is not None
-                        else None,  # type: ignore
-                        window=OmeroWindow(
-                            min=min_val,
-                            max=max_val,
-                            start=start,
-                            end=end,
-                        ),
-                    )
-                )
-
-            if channels:
-                omero = Omero(channels=channels)
-
-    return omero
+    version = omero_data.get("version")
+    return Omero(channels=channels, version=None if version is None else str(version))
 
 
 def _parse_hcs_path(store_path: str) -> tuple[str, str | None]:

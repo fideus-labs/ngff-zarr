@@ -66,6 +66,43 @@ export function extractMethodMetadata(
 /**
  * Parse OMERO metadata dictionary into Omero interface.
  */
+/**
+ * Build an `OmeroWindow` from whatever bounds a channel carries.
+ *
+ * Stores in the wild write `min`/`max`, `start`/`end`, or both. When only one
+ * pair is present it stands for the other, which is how this library has
+ * always read them. A window with neither pair keeps the bounds it has and
+ * leaves the rest unset rather than making the channel unreadable.
+ */
+function parseOmeroWindow(windowData: unknown): OmeroWindow | undefined {
+  if (!windowData || typeof windowData !== "object") {
+    return undefined;
+  }
+  const data = windowData as Record<string, unknown>;
+  const number = (key: string): number | undefined => {
+    const value = data[key];
+    return value === undefined || value === null ? undefined : Number(value);
+  };
+
+  let min = number("min");
+  let max = number("max");
+  let start = number("start");
+  let end = number("end");
+  if (start === undefined && end === undefined) {
+    start = min;
+    end = max;
+  } else if (min === undefined && max === undefined) {
+    min = start;
+    max = end;
+  }
+  return {
+    ...(min !== undefined ? { min } : {}),
+    ...(max !== undefined ? { max } : {}),
+    ...(start !== undefined ? { start } : {}),
+    ...(end !== undefined ? { end } : {}),
+  };
+}
+
 export function parseOmero(
   omeroData: Record<string, unknown> | undefined | null,
 ): Omero | undefined {
@@ -80,56 +117,17 @@ export function parseOmero(
   const channels: OmeroChannel[] = [];
 
   for (const channel of omeroData.channels as Array<Record<string, unknown>>) {
-    if (
-      !channel ||
-      typeof channel !== "object" ||
-      !("window" in channel) ||
-      !channel.window
-    ) {
+    if (!channel || typeof channel !== "object") {
+      channels.push({});
       continue;
     }
 
-    const windowData = channel.window as Record<string, unknown>;
-    if (typeof windowData !== "object") {
-      continue;
-    }
-
-    // Handle backward compatibility for OMERO window metadata
-    // Prefer start/end format, fall back to min/max, use one as the other if needed
-    let start: number;
-    let end: number;
-    let minVal: number;
-    let maxVal: number;
-
-    if ("start" in windowData && "end" in windowData) {
-      // New format with start/end
-      start = Number(windowData.start);
-      end = Number(windowData.end);
-      // Use start/end as min/max if not present
-      minVal = ("min" in windowData) ? Number(windowData.min) : start;
-      maxVal = ("max" in windowData) ? Number(windowData.max) : end;
-    } else if ("min" in windowData && "max" in windowData) {
-      // Old format with min/max only
-      minVal = Number(windowData.min);
-      maxVal = Number(windowData.max);
-      // Use min/max as start/end for backward compatibility
-      start = minVal;
-      end = maxVal;
-    } else {
-      // Invalid window data, skip this channel
-      continue;
-    }
-
-    const window: OmeroWindow = {
-      min: minVal,
-      max: maxVal,
-      start: start,
-      end: end,
-    };
-
+    const window = parseOmeroWindow(channel.window);
     const omeroChannel: OmeroChannel = {
-      color: String(channel.color),
-      window,
+      ...(channel.color !== undefined && channel.color !== null
+        ? { color: String(channel.color) }
+        : {}),
+      ...(window !== undefined ? { window } : {}),
       ...(channel.label !== undefined && channel.label !== null
         ? { label: String(channel.label) }
         : {}),
@@ -139,10 +137,6 @@ export function parseOmero(
     };
 
     channels.push(omeroChannel);
-  }
-
-  if (channels.length === 0) {
-    return undefined;
   }
 
   return {

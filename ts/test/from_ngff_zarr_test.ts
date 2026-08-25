@@ -310,11 +310,11 @@ Deno.test("omero metadata backward compatibility", async () => {
 
   // Check that the window has both min/max and start/end populated
   const channel = multiscales.metadata.omero.channels[0];
-  assertEquals(channel.window.min, 0);
-  assertEquals(channel.window.max, 1000);
+  assertEquals(channel.window!.min, 0);
+  assertEquals(channel.window!.max, 1000);
   // For backward compatibility, min/max should be used as start/end
-  assertEquals(channel.window.start, 0);
-  assertEquals(channel.window.end, 1000);
+  assertEquals(channel.window!.start, 0);
+  assertEquals(channel.window!.end, 1000);
 
   // Test with start/end format only (newer format)
   const store2: MemoryStore = new Map<string, Uint8Array>();
@@ -397,10 +397,10 @@ Deno.test("omero metadata backward compatibility", async () => {
   assertExists(multiscales2.metadata.omero);
   const channel2 = multiscales2.metadata.omero.channels[0];
   // For forward compatibility, start/end should be used as min/max
-  assertEquals(channel2.window.start, 10);
-  assertEquals(channel2.window.end, 900);
-  assertEquals(channel2.window.min, 10);
-  assertEquals(channel2.window.max, 900);
+  assertEquals(channel2.window!.start, 10);
+  assertEquals(channel2.window!.end, 900);
+  assertEquals(channel2.window!.min, 10);
+  assertEquals(channel2.window!.max, 900);
 
   // Test with both formats present (most complete)
   const store3: MemoryStore = new Map<string, Uint8Array>();
@@ -483,10 +483,10 @@ Deno.test("omero metadata backward compatibility", async () => {
   assertExists(multiscales3);
   assertExists(multiscales3.metadata.omero);
   const channel3 = multiscales3.metadata.omero.channels[0];
-  assertEquals(channel3.window.min, 5);
-  assertEquals(channel3.window.max, 995);
-  assertEquals(channel3.window.start, 15);
-  assertEquals(channel3.window.end, 985);
+  assertEquals(channel3.window!.min, 5);
+  assertEquals(channel3.window!.max, 995);
+  assertEquals(channel3.window!.start, 15);
+  assertEquals(channel3.window!.end, 985);
 
   console.log("✓ OMERO metadata backward compatibility test passed");
 });
