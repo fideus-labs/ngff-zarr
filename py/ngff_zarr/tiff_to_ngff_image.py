@@ -966,7 +966,7 @@ def _build_multiscales_from_pyramid(
     translation = None
     if ome_translation:
         translation = {}
-        for dim in ('z', 'y', 'x'):
+        for dim in ("z", "y", "x"):
             if ome_translation_units and dim in ome_translation_units:
                 if axes_units and dim in axes_units:
                     target_unit = axes_units[dim]
@@ -1456,7 +1456,7 @@ def _read_tiff_series(
             translation = None
             if ome_translation:
                 translation = {}
-                for dim in ('z', 'y', 'x'):
+                for dim in ("z", "y", "x"):
                     if ome_translation_units and dim in ome_translation_units:
                         if axes_units and dim in axes_units:
                             target_unit = axes_units[dim]
