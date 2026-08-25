@@ -111,7 +111,7 @@ def demo_write_to_new_store(tmp: Path) -> None:
     print(f"  source version (after)  : {src_after!r}  (unchanged)")
     print(f"  new store version       : {dst_after!r}")
     assert src_after == "0.4", src_after
-    assert dst_after == "0.6.dev4", dst_after
+    assert dst_after == "0.6rc0", dst_after
 
     # Confirm the upgraded store reads back with pixel data intact.
     reloaded = from_ome_zarr(dst, version="0.6")
@@ -142,7 +142,7 @@ def demo_in_place(tmp: Path) -> None:
     after_version = read_ome_version(store)
     after_chunks = chunk_digests(store_root)
     print(f"  version (after)         : {after_version!r}")
-    assert after_version == "0.6.dev4", after_version
+    assert after_version == "0.6rc0", after_version
 
     # Prove every array chunk file is byte-for-byte identical.
     assert after_chunks == before_chunks, "array chunk data changed on in-place upgrade"

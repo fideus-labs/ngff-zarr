@@ -8,8 +8,10 @@ import zarr
 from ngff_zarr import (
     NgffMultiscales,
     from_ngff_zarr,
+    from_ome_zarr,
     to_multiscales,
     to_ngff_zarr,
+    to_ome_zarr,
     validate,
 )
 from packaging import version
@@ -205,6 +207,105 @@ def test_validate_v06_accepts_the_on_disk_version_string(tmp_path):
     assert on_disk_version != "0.6"
 
     validate(root_attrs, version=on_disk_version, model="image")
+
+
+@requires_zarr_v3
+def test_validate_v06_rejects_an_earlier_prerelease_tag(tmp_path):
+    # The bundled 0.6 schemas pin ``ome.version`` to the pre-release they were
+    # published with, and the schema API checks a document as given. The
+    # reader is the lenient one: see the warning test below.
+    jsonschema = pytest.importorskip("jsonschema")
+
+    store = _write_valid_3d_store_v06(tmp_path / "image.ome.zarr")
+    root_attrs = zarr.open_group(str(store), mode="r").attrs.asdict()
+    root_attrs["ome"]["version"] = "0.6.dev4"
+
+    with pytest.raises(jsonschema.ValidationError, match="0.6rc0"):
+        validate(root_attrs, version="0.6", model="image")
+
+
+@requires_zarr_v3
+def test_v06_write_refuses_a_top_level_transform_without_references(tmp_path):
+    # From 0.6 a multiscale-level transform maps between two named coordinate
+    # systems and the schema requires both references. The writer refuses the
+    # model up front rather than producing a store its own validated reader
+    # rejects; with the references present the store validates.
+    from ngff_zarr.v06.zarr_metadata import CoordinateSystemIdentifier, Scale
+
+    array = np.random.random((4, 8, 8)).astype("float32")
+    multiscales = to_multiscales(array, [2])
+    multiscales.metadata.coordinateTransformations = [Scale(scale=[2.0, 2.0, 2.0])]
+
+    with pytest.raises(ValueError, match="names no input coordinate system"):
+        to_ome_zarr(tmp_path / "refused.ome.zarr", multiscales, version="0.6")
+
+    intrinsic = multiscales.metadata.intrinsic_coordinate_system.name
+    multiscales.metadata.coordinateTransformations = [
+        Scale(
+            scale=[2.0, 2.0, 2.0],
+            input=CoordinateSystemIdentifier(name=intrinsic),
+            output=CoordinateSystemIdentifier(name=intrinsic),
+        )
+    ]
+    store = tmp_path / "written.ome.zarr"
+    to_ome_zarr(store, multiscales, version="0.6")
+    pytest.importorskip("jsonschema")
+    validate(zarr.open_group(str(store), mode="r").attrs.asdict(), version="0.6")
+
+
+@requires_zarr_v3
+def test_read_warns_on_a_superseded_0_6_tag_and_validates_the_rest(tmp_path):
+    # A store tagged with an earlier 0.6 pre-release differs from a valid store
+    # in that string alone. The validating reader says so and checks the rest
+    # of the document with the tag substituted, rather than fail on the one
+    # thing ``upgrade_ome_zarr`` exists to rewrite.
+    pytest.importorskip("jsonschema")
+
+    store = _write_valid_3d_store_v06(tmp_path / "image.ome.zarr")
+    root = zarr.open_group(str(store), mode="r+")
+    ome = dict(root.attrs["ome"])
+    ome["version"] = "0.6.dev4"
+    root.attrs["ome"] = ome
+
+    with pytest.warns(UserWarning, match="superseded 0.6 pre-release tag '0.6.dev4'"):
+        multiscales = from_ome_zarr(store, validate=True)
+    assert len(multiscales.images) == 2
+
+
+@requires_zarr_v3
+def test_read_does_not_substitute_a_tag_no_release_wrote(tmp_path):
+    # Only the tags earlier releases wrote are substituted. A plain ``0.6``,
+    # which a stricter writer might record, is checked as given, and the
+    # schema rejects it, so it is not passed off as the vendored pre-release.
+    jsonschema = pytest.importorskip("jsonschema")
+
+    store = _write_valid_3d_store_v06(tmp_path / "image.ome.zarr")
+    root = zarr.open_group(str(store), mode="r+")
+    ome = dict(root.attrs["ome"])
+    ome["version"] = "0.6"
+    root.attrs["ome"] = ome
+
+    with pytest.raises(jsonschema.ValidationError, match="'0.6' is not one of"):
+        from_ome_zarr(store, validate=True)
+
+
+@requires_zarr_v3
+def test_read_still_rejects_a_defect_behind_a_superseded_0_6_tag(tmp_path):
+    # The substitution covers the tag and nothing else.
+    jsonschema = pytest.importorskip("jsonschema")
+
+    store = _write_valid_3d_store_v06(tmp_path / "image.ome.zarr")
+    root = zarr.open_group(str(store), mode="r+")
+    ome = dict(root.attrs["ome"])
+    ome["version"] = "0.6.dev4"
+    del ome["multiscales"][0]["coordinateSystems"]
+    root.attrs["ome"] = ome
+
+    with (
+        pytest.warns(UserWarning, match="superseded"),
+        pytest.raises(jsonschema.ValidationError),
+    ):
+        from_ome_zarr(store, validate=True)
 
 
 @requires_zarr_v3

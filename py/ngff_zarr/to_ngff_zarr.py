@@ -13,7 +13,7 @@ import numpy as np
 from itkwasm import array_like_to_numpy_array
 
 from ._store_types import StoreLike
-from ._supported_versions import NgffVersion
+from ._supported_versions import V06_ONDISK_VERSION, NgffVersion
 from ._zarrista_utils import (
     consolidate_metadata as _zarrista_consolidate_metadata,
 )
@@ -265,6 +265,28 @@ def _validate_ngff_parameters(
         )
 
 
+def _gate_top_level_transforms(metadata, version: str) -> None:
+    """Refuse a multiscale-level transform the 0.6 schema cannot express.
+
+    From 0.6 a transform on the multiscales entry maps between two named
+    coordinate systems, and the schema requires both ``input`` and ``output``
+    to name one. The writer serializes whatever the model holds, so a missing
+    reference would produce a store the validated reader rejects.
+    """
+    if version != "0.6" or not metadata.coordinateTransformations:
+        return
+    for index, transform in enumerate(metadata.coordinateTransformations):
+        for side in ("input", "output"):
+            reference = getattr(transform, side, None)
+            if reference is None or getattr(reference, "name", None) is None:
+                raise ValueError(
+                    f"multiscales coordinateTransformations[{index}] "
+                    f"({transform.type}) names no {side} coordinate system; "
+                    "OME-Zarr 0.6 requires every multiscale-level transformation "
+                    "to name both its input and its output coordinate system"
+                )
+
+
 def _prepare_metadata(
     multiscales: NgffMultiscales, version: str
 ) -> tuple[Metadata_v04 | Metadata_v05, tuple[str, ...], dict]:
@@ -295,15 +317,15 @@ def _root_ome_attrs(metadata_dict: dict, version: str) -> dict:
 
     Returns the ``ome``/``multiscales`` attribute mapping (hoisting ``omero``
     to its version-specific location) exactly as the writer persists it --
-    including mapping the API version ``"0.6"`` to the ``"0.6.dev4"`` string
-    stored on disk. ``metadata_dict`` is mutated in place: its ``omero`` entry
+    including mapping the API version ``"0.6"`` to the pre-release string
+    stored on disk (:data:`~ngff_zarr._supported_versions.V06_ONDISK_VERSION`). ``metadata_dict`` is mutated in place: its ``omero`` entry
     is popped so it lives only in its hoisted location, matching historical
     behavior.
     """
     if version != "0.4":
         # RFC 2, Zarr 3 - omero goes inside ome namespace
         if version == "0.6":
-            version = "0.6.dev4"
+            version = V06_ONDISK_VERSION.value
         ome_dict = {"version": version, "multiscales": [metadata_dict]}
         if "omero" in metadata_dict:
             ome_dict["omero"] = metadata_dict.pop("omero")
@@ -1065,6 +1087,7 @@ def _to_ngff_zarr_impl(
 
     _validate_ngff_parameters(version, chunks_per_shard)
     metadata, dimension_names, _ = _prepare_metadata(multiscales, version)
+    _gate_top_level_transforms(metadata, version)
     metadata_dict = asdict(metadata)
     metadata_dict = _pop_metadata_optionals(metadata_dict)
     metadata_dict["@type"] = "ngff:Image"

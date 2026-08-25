@@ -88,13 +88,13 @@ def by_dimension_transform() -> ByDimension:
         transformations=[
             ByDimensionItem(
                 transformation=Scale(scale=[2.0, 3.0]),
-                input_axes=[0, 1],
-                output_axes=[0, 1],
+                inputAxes=[0, 1],
+                outputAxes=[0, 1],
             ),
             ByDimensionItem(
                 transformation=Translation(translation=[5.0]),
-                input_axes=[2],
-                output_axes=[2],
+                inputAxes=[2],
+                outputAxes=[2],
             ),
         ]
     )
@@ -246,11 +246,11 @@ def test_new_transform_payloads_roundtrip():
     assert len(imported_by_dim.transformations) == 2
     first, second = imported_by_dim.transformations
     assert first.transformation.scale == [2.0, 3.0]
-    assert first.input_axes == [0, 1]
-    assert first.output_axes == [0, 1]
+    assert first.inputAxes == [0, 1]
+    assert first.outputAxes == [0, 1]
     assert second.transformation.translation == [5.0]
-    assert second.input_axes == [2]
-    assert second.output_axes == [2]
+    assert second.inputAxes == [2]
+    assert second.outputAxes == [2]
 
     assert imported_bijection.forward.path == "forward_field"
     assert imported_bijection.inverse.path == "inverse_field"
@@ -288,8 +288,8 @@ def test_axis_indices_must_be_integers():
     with pytest.raises(ValueError, match="integers"):
         ByDimensionItem(
             transformation=Scale(scale=[2.0, 3.0]),
-            input_axes=[0.0, 1.0],
-            output_axes=[0, 1],
+            inputAxes=[0.0, 1.0],
+            outputAxes=[0, 1],
         )
 
 
@@ -297,31 +297,31 @@ def test_by_dimension_item_rejects_dimension_mismatch():
     with pytest.raises(ValueError, match="dimensional"):
         ByDimensionItem(
             transformation=Scale(scale=[2.0, 3.0]),
-            input_axes=[0],
-            output_axes=[0],
+            inputAxes=[0],
+            outputAxes=[0],
         )
 
 
-def test_by_dimension_rejects_duplicate_output_axes():
+def test_by_dimension_rejects_duplicate_outputAxes():
     """Duplicates within an item and across items are both rejected."""
     with pytest.raises(ValueError, match="exactly one"):
         ByDimensionItem(
             transformation=Scale(scale=[2.0, 3.0]),
-            input_axes=[0, 1],
-            output_axes=[1, 1],
+            inputAxes=[0, 1],
+            outputAxes=[1, 1],
         )
     with pytest.raises(ValueError, match="exactly one"):
         ByDimension(
             transformations=[
                 ByDimensionItem(
                     transformation=Scale(scale=[2.0, 3.0]),
-                    input_axes=[0, 1],
-                    output_axes=[0, 1],
+                    inputAxes=[0, 1],
+                    outputAxes=[0, 1],
                 ),
                 ByDimensionItem(
                     transformation=Translation(translation=[5.0]),
-                    input_axes=[2],
-                    output_axes=[1],
+                    inputAxes=[2],
+                    outputAxes=[1],
                 ),
             ]
         )
@@ -342,8 +342,8 @@ def test_by_dimension_must_cover_every_output_axis():
         transformations=[
             ByDimensionItem(
                 transformation=Scale(scale=[2.0, 3.0]),
-                input_axes=[0, 1],
-                output_axes=[0, 1],
+                inputAxes=[0, 1],
+                outputAxes=[0, 1],
             ),
         ],
         output=CoordinateSystemIdentifier(name="system"),
@@ -352,13 +352,13 @@ def test_by_dimension_must_cover_every_output_axis():
         validate_transform(transform, [_three_axis_system()])
 
 
-def test_by_dimension_rejects_out_of_range_input_axes():
+def test_by_dimension_rejects_out_of_range_inputAxes():
     transform = ByDimension(
         transformations=[
             ByDimensionItem(
                 transformation=Scale(scale=[2.0, 3.0, 4.0]),
-                input_axes=[0, 1, 3],
-                output_axes=[0, 1, 2],
+                inputAxes=[0, 1, 3],
+                outputAxes=[0, 1, 2],
             ),
         ],
         input=CoordinateSystemIdentifier(name="system"),
@@ -463,3 +463,22 @@ def test_shared_rfc5_cases_match_expected_verdict(case):
     else:
         with pytest.raises(ValueError):
             Metadata._parse_transforms([case["transformation"]], _SHARED_SYSTEMS)
+
+
+def test_by_dimension_item_reads_the_snake_case_spelling():
+    # ngff-zarr 0.43.0 wrote `input_axes` and `output_axes`; the spec spells
+    # them `inputAxes` and `outputAxes`, which is what is written now. A store
+    # from that release must still read.
+    from ngff_zarr.v06.zarr_metadata import ByDimensionItem, Scale
+
+    item = ByDimensionItem.from_dict(
+        {
+            "transformation": {"type": "scale", "scale": [2.0]},
+            "input_axes": [0],
+            "output_axes": [0],
+        }
+    )
+
+    assert item.inputAxes == [0]
+    assert item.outputAxes == [0]
+    assert isinstance(item.transformation, Scale)

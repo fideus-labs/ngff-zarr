@@ -18,7 +18,10 @@ import * as zarr from "zarrita";
 import type { NgffMultiscales } from "../types/multiscales.ts";
 import type { MemoryStore } from "./rfc9_zip.ts";
 import { detectVersion } from "../utils/parse_metadata.ts";
-import { isV06Version } from "../types/supported_versions.ts";
+import {
+  isV06Version,
+  V06_ONDISK_VERSION,
+} from "../types/supported_versions.ts";
 import { buildRootAttributes } from "./to_ngff_zarr_ozx_common.ts";
 
 /** Stores/paths `upgradeOmeZarr` can read from. */
@@ -74,11 +77,27 @@ function zarrFormatForVersion(version: string): 2 | 3 {
 }
 
 /**
- * Collapse the v0.6 family (including the on-disk draft `0.6.dev4`) to `"0.6"`
- * so a store tagged `0.6.dev4` compares equal to a requested version of `"0.6"`.
+ * Collapse the v0.6 family (including its on-disk pre-release tags) to `"0.6"`
+ * so a store tagged with one compares equal to a requested version of `"0.6"`.
  */
 function normalizeVersion(version: string): string {
   return isV06Version(version) ? "0.6" : version;
+}
+
+/** The raw version string a store records, before any family collapsing. */
+function onDiskVersion(rootAttrs: Record<string, unknown>): string | undefined {
+  const ome = rootAttrs.ome as Record<string, unknown> | undefined;
+  if (ome && typeof ome.version === "string") return ome.version;
+  const multiscales = rootAttrs.multiscales as
+    | Array<Record<string, unknown>>
+    | undefined;
+  const version = multiscales?.[0]?.version;
+  return typeof version === "string" ? version : undefined;
+}
+
+/** The `ome.version` string a store written at `version` carries. */
+function onDiskVersionFor(version: "0.4" | "0.5" | "0.6"): string {
+  return version === "0.6" ? V06_ONDISK_VERSION : version;
 }
 
 /** Whether `s` looks like a URL with a scheme (e.g. `http://`, `s3://`). */
@@ -170,15 +189,19 @@ export async function upgradeOmeZarrImpl(
   const store = await deps.resolveWritableStore(input);
   const location = zarr.root(store);
   const rootGroup = await zarr.open(location, { kind: "group" });
-  const sourceVersion = detectVersion(
-    rootGroup.attrs as Record<string, unknown>,
-  );
+  const rootAttrs = rootGroup.attrs as Record<string, unknown>;
+  const sourceVersion = detectVersion(rootAttrs);
   const sourceZarrFormat = zarrFormatForVersion(sourceVersion);
   const targetZarrFormat = zarrFormatForVersion(version);
 
-  // No-op: the store already records the requested spec version. Leave it
-  // byte-for-byte unchanged (no read of arrays, no write).
-  if (normalizeVersion(sourceVersion) === normalizeVersion(version)) {
+  // No-op: the store already carries the exact tag the target would write.
+  // Compared on the on-disk string rather than the detected family, so a 0.6
+  // store tagged with an earlier pre-release is rewritten and its tag catches
+  // up with the vendored schemas, which is the only way to re-tag it. Leaves
+  // the store byte-for-byte unchanged (no read of arrays, no write).
+  if (
+    (onDiskVersion(rootAttrs) ?? sourceVersion) === onDiskVersionFor(version)
+  ) {
     return;
   }
 

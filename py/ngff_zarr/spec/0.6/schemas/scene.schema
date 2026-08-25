@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/scene.schema",
+  "$id": "https://ngff.openmicroscopy.org/0.6rc0/schemas/scene.schema",
   "title": "Scene",
   "description": "Scene metadata combining coordinate systems and coordinate transformations to define spatial relationships",
   "type": "object",
@@ -8,6 +8,9 @@
     "ome": {
       "type": "object",
       "properties": {
+        "version": {
+          "$ref": "https://ngff.openmicroscopy.org/0.6rc0/schemas/_version.schema"
+        },
         "scene":{
           "properties": {
             "coordinateSystems": {
@@ -16,74 +19,50 @@
             },
             "coordinateTransformations": {
               "$comment": "Merge general coordinate transformations with constraints for scene metadata",
-              "allOf": [
-                {
-                  "$ref": "coordinate_transformations.schema",
-                  "description": "General coordinate transformations defining spatial relationships between coordinate systems"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "allOf": [
-                      {
-                        "properties": {
-                          "input": {
-                            "allOf": [
-                              {"$ref": "coordinate_transformations.schema#/$defs/inputOutput"},
-                              {"required": ["name"]}
-                            ]
-                          },
-                          "output": {
-                            "allOf": [
-                              {"$ref": "coordinate_transformations.schema#/$defs/inputOutput"},
-                              {"required": ["name"]}
-                            ]
-                          }
-                        }
-                      }
-                    ]
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "allOf": [
+                  {
+                    "$ref": "coordinate_transformations.schema#/$defs/coordinateTransformation",
+                    "description": "Parameters of any possible transform"
                   },
-                  "description": "Constrained input/output for coordinate transformations in scene metadata"
-                }
-              ]
-
-            },
-            "arrayCoordinateSystem": {
-              "type": "object",
-              "properties": {
-                "name": {
-                  "type": "string",
-                  "description": "Name of coordinate space"
-                },
-                "axes": {
-                  "allOf": [
-                    {
-                      "$ref": "axes.schema"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
+                  {
+                    "type": "object",
+                    "description": "Transformations between two referenced coordinate systems",
+                    "properties": {
+                      "input": {
                         "type": "object",
                         "properties": {
-                          "type": {
-                            "const": "array"
-                          }
-                        }
+                          "name": {"type": "string"},
+                          "path": {"type": "string"}
+                        },
+                        "required": ["name"],
+                        "additionalProperties": false,
+                        "description": "Must reference a coordinate system defined in the same metadata document (path empty) or in a subgroup (path provided)"
+                      },
+                      "output": {
+                        "type": "object",
+                        "properties": {
+                          "name": {"type": "string"},
+                          "path": {"type": "string"}
+                        },
+                        "required": ["name"],
+                        "additionalProperties": false,
+                        "description": "Must reference a coordinate system defined in the same metadata document (path empty) or in a subgroup (path provided)"
                       }
-                    }
-                  ]
-                }
-              },
-              "required": [
-                "axes"
-              ]
+                    },
+                    "required": ["input", "output"]
+                  }
+                ]
+              }
             }
           },
           "type": "object",
           "required": ["coordinateTransformations"]
         }
       },
-    "required": ["scene"]
+    "required": ["scene", "version"]
     }
   },
   "required": ["ome"]

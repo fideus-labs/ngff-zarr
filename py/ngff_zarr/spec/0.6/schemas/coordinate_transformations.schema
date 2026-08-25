@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ngff.openmicroscopy.org/0.6.dev4/schemas/coordinate_transformations.schema",
+  "$id": "https://ngff.openmicroscopy.org/0.6rc0/schemas/coordinate_transformations.schema",
   "title": "Coordinate Transformations",
   "description": "OME-Zarr Coordinate transforms.",
   "type": "array",
@@ -68,6 +68,9 @@
               "$ref": "#/$defs/mapAxis"
             },
             {
+              "$ref": "#/$defs/projectAxis"
+            },
+            {
               "$ref": "#/$defs/scale"
             },
             {
@@ -132,6 +135,51 @@
       "required": [
         "mapAxis"
       ]
+    },
+    "projectAxis": {
+      "type": "object",
+      "title": "projectAxis transformation",
+      "description": "Add or drop axes from a coordinate vector.",
+      "allOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "projectAxis"
+            },
+            "droppedInputs": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4
+              },
+              "maxItems": 3,
+              "uniqueItems": true,
+              "description": "An array of integers representing the indices of the input axes to drop."
+            },
+            "createdOutputs": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4
+              },
+              "maxItems": 3,
+              "uniqueItems": true,
+              "description": "An array of integers representing the indices where zeros are inserted in the output coordinate vector."
+            }
+          }
+        },
+        {
+          "anyOf": [
+            {"required": ["droppedInputs"]},
+            {"required": ["createdOutputs"]}
+          ]
+        }
+      ]
+
     },
     "scale": {
       "type": "object",
@@ -319,27 +367,25 @@
               "transformation": {
                 "$ref": "#/$defs/coordinateTransformation"
               },
-              "input_axes": {
+              "inputAxes": {
                 "type": "array",
                 "items": {
-                  "type": "integer",
-                  "minimum": 0
+                  "type": "number"
                 },
-                "description": "Zero-based axis indices into the parent byDimension transformation's input coordinate system."
+                "description": "Names of the input axes for this transformation."
               },
-              "output_axes": {
+              "outputAxes": {
                 "type": "array",
                 "items": {
-                  "type": "integer",
-                  "minimum": 0
+                  "type": "number"
                 },
-                "description": "Zero-based axis indices into the parent byDimension transformation's output coordinate system."
+                "description": "Names of the output axes for this transformation."
               }
             },
             "required": [
               "transformation",
-              "input_axes",
-              "output_axes"
+              "inputAxes",
+              "outputAxes"
             ]
           }
         }
