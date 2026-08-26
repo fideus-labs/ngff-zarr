@@ -38,6 +38,7 @@ BLOSC_COMPRESSOR = {
 
 
 def _multiscales():
+    """A single-scale 8x8 image, the smallest valid write payload."""
     return to_multiscales(np.zeros((8, 8), dtype=np.uint8), scale_factors=[])
 
 
@@ -71,6 +72,7 @@ class TestWriteTargetRejection:
     """`to_ome_zarr` writes to local directory and .ozx paths only."""
 
     def test_rejects_zarr_python_store_object(self, tmp_path):
+        """A zarr-python store object names itself in the write TypeError."""
         zarr_storage = pytest.importorskip("zarr.storage")
         if not hasattr(zarr_storage, "LocalStore"):
             pytest.skip("zarr-python 2.x stores are MutableMappings")
@@ -96,6 +98,7 @@ class TestWriteTargetRejection:
         assert "upload afterwards" in str(exc_info.value)
 
     def test_rejects_in_memory_mapping(self):
+        """Mappings are a read-only input form; writes reject them."""
         with pytest.raises(
             TypeError, match="ngff-zarr writes to local directory paths"
         ) as exc_info:
@@ -157,6 +160,7 @@ class TestArrayLevelNthreads:
     """Array-level `nthreads` is rejected, and the guide's script repairs it."""
 
     def test_array_level_nthreads_rejected(self, tmp_path):
+        """An array-level `nthreads` key fails the read the guide describes."""
         store_path = tmp_path / "nthreads.ome.zarr"
         _write_blosc_store(store_path)
         assert _inject_array_level_nthreads(store_path)
