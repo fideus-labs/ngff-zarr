@@ -21,7 +21,7 @@ export interface FromOmeZarrOptions {
   /** Enable schema validation of OME-Zarr metadata. */
   validate?: boolean;
   /** Expected OME-Zarr version. */
-  version?: "0.4" | "0.5" | "0.6";
+  version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
   /**
    * Optional decoded-chunk cache passed to `zarrGet` calls.
    *
@@ -141,10 +141,19 @@ export async function fromOmeZarr(
     }
 
     // Parse metadata using version-specific function. The v0.6 reader handles
-    // both `0.6` and the pre-release on-disk version strings.
+    // both `0.6` and the pre-release on-disk version strings, and `0.9.dev1`,
+    // which uses the same coordinate-system layout.
     let result;
-    if (isV06Version(detectedVersion)) {
+    if (
+      isV06Version(detectedVersion) || detectedVersion === NgffVersion.V09dev1
+    ) {
       result = await fromZarrAttrsV06(rootAttrs, resolvedStore, validate);
+      // The v0.6 parser records `0.6`, which is right for the whole 0.6
+      // family but not for a 0.9.dev1 store: that string is the on-disk
+      // version, and callers inspect `metadata.version` to tell them apart.
+      if (detectedVersion === NgffVersion.V09dev1) {
+        result.metadata.version = NgffVersion.V09dev1;
+      }
     } else if (detectedVersion === NgffVersion.V05) {
       result = await fromZarrAttrsV05(rootAttrs, resolvedStore, validate);
     } else {

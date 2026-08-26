@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from ..ngff_image import NgffImage
     from ..v05.zarr_metadata import Metadata as Metadata_v05
     from ..v06.zarr_metadata import Metadata as Metadata_v06
+    from ..v09.zarr_metadata import Metadata as Metadata_v09
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,13 @@ TimeUnits = Union[
     Literal["zettasecond"],
 ]
 Units = Union[SpaceUnits, TimeUnits]
+
+#: Axis unit as RFC-3 allows it: the controlled vocabulary, or any other
+#: string. Every published axes schema declares ``"unit": {"type": "string"}``
+#: with no ``enum``, and an axis of an arbitrary type has no unit in the closed
+#: space/time vocabulary. The union keeps the vocabulary so editors still
+#: complete it. Mirrors the TypeScript port's ``AxisUnit``.
+AxisUnit = Union[Units, str]
 
 supported_dims = ["x", "y", "z", "c", "t"]
 
@@ -163,16 +171,14 @@ def _filter_axis_dict(axis_dict: dict) -> dict:
     Logs a warning if unknown fields are encountered.
 
     Raises:
-        ValueError: If required fields 'name' or 'type' are missing from the axis dictionary.
+        ValueError: If the required field 'name' is missing from the axis
+            dictionary.
     """
-    # Check for required fields before filtering
+    # `name` is the only required axis field: the v0.4 schema accepts an axis
+    # that declares no `type`, so a missing one is read as undefined.
     if "name" not in axis_dict:
         raise ValueError(
             f"Axis dictionary is missing required field 'name': {axis_dict}"
-        )
-    if "type" not in axis_dict:
-        raise ValueError(
-            f"Axis dictionary is missing required field 'type': {axis_dict}"
         )
 
     axis_fields = _get_axis_fields()
@@ -183,13 +189,15 @@ def _filter_axis_dict(axis_dict: dict) -> dict:
             f"Ignoring unknown fields {unknown_fields} in axis '{axis_name}'. "
             f"These fields are not part of the OME-NGFF v0.4 specification."
         )
-    return {k: v for k, v in axis_dict.items() if k in axis_fields}
+    filtered = {k: v for k, v in axis_dict.items() if k in axis_fields}
+    filtered.setdefault("type", None)
+    return filtered
 
 
 @dataclass
 class Axis:
     name: SupportedDims
-    type: AxesType
+    type: AxesType | None
     unit: Units | None = None
     orientation: AnatomicalOrientation | None = None
 
@@ -343,7 +351,7 @@ class Metadata:
 
     def to_version(
         self, version: Union[str, NgffVersion]
-    ) -> Union["Metadata", "Metadata_v05", "Metadata_v06"]:
+    ) -> Union["Metadata", "Metadata_v05", "Metadata_v06", "Metadata_v09"]:
         if isinstance(version, str):
             # raise error for invalid version string
             version = NgffVersion(version)
@@ -354,17 +362,25 @@ class Metadata:
             return self._to_v05()
         if version == NgffVersion.V06:
             return self._to_v05()._to_v06()
+        if version == NgffVersion.V09dev1:
+            from ..v09.zarr_metadata import Metadata as Metadata_v09
+
+            return Metadata_v09.from_version(self)
         raise ValueError(f"Unsupported version conversion: 0.4 -> {version}")
 
     @classmethod
     def from_version(
-        cls, metadata: Union["Metadata", "Metadata_v05", "Metadata_v06"]
+        cls,
+        metadata: Union["Metadata", "Metadata_v05", "Metadata_v06", "Metadata_v09"],
     ) -> "Metadata":
         from ..v05.zarr_metadata import Metadata as Metadata_v05
         from ..v06.zarr_metadata import Metadata as Metadata_v06
+        from ..v09.zarr_metadata import Metadata as Metadata_v09
 
         if isinstance(metadata, Metadata_v05):
             return cls._from_v05(metadata)
+        if isinstance(metadata, Metadata_v09):
+            return cls._from_v05(Metadata_v05._from_v06(metadata._to_v06()))
         if isinstance(metadata, Metadata_v06):
             return cls._from_v05(Metadata_v05._from_v06(metadata))
         raise ValueError(f"Unsupported metadata type: {type(metadata)}")

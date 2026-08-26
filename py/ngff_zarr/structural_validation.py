@@ -45,6 +45,9 @@ violation, in canonical spec-MUST order.
 #   axis-order
 #       time before channel before space; space names a suffix of (z, y, x)
 #       e.g. multiscales[0].axes[1]
+#   axis-names-unique
+#       no two axes share a name (RFC-3 rule 5)
+#       e.g. multiscales[0].axes[2]
 #   scale-length-mismatch
 #       every scale/translation length == axis count (global + per-dataset)
 #       e.g. multiscales[0].datasets[2].coordinateTransformations[0]
@@ -85,6 +88,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
+from ._supported_versions import NgffVersion, is_v06_version
+
 if TYPE_CHECKING:
     from .v04.zarr_metadata import Axis, Dataset, Metadata, Plate, Transform, Well
 
@@ -101,6 +106,7 @@ class SpecRule(StrEnum):
     AXIS_COUNT = "axis-count"
     AXIS_TYPE = "axis-type"
     AXIS_ORDER = "axis-order"
+    AXIS_NAMES_UNIQUE = "axis-names-unique"
     SCALE_LENGTH_MISMATCH = "scale-length-mismatch"
     GLOBAL_COORD_TRANSFORM_AFTER_PER_LEVEL = "global-coord-transform-after-per-level"
     DATASET_ORDER_HIGHEST_TO_LOWEST = "dataset-order-highest-to-lowest"
@@ -328,11 +334,45 @@ _AXIS_TYPE_RANK = {"time": 0, "channel": 1, "space": 2}
 # 3 -> ("z", "y", "x") (see ``validate_spatial_axis_order``).
 _SPATIAL_AXIS_NAMES = ("z", "y", "x")
 
+#: The v0.6 ``axes`` schema is a ``oneOf``: either 2 or 3 ``space`` axes, or
+#: two or more ``array`` axes. An RFC-5 array coordinate system takes the
+#: second branch and declares no ``space`` axis at all (see
+#: ``_takes_array_schema_branch``).
+_MIN_ARRAY_AXES = 2
 
-def validate_axis_count(metadata: Metadata) -> None:
+
+def _takes_array_schema_branch(axes: list, version: object | None) -> bool:
+    """Whether ``axes`` satisfies the ``array`` arm of the v0.6 axes schema.
+
+    Only v0.6 has that arm; the v0.4 and v0.5 schemas require 2 or 3 ``space``
+    axes unconditionally, so the space-axis floor is not relaxed for them.
+    """
+    if not is_v06_version(version):
+        return False
+    return sum(1 for ax in axes if ax.type == "array") >= _MIN_ARRAY_AXES
+
+
+def is_rfc3_axis_model_allowed(version: object | None = None) -> bool:
+    """Whether ``version`` adopts the RFC-3 free-form axis model.
+
+    Only OME-Zarr ``0.9.dev1`` does: the bundled 0.4, 0.5 and 0.6 ``axes``
+    schemas all cap the axis count at 5, and require 2 or 3 ``space`` axes
+    (0.6 excepted for an ``array`` coordinate system, see
+    :func:`_takes_array_schema_branch`). ``None`` applies the restrictions.
+
+    Compared by string equality: a dev release precedes its release, so
+    ``packaging.version.parse("0.9.dev1")`` sorts below ``0.9`` and a ``>=``
+    test against ``"0.9"`` is ``False``.
+    """
+    return version is not None and version == NgffVersion.V09dev1
+
+
+def validate_axis_count(metadata: Metadata, version: object | None = None) -> None:
     """Validate that the axis count is within the v0.4-permitted range.
 
-    OME-Zarr v0.4 requires between 2 and 5 axes, inclusive.
+    OME-Zarr v0.4, v0.5 and v0.6 require between 2 and 5 axes, inclusive.
+    Inert when ``version`` adopts RFC-3 (see
+    :func:`is_rfc3_axis_model_allowed`).
 
     Raises
     ------
@@ -340,19 +380,24 @@ def validate_axis_count(metadata: Metadata) -> None:
         With :attr:`SpecRule.AXIS_COUNT` when ``len(metadata.axes)`` lies
         outside ``2..=5``; location ``multiscales[0].axes``.
     """
+    if is_rfc3_axis_model_allowed(version):
+        return
     count = len(metadata.axes)
     if not (2 <= count <= 5):
         raise ValidationError(
             SpecRule.AXIS_COUNT,
-            f"OME-Zarr v0.4 requires between 2 and 5 axes, inclusive; found {count}.",
+            f"OME-Zarr v0.4, v0.5 and v0.6 require between 2 and 5 axes,"
+            f" inclusive; found {count}.",
             "multiscales[0].axes",
         )
 
 
-def validate_axis_type(metadata: Metadata) -> None:
+def validate_axis_type(metadata: Metadata, version: object | None = None) -> None:
     """Validate axis-type multiplicity.
 
     At most one ``time`` axis and at most one ``channel`` axis may be present.
+    Inert when ``version`` adopts RFC-3 (see
+    :func:`is_rfc3_axis_model_allowed`).
 
     Raises
     ------
@@ -361,6 +406,8 @@ def validate_axis_type(metadata: Metadata) -> None:
         more than one ``channel`` axis is present; location
         ``multiscales[0].axes``.
     """
+    if is_rfc3_axis_model_allowed(version):
+        return
     time_count = sum(1 for ax in metadata.axes if ax.type == "time")
     if time_count > 1:
         raise ValidationError(
@@ -377,13 +424,14 @@ def validate_axis_type(metadata: Metadata) -> None:
         )
 
 
-def validate_axis_order(metadata: Metadata) -> None:
+def validate_axis_order(metadata: Metadata, version: object | None = None) -> None:
     """Validate the class ordering of axes.
 
     Axes are ranked by type (``time`` < ``channel`` < ``space``) and must be
     listed in non-decreasing rank order: every ``time`` axis precedes every
     ``channel`` axis, which precedes every ``space`` axis. The first adjacent
-    pair that inverts this ranking is reported.
+    pair that inverts this ranking is reported. Inert when ``version`` adopts
+    RFC-3 (see :func:`is_rfc3_axis_model_allowed`).
 
     Raises
     ------
@@ -392,6 +440,8 @@ def validate_axis_order(metadata: Metadata) -> None:
         lower-ranked axis type follows a higher-ranked one; location
         ``multiscales[0].axes[i+1]``.
     """
+    if is_rfc3_axis_model_allowed(version):
+        return
     axes = metadata.axes
     for i in range(len(axes) - 1):
         current = axes[i]
@@ -410,27 +460,42 @@ def validate_axis_order(metadata: Metadata) -> None:
             )
 
 
-def validate_spatial_axis_order(metadata: Metadata) -> None:
+def validate_spatial_axis_order(
+    metadata: Metadata, version: object | None = None
+) -> None:
     """Validate the count and names of spatial axes.
 
-    The ``space`` axes, taken in order, must be the matching-length suffix of
-    ``(z, y, x)``: one spatial axis must be ``(x,)``, two must be
-    ``(y, x)``, and three must be ``(z, y, x)``. At most three ``space`` axes
-    are permitted.
+    The spec requires 2 or 3 ``space`` axes, and, taken in order, they must be
+    the matching-length suffix of ``(z, y, x)``: two spatial axes must be
+    ``(y, x)`` and three must be ``(z, y, x)``. Inert when ``version`` adopts
+    RFC-3 (see :func:`is_rfc3_axis_model_allowed`).
+
+    At v0.6 the space-axis floor does not apply to an RFC-5 *array* coordinate
+    system, which the schema's ``oneOf`` admits with no ``space`` axis at all
+    (see :func:`_takes_array_schema_branch`).
 
     Raises
     ------
     ValidationError
-        With :attr:`SpecRule.AXIS_ORDER` when there are more than three
-        ``space`` axes, or when their names are not the expected suffix of
+        With :attr:`SpecRule.AXIS_ORDER` when there are not 2 or 3 ``space``
+        axes, or when their names are not the expected suffix of
         ``(z, y, x)``.
     """
+    if is_rfc3_axis_model_allowed(version):
+        return
     space_indices = [i for i, ax in enumerate(metadata.axes) if ax.type == "space"]
     count = len(space_indices)
     if count > 3:
         raise ValidationError(
             SpecRule.AXIS_ORDER,
-            f"OME-Zarr v0.4 permits at most 3 'space' axes; found {count}.",
+            f"OME-Zarr v0.4, v0.5 and v0.6 permit at most 3 'space' axes;"
+            f" found {count}.",
+            "multiscales[0].axes",
+        )
+    if count < 2 and not _takes_array_schema_branch(metadata.axes, version):
+        raise ValidationError(
+            SpecRule.AXIS_ORDER,
+            f"OME-Zarr v0.4, v0.5 and v0.6 require 2 or 3 'space' axes; found {count}.",
             "multiscales[0].axes",
         )
     expected = _SPATIAL_AXIS_NAMES[len(_SPATIAL_AXIS_NAMES) - count :]
@@ -443,6 +508,40 @@ def validate_spatial_axis_order(metadata: Metadata) -> None:
             f"suffix of (z, y, x): {list(expected)}.",
             f"multiscales[0].axes[{space_indices[mismatch]}]",
         )
+
+
+def validate_axis_names_unique(
+    metadata: Metadata, version: object | None = None
+) -> None:
+    """Validate that axis names are unique within the dataset.
+
+    This rule is **never** inert. It states RFC-3 rule 5, "axis names MUST NOT
+    be repeated within a dataset". No released schema carries it: v0.4 and v0.5
+    say nothing, and v0.6 has only a non-normative ``description`` on
+    ``axis.name``. Below 0.9.dev1 it is therefore a strictness choice rather
+    than a spec MUST of those versions.
+
+    RFC-3 rule 5 also says names SHOULD NOT differ only by case. That is a
+    SHOULD and is not enforced.
+
+    ``version`` is accepted so callers can invoke every axis rule uniformly.
+
+    Raises
+    ------
+    ValidationError
+        With :attr:`SpecRule.AXIS_NAMES_UNIQUE` for the first axis whose
+        ``name`` duplicates an earlier one; location ``multiscales[0].axes[i]``.
+    """
+    seen: set[str] = set()
+    for i, axis in enumerate(metadata.axes):
+        if axis.name in seen:
+            raise ValidationError(
+                SpecRule.AXIS_NAMES_UNIQUE,
+                f"Axis name '{axis.name}' is repeated; axis names must be unique "
+                f"within a dataset.",
+                f"multiscales[0].axes[{i}]",
+            )
+        seen.add(axis.name)
 
 
 def validate_per_dataset_scale_count(metadata: Metadata) -> None:
@@ -904,7 +1003,9 @@ def validate_well_acquisition(plate: Plate, well: Well) -> None:
 
 
 def validate_structural(
-    metadata: Metadata, options: ValidateOptions | None = None
+    metadata: Metadata,
+    options: ValidateOptions | None = None,
+    version: object | None = None,
 ) -> None:
     """Run the structural image/multiscales rules in canonical spec order.
 
@@ -919,16 +1020,17 @@ def validate_structural(
     2. :func:`validate_axis_type`
     3. :func:`validate_axis_order`
     4. :func:`validate_spatial_axis_order`
-    5. :func:`validate_per_dataset_scale_count`
-    6. :func:`validate_scale_length`
-    7. :func:`validate_transform_order`
-    8. :func:`validate_dataset_order`
-    9. :func:`validate_omero_color_hex`
-    10. :func:`validate_axis_orientation`
-    11. :func:`validate_zarr_format_for_version`
-    12. :func:`validate_ome_namespace`
+    5. :func:`validate_axis_names_unique`
+    6. :func:`validate_per_dataset_scale_count`
+    7. :func:`validate_scale_length`
+    8. :func:`validate_transform_order`
+    9. :func:`validate_dataset_order`
+    10. :func:`validate_omero_color_hex`
+    11. :func:`validate_axis_orientation`
+    12. :func:`validate_zarr_format_for_version`
+    13. :func:`validate_ome_namespace`
 
-    Rules 11 and 12 are the OME-Zarr v0.5 namespacing checks; they fire only for
+    Rules 12 and 13 are the OME-Zarr v0.5 namespacing checks; they fire only for
     v0.5 metadata and are inert (a no-op) for v0.4.
 
     Parameters
@@ -945,6 +1047,10 @@ def validate_structural(
         without running any structural rule -- shape/schema validation is the
         separate concern of :mod:`ngff_zarr.validate`, which checks the raw
         attribute dict.
+    version:
+        The OME-Zarr version the metadata declares. Rules 1-3 are inert for the
+        versions that adopt the RFC-3 axis model, so omitting it holds every
+        store to the v0.4 axis caps.
 
     Raises
     ------
@@ -966,10 +1072,11 @@ def validate_structural(
     if options.level == ValidationLevel.SCHEMA_ONLY:
         return
     metadata = _flat_model(metadata)
-    validate_axis_count(metadata)
-    validate_axis_type(metadata)
-    validate_axis_order(metadata)
-    validate_spatial_axis_order(metadata)
+    validate_axis_count(metadata, version)
+    validate_axis_type(metadata, version)
+    validate_axis_order(metadata, version)
+    validate_spatial_axis_order(metadata, version)
+    validate_axis_names_unique(metadata, version)
     validate_per_dataset_scale_count(metadata)
     validate_scale_length(metadata)
     validate_transform_order(metadata)

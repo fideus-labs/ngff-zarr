@@ -70,6 +70,7 @@ from .from_ngff_zarr import (
     from_ome_zarr,
 )
 from .to_ngff_zarr import (
+    _gate_axis_model,
     _pop_metadata_optionals,
     _root_ome_attrs,
     to_ome_zarr,
@@ -80,11 +81,13 @@ if TYPE_CHECKING:
 
 
 def _normalize_target_version(version: str | NgffVersion) -> str:
-    """Return the API version string (``"0.4"``/``"0.5"``/``"0.6"``).
+    """Return the API version string (``"0.4"``/``"0.5"``/``"0.6"``/``"0.9.dev1"``).
 
     Both the API alias ``"0.6"`` and the on-disk pre-release strings of the
     0.6 family normalize to ``"0.6"`` so the value can be handed to
     ``Metadata.to_version`` (which only knows the three released versions).
+    ``"0.9.dev1"`` needs no such collapse: unlike v0.6 it is itself the
+    on-disk string.
     """
     nv = NgffVersion(version)
     if nv in (NgffVersion.V06, NgffVersion.V06dev4, NgffVersion.V06rc0):
@@ -197,13 +200,13 @@ def _validate_target_version(target_version: str, requested: str | NgffVersion) 
 
     ``NgffVersion`` also admits the pre-0.4 drafts (0.1--0.3) that live in
     ``SUPPORTED_VERSIONS`` for read compatibility, but the metadata
-    ``to_version`` chains only convert among 0.4/0.5/0.6. Fail early with an
-    actionable message rather than deep in a conversion.
+    ``to_version`` chains only convert among 0.4/0.5/0.6 and 0.9.dev1. Fail
+    early with an actionable message rather than deep in a conversion.
     """
-    if target_version not in ("0.4", "0.5", "0.6"):
+    if target_version not in ("0.4", "0.5", "0.6", "0.9.dev1"):
         raise ValueError(
             f"Unsupported target version {requested!r}. upgrade_ome_zarr() can "
-            "upgrade to OME-Zarr 0.4, 0.5, or 0.6."
+            "upgrade to OME-Zarr 0.4, 0.5, 0.6, or 0.9.dev1."
         )
 
 
@@ -252,6 +255,7 @@ def _upgrade_in_place(
     # deliberately avoided: it resets ``type``/``metadata`` to ``None`` for any
     # store whose method type is not a recognized ``Methods`` value.
     new_metadata = multiscales.metadata.to_version(target_version)
+    _gate_axis_model(new_metadata, target_version)
     metadata_dict = asdict(new_metadata)
     metadata_dict = _pop_metadata_optionals(metadata_dict)
     metadata_dict["@type"] = "ngff:Image"
@@ -531,6 +535,9 @@ def upgrade_ome_zarr(
             # Cross-format upgrade (0.4 -> 0.5/0.6): rewrite array + group
             # metadata to Zarr v3 while preserving every chunk file on disk.
             new_metadata = multiscales.metadata.to_version(target_version)
+            # _rewrite_v2_group_to_v3 deletes the v2 sidecars and creates v3
+            # arrays; gate before it so a refusal leaves the store intact.
+            _gate_axis_model(new_metadata, target_version)
             _rewrite_v2_group_to_v3(input, new_metadata, target_version)
         else:
             # Cross-format downgrade (0.5/0.6 -> 0.4) in place: Zarr v3 default

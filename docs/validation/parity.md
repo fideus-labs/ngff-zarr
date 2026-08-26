@@ -26,7 +26,7 @@ for usage, see [[api]].
 
 ## The contract
 
-Both ports must agree on four observable dimensions:
+Both ports must agree on five observable dimensions:
 
 1. **Rule identifiers** — the same `SpecRule` string values, in the same
    canonical declaration/iteration order.
@@ -38,6 +38,10 @@ Both ports must agree on four observable dimensions:
    (`validate_structural` / `validateStructural`) evaluates rules in the same
    canonical order, so the same metadata yields the same first violation in
    both languages.
+5. **The RFC-3 version set** — the four axis rules take a `version` and are
+   inert for the versions that adopt the RFC-3 free-form axis model. Both ports
+   must treat exactly the same version strings as RFC-3, or the same metadata
+   validates in one language and not the other.
 
 Because both test suites assert these facts against the **same literal
 identifier list**, adding, removing, renaming, or reordering a rule — or
@@ -53,22 +57,33 @@ The canonical `SpecRule` set, in evaluation order:
 1. `axis-count`
 2. `axis-type`
 3. `axis-order`
-4. `scale-length-mismatch`
-5. `global-coord-transform-after-per-level`
-6. `dataset-order-highest-to-lowest`
-7. `omero-channel-color-format`
-8. `axis-orientation-anatomical-type`
-9. `axis-orientation-on-non-space`
-10. `axis-orientation-unique-axis`
-11. `zarr-format`
-12. `ome-namespace`
-13. `plate-row-index-consistency`
-14. `well-acquisition-missing`
+4. `axis-names-unique`
+5. `scale-length-mismatch`
+6. `global-coord-transform-after-per-level`
+7. `dataset-order-highest-to-lowest`
+8. `omero-channel-color-format`
+9. `axis-orientation-anatomical-type`
+10. `axis-orientation-on-non-space`
+11. `axis-orientation-unique-axis`
+12. `zarr-format`
+13. `ome-namespace`
+14. `plate-row-index-consistency`
+15. `well-acquisition-missing`
 
-Entries 11–12 are the v0.5 namespacing rules; they fire only for v0.5 metadata
+Entries 12–13 are the v0.5 namespacing rules; they fire only for v0.5 metadata
 and are inert for v0.4. Each suite pins this list as a `CANONICAL_SPEC_RULE_IDS`
 literal — byte-identical between the two languages so the tests are
 line-for-line comparable.
+
+The versions that adopt the RFC-3 axis model are pinned the same way, as a
+`CANONICAL_RFC3_VERSIONS` literal:
+
+1. `0.9.dev1`
+
+Rules 1–3 (and the spatial arm of 3) are inert at those versions and enforced
+at every other. Rule 4, `axis-names-unique`, is never inert: RFC-3 *adds* it,
+and ngff-zarr applies it at all versions as a strictness choice (see
+[[rule-reference]]).
 
 ## The parity tests
 
@@ -93,17 +108,21 @@ Each suite independently locks:
   `strict`, and `strict` is the default.
 - **Fail-fast evaluation order** — driving the orchestrator with v0.4 metadata
   that violates the earliest rule plus every later rule, then repairing exactly
-  one rule per stage across ten stages, the rule raised at each stage builds a
-  sequence equal to a shared `EXPECTED_EVALUATION_ORDER`. This proves every rule
-  is evaluated strictly before all rules after it; a final, fully-repaired
+  one rule per stage across eleven stages, the rule raised at each stage builds
+  a sequence equal to a shared `EXPECTED_EVALUATION_ORDER`. This proves every
+  rule is evaluated strictly before all rules after it; a final, fully-repaired
   metadata is accepted with no violation.
+- **RFC-3 version set** — the axis rules are inert at exactly the versions in
+  `CANONICAL_RFC3_VERSIONS` and enforced at every other supported version and
+  when no version is given, asserted through the public orchestrator rather
+  than through the internal predicate.
 
-The two v0.5 namespacing rules (`zarr-format`, `ome-namespace`) run last in the
-image orchestrator but are inert for the v0.4 metadata the order test exercises,
-so they never appear in `EXPECTED_EVALUATION_ORDER`. The two HCS rules
-(`plate-row-index-consistency`, `well-acquisition-missing`) are deliberately
-absent from the image orchestrator's evaluation order; they are dispatched by
-the separate plate/well orchestrators (see [[rule-reference]]).
+Four of the fifteen rules never appear in `EXPECTED_EVALUATION_ORDER`, each for
+its own reason. The two v0.5 namespacing rules (`zarr-format`, `ome-namespace`)
+run last in the image orchestrator but are inert for the v0.4 metadata the order
+test exercises. The two HCS rules (`plate-row-index-consistency`,
+`well-acquisition-missing`) are deliberately absent; they are dispatched by the
+separate plate/well orchestrators (see [[rule-reference]]).
 
 ## Sanctioned TypeScript-only adaptations
 
@@ -115,12 +134,12 @@ departures in the TypeScript suite:
   Python an `UPPER_SNAKE` `str, Enum` (`SpecRule.AXIS_COUNT`,
   `ValidationLevel.STRICT`). The `.value` strings are identical, so the
   cross-language assertions hold.
-- **Axis-name labels and the default check** — TypeScript's ordering fixtures
-  use valid `SupportedDims` members in place of the Python helper's free-form
-  axis names, and assert the `strict` default *observably* (because the
-  TypeScript options type is a bare interface with no constructor) rather than
-  through a constructable options object. Neither alters the observed rule set
-  or evaluation order.
+- **The default check** — TypeScript asserts the `strict` default *observably*,
+  because its options type is a bare interface with no constructor, rather than
+  through a constructable options object. This alters neither the observed rule
+  set nor the evaluation order. The ordering fixtures themselves are identical
+  in both ports: `Axis.name` is `AxisName`, so TypeScript uses the same
+  free-form axis names as Python.
 
 Internal message-fidelity helpers in the TypeScript port (rendering whole-number
 scales with a trailing `.0`, Python-style quoted name lists, and `repr`-style

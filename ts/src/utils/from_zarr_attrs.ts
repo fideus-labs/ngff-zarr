@@ -21,7 +21,7 @@ import type {
 import { SUPPORTED_DIMS } from "../types/zarr_metadata.ts";
 import { extractScaleTranslation, parseV06Transforms } from "./v06_metadata.ts";
 import { NgffImage } from "../types/ngff_image.ts";
-import type { AxesType, SupportedDims, Units } from "../types/units.ts";
+import type { AxesType, AxisUnit, SupportedDims } from "../types/units.ts";
 import { parseOmero } from "./parse_metadata.ts";
 import type { MemoryStore } from "../io/from_ngff_zarr.ts";
 import {
@@ -215,7 +215,7 @@ export async function fromZarrAttrsV04(
   // Handle backwards compatibility for version <= 0.3
   let dims: string[];
   let axes: Axis[];
-  let units: Record<string, Units | undefined>;
+  let units: Record<string, AxisUnit | undefined>;
 
   if (!("axes" in multiscalesMetadata)) {
     // Version <= 0.3 - use default dims
@@ -257,9 +257,14 @@ export async function fromZarrAttrsV04(
       axes = axesData.map((axis) => {
         const axisObj = axis as Record<string, unknown>;
         return {
-          name: String(axisObj.name) as SupportedDims,
-          type: String(axisObj.type) as AxesType,
-          unit: axisObj.unit as Units | undefined,
+          // RFC-3 permits any axis name, so the parsed value stays a string
+          // rather than being narrowed to the closed `SupportedDims` union.
+          name: String(axisObj.name),
+          // `type` is optional; keep undefined rather than the "undefined" string
+          type: axisObj.type === undefined || axisObj.type === null
+            ? undefined
+            : String(axisObj.type) as AxesType,
+          unit: axisObj.unit as AxisUnit | undefined,
           // Preserve RFC 4 orientation on the parsed axis so the strict
           // structural pass below can run validateAxisOrientation; dropping it
           // here makes that rule a no-op. This mirrors the Python port, whose
@@ -294,7 +299,7 @@ export async function fromZarrAttrsV04(
       if (typeof axis === "object") {
         const axisObj = axis as Record<string, unknown>;
         const name = axisObj.name as string;
-        const unit = axisObj.unit as Units | undefined;
+        const unit = axisObj.unit as AxisUnit | undefined;
         if (name !== undefined && unit !== undefined) {
           units[name] = unit;
         }
@@ -398,7 +403,7 @@ export async function fromZarrAttrsV04(
       coordinateTransformations,
     });
 
-    const filteredUnits: Record<string, Units> = {};
+    const filteredUnits: Record<string, AxisUnit> = {};
     for (const [axis, unit] of Object.entries(units)) {
       if (unit !== undefined && unit !== null) {
         filteredUnits[axis] = unit;
@@ -473,7 +478,11 @@ export async function fromZarrAttrsV04(
   // scoped to v0.4 and newer.
   if (validate) {
     if (isSpecVersionAtLeastV04(metadata.version)) {
-      validateStructural(metadata, { level: ValidationLevel.Strict });
+      validateStructural(
+        metadata,
+        { level: ValidationLevel.Strict },
+        metadata.version,
+      );
     }
   }
 
@@ -551,6 +560,9 @@ export async function fromZarrAttrsV06(
   // v0.6 wraps the multiscales under the "ome" key; tolerate a root-level
   // layout for symmetry with the v0.5 reader.
   const omeData = rootAttrs.ome as Record<string, unknown> | undefined;
+  // v0.6 and 0.9.dev1 share this reader; the group-level `version` says which.
+  const declaredVersion = (omeData?.version as string | undefined) ??
+    (rootAttrs.version as string | undefined) ?? "0.6";
   let entry: Record<string, unknown>;
   let omeroRaw: unknown;
   if (omeData && "multiscales" in omeData) {
@@ -600,9 +612,14 @@ export async function fromZarrAttrsV06(
       return {
         name: String(cs.name),
         axes: (cs.axes as Array<Record<string, unknown>>).map((axis) => ({
-          name: String(axis.name) as SupportedDims,
-          type: String(axis.type) as AxesType,
-          unit: axis.unit as Units | undefined,
+          // RFC-3 permits any axis name, so the parsed value stays a string
+          // rather than being narrowed to the closed `SupportedDims` union.
+          name: String(axis.name),
+          // `type` is optional; keep undefined rather than the "undefined" string
+          type: axis.type === undefined || axis.type === null
+            ? undefined
+            : String(axis.type) as AxesType,
+          unit: axis.unit as AxisUnit | undefined,
           ...(axis.orientation !== undefined && axis.orientation !== null
             ? { orientation: axis.orientation as Axis["orientation"] }
             : {}),
@@ -623,7 +640,7 @@ export async function fromZarrAttrsV06(
   >;
   const dims = intrinsic.axes.map((axis) => String(axis.name));
 
-  const units: Record<string, Units> = {};
+  const units: Record<string, AxisUnit> = {};
   for (const axis of intrinsic.axes) {
     if (axis.unit !== undefined && axis.unit !== null) {
       units[axis.name] = axis.unit;
@@ -691,6 +708,7 @@ export async function fromZarrAttrsV06(
         dataset.coordinateTransformations as Array<Record<string, unknown>>,
         coordinateSystemNames,
         coordinateSystems,
+        declaredVersion,
       );
       const extracted = extractScaleTranslation(parsed, dims);
       scaleValues = extracted.scale;
@@ -740,6 +758,7 @@ export async function fromZarrAttrsV06(
       entry.coordinateTransformations as Array<Record<string, unknown>>,
       coordinateSystemNames,
       coordinateSystems,
+      declaredVersion,
     );
   }
 
@@ -774,8 +793,18 @@ export async function fromZarrAttrsV06(
   // reconstructed into the same shape, so the same rules apply. Full RFC-5 wire
   // validation (coordinate-system graphs, arbitrary transform chains) remains
   // deferred.
+  //
+  // The declared version is what decides whether the axis rules apply: it
+  // selects the RFC-3 axis model at 0.9.dev1 and the `array` coordinate-system
+  // arm of the v0.6 axes schema. Validating without it enforces the v0.4 caps
+  // on every store, so a document this port's own writer emits is refused on
+  // the way back in.
   if (validate) {
-    validateStructural(metadata, { level: ValidationLevel.Strict });
+    validateStructural(
+      metadata,
+      { level: ValidationLevel.Strict },
+      declaredVersion,
+    );
   }
 
   return { metadata, images };

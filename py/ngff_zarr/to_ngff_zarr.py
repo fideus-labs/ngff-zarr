@@ -4,7 +4,7 @@ import copy
 import shutil
 import tempfile
 import warnings
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
@@ -256,7 +256,12 @@ def _validate_ngff_parameters(
     if isinstance(version, str):
         version = NgffVersion(version)
 
-    if version not in [NgffVersion.V04, NgffVersion.V05, NgffVersion.V06]:
+    if version not in [
+        NgffVersion.V04,
+        NgffVersion.V05,
+        NgffVersion.V06,
+        NgffVersion.V09dev1,
+    ]:
         raise ValueError(f"Unsupported version: {version}")
 
     if chunks_per_shard is not None and version == NgffVersion.V04:
@@ -272,8 +277,13 @@ def _gate_top_level_transforms(metadata, version: str) -> None:
     coordinate systems, and the schema requires both ``input`` and ``output``
     to name one. The writer serializes whatever the model holds, so a missing
     reference would produce a store the validated reader rejects.
+
+    0.9.dev1 is the 0.6 model with the axis restrictions relaxed, so its
+    inter-system transforms carry the same requirement and the gate covers it.
     """
-    if version != "0.6" or not metadata.coordinateTransformations:
+    if version not in ("0.6", NgffVersion.V09dev1.value):
+        return
+    if not metadata.coordinateTransformations:
         return
     for index, transform in enumerate(metadata.coordinateTransformations):
         for side in ("input", "output"):
@@ -285,6 +295,99 @@ def _gate_top_level_transforms(metadata, version: str) -> None:
                     "OME-Zarr 0.6 requires every multiscale-level transformation "
                     "to name both its input and its output coordinate system"
                 )
+
+
+@dataclass(frozen=True)
+class _AxisView:
+    """Minimal stand-in exposing only ``axes``.
+
+    The axis rules in :mod:`ngff_zarr.structural_validation` read nothing else
+    off the metadata. A v0.6 ``Metadata`` has no ``axes`` attribute, only
+    ``coordinateSystems``.
+    """
+
+    axes: list
+
+
+def _axis_views(metadata) -> list[tuple[str, _AxisView]]:
+    """Every axis list ``metadata`` will serialize, paired with its location.
+
+    v0.4/v0.5 metadata carry a flat ``axes``; v0.6 and 0.9.dev1 carry
+    ``coordinateSystems``, and ``coordinate_systems.schema`` applies
+    ``axes.schema`` to each one, so every system is returned.
+
+    ``coordinateSystems`` is checked first: v0.9.dev1 also exposes an ``axes``
+    property, which returns only the intrinsic system's axes.
+    """
+    systems = list(getattr(metadata, "coordinateSystems", None) or [])
+    if systems:
+        return [
+            (f"multiscales[0].coordinateSystems[{i}].axes", _AxisView(list(cs.axes)))
+            for i, cs in enumerate(systems)
+        ]
+    axes = getattr(metadata, "axes", None)
+    if axes is not None:
+        return [("multiscales[0].axes", _AxisView(list(axes)))]
+    return []
+
+
+def _gate_axis_model(metadata, version) -> None:
+    """Refuse to serialize an axis model the target ``version`` cannot express.
+
+    Reuses the axis rules of :mod:`ngff_zarr.structural_validation`, but this
+    is a second dispatcher, not the same pass as
+    :func:`ngff_zarr.validate_structural`, and it differs from it two ways:
+
+    1. It runs only the five axis rules, not the full image cascade.
+    2. It checks **every** coordinate system (see :func:`_axis_views`), while
+       ``validate_structural`` reads a single flat ``axes`` list.
+
+    Called after ``to_version``: the converted object is what ``asdict``
+    serializes, and for a 0.4/0.5 target it exposes the axes that survive the
+    downgrade. The corollary is that this cannot refuse what the downgrade has
+    already dropped -- ``Metadata._to_v05`` keeps only the coordinate system
+    the datasets reference -- so a model refused at 0.6 may be accepted at 0.4
+    with the other systems silently discarded.
+    """
+    from .structural_validation import (
+        SpecRule,
+        ValidationError,
+        validate_axis_count,
+        validate_axis_names_unique,
+        validate_axis_order,
+        validate_axis_type,
+        validate_spatial_axis_order,
+    )
+
+    rules = (
+        validate_axis_count,
+        validate_axis_type,
+        validate_axis_order,
+        validate_spatial_axis_order,
+        validate_axis_names_unique,
+    )
+    for location, view in _axis_views(metadata):
+        for rule in rules:
+            try:
+                rule(view, version)
+            except ValidationError as exc:
+                rendered = ", ".join(
+                    f"{ax.name!r}(type={ax.type!r})" for ax in view.axes
+                )
+                if exc.rule is SpecRule.AXIS_NAMES_UNIQUE:
+                    # Required at every version, 0.9.dev1 included.
+                    raise ValueError(
+                        f'Cannot write OME-Zarr version="{version}": {exc.message} '
+                        f"Axes at {location}: [{rendered}]."
+                    ) from exc
+                raise ValueError(
+                    f'Cannot write OME-Zarr version="{version}": this axis model '
+                    f"violates that version's [{exc.rule.value}] rule. "
+                    f"{exc.message} Axes at {location}: [{rendered}]. "
+                    f'Pass version="{NgffVersion.V09dev1.value}" to write it: '
+                    "0.9.dev1 is the only OME-Zarr version that adopts RFC-3 "
+                    "(arbitrary axis count, names, types and ordering)."
+                ) from exc
 
 
 def _prepare_metadata(
@@ -301,6 +404,7 @@ def _prepare_metadata(
         method_metadata = get_method_metadata(multiscales.method)
 
     metadata = metadata.to_version(version)
+    _gate_axis_model(metadata, version)
     metadata.type = method_type
     metadata.metadata = method_metadata
 

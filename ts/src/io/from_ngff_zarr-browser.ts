@@ -7,11 +7,11 @@ import * as zarr from "zarrita";
 import { MetadataSchema } from "../schemas/zarr_metadata.ts";
 import { NgffMultiscales } from "../types/multiscales.ts";
 import { NgffImage } from "../types/ngff_image.ts";
-import type { Units } from "../types/units.ts";
+import type { AxisUnit } from "../types/units.ts";
 import type { Metadata, Omero } from "../types/zarr_metadata.ts";
 import { extractMethodMetadata } from "../utils/parse_metadata.ts";
 import { fromZarrAttrsV06 } from "../utils/from_zarr_attrs.ts";
-import { isV06Version } from "../types/supported_versions.ts";
+import { isV06Version, NgffVersion } from "../types/supported_versions.ts";
 
 export type { ChunkCache } from "../utils/worker_pool.ts";
 
@@ -19,7 +19,7 @@ export interface FromOmeZarrOptions {
   /** Enable schema validation of OME-Zarr metadata. */
   validate?: boolean;
   /** Expected OME-Zarr version. */
-  version?: "0.4" | "0.5" | "0.6";
+  version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
   /**
    * Optional decoded-chunk cache passed to `zarrGet` calls.
    *
@@ -98,17 +98,28 @@ export async function fromOmeZarr(
     const omeForVersion = rootAttrsForVersion.ome as
       | Record<string, unknown>
       | undefined;
+    const onDiskVersion =
+      omeForVersion && typeof omeForVersion.version === "string"
+        ? omeForVersion.version
+        : undefined;
+    // 0.9.dev1 carries the same coordinateSystems layout as v0.6, so it reads
+    // through the same delegate. Without this the store falls through to the
+    // v0.4/v0.5 parser below, which expects a flat `axes` entry and cannot read
+    // what this package's own 0.9 writer produced.
     if (
-      omeForVersion && typeof omeForVersion.version === "string" &&
-      isV06Version(omeForVersion.version)
+      omeForVersion && onDiskVersion !== undefined &&
+      (isV06Version(onDiskVersion) || onDiskVersion === NgffVersion.V09dev1)
     ) {
       // Gate the requested-version mismatch behind `validate`, matching the node
       // reader and the v0.4/v0.5 path below; otherwise behavior diverges by
       // version and environment. The v0.6 family (`0.6` and its pre-release
       // tags) is treated as equivalent.
-      if (validate && version && !isV06Version(version)) {
+      const versionsMatch = version === undefined ||
+        version === onDiskVersion ||
+        (isV06Version(onDiskVersion) && isV06Version(version));
+      if (validate && !versionsMatch) {
         throw new Error(
-          `Expected OME-Zarr version ${version}, but found ${omeForVersion.version}`,
+          `Expected OME-Zarr version ${version}, but found ${onDiskVersion}`,
         );
       }
       const result = await fromZarrAttrsV06(
@@ -116,6 +127,12 @@ export async function fromOmeZarr(
         resolvedStore,
         validate,
       );
+      // The v0.6 delegate records `0.6`, which is right for the whole v0.6
+      // family but not for a 0.9.dev1 store: that string is the on-disk
+      // version, and callers read `metadata.version` to tell them apart.
+      if (onDiskVersion === NgffVersion.V09dev1) {
+        result.metadata.version = NgffVersion.V09dev1;
+      }
       const entry = (omeForVersion.multiscales as unknown[])[0] as Record<
         string,
         unknown
@@ -278,7 +295,7 @@ export async function fromOmeZarr(
           }
           return acc;
         },
-        {} as Record<string, Units>,
+        {} as Record<string, AxisUnit>,
       );
 
       const ngffImage = new NgffImage({

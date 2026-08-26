@@ -309,3 +309,121 @@ Deno.test(
     assertEquals(result.metadata.extra, {});
   },
 );
+
+// --- The declared version drives the axis rules on the read path ---
+
+/**
+ * Build an in-memory store whose group attributes are the given `ome` block,
+ * with one zarr array per declared dataset path.
+ *
+ * This is the v0.6 / 0.9.dev1 layout: the multiscales sit under `ome`, and the
+ * axes under a coordinate system rather than a flat `axes` list.
+ */
+async function createOmeNamespacedStore(
+  ome: Record<string, unknown>,
+  shape: number[],
+): Promise<MemoryStore> {
+  const store: MemoryStore = new Map();
+  const root = zarr.root(store);
+  await zarr.create(root, { attributes: { ome } });
+  const entry = (ome.multiscales as Array<Record<string, unknown>>)[0];
+  for (const dataset of entry.datasets as Array<{ path: string }>) {
+    await zarr.create(root.resolve(dataset.path), {
+      shape,
+      data_type: "uint8",
+      chunk_shape: shape,
+      fill_value: 0,
+    });
+  }
+  return store;
+}
+
+/** A single-level `ome` block over `axes`, tagged with the given version. */
+function omeBlock(
+  version: string,
+  axes: Array<{ name: string; type: string }>,
+): Record<string, unknown> {
+  const rank = axes.length;
+  return {
+    version,
+    multiscales: [{
+      name: "image",
+      coordinateSystems: [{ name: "intrinsic", axes }],
+      datasets: [{
+        path: "0",
+        coordinateTransformations: [{
+          input: { path: "0" },
+          output: { name: "intrinsic" },
+          name: "scale0_to_intrinsic",
+          type: "sequence",
+          transformations: [
+            { type: "scale", scale: Array(rank).fill(1.0) },
+            { type: "translation", translation: Array(rank).fill(0.0) },
+          ],
+        }],
+      }],
+    }],
+  };
+}
+
+const SIX_SPACE_AXES = ["a", "b", "c", "d", "e", "f"].map((name) => ({
+  name,
+  type: "space",
+}));
+
+Deno.test(
+  "reader - a 0.9.dev1 store with six axes passes strict validation",
+  async () => {
+    // The axis rules are inert at 0.9.dev1, so this store is legal. Reading it
+    // under `validate: true` only works if the declared version reaches
+    // validateStructural: without it every store is held to the v0.4 caps, and
+    // a document this port's own writer emits is refused on the way back in.
+    const store = await createOmeNamespacedStore(
+      omeBlock("0.9.dev1", SIX_SPACE_AXES),
+      [2, 2, 2, 2, 2, 2],
+    );
+
+    const result = await fromOmeZarr(store, { validate: true });
+    assertEquals(
+      result.images[0].dims,
+      ["a", "b", "c", "d", "e", "f"],
+    );
+  },
+);
+
+Deno.test(
+  "reader - the same six-axis store tagged 0.6 is refused",
+  async () => {
+    // The negative control for the test above: the version is what relaxes the
+    // rules, not the read path going soft on every store.
+    const store = await createOmeNamespacedStore(
+      omeBlock("0.6.dev4", SIX_SPACE_AXES),
+      [2, 2, 2, 2, 2, 2],
+    );
+
+    const error = await assertRejects(
+      () => fromOmeZarr(store, { validate: true }),
+      Error,
+    );
+    assertStringIncludes(error.message, SpecRule.AxisCount);
+  },
+);
+
+Deno.test(
+  "reader - a v0.6 array coordinate system needs no space axis",
+  async () => {
+    // The v0.6 axes schema is a `oneOf`: 2 or 3 `space` axes, *or* two or more
+    // `array` axes. The reader must not hold the second arm to the space-axis
+    // floor, or a store this port's own writer accepts at 0.6 cannot be read.
+    const store = await createOmeNamespacedStore(
+      omeBlock("0.6.dev4", [
+        { name: "i", type: "array" },
+        { name: "j", type: "array" },
+      ]),
+      [4, 4],
+    );
+
+    const result = await fromOmeZarr(store, { validate: true });
+    assertEquals(result.images[0].dims, ["i", "j"]);
+  },
+);

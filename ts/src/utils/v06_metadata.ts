@@ -11,6 +11,7 @@
  * convert between the two, mirroring `py/ngff_zarr/v06/zarr_metadata.py`.
  */
 
+import { isRfc3AxisModelAllowed } from "../types/supported_versions.ts";
 import type {
   ByDimensionItem,
   CoordinateSystem,
@@ -202,9 +203,10 @@ export function parseV06Transforms(
   raw: Array<Record<string, unknown>>,
   coordinateSystemNames: string[],
   coordinateSystems?: CoordinateSystem[],
+  version?: string,
 ): V06Transform[] {
   return raw.map((entry) =>
-    parseV06Transform(entry, coordinateSystemNames, coordinateSystems)
+    parseV06Transform(entry, coordinateSystemNames, coordinateSystems, version)
   );
 }
 
@@ -212,6 +214,7 @@ function parseV06Transform(
   entry: Record<string, unknown>,
   coordinateSystemNames: string[],
   coordinateSystems?: CoordinateSystem[],
+  version?: string,
 ): V06Transform {
   const type = String(entry.type);
   let transform: V06Transform;
@@ -288,6 +291,7 @@ function parseV06Transform(
               item.transformation as Record<string, unknown>,
               coordinateSystemNames,
               coordinateSystems,
+              version,
             ),
             // ngff-zarr 0.29.0 wrote these two keys in snake_case; the spec
             // and the 0.6rc0 schema spell them inputAxes and outputAxes, which
@@ -313,11 +317,13 @@ function parseV06Transform(
           entry.forward as Record<string, unknown>,
           coordinateSystemNames,
           coordinateSystems,
+          version,
         ),
         inverse: parseV06Transform(
           entry.inverse as Record<string, unknown>,
           coordinateSystemNames,
           coordinateSystems,
+          version,
         ),
       };
       break;
@@ -333,6 +339,7 @@ function parseV06Transform(
           entry.transformations as Array<Record<string, unknown>>,
           coordinateSystemNames,
           coordinateSystems,
+          version,
         ),
       };
       break;
@@ -352,7 +359,7 @@ function parseV06Transform(
     transform.name = entry.name;
   }
 
-  validateV06Transform(transform, coordinateSystems ?? []);
+  validateV06Transform(transform, coordinateSystems ?? [], version);
   return transform;
 }
 
@@ -393,6 +400,7 @@ function itemDimensions(transformation: V06Transform): number | undefined {
 export function validateV06Transform(
   transform: V06Transform,
   coordinateSystems: CoordinateSystem[],
+  version?: string,
 ): void {
   if (transform.type === "mapAxis") {
     const indices = transform.mapAxis;
@@ -401,7 +409,14 @@ export function validateV06Transform(
         `mapAxis axis indices must be integers; got [${indices}]`,
       );
     }
-    if (indices.length < 2 || indices.length > 5) {
+    // The 2-to-5 arity mirrors the minItems and maxItems the 0.4 through 0.6
+    // schemas set, and follows from their five-axis cap. RFC-3 lifts that cap
+    // at 0.9.dev1, whose mapAxis definition sets neither bound, so a
+    // permutation over six axes is valid there and the check stands down.
+    if (
+      !isRfc3AxisModelAllowed(version) &&
+      (indices.length < 2 || indices.length > 5)
+    ) {
       throw new Error(
         "mapAxis must hold between 2 and 5 indices, one per axis of the " +
           `coordinate systems it permutes; got [${indices}]`,

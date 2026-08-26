@@ -10,6 +10,7 @@ from ..v04.zarr_metadata import Axis, Dataset, MethodMetadata, Omero, Transform
 if TYPE_CHECKING:
     from ..v04.zarr_metadata import Metadata as Metadata_v04
     from ..v06.zarr_metadata import Metadata as Metadata_v06
+    from ..v09.zarr_metadata import Metadata as Metadata_v09
 
 
 @dataclass
@@ -29,7 +30,7 @@ class Metadata:
 
     def to_version(
         self, version: str | NgffVersion
-    ) -> Union["Metadata", "Metadata_v04", "Metadata_v06"]:
+    ) -> Union["Metadata", "Metadata_v04", "Metadata_v06", "Metadata_v09"]:
         """Convert metadata to specified NGFF version."""
         if isinstance(version, str):
             version = NgffVersion(version)
@@ -40,18 +41,26 @@ class Metadata:
             return self
         if version == NgffVersion.V06:
             return self._to_v06()
+        if version == NgffVersion.V09dev1:
+            from ..v09.zarr_metadata import Metadata as Metadata_v09
+
+            return Metadata_v09.from_version(self)
         raise ValueError(f"Unsupported version conversion: 0.5 -> {version}")
 
     @classmethod
     def from_version(
-        cls, metadata: Union["Metadata", "Metadata_v04", "Metadata_v06"]
+        cls,
+        metadata: Union["Metadata", "Metadata_v04", "Metadata_v06", "Metadata_v09"],
     ) -> "Metadata":
         """Convert metadata from specified NGFF version."""
         from ..v04.zarr_metadata import Metadata as Metadata_v04
         from ..v06.zarr_metadata import Metadata as Metadata_v06
+        from ..v09.zarr_metadata import Metadata as Metadata_v09
 
         if isinstance(metadata, Metadata_v04):
             return cls._from_v04(metadata)
+        if isinstance(metadata, Metadata_v09):
+            return cls._from_v06(metadata._to_v06())
         if isinstance(metadata, Metadata_v06):
             return cls._from_v06(metadata)
         raise ValueError(f"Unsupported metadata type: {type(metadata)}")

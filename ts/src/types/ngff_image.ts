@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 import * as zarr from "zarrita";
-import type { Units } from "./units.ts";
+import type { AxisUnit } from "./units.ts";
 import type { AnatomicalOrientation } from "./rfc4.ts";
 
 export type ComputedCallback = () => void;
@@ -12,7 +12,7 @@ export interface NgffImageOptions {
   scale: Record<string, number>;
   translation: Record<string, number>;
   name: string | undefined;
-  axesUnits: Record<string, Units> | undefined;
+  axesUnits: Record<string, AxisUnit> | undefined;
   axesOrientations?: Record<string, AnatomicalOrientation> | undefined;
   axesTypes?: Record<string, string> | undefined;
   computedCallbacks: ComputedCallback[] | undefined;
@@ -24,7 +24,7 @@ export class NgffImage {
   public readonly scale: Record<string, number>;
   public readonly translation: Record<string, number>;
   public readonly name: string;
-  public readonly axesUnits: Record<string, Units> | undefined;
+  public readonly axesUnits: Record<string, AxisUnit> | undefined;
   public readonly axesOrientations:
     | Record<string, AnatomicalOrientation>
     | undefined;

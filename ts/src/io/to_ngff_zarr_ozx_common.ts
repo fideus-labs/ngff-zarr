@@ -12,12 +12,111 @@ import * as zarr from "zarrita";
 import type { NgffMultiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { Axis, MetadataInterface } from "../types/zarr_metadata.ts";
+import type { MemoryStore } from "./rfc9_zip.ts";
 import {
   buildV06MultiscalesEntry,
   legacyTopLevelTransforms,
 } from "../utils/v06_metadata.ts";
-import { V06_ONDISK_VERSION } from "../types/supported_versions.ts";
-import type { MemoryStore } from "./rfc9_zip.ts";
+import {
+  NgffVersion,
+  V06_ONDISK_VERSION,
+} from "../types/supported_versions.ts";
+import {
+  SpecRule,
+  validateAxisCount,
+  validateAxisNamesUnique,
+  validateAxisOrder,
+  validateAxisType,
+  validateSpatialAxisOrder,
+  ValidationError,
+} from "../utils/structural_validation.ts";
+import { pyRepr, pyReprOptional } from "../utils/py_format.ts";
+
+/**
+ * Every axis list `metadata` will serialize at `version`, paired with its
+ * location.
+ *
+ * Only the v0.6 family writes `coordinateSystems`, and
+ * `coordinate_systems.schema` applies `axes.schema` to each one, so every
+ * system is returned there. A v0.4/v0.5 target writes a single flat `axes` and
+ * drops the systems, so that is the only list to gate: refusing a system the
+ * downgrade discards would reject a document the writer can emit, and name a
+ * node absent from it. Python reaches the same set by gating after
+ * `Metadata.to_version`.
+ */
+function axisViews(
+  metadata: MetadataInterface,
+  version: string,
+): Array<{ location: string; axes: Axis[] }> {
+  const systems = metadata.coordinateSystems ?? [];
+  const serializesSystems = version === "0.6" ||
+    version === NgffVersion.V09dev1;
+  if (serializesSystems && systems.length > 0) {
+    // `buildV06MultiscalesEntry` serializes the first system from
+    // `metadata.axes` and the later ones verbatim, and `MetadataInterface`
+    // does not tie `axes` to `coordinateSystems[0].axes`. Gate what is
+    // written, not what is declared.
+    return systems.map((system, index) => ({
+      location: `multiscales[0].coordinateSystems[${index}].axes`,
+      axes: index === 0 ? metadata.axes : system.axes,
+    }));
+  }
+  return [{ location: "multiscales[0].axes", axes: metadata.axes }];
+}
+
+/**
+ * Refuse to serialize an axis model the target `version` cannot express.
+ *
+ * Reuses the axis rules of the structural pass, but this is a second
+ * dispatcher, not the same pass as {@link validateStructural}, and it differs
+ * from it two ways:
+ *
+ * 1. It runs only the five axis rules, not the full image cascade.
+ * 2. Where the target version serializes coordinate systems, it checks *every*
+ *    one of them (see {@link axisViews}), while the structural pass reduces the
+ *    metadata to the intrinsic system's axes.
+ */
+function gateAxisModel(
+  metadata: MetadataInterface,
+  version: string,
+): void {
+  const rules = [
+    validateAxisCount,
+    validateAxisType,
+    validateAxisOrder,
+    validateSpatialAxisOrder,
+    validateAxisNamesUnique,
+  ];
+  for (const view of axisViews(metadata, version)) {
+    for (const rule of rules) {
+      try {
+        rule({ axes: view.axes }, version);
+      } catch (error) {
+        if (!(error instanceof ValidationError)) {
+          throw error;
+        }
+        const rendered = view.axes
+          .map((ax) => `${pyRepr(ax.name)}(type=${pyReprOptional(ax.type)})`)
+          .join(", ");
+        if (error.rule === SpecRule.AxisNamesUnique) {
+          // Required at every version, 0.9.dev1 included.
+          throw new Error(
+            `Cannot write OME-Zarr version="${version}": ${error.detail} ` +
+              `Axes at ${view.location}: [${rendered}].`,
+          );
+        }
+        throw new Error(
+          `Cannot write OME-Zarr version="${version}": this axis model violates ` +
+            `that version's [${error.rule}] rule. ${error.detail} ` +
+            `Axes at ${view.location}: [${rendered}]. ` +
+            `Pass version="${NgffVersion.V09dev1}" to write it: 0.9.dev1 is the ` +
+            `only OME-Zarr version that adopts RFC-3 (arbitrary axis count, ` +
+            `names, types and ordering).`,
+        );
+      }
+    }
+  }
+}
 
 /**
  * Process axes for serialization.
@@ -72,10 +171,24 @@ export function processAxes(
  */
 export function buildRootAttributes(
   metadata: MetadataInterface,
-  version: "0.4" | "0.5" | "0.6",
+  version: "0.4" | "0.5" | "0.6" | "0.9.dev1",
 ): Record<string, unknown> {
+  gateAxisModel(metadata, version);
+
   // Process axes (orientation included when present).
   const processedAxes = processAxes(metadata.axes);
+
+  if (version === "0.9.dev1") {
+    // "0.9.dev1" is already the on-disk string.
+    const v09Entry = buildV06MultiscalesEntry(metadata, processedAxes);
+    return {
+      ome: {
+        version: NgffVersion.V09dev1,
+        multiscales: [v09Entry],
+        ...(metadata.omero && { omero: metadata.omero }),
+      },
+    };
+  }
 
   if (version === "0.6") {
     const v06Entry = buildV06MultiscalesEntry(metadata, processedAxes);

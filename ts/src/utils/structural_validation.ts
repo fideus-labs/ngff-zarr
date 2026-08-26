@@ -37,7 +37,11 @@ import {
   hasRfc4OrientationMetadata,
   validateRfc4Orientation,
 } from "./rfc4_validation.ts";
-import { formatNameList } from "./py_format.ts";
+import { formatNameList, pyRepr } from "./py_format.ts";
+import {
+  isRfc3AxisModelAllowed,
+  isV06Version,
+} from "../types/supported_versions.ts";
 
 /**
  * Stable, kebab-case identifiers for the structural specification rules.
@@ -54,6 +58,8 @@ export const SpecRule = {
   AxisType: "axis-type",
   /** time before channel before space; spatial names suffix (z, y, x). */
   AxisOrder: "axis-order",
+  /** Axis names are unique within a dataset. */
+  AxisNamesUnique: "axis-names-unique",
   /** Every scale/translation vector length equals the axis count. */
   ScaleLengthMismatch: "scale-length-mismatch",
   /** Exactly one scale per dataset; a translation must follow it. */
@@ -128,9 +134,17 @@ export class ValidationError extends Error {
   readonly rule: SpecRule;
   /** Dotted-segment location of the offending metadata node, if known. */
   readonly location?: string;
+  /**
+   * The rule text without the `Spec rule [...] violated: ` prefix.
+   *
+   * `Error.message` is the prefixed form, matching Python's `str(exc)`; this is
+   * Python's `exc.message`, for callers that supply their own prefix.
+   */
+  readonly detail: string;
 
   constructor(rule: SpecRule, message: string, location?: string) {
     super(`Spec rule [${rule}] violated: ${message}`);
+    this.detail = message;
     this.name = "ValidationError";
     this.rule = rule;
     if (location !== undefined) {
@@ -210,6 +224,29 @@ const AXIS_TYPE_RANK: Record<string, number | undefined> = {
 const SPATIAL_AXIS_NAMES = ["z", "y", "x"] as const;
 
 /**
+ * The v0.6 `axes` schema is a `oneOf`: either 2 or 3 `space` axes, or two or
+ * more `array` axes. An RFC-5 array coordinate system takes the second branch
+ * and declares no `space` axis at all.
+ */
+const MIN_ARRAY_AXES = 2;
+
+/**
+ * Whether `axes` satisfies the `array` arm of the v0.6 axes schema.
+ *
+ * Only v0.6 has that arm; the v0.4 and v0.5 schemas require 2 or 3 `space`
+ * axes unconditionally, so the space-axis floor is not relaxed for them.
+ */
+function takesArraySchemaBranch(
+  axes: Pick<Axis, "type">[],
+  version?: string,
+): boolean {
+  if (version === undefined || !isV06Version(version)) {
+    return false;
+  }
+  return axes.filter((ax) => ax.type === "array").length >= MIN_ARRAY_AXES;
+}
+
+/**
  * Render a number the way Python's `str()`/f-string renders a `float`: a
  * whole-number value keeps a trailing `.0` (e.g. `2` -> `"2.0"`), matching the
  * `list[float]` scale vectors the Python port interpolates into the
@@ -225,18 +262,25 @@ function pyFloat(value: number): string {
 /**
  * Validate that the axis count is within the v0.4-permitted range.
  *
- * OME-Zarr v0.4 requires between 2 and 5 axes, inclusive.
+ * OME-Zarr v0.4, v0.5 and v0.6 require between 2 and 5 axes, inclusive.
  *
  * @param metadata - The parsed multiscales metadata to validate.
  * @throws {ValidationError} With {@link SpecRule.AxisCount} when
  * `metadata.axes.length` lies outside `2..5`; location `multiscales[0].axes`.
  */
-export function validateAxisCount(metadata: Metadata): void {
+export function validateAxisCount(
+  metadata: Pick<Metadata, "axes">,
+  version?: string,
+): void {
+  if (isRfc3AxisModelAllowed(version)) {
+    return;
+  }
   const count = metadata.axes.length;
   if (count < 2 || count > 5) {
     throw new ValidationError(
       SpecRule.AxisCount,
-      `OME-Zarr v0.4 requires between 2 and 5 axes, inclusive; found ${count}.`,
+      `OME-Zarr v0.4, v0.5 and v0.6 require between 2 and 5 axes, ` +
+        `inclusive; found ${count}.`,
       "multiscales[0].axes",
     );
   }
@@ -252,7 +296,13 @@ export function validateAxisCount(metadata: Metadata): void {
  * `time` axis or more than one `channel` axis is present; location
  * `multiscales[0].axes`.
  */
-export function validateAxisType(metadata: Metadata): void {
+export function validateAxisType(
+  metadata: Pick<Metadata, "axes">,
+  version?: string,
+): void {
+  if (isRfc3AxisModelAllowed(version)) {
+    return;
+  }
   const timeCount = metadata.axes.filter((ax) => ax.type === "time").length;
   if (timeCount > 1) {
     throw new ValidationError(
@@ -286,13 +336,25 @@ export function validateAxisType(metadata: Metadata): void {
  * adjacent pair where a lower-ranked axis type follows a higher-ranked one;
  * location `multiscales[0].axes[i+1]`.
  */
-export function validateAxisOrder(metadata: Metadata): void {
+export function validateAxisOrder(
+  metadata: Pick<Metadata, "axes">,
+  version?: string,
+): void {
+  if (isRfc3AxisModelAllowed(version)) {
+    return;
+  }
   const axes = metadata.axes;
   for (let i = 0; i < axes.length - 1; i++) {
     const current = axes[i];
     const following = axes[i + 1];
-    const currentRank = AXIS_TYPE_RANK[current.type];
-    const followingRank = AXIS_TYPE_RANK[following.type];
+    // An axis with no `type` has no rank, mirroring the Python port's dict
+    // `.get()`; the pair is then skipped by the guard below.
+    const currentRank = current.type === undefined
+      ? undefined
+      : AXIS_TYPE_RANK[current.type];
+    const followingRank = following.type === undefined
+      ? undefined
+      : AXIS_TYPE_RANK[following.type];
     if (currentRank === undefined || followingRank === undefined) {
       continue;
     }
@@ -320,7 +382,13 @@ export function validateAxisOrder(metadata: Metadata): void {
  * than three `space` axes, or when their names are not the expected suffix of
  * `(z, y, x)`; location `multiscales[0].axes` or the first offending axis.
  */
-export function validateSpatialAxisOrder(metadata: Metadata): void {
+export function validateSpatialAxisOrder(
+  metadata: Pick<Metadata, "axes">,
+  version?: string,
+): void {
+  if (isRfc3AxisModelAllowed(version)) {
+    return;
+  }
   const spaceIndices: number[] = [];
   metadata.axes.forEach((ax, i) => {
     if (ax.type === "space") {
@@ -331,7 +399,16 @@ export function validateSpatialAxisOrder(metadata: Metadata): void {
   if (count > 3) {
     throw new ValidationError(
       SpecRule.AxisOrder,
-      `OME-Zarr v0.4 permits at most 3 'space' axes; found ${count}.`,
+      `OME-Zarr v0.4, v0.5 and v0.6 permit at most 3 'space' axes; ` +
+        `found ${count}.`,
+      "multiscales[0].axes",
+    );
+  }
+  if (count < 2 && !takesArraySchemaBranch(metadata.axes, version)) {
+    throw new ValidationError(
+      SpecRule.AxisOrder,
+      `OME-Zarr v0.4, v0.5 and v0.6 require 2 or 3 'space' axes; ` +
+        `found ${count}.`,
       "multiscales[0].axes",
     );
   }
@@ -345,6 +422,38 @@ export function validateSpatialAxisOrder(metadata: Metadata): void {
         `length-${count} suffix of (z, y, x): ${formatNameList(expected)}.`,
       `multiscales[0].axes[${spaceIndices[mismatch]}]`,
     );
+  }
+}
+
+/**
+ * Validate that axis names are unique within the dataset.
+ *
+ * Never inert. It states RFC-3 rule 5, "axis names MUST NOT be repeated within
+ * a dataset". No released schema carries it, so below `0.9.dev1` it is a
+ * strictness choice rather than a spec MUST of those versions. Rule 5 also says
+ * names SHOULD NOT differ only by case. That is a SHOULD and is not enforced.
+ *
+ * @param metadata - The parsed multiscales metadata to validate.
+ * @throws {ValidationError} With {@link SpecRule.AxisNamesUnique} for the first
+ * axis whose `name` duplicates an earlier one; location
+ * `multiscales[0].axes[i]`.
+ */
+export function validateAxisNamesUnique(
+  metadata: Pick<Metadata, "axes">,
+  _version?: string,
+): void {
+  const seen = new Set<string>();
+  for (let i = 0; i < metadata.axes.length; i++) {
+    const name = metadata.axes[i].name;
+    if (seen.has(name)) {
+      throw new ValidationError(
+        SpecRule.AxisNamesUnique,
+        `Axis name '${name}' is repeated; axis names must be unique ` +
+          `within a dataset.`,
+        `multiscales[0].axes[${i}]`,
+      );
+    }
+    seen.add(name);
   }
 }
 
@@ -669,26 +778,6 @@ export function validateAxisOrientation(metadata: Metadata): void {
 }
 
 /**
- * Render a string as Python's `repr()` renders it, for byte-identical messages.
- *
- * The plate/well rule messages interpolate row, column, and well-path strings
- * the way the Python implementation does with `{value!r}`: a single-quoted
- * literal, switching to double quotes only when the value contains a single
- * quote but no double quote. Keeping this byte-for-byte identical to Python is a
- * property the cross-language parity tests assert. Inputs reaching these rules
- * are alphanumeric path segments, so this resolves to a plain single-quoted
- * form in practice.
- */
-function pyRepr(value: string): string {
-  const quote = value.includes("'") && !value.includes('"') ? '"' : "'";
-  const escaped = value.replaceAll("\\", "\\\\").replaceAll(
-    quote,
-    `\\${quote}`,
-  );
-  return `${quote}${escaped}${quote}`;
-}
-
-/**
  * Validate that a v0.5 multiscales entry implies a Zarr v3 store.
  *
  * OME-Zarr v0.5 metadata MUST be backed by a Zarr v3 store
@@ -876,16 +965,17 @@ export function validateWellAcquisition(
  * 2. {@link validateAxisType}
  * 3. {@link validateAxisOrder}
  * 4. {@link validateSpatialAxisOrder}
- * 5. {@link validatePerDatasetScaleCount}
- * 6. {@link validateScaleLength}
- * 7. {@link validateTransformOrder}
- * 8. {@link validateDatasetOrder}
- * 9. {@link validateOmeroColorHex}
- * 10. {@link validateAxisOrientation}
- * 11. {@link validateZarrFormatForVersion}
- * 12. {@link validateOmeNamespace}
+ * 5. {@link validateAxisNamesUnique}
+ * 6. {@link validatePerDatasetScaleCount}
+ * 7. {@link validateScaleLength}
+ * 8. {@link validateTransformOrder}
+ * 9. {@link validateDatasetOrder}
+ * 10. {@link validateOmeroColorHex}
+ * 11. {@link validateAxisOrientation}
+ * 12. {@link validateZarrFormatForVersion}
+ * 13. {@link validateOmeNamespace}
  *
- * Rules 11 and 12 are the OME-Zarr v0.5 namespacing checks; they fire only for
+ * Rules 12 and 13 are the OME-Zarr v0.5 namespacing checks; they fire only for
  * v0.5 metadata and are inert (a no-op) for v0.4.
  *
  * Under {@link ValidationLevel.SchemaOnly} this function returns immediately
@@ -902,6 +992,9 @@ export function validateWellAcquisition(
  * @param metadata - The parsed OME-Zarr v0.4 multiscales metadata to validate.
  * @param options - Validation options; defaults to
  * `{ level: "strict", allowUnknownFields: true }`.
+ * @param version - The OME-Zarr version the metadata declares. Rules 1-3 are
+ * inert for the versions that adopt the RFC-3 axis model, so omitting it holds
+ * every store to the v0.4 axis caps.
  * @throws {ValidationError} For the first structural rule violated, carrying
  * the offending {@link SpecRule} and `location`. Never thrown under
  * {@link ValidationLevel.SchemaOnly}, which runs no structural rule.
@@ -909,6 +1002,7 @@ export function validateWellAcquisition(
 export function validateStructural(
   metadata: Metadata,
   options?: ValidateOptions,
+  version?: string,
 ): void {
   const resolved: Required<ValidateOptions> = {
     level: options?.level ?? ValidationLevel.Strict,
@@ -917,10 +1011,11 @@ export function validateStructural(
   if (resolved.level === ValidationLevel.SchemaOnly) {
     return;
   }
-  validateAxisCount(metadata);
-  validateAxisType(metadata);
-  validateAxisOrder(metadata);
-  validateSpatialAxisOrder(metadata);
+  validateAxisCount(metadata, version);
+  validateAxisType(metadata, version);
+  validateAxisOrder(metadata, version);
+  validateSpatialAxisOrder(metadata, version);
+  validateAxisNamesUnique(metadata, version);
   validatePerDatasetScaleCount(metadata);
   validateScaleLength(metadata);
   validateTransformOrder(metadata);

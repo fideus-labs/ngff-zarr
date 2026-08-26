@@ -18,6 +18,12 @@ export enum NgffVersion {
    */
   V06dev4 = "0.6.dev4",
   V06rc0 = "0.6rc0",
+  /**
+   * OME-Zarr 0.9 in development: v0.6 plus RFC-3 (any axis count, names,
+   * types and ordering). Unlike {@link V06dev4} this is the on-disk string.
+   * {@link LATEST} stays `0.6rc0`, so 0.9.dev1 is opt-in.
+   */
+  V09dev1 = "0.9.dev1",
   LATEST = "0.6rc0",
 }
 
@@ -42,6 +48,7 @@ export const SUPPORTED_VERSIONS: readonly NgffVersion[] = [
   NgffVersion.V06,
   NgffVersion.V06dev4,
   NgffVersion.V06rc0,
+  NgffVersion.V09dev1,
 ] as const;
 
 /**
@@ -59,4 +66,16 @@ export function isSupportedVersion(version: string): version is NgffVersion {
  */
 export function isV06Version(version: string): boolean {
   return version.startsWith("0.6");
+}
+
+/**
+ * Whether a version adopts the RFC-3 free-form axis model.
+ *
+ * Only `0.9.dev1` does: the bundled 0.4, 0.5 and 0.6 axes schemas all cap the
+ * axis count at 5, and require 2-3 `space` axes (0.6 excepted for an `array`
+ * coordinate system, see `takesArraySchemaBranch`). `undefined` applies the
+ * restrictions.
+ */
+export function isRfc3AxisModelAllowed(version?: string): boolean {
+  return version !== undefined && version === NgffVersion.V09dev1;
 }

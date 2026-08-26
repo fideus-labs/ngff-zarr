@@ -9,7 +9,7 @@ NGFF-Zarr provides a TypeScript implementation for working with OME-Zarr data st
 - 🦕 **Deno-first**: Built for Deno with first-class TypeScript support
 - 📦 **Universal compatibility**: Works in Deno, Node.js, and browsers
 - 🔍 **Type-safe**: Full TypeScript support with Zod schema validation
-- 🗂️ **OME-Zarr support**: Read and write OME-Zarr v0.4, v0.5, and v0.6 (v0.6 adds RFC-5 coordinate systems and transformations)
+- 🗂️ **OME-Zarr support**: Read and write OME-Zarr v0.4, v0.5, and v0.6 (v0.6 adds RFC-5 coordinate systems and transformations), plus the opt-in development version `0.9.dev1` which adopts RFC-3 (extended axis count, names, types and order)
 - 🧪 **Well-tested**: Comprehensive test suite with browser validation
 - 🏗️ **Mirrors Python API**: Familiar interfaces for Python users
 - 📖 **Lazy loading**: Efficient handling of large datasets
@@ -378,7 +378,7 @@ async function fromNgffZarr(
   store: string | MemoryStore | FetchStore,
   options?: {
     validate?: boolean;
-    version?: "0.4" | "0.5" | "0.6";
+    version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
   }
 ): Promise<NgffMultiscales>
 ```
@@ -414,7 +414,7 @@ async function toNgffZarr(
   store: string,
   multiscales: NgffMultiscales,
   options?: {
-    version?: "0.4" | "0.5" | "0.6";
+    version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
     chunksPerShard?: number | number[] | Record<string, number>;
   }
 ): Promise<void>
@@ -815,7 +815,7 @@ function upgradeOmeZarr(
   input: string | MemoryStore | FetchStore | Readable,
   options?: {
     output?: string | MemoryStore; // FetchStore is read-only, not a destination
-    version?: "0.4" | "0.5" | "0.6"; // default "0.6"
+    version?: "0.4" | "0.5" | "0.6" | "0.9.dev1"; // default "0.6"
     validate?: boolean;
     overwrite?: boolean; // write-to-new-store only; default true
   },
@@ -870,8 +870,10 @@ await upgradeOmeZarr(store, { version: "0.6" });
 
 **Write-to-new-store.** When `output` is a store distinct from `input`, the
 source is read lazily and re-written to `output` at the requested version
-through the standard write pipeline. Every supported transition (0.4, 0.5, 0.6,
-in either direction) works in this mode, and the source store is never mutated.
+through the standard write pipeline. Every transition among 0.4, 0.5, 0.6 and
+0.9.dev1 works in this mode whenever the target version can express the axis
+model, and the source store is never mutated. An RFC-3 axis model is refused
+below 0.9.dev1, so a store using one only converts upward.
 
 ```typescript
 import { upgradeOmeZarr, type MemoryStore } from "@fideus-labs/ngff-zarr";

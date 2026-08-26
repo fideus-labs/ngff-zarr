@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from ..ngff_image import NgffImage
     from ..v04.zarr_metadata import Metadata as Metadata_v04
     from ..v05.zarr_metadata import Metadata as Metadata_v05
+    from ..v09.zarr_metadata import Metadata as Metadata_v09
 
 
 # OME-Zarr v0.6 (RFC-5) extends the axis types with the discrete vector-field
@@ -120,7 +121,9 @@ class BaseTransform(ABC):  # noqa: B024
         return cls(**data)
 
     def validate(  # noqa: B027
-        self, coordinateSystems: list[CoordinateSystem] | None = None
+        self,
+        coordinateSystems: list[CoordinateSystem] | None = None,
+        version: object | None = None,
     ) -> None:
         """Check this transform's RFC-5 constraints.
 
@@ -131,6 +134,9 @@ class BaseTransform(ABC):  # noqa: B024
         coordinate systems run when those resolve in ``coordinateSystems``
         and are skipped otherwise. Raises ``ValueError`` on the first
         violation.
+
+        ``version`` selects the bounds a version-dependent rule applies; a
+        rule that holds at every version ignores it.
 
         Transform types without constraints beyond their field types, such
         as ``Scale`` or ``Identity``, inherit this no-op deliberately.
@@ -197,21 +203,35 @@ class MapAxis(BaseTransform):
         self._check_intrinsic()
 
     def _check_intrinsic(self) -> None:
+        """The permutation rules, which every version states identically."""
         indices = self.mapAxis
         _require_integer_axes(indices, "mapAxis")
-        if not (2 <= len(indices) <= 5):
-            raise ValueError(
-                "mapAxis must hold between 2 and 5 indices, one per axis "
-                f"of the coordinate systems it permutes; got {indices}"
-            )
         if sorted(indices) != list(range(len(indices))):
             raise ValueError(
                 "mapAxis must be a permutation holding every zero-based "
                 f"input axis index exactly once; got {indices}"
             )
 
-    def validate(self, coordinateSystems: list[CoordinateSystem] | None = None) -> None:
+    def validate(
+        self,
+        coordinateSystems: list[CoordinateSystem] | None = None,
+        version: object | None = None,
+    ) -> None:
+        from ..structural_validation import is_rfc3_axis_model_allowed
+
         self._check_intrinsic()
+        # The 2-to-5 arity mirrors the minItems and maxItems the 0.4 through
+        # 0.6 schemas set, and follows from their five-axis cap. RFC-3 lifts
+        # that cap at 0.9.dev1, whose mapAxis definition sets neither bound, so
+        # a permutation over six axes is valid there and the check stands down.
+        # It cannot live in __post_init__, which has no version to consult.
+        if not is_rfc3_axis_model_allowed(version) and not (
+            2 <= len(self.mapAxis) <= 5
+        ):
+            raise ValueError(
+                "mapAxis must hold between 2 and 5 indices, one per axis "
+                f"of the coordinate systems it permutes; got {self.mapAxis}"
+            )
         for identifier in (self.input, self.output):
             count = _resolved_axis_count(identifier, coordinateSystems)
             if count is not None and count != len(self.mapAxis):
@@ -345,10 +365,16 @@ class ByDimension(BaseTransform):
             axes.update(item.outputAxes)
         return axes
 
-    def validate(self, coordinateSystems: list[CoordinateSystem] | None = None) -> None:
+    def validate(
+        self,
+        coordinateSystems: list[CoordinateSystem] | None = None,
+        version: object | None = None,
+    ) -> None:
         for item in self.transformations:
             item._check_intrinsic()
-            item.transformation.validate(coordinateSystems)
+            # A wrapper passes the version down: a mapAxis nested here obeys
+            # the bounds of the document's version, not of v0.6.
+            item.transformation.validate(coordinateSystems, version)
         self._check_intrinsic()
         input_count = _resolved_axis_count(self.input, coordinateSystems)
         if input_count is not None:
@@ -390,9 +416,14 @@ class Bijection(BaseTransform):
     inverse: Transform
     type: str = "bijection"
 
-    def validate(self, coordinateSystems: list[CoordinateSystem] | None = None) -> None:
-        self.forward.validate(coordinateSystems)
-        self.inverse.validate(coordinateSystems)
+    def validate(
+        self,
+        coordinateSystems: list[CoordinateSystem] | None = None,
+        version: object | None = None,
+    ) -> None:
+        # A wrapper passes the version down, as byDimension does.
+        self.forward.validate(coordinateSystems, version)
+        self.inverse.validate(coordinateSystems, version)
         input_count = _resolved_axis_count(self.input, coordinateSystems)
         output_count = _resolved_axis_count(self.output, coordinateSystems)
         if (
@@ -422,14 +453,19 @@ class TransformSequence(BaseTransform):
     name: str | None = "transformSequence"
     type: str = "sequence"
 
-    def validate(self, coordinateSystems: list[CoordinateSystem] | None = None) -> None:
+    def validate(
+        self,
+        coordinateSystems: list[CoordinateSystem] | None = None,
+        version: object | None = None,
+    ) -> None:
         for transformation in self.transformations:
-            transformation.validate(coordinateSystems)
+            transformation.validate(coordinateSystems, version)
 
 
 def validate_transform(
     transformation: Transform,
     coordinateSystems: list[CoordinateSystem] | None = None,
+    version: object | None = None,
 ) -> None:
     """Check a transform's RFC-5 constraints; see ``BaseTransform.validate``.
 
@@ -514,7 +550,7 @@ class Metadata:
 
     def to_version(
         self, version: Union[str, NgffVersion]
-    ) -> Union["Metadata", "Metadata_v05", "Metadata_v04"]:
+    ) -> Union["Metadata", "Metadata_v05", "Metadata_v04", "Metadata_v09"]:
         if isinstance(version, str):
             # raise error for invalid version string
             version = NgffVersion(version)
@@ -525,15 +561,23 @@ class Metadata:
             return self._to_v05()
         if version == NgffVersion.V06:
             return self
+        if version == NgffVersion.V09dev1:
+            from ..v09.zarr_metadata import Metadata as Metadata_v09
+
+            return Metadata_v09.from_version(self)
         raise ValueError(f"Unsupported version conversion: 0.6 -> {version}")
 
     @classmethod
     def from_version(
-        cls, metadata: Union["Metadata", "Metadata_v05", "Metadata_v04"]
+        cls,
+        metadata: Union["Metadata", "Metadata_v05", "Metadata_v04", "Metadata_v09"],
     ) -> "Metadata":
         from ..v04.zarr_metadata import Metadata as Metadata_v04
         from ..v05.zarr_metadata import Metadata as Metadata_v05
+        from ..v09.zarr_metadata import Metadata as Metadata_v09
 
+        if isinstance(metadata, Metadata_v09):
+            return metadata._to_v06()
         if isinstance(metadata, Metadata_v05):
             return cls._from_v05(metadata)
         if isinstance(metadata, Metadata_v04):
@@ -700,16 +744,19 @@ class Metadata:
                 "Invalid OME-Zarr metadata: missing 'ome' or 'multiscales' field."
             )
 
+        # From 0.6 the version is recorded on the ``ome`` namespace rather than
+        # on each multiscales entry, as the pre-release string the store was
+        # written with. The per-entry value is the fallback, as on the v0.4 read
+        # path. Read unconditionally: the transform rules whose bounds RFC-3
+        # lifts need it whether or not the schema pass runs.
+        declared_version = str(
+            root_attrs["ome"].get("version")
+            or root_attrs["ome"]["multiscales"][0].get("version")
+            or "0.6"
+        )
+
         if validate:
-            # From 0.6 the version is recorded on the ``ome`` namespace rather
-            # than on each multiscales entry, as the pre-release string the
-            # store was written with. The per-entry value is the fallback, as
-            # on the v0.4 read path.
-            schema_version = str(
-                root_attrs["ome"].get("version")
-                or root_attrs["ome"]["multiscales"][0].get("version")
-                or "0.6"
-            )
+            schema_version = declared_version
             schema_attrs = root_attrs
             if schema_version in V06_SUPERSEDED_TAGS:
                 # The bundled 0.6 schemas accept one tag, the pre-release they
@@ -785,7 +832,9 @@ class Metadata:
             ]
             if "coordinateTransformations" in dataset:
                 coordinateTransformations = cls._parse_transforms(
-                    dataset["coordinateTransformations"], coordinate_systems
+                    dataset["coordinateTransformations"],
+                    coordinate_systems,
+                    declared_version,
                 )
 
                 # extract scale and translation for ngff_image convenience
@@ -837,7 +886,7 @@ class Metadata:
         additionalTransformations = root_attrs.get("coordinateTransformations", None)
         if additionalTransformations is not None:
             additionalTransformations = cls._parse_transforms(
-                additionalTransformations, coordinate_systems
+                additionalTransformations, coordinate_systems, declared_version
             )
 
         metadata = cls(
@@ -852,10 +901,15 @@ class Metadata:
 
     @classmethod
     def _parse_transforms(
-        cls, transforms: list[dict], coordinateSystems: list[CoordinateSystem]
+        cls,
+        transforms: list[dict],
+        coordinateSystems: list[CoordinateSystem],
+        version: object | None = None,
     ) -> list[Transform]:
-        """
-        Parse a list of possibly nested transformation dictionaries into Transform instances.
+        """Parse transformation dictionaries, nested ones included.
+
+        ``version`` selects the bounds a version-dependent rule applies, such
+        as the ``mapAxis`` arity RFC-3 lifts at 0.9.dev1.
         """
         parsed_transforms = []
         for transform in transforms:
@@ -883,7 +937,7 @@ class Metadata:
             elif transform["type"] == "sequence":
                 # TODO: Undo nested sequences on import?
                 sub_transforms = cls._parse_transforms(
-                    transform["transformations"], coordinateSystems
+                    transform["transformations"], coordinateSystems, version
                 )
                 transformation = TransformSequence(transformations=sub_transforms)
             else:
@@ -919,7 +973,7 @@ class Metadata:
             # every type.
             if transform.get("name") is not None:
                 transformation.name = transform["name"]
-            validate_transform(transformation, coordinateSystems)
+            validate_transform(transformation, coordinateSystems, version)
             parsed_transforms.append(transformation)
 
         return parsed_transforms

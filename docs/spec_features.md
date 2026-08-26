@@ -38,6 +38,11 @@ supported by `ngff-zarr`.
 - **OME-Zarr v0.4 to v0.6**: Writes OME-Zarr versions 0.4 to 0.6, including
   RFC-4 anatomical orientation. v0.6 additionally adds RFC-5 coordinate systems
   and transformations.
+- **OME-Zarr 0.9.dev1**: Reads and writes the development version that adopts
+  RFC-3, which extends support for the number, names, types and order
+  of axes. It is opt-in: pass `version="0.9.dev1"` explicitly. The default
+  target is unchanged, and OME publishes no JSON Schema for it yet, so schema
+  validation is unavailable at that version.
 
 ## High Content Screening (HCS)
 

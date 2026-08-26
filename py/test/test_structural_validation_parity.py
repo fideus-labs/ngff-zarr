@@ -16,13 +16,16 @@ TypeScript twin), not an accident.
 """
 
 import re
+from pathlib import Path
 
 import pytest
 from ngff_zarr import (
+    SUPPORTED_VERSIONS,
     SpecRule,
     ValidateOptions,
     ValidationError,
     ValidationLevel,
+    structural_validation,
     validate_structural,
 )
 from ngff_zarr.v04.zarr_metadata import (
@@ -38,8 +41,8 @@ from ngff_zarr.v04.zarr_metadata import (
 
 # The locked rule manifest: every active OME-Zarr structural rule, in canonical
 # declaration order. This identical literal list appears in the Deno mirror test
-# so the two are directly comparable. The first eleven entries are the
-# image/multiscales rules dispatched by validate_structural -- the first nine
+# so the two are directly comparable. The first thirteen entries are the
+# image/multiscales rules dispatched by validate_structural -- the first eleven
 # are the v0.4 rules and the next two (zarr-format, ome-namespace) are the v0.5
 # namespacing rules, inert for v0.4; the final two are the HCS plate/well rules
 # dispatched by validate_plate / validate_well.
@@ -47,6 +50,7 @@ CANONICAL_SPEC_RULE_IDS = [
     "axis-count",
     "axis-type",
     "axis-order",
+    "axis-names-unique",
     "scale-length-mismatch",
     "global-coord-transform-after-per-level",
     "dataset-order-highest-to-lowest",
@@ -60,6 +64,26 @@ CANONICAL_SPEC_RULE_IDS = [
     "well-acquisition-missing",
 ]
 
+
+# The locked RFC-3 version manifest: the versions whose axis model is
+# unrestricted, so that validate_axis_count / validate_axis_type /
+# validate_axis_order / validate_spatial_axis_order are inert for them. This
+# identical literal list appears in the Deno mirror test. axis-names-unique is
+# deliberately absent: RFC-3 adds that rule rather than lifting it, so it is
+# never inert (see docs/validation/rule-reference.md).
+CANONICAL_RFC3_VERSIONS = [
+    "0.9.dev1",
+]
+
+# Every other supported version, plus the no-version default, must enforce the
+# axis rules. Read off SUPPORTED_VERSIONS so a newly supported version has to
+# be classified here rather than silently defaulting to "restricted".
+NON_RFC3_VERSIONS = [
+    version.value
+    for version in SUPPORTED_VERSIONS
+    if version.value not in CANONICAL_RFC3_VERSIONS
+] + [None]
+
 # The canonical fail-fast evaluation order of the image/multiscales
 # orchestrator (validate_structural). Each entry is the SpecRule the
 # orchestrator must raise when that rule -- and every rule after it -- is
@@ -67,7 +91,7 @@ CANONICAL_SPEC_RULE_IDS = [
 # share each: validate_axis_order and validate_spatial_axis_order both surface
 # AXIS_ORDER (positions 3-4), and validate_per_dataset_scale_count and
 # validate_transform_order both surface GLOBAL_COORD_TRANSFORM_AFTER_PER_LEVEL
-# (positions 5 and 7). The two HCS rules are absent: they are not part of the
+# (positions 6 and 8). The two HCS rules are absent: they are not part of the
 # image/multiscales orchestrator. The two v0.5 namespacing rules (zarr-format,
 # ome-namespace) run last in the orchestrator but are inert for the v0.4
 # metadata exercised here, so they never appear in the observed order.
@@ -76,6 +100,7 @@ EXPECTED_EVALUATION_ORDER = [
     SpecRule.AXIS_TYPE,
     SpecRule.AXIS_ORDER,  # validate_axis_order (class ordering)
     SpecRule.AXIS_ORDER,  # validate_spatial_axis_order (spatial suffix)
+    SpecRule.AXIS_NAMES_UNIQUE,
     SpecRule.GLOBAL_COORD_TRANSFORM_AFTER_PER_LEVEL,  # per-dataset scale count
     SpecRule.SCALE_LENGTH_MISMATCH,
     SpecRule.GLOBAL_COORD_TRANSFORM_AFTER_PER_LEVEL,  # transform order
@@ -129,6 +154,19 @@ def _valid_axes_with_inconsistent_orientation() -> list[Axis]:
             orientation=_orientation("anatomical", "right-to-left"),
         ),
     ]
+
+
+def _axes_with_repeated_name() -> list[Axis]:
+    """Return valid ``[c, z, y, x]`` axes with the channel axis renamed ``z``.
+
+    Every rule before :attr:`SpecRule.AXIS_NAMES_UNIQUE` still passes: the
+    class order is channel-then-space, the spatial names remain the ``(z, y,
+    x)`` suffix, and the count is 4. Only the repeated ``z`` is left for the
+    orchestrator to catch, which pins the rule's position in the cascade.
+    """
+    axes = _valid_axes_with_inconsistent_orientation()
+    axes[0].name = "z"
+    return axes
 
 
 def _first_violated_rule(metadata: Metadata) -> SpecRule:
@@ -187,8 +225,9 @@ def test_orchestrator_evaluation_order():
     bad_omero = _omero("xyz")  # OMERO violation (rule 9), present until repaired
 
     # Stage 1 -> AXIS_COUNT. Six axes simultaneously trip axis-type (two
-    # channels), axis-order (a space precedes a channel), and spatial-order
-    # (names are not the (z, y, x) suffix); axis-count is evaluated first.
+    # channels), axis-order (a space precedes a channel), spatial-order (names
+    # are not the (z, y, x) suffix) and axis-names-unique (a repeated "z");
+    # axis-count is evaluated first.
     metadata = Metadata(
         axes=[
             Axis(name="x", type="space"),
@@ -196,7 +235,7 @@ def test_orchestrator_evaluation_order():
             Axis(name="c2", type="channel"),
             Axis(name="t", type="time"),
             Axis(name="z", type="space"),
-            Axis(name="w", type="space"),
+            Axis(name="z", type="space"),
         ],
         datasets=[
             Dataset(
@@ -216,44 +255,51 @@ def test_orchestrator_evaluation_order():
     metadata.omero = bad_omero
     observed.append(_first_violated_rule(metadata))
 
-    # Stage 2 -> AXIS_TYPE. Count fixed (5 axes); two channels remain, and a
-    # space still precedes a channel and the spatial names are still wrong.
+    # Stage 2 -> AXIS_TYPE. Count fixed (5 axes); two channels remain, a space
+    # still precedes a channel, the spatial names are still wrong and "z" is
+    # still repeated.
     metadata.axes = [
         Axis(name="x", type="space"),
         Axis(name="c", type="channel"),
         Axis(name="c2", type="channel"),
         Axis(name="z", type="space"),
-        Axis(name="w", type="space"),
+        Axis(name="z", type="space"),
     ]
     observed.append(_first_violated_rule(metadata))
 
     # Stage 3 -> AXIS_ORDER (class ordering). One channel now, but a space axis
-    # still precedes it; the spatial names are still not the (z, y, x) suffix.
+    # still precedes it; the spatial names are still not the (z, y, x) suffix
+    # and "z" is still repeated.
     metadata.axes = [
         Axis(name="x", type="space"),
         Axis(name="c", type="channel"),
         Axis(name="z", type="space"),
-        Axis(name="w", type="space"),
+        Axis(name="z", type="space"),
     ]
     observed.append(_first_violated_rule(metadata))
 
     # Stage 4 -> AXIS_ORDER (spatial suffix). Class order fixed (channel first),
-    # but spatial names (x, z, w) are not the length-3 suffix of (z, y, x).
+    # but spatial names (x, z, z) are not the length-3 suffix of (z, y, x).
     metadata.axes = [
         Axis(name="c", type="channel"),
         Axis(name="x", type="space"),
         Axis(name="z", type="space"),
-        Axis(name="w", type="space"),
+        Axis(name="z", type="space"),
     ]
     observed.append(_first_violated_rule(metadata))
 
-    # Stage 5 -> per-dataset scale count. Axes are now fully valid [c, z, y, x]
+    # Stage 5 -> AXIS_NAMES_UNIQUE. Every axis rule before it now passes, but
+    # the channel axis is named "z" like the first space axis.
+    metadata.axes = _axes_with_repeated_name()
+    observed.append(_first_violated_rule(metadata))
+
+    # Stage 6 -> per-dataset scale count. Axes are now fully valid [c, z, y, x]
     # (with an inconsistent-orientation violation lurking as rule 10). Dataset
     # 0 still has two scales, so the per-dataset-scale-count rule fires.
     metadata.axes = _valid_axes_with_inconsistent_orientation()
     observed.append(_first_violated_rule(metadata))
 
-    # Stage 6 -> SCALE_LENGTH_MISMATCH. Dataset 0 now has exactly one scale, but
+    # Stage 7 -> SCALE_LENGTH_MISMATCH. Dataset 0 now has exactly one scale, but
     # its length is 3 against 4 axes; a scale-after-translation (rule 7) lurks.
     metadata.datasets[0].coordinateTransformations = [
         Translation([0.0, 0.0, 0.0]),
@@ -261,7 +307,7 @@ def test_orchestrator_evaluation_order():
     ]
     observed.append(_first_violated_rule(metadata))
 
-    # Stage 7 -> transform order. Lengths fixed to 4; dataset 0's scale still
+    # Stage 8 -> transform order. Lengths fixed to 4; dataset 0's scale still
     # follows a translation. Dataset 1 is made coarser-but-smaller so the
     # dataset-order rule (8) lurks behind the transform-order violation.
     metadata.datasets[0].coordinateTransformations = [
@@ -271,7 +317,7 @@ def test_orchestrator_evaluation_order():
     metadata.datasets[1].coordinateTransformations = [Scale([1.0, 0.5, 0.5, 0.5])]
     observed.append(_first_violated_rule(metadata))
 
-    # Stage 8 -> dataset order. Transform order fixed (scale before
+    # Stage 9 -> dataset order. Transform order fixed (scale before
     # translation); dataset 1 is still coarser-but-smaller than dataset 0.
     metadata.datasets[0].coordinateTransformations = [
         Scale([1.0, 1.0, 1.0, 1.0]),
@@ -279,12 +325,12 @@ def test_orchestrator_evaluation_order():
     ]
     observed.append(_first_violated_rule(metadata))
 
-    # Stage 9 -> OMERO color. Dataset order fixed (level 1 coarser-larger);
+    # Stage 10 -> OMERO color. Dataset order fixed (level 1 coarser-larger);
     # only the bad OMERO color and the orientation violation remain.
     metadata.datasets[1].coordinateTransformations = [Scale([1.0, 2.0, 2.0, 2.0])]
     observed.append(_first_violated_rule(metadata))
 
-    # Stage 10 -> orientation. OMERO color fixed; the y axis still declares a
+    # Stage 11 -> orientation. OMERO color fixed; the y axis still declares a
     # different orientation type than its spatial siblings.
     metadata.omero = _omero("00FF88")
     observed.append(_first_violated_rule(metadata))
@@ -299,3 +345,106 @@ def test_orchestrator_evaluation_order():
         orientation=_orientation("anatomical", "anterior-to-posterior"),
     )
     validate_structural(metadata)
+
+
+# ---------------------------------------------------------------------------
+# Manifest: the locked RFC-3 version set
+# ---------------------------------------------------------------------------
+
+
+def _rfc3_axis_metadata() -> Metadata:
+    """Six same-type axes: legal under RFC-3, illegal at every other version.
+
+    Violates axis-count (6 > 5) and the spatial-axis rules (6 > 3 ``space``
+    axes) at once, and nothing else, so the orchestrator accepts it exactly
+    when the axis rules are inert.
+    """
+    names = ["a", "b", "c", "d", "e", "f"]
+    return Metadata(
+        axes=[Axis(name=name, type="space") for name in names],
+        datasets=[
+            Dataset(
+                path="0",
+                coordinateTransformations=[
+                    Scale([1.0] * len(names)),
+                    Translation([0.0] * len(names)),
+                ],
+            )
+        ],
+        coordinateTransformations=None,
+    )
+
+
+def test_rfc3_version_manifest_is_locked():
+    # Inert at exactly the manifest versions...
+    for version in CANONICAL_RFC3_VERSIONS:
+        validate_structural(_rfc3_axis_metadata(), version=version)
+
+    # ...and enforced at every other supported version, and by default.
+    for version in NON_RFC3_VERSIONS:
+        with pytest.raises(ValidationError) as exc_info:
+            validate_structural(_rfc3_axis_metadata(), version=version)
+        assert exc_info.value.rule == SpecRule.AXIS_COUNT, version
+
+
+def _repeated_name_metadata() -> Metadata:
+    """A repeated axis name that no *other* axis rule can catch.
+
+    ``(time "x", space "y", space "x")`` satisfies all four restricted axis
+    rules: 3 axes, one ``time`` and two ``space``, ordered time then space, and
+    the spatial names are the ``(y, x)`` suffix. ``axis-names-unique`` is
+    therefore the only rule that can fire, at every version.
+    """
+    return Metadata(
+        axes=[
+            Axis(name="x", type="time"),
+            Axis(name="y", type="space"),
+            Axis(name="x", type="space"),
+        ],
+        datasets=[
+            Dataset(
+                path="0",
+                coordinateTransformations=[
+                    Scale([1.0, 1.0, 1.0]),
+                    Translation([0.0, 0.0, 0.0]),
+                ],
+            )
+        ],
+        coordinateTransformations=None,
+    )
+
+
+def test_axis_names_unique_is_never_inert():
+    # RFC-3 *adds* this rule rather than lifting one, so unlike the other four
+    # axis rules it fires at the RFC-3 versions too -- and at every other.
+    for version in CANONICAL_RFC3_VERSIONS + NON_RFC3_VERSIONS:
+        with pytest.raises(ValidationError) as exc_info:
+            validate_structural(_repeated_name_metadata(), version=version)
+        assert exc_info.value.rule == SpecRule.AXIS_NAMES_UNIQUE, version
+
+
+def _commented_rule_ids() -> list[str]:
+    """The rule ids listed in the canonical table at the top of the module.
+
+    The table is a comment block, so nothing but this test keeps it in step
+    with :class:`SpecRule`; it lost ``axis-names-unique`` once already.
+    """
+    source = Path(structural_validation.__file__).read_text()
+    table = source.split("# Canonical rule table", 1)[1].split("\nfrom ", 1)[0]
+    return re.findall(r"^#   ([a-z0-9-]+)$", table, re.M)
+
+
+def _documented_rule_ids() -> list[str]:
+    """The rule ids listed in the rule-reference table."""
+    reference = (
+        Path(__file__).parents[2] / "docs" / "validation" / "rule-reference.md"
+    ).read_text()
+    return re.findall(r"^\| *\d+ *\| *`([a-z0-9-]+)`", reference, re.M)
+
+
+def test_module_rule_table_matches_the_manifest():
+    assert _commented_rule_ids() == CANONICAL_SPEC_RULE_IDS
+
+
+def test_rule_reference_doc_matches_the_manifest():
+    assert _documented_rule_ids() == CANONICAL_SPEC_RULE_IDS

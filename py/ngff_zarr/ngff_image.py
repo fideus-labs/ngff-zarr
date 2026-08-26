@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from dask.array.core import Array as DaskArray
 
 from .rfc4 import AnatomicalOrientation
-from .v04.zarr_metadata import Units
+from .v04.zarr_metadata import AxisUnit
 
 ComputedCallback = Callable[[], None]
 
@@ -18,7 +18,7 @@ class NgffImage:
     scale: dict[str, float]
     translation: dict[str, float]
     name: str = "image"
-    axes_units: Mapping[str, Units] | None = None
+    axes_units: Mapping[str, AxisUnit] | None = None
     axes_orientations: Mapping[str, AnatomicalOrientation] | None = None
     axes_types: Mapping[str, str] | None = None
     channel_names: list[str] | None = None
