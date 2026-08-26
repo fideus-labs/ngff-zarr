@@ -426,22 +426,31 @@ def _gate_axis_model(metadata, version) -> None:
                 ) from exc
 
 
-def _lazy_array_leaves(arr: dask.array.Array):
+def _lazy_array_leaves(arr: dask.array.Array, seen: set[str] | None = None):
     """Yield the local store arrays embedded in the dask graph of ``arr``.
 
     An array opened from a local store enters a dask graph as a
     ``_ZarristaArrayAdapter`` held by a materialized layer; blockwise layers
     only reference it by key. Materialized data (``persist()``) holds none.
+
+    ``seen`` carries the layer names already walked. The levels of a
+    multiscales are derived from one another, so each level's graph holds
+    every layer the levels below it hold, and walking them per level costs
+    the same layer once per level that keeps it.
     """
     graph = arr.__dask_graph__()
     layers = getattr(graph, "layers", None)
     if layers is None:
         sources = graph.values()
     else:
+        if seen is None:
+            seen = set()
+        fresh = [name for name in layers if name not in seen]
+        seen.update(fresh)
         sources = (
             value
-            for layer in layers.values()
-            for value in getattr(layer, "mapping", {}).values()
+            for name in fresh
+            for value in getattr(layers[name], "mapping", {}).values()
         )
     for value in sources:
         stack = [value]
@@ -476,10 +485,11 @@ def _guard_overwrite_of_source_store(
     write silently fills the store with zeros.
     """
     destination = Path(store_path).resolve()
+    seen: set[str] = set()
     for index, image in enumerate(multiscales.images):
         if not isinstance(image.data, dask.array.Array):
             continue
-        for leaf in _lazy_array_leaves(image.data):
+        for leaf in _lazy_array_leaves(image.data, seen):
             if _reads_below(leaf, destination):
                 raise ValueError(
                     f"Cannot overwrite '{store_path}': multiscales.images[{index}] "
@@ -504,11 +514,12 @@ def _guard_rewrite_of_read_levels(
         store_root.joinpath(*_node_parts(dataset.path)): dataset.path
         for dataset in datasets[start_level:]
     }
+    seen: set[str] = set()
     for index in range(start_level, len(multiscales.images)):
         data = multiscales.images[index].data
         if not isinstance(data, dask.array.Array):
             continue
-        for leaf in _lazy_array_leaves(data):
+        for leaf in _lazy_array_leaves(data, seen):
             array_dir = _leaf_array_dir(leaf)
             if array_dir in replaced:
                 raise ValueError(

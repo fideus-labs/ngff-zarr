@@ -100,3 +100,18 @@ def test_image_opened_from_the_array_path_raises(tmp_path):
     multiscales = to_multiscales(image, scale_factors=[], cache=False)
     with pytest.raises(ValueError, match="reads its data from that store"):
         to_ome_zarr(path, multiscales, overwrite=True, version="0.4")
+
+
+def test_level_alone_in_reading_the_store_raises(tmp_path):
+    """A level reading the store is caught even when no other level shares it.
+
+    The walk skips a layer another level already carried it past, so a level
+    whose read is its own has to be reached on its own turn.
+    """
+    path = str(tmp_path / "image.ome.zarr")
+    to_ome_zarr(path, _multiscales(scale_factors=[2]), version="0.4")
+
+    multiscales = _multiscales(rng_seed=1, scale_factors=[2])
+    multiscales.images[1].data = open_lazy_array(f"{path}/scale1/image")
+    with pytest.raises(ValueError, match=r"images\[1\] reads its data"):
+        to_ome_zarr(path, multiscales, overwrite=True, version="0.4")
