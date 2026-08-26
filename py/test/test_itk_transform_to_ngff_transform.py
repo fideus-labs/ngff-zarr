@@ -1254,5 +1254,8 @@ def test_registration_result_can_be_attached_to_multiscales():
     assert len(transform.affine) == 2
     assert all(len(row) == 3 for row in transform.affine)
     assert transform.type == "affine"
-    # It is shaped to go straight onto the multiscales metadata.
+    # It is shaped to go straight onto the multiscales metadata, which is what
+    # attaching a registration result means.
     assert multiscales.metadata.coordinateTransformations is None
+    multiscales.metadata.coordinateTransformations = [transform]
+    assert multiscales.metadata.coordinateTransformations == [transform]

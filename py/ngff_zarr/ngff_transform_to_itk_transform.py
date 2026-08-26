@@ -182,9 +182,21 @@ def _homogeneous_from_by_dimension(transform: ByDimension, ndim: int) -> np.ndar
     """
     matrix = np.zeros((ndim + 1, ndim + 1))
     matrix[ndim, ndim] = 1.0
-    for item in transform.transformations:
+    claimed: dict[int, int] = {}
+    for index, item in enumerate(transform.transformations):
         block, offset = _by_dimension_item_block(item, ndim)
         for row, output_axis in enumerate(item.outputAxes):
+            # Two items writing the same row would leave the second overwriting
+            # the first and the union below none the wiser, so the mapping would
+            # come back silently wrong rather than refused.
+            if output_axis in claimed:
+                msg = (
+                    f"byDimension items {claimed[output_axis]} and {index} both "
+                    f"produce output axis {output_axis}; every output axis must "
+                    "be produced by exactly one item"
+                )
+                raise ValueError(msg)
+            claimed[output_axis] = index
             for column, input_axis in enumerate(item.inputAxes):
                 matrix[output_axis, input_axis] = block[row, column]
             matrix[output_axis, ndim] = offset[row]

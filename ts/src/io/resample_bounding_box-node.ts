@@ -33,8 +33,8 @@ import {
  *
  * In both cases the transform maps *fixed* points into *moving* space. An ITK
  * transform need not be linear; an RFC-5 transformation is converted first, so
- * it must be a linear mapping or a `displacements` transformation whose field
- * is passed in `options.fields`.
+ * it must be a linear mapping, or a `displacements` or `coordinates`
+ * transformation whose field is passed in `options.fields`.
  *
  * @param transform An RFC-5 coordinate transformation or an ITK-Wasm
  *   `TransformList`.

@@ -208,8 +208,18 @@ function homogeneousFromTransform(
       }
       const matrix = zeroMatrix(ndim + 1);
       matrix[ndim][ndim] = 1;
-      // The value at position i names the input axis that becomes output
-      // axis i, so the row for output i selects that input.
+      // Output axis i takes input axis mapAxis[i], so row i selects that
+      // column. An index outside the system would leave its row zero and the
+      // matrix singular; the Python port raises, so this one does too.
+      const invalid = transform.mapAxis.filter(
+        (axis) => !Number.isInteger(axis) || axis < 0 || axis >= ndim,
+      );
+      if (invalid.length > 0) {
+        throw new Error(
+          `mapAxis indices [${invalid.join(", ")}] are outside the ` +
+            `${ndim} axes of the coordinate system`,
+        );
+      }
       transform.mapAxis.forEach((inputAxis, outputAxis) => {
         matrix[outputAxis][inputAxis] = 1;
       });
@@ -256,16 +266,29 @@ function homogeneousFromByDimension(
   matrix[ndim][ndim] = 1;
   const produced = new Set<number>();
 
-  for (const item of transform.transformations) {
+  const claimed = new Map<number, number>();
+  transform.transformations.forEach((item, index) => {
     const block = byDimensionItemBlock(item, ndim);
     item.outputAxes.forEach((outputAxis, row) => {
+      // Two items writing the same row would leave the second overwriting the
+      // first and the union below none the wiser, so the mapping would come
+      // back silently wrong rather than refused.
+      const first = claimed.get(outputAxis);
+      if (first !== undefined) {
+        throw new Error(
+          `byDimension items ${first} and ${index} both produce output axis ` +
+            `${outputAxis}; every output axis must be produced by exactly ` +
+            `one item`,
+        );
+      }
+      claimed.set(outputAxis, index);
       item.inputAxes.forEach((inputAxis, col) => {
         matrix[outputAxis][inputAxis] = block[row][col];
       });
       matrix[outputAxis][ndim] = block[row][item.inputAxes.length];
       produced.add(outputAxis);
     });
-  }
+  });
 
   const missing = Array.from({ length: ndim }, (_, axis) => axis)
     .filter((axis) => !produced.has(axis));

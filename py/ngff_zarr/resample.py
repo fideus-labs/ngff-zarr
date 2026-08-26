@@ -233,6 +233,13 @@ def resample(
     full moving image is never loaded, which is what makes this usable when it
     is larger than memory, remote, or chunked.
 
+    One input is not streamed: an RFC-5 ``displacements`` or ``coordinates``
+    transform is converted before the graph is built, and that conversion reads
+    its field in full. The field bounds where every block reads, so the regions
+    cannot be computed without it. A field the size of the volume therefore has
+    to fit in memory, while the moving image does not. Pass an ITK transform to
+    keep the field out of this call.
+
     Resampling runs through ``itkwasm-downsample``, so no native ITK build is
     required and the result is identical to one across platforms.
 
