@@ -71,7 +71,7 @@ cd ts && pixi run --as-is test          # Deno test suite
 cd ts && pixi run --as-is lint          # Deno lint
 cd ts && pixi run --as-is fmt           # Deno format
 cd ts && pixi run --as-is build         # Full build pipeline
-cd ts && pixi run --as-is test:browser  # Browser compatibility tests
+cd ts && pixi run --as-is test-browser  # Browser compatibility tests
 cd ts && pixi run --as-is check         # Type checking
 ```
 
