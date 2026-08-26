@@ -319,9 +319,10 @@ The multiscales will be computed and written out-of-core, limiting memory usage.
 
 Writing (and local reading) is backed by [zarrista], a Python Zarr
 implementation built on the Rust [zarrs] library, which writes arrays through
-a fast direct-write path. Outputs remain fully spec-compliant: OME-Zarr 0.4
-(Zarr v2) and 0.5+ (Zarr v3) stores stay readable by zarr-python 2 and 3 and
-by other OME-Zarr implementations.
+a fast direct-write path. Outputs remain fully spec-compliant and readable by
+other OME-Zarr implementations: OME-Zarr 0.4 (Zarr v2) stores stay readable by
+zarr-python 2 and 3, and 0.5+ (Zarr v3) stores by zarr-python 3, which is the
+major that reads the Zarr v3 format.
 
 The `use_tensorstore` keyword is a deprecated no-op kept for backwards
 compatibility: the fast direct-write path it used to enable (first via

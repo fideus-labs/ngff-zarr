@@ -48,7 +48,9 @@ The main Python package provides:
 - Reads and writes the opt-in development version `0.9.dev1`, which adopts RFC-3
   (expanded axis count, names, types and order)
 - [Sharded Zarr] stores
-- Optional writing via zarr-python 2, zarr-python 3, [zarrista] or zarrita (TypeScript)
+- Zarr I/O backed by [zarrista] / Rust [zarrs] (Python) or zarrita
+  (TypeScript) -- no zarr-python dependency; OME-Zarr 0.4 (Zarr v2) outputs
+  stay readable by zarr-python 2 and 3, and 0.5+ (Zarr v3) by zarr-python 3
 - [Anatomical orientation metadata](./docs/rfc4.md) (RFC-4)
 - **OME-Zarr Zip (.ozx) file support** for single-file OME-Zarr datasets (RFC-9)
 - **High Content Screening (HCS) support** for plate and well data
@@ -123,3 +125,4 @@ the development commands for each package. Please also read our
 [Sharded Zarr]: https://zarr.dev/zeps/accepted/ZEP0002.html
 [development guide]: https://ngff-zarr.readthedocs.io/en/latest/development.html
 [zarrista]: https://github.com/developmentseed/zarrista
+[zarrs]: https://zarrs.dev/
