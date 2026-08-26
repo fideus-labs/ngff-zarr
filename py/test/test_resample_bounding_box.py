@@ -18,12 +18,29 @@ import pytest
 from ngff_zarr import (
     RAS,
     NgffImage,
-    itk_transform_resample_bounding_box,
+    itk_displacement_field_to_ngff_transform,
     ngff_image_to_itk_image,
+    resample_bounding_box,
 )
-from ngff_zarr.itk_transform_resample_bounding_box import (
+from ngff_zarr.ngff_transform_to_itk_transform import _ngff_transform_to_itk_matrix
+from ngff_zarr.resample_bounding_box import (
     _itk_direction,
     _metadata_only_itk_image,
+    _shifted_translation,
+)
+from ngff_zarr.v06.zarr_metadata import (
+    Affine,
+    Bijection,
+    ByDimension,
+    ByDimensionItem,
+    Coordinates,
+    Displacements,
+    Identity,
+    MapAxis,
+    Rotation,
+    Scale,
+    TransformSequence,
+    Translation,
 )
 
 
@@ -121,6 +138,296 @@ def _oracle_region(matrix, offset, fixed, moving, spatial, padding):
     return start, np.maximum(end - start + 1, 0)
 
 
+def test_ngff_translation_matches_the_documented_worked_example():
+    """Reproduces the 2D translation example from the ITK-Wasm documentation.
+
+    That example is stated in ITK order: fixed 16x16 spacing (2,2) origin
+    (10,20), moving 64x64 spacing (1,1) origin 0, translation (10,5),
+    padding 1. Written as RFC-5 the axes reverse, so the translation is
+    ``[5, 10]`` over ``("y", "x")``.
+    """
+    fixed = _image("yx", {"y": 16, "x": 16}, {"y": 2, "x": 2}, {"y": 20, "x": 10})
+    moving = _image("yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+
+    bounding_box = resample_bounding_box(
+        Translation(translation=[5.0, 10.0]), fixed, moving, padding=1
+    )
+
+    assert bounding_box.start_index == {"y": 24, "x": 19}
+    assert bounding_box.size == {"y": 33, "x": 33}
+    assert bounding_box.corners_min == {"y": 25.0, "x": 20.0}
+    assert bounding_box.corners_max == {"y": 55.0, "x": 50.0}
+    assert bounding_box.padded_corners_min == {"y": 24.0, "x": 19.0}
+    assert bounding_box.padded_corners_max == {"y": 56.0, "x": 51.0}
+
+
+def test_padding_is_symmetric():
+    fixed = _image("yx", {"y": 16, "x": 16}, {"y": 2, "x": 2}, {"y": 20, "x": 10})
+    moving = _image("yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+    transform = Translation(translation=[5.0, 10.0])
+
+    padded = resample_bounding_box(transform, fixed, moving, padding=1)
+    tight = resample_bounding_box(transform, fixed, moving, padding=0)
+
+    for dim in ("y", "x"):
+        assert tight.start_index[dim] == padded.start_index[dim] + 1
+        assert tight.size[dim] == padded.size[dim] - 2
+    # The tight corners are padding independent.
+    assert tight.corners_min == padded.corners_min
+    assert tight.corners_max == padded.corners_max
+
+
+def test_asymmetric_three_dimensional_ngff_affine_matches_oracle():
+    """An asymmetric sheared affine makes any axis-order slip visible."""
+    spatial = ("z", "y", "x")
+    fixed = _image(
+        spatial,
+        {"z": 4, "y": 8, "x": 16},
+        {"z": 3.0, "y": 2.0, "x": 1.0},
+        {"z": 30.0, "y": 20.0, "x": 10.0},
+    )
+    moving = _image(
+        spatial,
+        {"z": 64, "y": 128, "x": 256},
+        {"z": 1.5, "y": 0.5, "x": 0.25},
+        {"z": -5.0, "y": 7.0, "x": 3.0},
+    )
+    matrix = np.array([[1.0, 0.2, 0.0], [0.0, 2.0, 0.3], [0.5, 0.0, 1.0]])
+    offset = np.array([4.0, -6.0, 11.0])
+    affine = np.hstack([matrix, offset.reshape(-1, 1)]).tolist()
+
+    bounding_box = resample_bounding_box(
+        Affine(affine=affine), fixed, moving, padding=2
+    )
+
+    expected_start, expected_size = _oracle_region(
+        matrix, offset, fixed, moving, spatial, 2
+    )
+    assert [bounding_box.start_index[d] for d in spatial] == expected_start.tolist()
+    assert [bounding_box.size[d] for d in spatial] == expected_size.tolist()
+
+
+def test_affine_translation_is_the_last_column():
+    """RFC-5 stores the translation as the last column of the affine matrix."""
+    matrix, offset = _ngff_transform_to_itk_matrix(
+        Affine(affine=[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]), ("y", "x")
+    )
+    # In NGFF terms: y = 1*y + 2*x + 3 and x = 4*y + 5*x + 6. ITK reverses the
+    # axes, so both the matrix and the offset come back reversed.
+    assert np.allclose(offset, [6.0, 3.0])
+    assert np.allclose(matrix, [[5.0, 4.0], [2.0, 1.0]])
+
+
+def test_affine_with_wrong_shape_is_rejected():
+    with pytest.raises(ValueError, match="translation is the last column"):
+        _ngff_transform_to_itk_matrix(
+            Affine(affine=[[1.0, 0.0], [0.0, 1.0]]), ("y", "x")
+        )
+
+
+def test_sequence_applies_its_first_entry_first():
+    """RFC-5 composes ``[f0, f1]`` as ``f1(f0(x))``.
+
+    ITK transform lists compose the other way round, so a sequence that is
+    passed through unreversed would silently give ``2x + 10`` here instead of
+    ``2(x + 10)``.
+    """
+    sequence = TransformSequence(
+        transformations=[
+            Translation(translation=[0.0, 10.0]),
+            Scale(scale=[1.0, 2.0]),
+        ]
+    )
+    matrix, offset = _ngff_transform_to_itk_matrix(sequence, ("y", "x"))
+
+    # ITK order is (x, y): translate by 10 then scale by 2 gives an offset of 20.
+    assert np.isclose(offset[0], 20.0)
+    assert np.isclose(matrix[0, 0], 2.0)
+
+    reversed_sequence = TransformSequence(
+        transformations=[
+            Scale(scale=[1.0, 2.0]),
+            Translation(translation=[0.0, 10.0]),
+        ]
+    )
+    _, reversed_offset = _ngff_transform_to_itk_matrix(reversed_sequence, ("y", "x"))
+    assert np.isclose(reversed_offset[0], 10.0)
+
+
+def test_sequence_order_survives_the_whole_pipeline():
+    """The composition order has to hold at the public entry point too.
+
+    Every other sequence test here reads the matrix out of
+    ``_ngff_transform_to_itk_matrix``. If the order inverted, the region the
+    caller actually gets would move, and nothing below that helper would
+    notice. Applying ``[translate 10, scale 2]`` in the wrong order gives
+    ``2x + 10`` instead of ``2(x + 10)``, so the x start moves by 10.
+    """
+    spatial = ("y", "x")
+    fixed = _image(spatial, {"y": 16, "x": 16}, {"y": 2, "x": 2}, {"y": 20, "x": 10})
+    moving = _image(spatial, {"y": 512, "x": 512}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+    sequence = TransformSequence(
+        transformations=[
+            Translation(translation=[0.0, 10.0]),
+            Scale(scale=[1.0, 2.0]),
+        ]
+    )
+
+    bounding_box = resample_bounding_box(sequence, fixed, moving, padding=0)
+
+    # First entry first: y = x, x = 2(x + 10) = 2x + 20.
+    expected_start, expected_size = _oracle_region(
+        np.diag([1.0, 2.0]), np.array([0.0, 20.0]), fixed, moving, spatial, 0
+    )
+    assert [bounding_box.start_index[d] for d in spatial] == expected_start.tolist()
+    assert [bounding_box.size[d] for d in spatial] == expected_size.tolist()
+    assert bounding_box.start_index["x"] == 40  # 30 if the order inverted
+
+
+def test_nested_sequences_compose():
+    inner = TransformSequence(
+        transformations=[Scale(scale=[1.0, 2.0]), Translation(translation=[0.0, 1.0])]
+    )
+    outer = TransformSequence(
+        transformations=[inner, Translation(translation=[0.0, 100.0])]
+    )
+    _, offset = _ngff_transform_to_itk_matrix(outer, ("y", "x"))
+    assert np.isclose(offset[0], 101.0)
+
+
+def test_identity_scale_rotation_round_trip():
+    matrix, offset = _ngff_transform_to_itk_matrix(Identity(), ("y", "x"))
+    assert np.allclose(matrix, np.eye(2))
+    assert np.allclose(offset, np.zeros(2))
+
+    matrix, _ = _ngff_transform_to_itk_matrix(Scale(scale=[2.0, 3.0]), ("y", "x"))
+    # Reversed to ITK order (x, y).
+    assert np.allclose(matrix, np.diag([3.0, 2.0]))
+
+    rotation = [[0.0, -1.0], [1.0, 0.0]]
+    matrix, _ = _ngff_transform_to_itk_matrix(Rotation(rotation=rotation), ("y", "x"))
+    reversal = np.eye(2)[::-1]
+    assert np.allclose(matrix, reversal @ np.array(rotation) @ reversal)
+
+
+def test_non_linear_transform_is_rejected():
+    with pytest.raises(NotImplementedError, match="cannot be converted"):
+        _ngff_transform_to_itk_matrix(Displacements(path="field"), ("y", "x"))
+
+
+def test_transform_coupling_spatial_and_non_spatial_axes_is_rejected():
+    affine = np.eye(3, 4)
+    affine[1, 0] = 0.5  # y would depend on c
+    with pytest.raises(ValueError, match="couples spatial and non-spatial"):
+        _ngff_transform_to_itk_matrix(Affine(affine=affine.tolist()), ("c", "y", "x"))
+
+
+def test_rfc5_branch_ignores_anatomical_orientation():
+    """An RFC-5 transformation acts on the intrinsic coordinate system,
+    where a point is ``translation + scale * index`` and no direction matrix
+    applies, so the region it selects cannot depend on RFC-4 anatomical
+    orientation: the oriented region must equal the unoriented one.
+    """
+    from ngff_zarr.rfc4 import RAS
+
+    spatial = ("z", "y", "x")
+    shape = {"z": 8, "y": 16, "x": 24}
+    scale = dict.fromkeys(spatial, 1.0)
+    translation = dict.fromkeys(spatial, 0.0)
+    transform = Translation(translation=[2.0, 3.0, 4.0])
+
+    plain = resample_bounding_box(
+        transform,
+        _image(spatial, shape, scale, translation),
+        _image(spatial, {"z": 32, "y": 64, "x": 96}, scale, translation),
+        padding=0,
+    )
+    oriented = resample_bounding_box(
+        transform,
+        _image(spatial, shape, scale, translation, RAS),
+        _image(spatial, {"z": 32, "y": 64, "x": 96}, scale, translation, RAS),
+        padding=0,
+    )
+
+    assert oriented.start_index == plain.start_index == {"z": 2, "y": 3, "x": 4}
+    assert oriented.size == plain.size
+
+
+def test_non_canonical_spatial_order_binds_itk_axes_by_name():
+    """ITK's first component is x by *name*, not whichever axis comes last.
+
+    Reversing the dims is only equivalent for the canonical ("z", "y", "x"):
+    with dims ("z", "x", "y") it would bind ITK x to y and ITK y to x,
+    silently swapping the two axes' regions. Both paths must agree, and
+    agree with the axis names.
+    """
+    dims = ("z", "x", "y")
+    fixed = _image(
+        dims,
+        {"z": 4, "x": 8, "y": 16},
+        dict.fromkeys(dims, 1.0),
+        dict.fromkeys(dims, 0.0),
+    )
+    moving = _image(
+        dims,
+        {"z": 32, "x": 64, "y": 64},
+        dict.fromkeys(dims, 1.0),
+        dict.fromkeys(dims, 0.0),
+    )
+    expected = {"z": 1, "x": 7, "y": 5}
+
+    # RFC-5 parameters are in dims order: (z, x, y).
+    via_rfc5 = resample_bounding_box(
+        Translation(translation=[1.0, 7.0, 5.0]), fixed, moving, padding=0
+    )
+    # ITK parameters are fastest-axis-first by name: (x, y, z).
+    via_itk = resample_bounding_box(
+        _translation([7.0, 5.0, 1.0]), fixed, moving, padding=0
+    )
+
+    assert via_rfc5.start_index == expected
+    assert via_itk.start_index == expected
+
+
+def test_a_component_on_a_non_spatial_axis_alone_is_projected_away():
+    """ITK has no non-spatial axis, so a frame interval on ``t`` has nowhere
+    to go.
+
+    Dropping it leaves the spatial mapping exact, which is all an ITK transform
+    describes. This pins that as a decision rather than an accident; the
+    coupled case above is refused instead, because dropping *that* would move
+    the image.
+    """
+    sequence = TransformSequence(
+        transformations=[
+            Scale(scale=[0.5, 1.0, 2.0, 2.0]),
+            Translation(translation=[7.0, 0.0, 3.0, -4.0]),
+        ]
+    )
+
+    matrix, offset = _ngff_transform_to_itk_matrix(sequence, ("t", "c", "y", "x"))
+
+    # ITK order (x, y): the t and c entries are gone, the spatial ones exact.
+    assert np.allclose(matrix, np.diag([2.0, 2.0]))
+    assert np.allclose(offset, [-4.0, 3.0])
+
+
+def test_v04_transform_dataclasses_are_accepted():
+    """``ngff_zarr.Scale`` and friends are the v0.4 spellings, not the v0.6 ones."""
+    import ngff_zarr as nz
+
+    assert not isinstance(nz.Translation(translation=[0.0, 0.0]), Translation)
+
+    fixed = _image("yx", {"y": 16, "x": 16}, {"y": 2, "x": 2}, {"y": 20, "x": 10})
+    moving = _image("yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+
+    bounding_box = resample_bounding_box(
+        nz.Translation(translation=[5.0, 10.0]), fixed, moving, padding=1
+    )
+
+    assert bounding_box.start_index == {"y": 24, "x": 19}
+
+
 def test_mismatched_spatial_dims_are_rejected():
     fixed = _image(
         "zyx",
@@ -130,7 +437,7 @@ def test_mismatched_spatial_dims_are_rejected():
     )
     moving = _image("yx", {"y": 4, "x": 4}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
     with pytest.raises(ValueError, match="they must match"):
-        itk_transform_resample_bounding_box(_identity(2), fixed, moving)
+        resample_bounding_box(_identity(2), fixed, moving)
 
 
 def test_pixel_buffers_are_never_computed():
@@ -154,9 +461,7 @@ def test_pixel_buffers_are_never_computed():
     # dask probes the block function once while building the graph above, so
     # only what happens from here on counts.
     computed.clear()
-    bounding_box = itk_transform_resample_bounding_box(
-        _identity(2), fixed, fixed, padding=1
-    )
+    bounding_box = resample_bounding_box(_identity(2), fixed, fixed, padding=1)
 
     assert not computed
     assert bounding_box.start_index == {"y": -1, "x": -1}
@@ -170,7 +475,7 @@ def test_non_spatial_axes_are_passed_through():
     fixed = _image("tczyx", shape, unit, zero)
     moving = _image("tczyx", {"t": 3, "c": 2, "z": 16, "y": 32, "x": 32}, unit, zero)
 
-    bounding_box = itk_transform_resample_bounding_box(
+    bounding_box = resample_bounding_box(
         _translation([3.0, 2.0, 1.0]), fixed, moving, padding=0
     )
 
@@ -186,7 +491,7 @@ def test_region_outside_the_moving_image_is_empty():
     fixed = _image("yx", {"y": 4, "x": 4}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
     moving = _image("yx", {"y": 32, "x": 32}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
 
-    bounding_box = itk_transform_resample_bounding_box(
+    bounding_box = resample_bounding_box(
         _translation([1000.0, 1000.0]), fixed, moving, padding=1
     )
 
@@ -199,9 +504,7 @@ def test_negative_start_index_is_clamped_not_wrapped():
     fixed = _image("yx", {"y": 4, "x": 4}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
     moving = _image("yx", {"y": 32, "x": 32}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
 
-    bounding_box = itk_transform_resample_bounding_box(
-        _identity(2), fixed, moving, padding=2
-    )
+    bounding_box = resample_bounding_box(_identity(2), fixed, moving, padding=2)
 
     assert bounding_box.start_index == {"y": -2, "x": -2}
     assert bounding_box.clamped() == {"y": (0, 6), "x": (0, 6)}
@@ -213,7 +516,7 @@ def test_crop_is_lazy_and_shifts_the_translation():
     fixed = _image("yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 512, "x": 1024})
     moving = _image("yx", {"y": 4096, "x": 4096}, {"y": 2, "x": 2}, {"y": 0, "x": 0})
 
-    bounding_box = itk_transform_resample_bounding_box(
+    bounding_box = resample_bounding_box(
         _translation([0.0, 0.0]), fixed, moving, padding=1
     )
     cropped = bounding_box.crop(moving)
@@ -228,6 +531,27 @@ def test_crop_is_lazy_and_shifts_the_translation():
         assert np.isclose(cropped.translation[dim], expected)
     # Reads a small corner rather than the whole moving image.
     assert np.prod(cropped.data.shape) < 0.01 * np.prod(moving.data.shape)
+
+
+def test_crop_binds_itk_axes_by_name_in_a_non_canonical_order():
+    """A sub-grid's origin moves along the *oriented* axes.
+
+    ``translation`` is keyed by name while the direction matrix is in ITK
+    component order, so the shift has to be read back by name too. Reversing
+    ``dims`` gives that order for ``zyx`` and ``yx``, and for nothing else.
+    """
+    moving = _image(
+        "xyz",
+        {"x": 32, "y": 32, "z": 32},
+        {"x": 0.5, "y": 1.0, "z": 2.0},
+        {"x": 3.0, "y": 2.0, "z": 1.0},
+        RAS,
+    )
+
+    shifted = _shifted_translation(moving, {"x": 4, "y": 6, "z": 8})
+
+    # RAS is diag(-1, -1, 1) in ITK order, so x and y count backwards.
+    assert shifted == pytest.approx({"x": 1.0, "y": -4.0, "z": 17.0})
 
 
 def test_crop_preserves_orientation_and_scale():
@@ -245,7 +569,7 @@ def test_crop_preserves_orientation_and_scale():
         {"z": 1.0, "y": 2.0, "x": 3.0},
         RAS,
     )
-    bounding_box = itk_transform_resample_bounding_box(_identity(3), fixed, moving)
+    bounding_box = resample_bounding_box(_identity(3), fixed, moving)
     cropped = bounding_box.crop(moving)
 
     assert cropped.scale == moving.scale
@@ -297,9 +621,7 @@ def test_itk_translation_transform_is_accepted():
     transform = itk.TranslationTransform[itk.D, 2].New()
     transform.SetOffset([10.0, 5.0])  # ITK order (x, y)
 
-    bounding_box = itk_transform_resample_bounding_box(
-        transform, fixed, moving, padding=1
-    )
+    bounding_box = resample_bounding_box(transform, fixed, moving, padding=1)
 
     assert bounding_box.start_index == {"y": 24, "x": 19}
     assert bounding_box.size == {"y": 33, "x": 33}
@@ -322,9 +644,7 @@ def test_itk_composite_transform_is_accepted():
     fixed = _image("yx", {"y": 16, "x": 16}, {"y": 2, "x": 2}, {"y": 20, "x": 10})
     moving = _image("yx", {"y": 512, "x": 512}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
 
-    bounding_box = itk_transform_resample_bounding_box(
-        composite, fixed, moving, padding=0
-    )
+    bounding_box = resample_bounding_box(composite, fixed, moving, padding=0)
 
     # Cross-checked against the composite's own point mapping.
     low = composite.TransformPoint([10.0, 20.0])
@@ -347,20 +667,20 @@ def test_index_range_overflow_is_reported_not_silently_empty():
     moving = _image("yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
 
     with pytest.raises(ValueError, match="does not contain the transformed grid"):
-        itk_transform_resample_bounding_box(_identity(2), fixed, moving, padding=1)
+        resample_bounding_box(_identity(2), fixed, moving, padding=1)
 
 
 @pytest.mark.parametrize("bad", [-1, 1.5, float("nan"), float("inf")])
 def test_padding_that_is_not_a_non_negative_integer_is_rejected(bad):
     fixed = _image("yx", {"y": 4, "x": 4}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
     with pytest.raises(ValueError, match="padding must be a non-negative integer"):
-        itk_transform_resample_bounding_box(_identity(2), fixed, fixed, padding=bad)
+        resample_bounding_box(_identity(2), fixed, fixed, padding=bad)
 
 
 def test_unsupported_spatial_dimensionality_is_rejected():
     fixed = _image("x", {"x": 8}, {"x": 1}, {"x": 0})
     with pytest.raises(ValueError, match="only 2 and 3 are supported"):
-        itk_transform_resample_bounding_box(_identity(2), fixed, fixed)
+        resample_bounding_box(_identity(2), fixed, fixed)
 
 
 @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
@@ -368,27 +688,27 @@ def test_non_finite_geometry_is_rejected(bad):
     fixed = _image("yx", {"y": 4, "x": 4}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
     fixed.scale["x"] = bad
     with pytest.raises(ValueError, match="must be finite"):
-        itk_transform_resample_bounding_box(_identity(2), fixed, fixed)
+        resample_bounding_box(_identity(2), fixed, fixed)
 
 
 def test_missing_scale_entry_is_rejected():
     fixed = _image("yx", {"y": 4, "x": 4}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
     del fixed.scale["x"]
     with pytest.raises(ValueError, match="no entry for dimension 'x'"):
-        itk_transform_resample_bounding_box(_identity(2), fixed, fixed)
+        resample_bounding_box(_identity(2), fixed, fixed)
 
 
 def test_zero_scale_is_rejected():
     fixed = _image("yx", {"y": 4, "x": 4}, {"y": 1, "x": 0}, {"y": 0, "x": 0})
     with pytest.raises(ValueError, match="scale for dimension 'x' is zero"):
-        itk_transform_resample_bounding_box(_identity(2), fixed, fixed)
+        resample_bounding_box(_identity(2), fixed, fixed)
 
 
 def test_degenerate_fixed_grid_yields_an_empty_region():
     fixed = _image("yx", {"y": 0, "x": 4}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
     moving = _image("yx", {"y": 32, "x": 32}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
 
-    bounding_box = itk_transform_resample_bounding_box(_identity(2), fixed, moving)
+    bounding_box = resample_bounding_box(_identity(2), fixed, moving)
 
     assert bounding_box.is_empty
     assert bounding_box.crop(moving) is None
@@ -430,9 +750,7 @@ def test_non_linear_displacement_field_is_supported():
     fixed = _image("yx", {"y": 32, "x": 32}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
     moving = _image("yx", {"y": 256, "x": 256}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
 
-    bounding_box = itk_transform_resample_bounding_box(
-        transform, fixed, moving, padding=1
-    )
+    bounding_box = resample_bounding_box(transform, fixed, moving, padding=1)
 
     # A constant field shifts ITK (x, y) by (5, 3), so NGFF (y, x) by (3, 5).
     # The fixed grid spans 0..31 on both axes.
@@ -440,6 +758,31 @@ def test_non_linear_displacement_field_is_supported():
     assert bounding_box.corners_max == {"y": 34.0, "x": 36.0}
     assert bounding_box.start_index == {"y": 2, "x": 4}
     assert bounding_box.size == {"y": 34, "x": 34}
+
+
+def test_rfc5_displacements_matches_the_itk_field_it_came_from():
+    """The RFC-5 branch has to reach the same region for a field as for an
+    affine, which means the field it points at has to reach the pipeline."""
+    itk = pytest.importorskip("itk")
+
+    fixed = _image("yx", {"y": 8, "x": 8}, {"y": 8.0, "x": 8.0}, {"y": 0.0, "x": 0.0})
+    moving = _image(
+        "yx", {"y": 64, "x": 64}, {"y": 1.0, "x": 1.0}, {"y": 0.0, "x": 0.0}
+    )
+    warp = _constant_displacement_field(itk, [5.0, -3.0], size=8, spacing=8.0)
+
+    via_itk = resample_bounding_box(warp, fixed, moving)
+    transform, field = itk_displacement_field_to_ngff_transform(
+        warp, ("y", "x"), path="warp"
+    )
+    via_rfc5 = resample_bounding_box(transform, fixed, moving, fields={"warp": field})
+
+    assert via_rfc5.start_index == via_itk.start_index
+    assert via_rfc5.size == via_itk.size
+
+    # Without the field there is nothing to convert, and the message says so.
+    with pytest.raises(ValueError, match="no field was passed"):
+        resample_bounding_box(transform, fixed, moving)
 
 
 def test_float_displacement_field_matches_double():
@@ -454,13 +797,11 @@ def test_float_displacement_field_matches_double():
     fixed = _image("yx", {"y": 32, "x": 32}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
     moving = _image("yx", {"y": 256, "x": 256}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
 
-    reference = itk_transform_resample_bounding_box(
+    reference = resample_bounding_box(
         _constant_displacement_field(itk, (5.0, 3.0)), fixed, moving, padding=1
     )
     float_transform = _constant_displacement_field(itk, (5.0, 3.0), ctype=itk.F)
-    bounding_box = itk_transform_resample_bounding_box(
-        float_transform, fixed, moving, padding=1
-    )
+    bounding_box = resample_bounding_box(float_transform, fixed, moving, padding=1)
 
     assert bounding_box.start_index == reference.start_index == {"y": 2, "x": 4}
     assert bounding_box.size == reference.size == {"y": 34, "x": 34}
@@ -489,7 +830,7 @@ def test_bspline_transform_is_supported():
     fixed = _image("yx", {"y": 32, "x": 32}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
     moving = _image("yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
 
-    bounding_box = itk_transform_resample_bounding_box(
+    bounding_box = resample_bounding_box(
         _identity_bspline(itk), fixed, moving, padding=1
     )
 
@@ -511,9 +852,7 @@ def test_composite_with_bspline_stage_is_supported():
     fixed = _image("yx", {"y": 32, "x": 32}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
     moving = _image("yx", {"y": 256, "x": 256}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
 
-    bounding_box = itk_transform_resample_bounding_box(
-        composite, fixed, moving, padding=1
-    )
+    bounding_box = resample_bounding_box(composite, fixed, moving, padding=1)
 
     # The identity B-spline stage leaves the affine translation of ITK
     # (x, y) = (5, 3), so NGFF (y, x) = (3, 5), matching the displacement
@@ -525,7 +864,7 @@ def test_composite_with_bspline_stage_is_supported():
 def test_unsupported_transform_type_is_rejected():
     fixed = _image("yx", {"y": 4, "x": 4}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
     with pytest.raises(TypeError, match="unsupported transform type"):
-        itk_transform_resample_bounding_box("not a transform", fixed, fixed)
+        resample_bounding_box("not a transform", fixed, fixed)
 
 
 def test_asymmetric_three_dimensional_affine_matches_oracle():
@@ -549,7 +888,7 @@ def test_asymmetric_three_dimensional_affine_matches_oracle():
     offset = np.array([4.0, -6.0, 11.0])
     reversal = np.eye(3)[::-1]
 
-    bounding_box = itk_transform_resample_bounding_box(
+    bounding_box = resample_bounding_box(
         _affine(reversal @ matrix @ reversal, reversal @ offset),
         fixed,
         moving,
@@ -595,4 +934,128 @@ def test_unusable_pipeline_index_arrays_are_rejected(
 
     fixed = _image("yx", {"y": 4, "x": 4}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
     with pytest.raises(ValueError, match=match):
-        itk_transform_resample_bounding_box(_identity(2), fixed, fixed)
+        resample_bounding_box(_identity(2), fixed, fixed)
+
+
+def test_map_axis_region_matches_the_oracle():
+    """A permutation reaches the region the matrix it stands for reaches."""
+    spatial = ("z", "y", "x")
+    fixed = _image(
+        spatial,
+        {"z": 12, "y": 20, "x": 16},
+        {"z": 2.0, "y": 1.0, "x": 0.5},
+        {"z": 3.0, "y": -4.0, "x": 6.0},
+    )
+    moving = _image(
+        spatial,
+        {"z": 64, "y": 64, "x": 64},
+        {"z": 1.0, "y": 1.0, "x": 1.0},
+        {"z": 0.0, "y": 0.0, "x": 0.0},
+    )
+    # Output axis i takes input axis mapAxis[i], so row i selects that column.
+    matrix = np.array([[0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]])
+
+    bounding_box = resample_bounding_box(
+        MapAxis(mapAxis=[1, 2, 0]), fixed, moving, padding=1
+    )
+
+    expected_start, expected_size = _oracle_region(
+        matrix, np.zeros(3), fixed, moving, spatial, 1
+    )
+    assert [bounding_box.start_index[d] for d in spatial] == expected_start.tolist()
+    assert [bounding_box.size[d] for d in spatial] == expected_size.tolist()
+
+
+def test_by_dimension_region_matches_the_oracle():
+    spatial = ("z", "y", "x")
+    fixed = _image(
+        spatial,
+        {"z": 10, "y": 24, "x": 24},
+        {"z": 1.0, "y": 0.5, "x": 0.5},
+        {"z": -2.0, "y": 1.0, "x": 4.0},
+    )
+    moving = _image(
+        spatial,
+        {"z": 64, "y": 128, "x": 128},
+        {"z": 1.0, "y": 0.25, "x": 0.25},
+        {"z": 0.0, "y": 0.0, "x": 0.0},
+    )
+    transform = ByDimension(
+        transformations=[
+            ByDimensionItem(
+                transformation=Translation(translation=[5.0]),
+                inputAxes=[0],
+                outputAxes=[0],
+            ),
+            ByDimensionItem(
+                transformation=Affine(affine=[[0.8, -0.6, 2.0], [0.6, 0.8, -3.0]]),
+                inputAxes=[1, 2],
+                outputAxes=[1, 2],
+            ),
+        ]
+    )
+    matrix = np.array([[1.0, 0.0, 0.0], [0.0, 0.8, -0.6], [0.0, 0.6, 0.8]])
+    offset = np.array([5.0, 2.0, -3.0])
+
+    bounding_box = resample_bounding_box(transform, fixed, moving, padding=2)
+
+    expected_start, expected_size = _oracle_region(
+        matrix, offset, fixed, moving, spatial, 2
+    )
+    assert [bounding_box.start_index[d] for d in spatial] == expected_start.tolist()
+    assert [bounding_box.size[d] for d in spatial] == expected_size.tolist()
+
+
+def test_bijection_region_follows_its_forward_direction():
+    spatial = ("y", "x")
+    fixed = _image(spatial, {"y": 16, "x": 16}, {"y": 1.0, "x": 1.0}, {"y": 0, "x": 0})
+    moving = _image(
+        spatial, {"y": 128, "x": 128}, {"y": 1.0, "x": 1.0}, {"y": 0, "x": 0}
+    )
+    forward = Scale(scale=[2.0, 4.0])
+    transform = Bijection(forward=forward, inverse=Scale(scale=[0.5, 0.25]))
+
+    bounding_box = resample_bounding_box(transform, fixed, moving, padding=1)
+    directly = resample_bounding_box(forward, fixed, moving, padding=1)
+
+    assert bounding_box.start_index == directly.start_index
+    assert bounding_box.size == directly.size
+
+
+def test_rfc5_coordinates_matches_the_displacements_it_equals():
+    """A coordinates field names the same points a displacements field does."""
+    itk = pytest.importorskip("itk")
+
+    fixed = _image("yx", {"y": 8, "x": 8}, {"y": 8.0, "x": 8.0}, {"y": 0.0, "x": 0.0})
+    moving = _image(
+        "yx", {"y": 64, "x": 64}, {"y": 1.0, "x": 1.0}, {"y": 0.0, "x": 0.0}
+    )
+    warp = _constant_displacement_field(itk, [5.0, -3.0], size=8, spacing=8.0)
+    displacements, field = itk_displacement_field_to_ngff_transform(
+        warp, ("y", "x"), path="warp"
+    )
+
+    grid = np.meshgrid(
+        *[
+            field.translation[dim] + field.scale[dim] * np.arange(extent)
+            for dim, extent in zip(("y", "x"), field.data.shape[1:])
+        ],
+        indexing="ij",
+    )
+    absolute = NgffImage(
+        data=da.from_array(np.asarray(field.data) + np.stack(grid)),
+        dims=field.dims,
+        scale=dict(field.scale),
+        translation=dict(field.translation),
+        axes_types={"c": "coordinate"},
+    )
+
+    via_displacements = resample_bounding_box(
+        displacements, fixed, moving, fields={"warp": field}
+    )
+    via_coordinates = resample_bounding_box(
+        Coordinates(path="warp"), fixed, moving, fields={"warp": absolute}
+    )
+
+    assert via_coordinates.start_index == via_displacements.start_index
+    assert via_coordinates.size == via_displacements.size
