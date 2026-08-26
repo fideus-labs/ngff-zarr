@@ -36,15 +36,34 @@ export interface DimFactors {
 }
 
 /**
- * Calculate the incremental factor needed to reach the target size from the previous size.
- * This ensures exact target sizes when downsampling incrementally.
+ * Calculate the incremental factor needed to reach the target size from the
+ * previous size, so downsampling incrementally lands on exact target sizes.
+ *
+ * `nominal` is the requested factor relative to the previous level, floored
+ * when the ladder step is not an integer: a `[2, 5]` ladder steps by 2.5 and
+ * floors to 2. It is kept whenever `floor(previousSize / nominal)` is the
+ * target, so a level asked for at 4x is shrunk 4x. Flooring the step can only
+ * leave the level larger than the target, and the guard keeps it only when it
+ * lands on the target exactly, so a floored step never shrinks past the
+ * requested size. The search below runs only when the nominal factor misses
+ * the target, which happens on ladders such as `[2, 3]`.
+ *
+ * Mirrors the Python port's `_incremental_factor`.
  */
 export function calculateIncrementalFactor(
   previousSize: number,
   targetSize: number,
+  nominal?: number,
 ): number {
   if (targetSize <= 0) {
     return 1;
+  }
+
+  if (
+    nominal !== undefined && nominal >= 1 &&
+    Math.floor(previousSize / nominal) === targetSize
+  ) {
+    return nominal;
   }
 
   // Start with the theoretical factor
@@ -97,9 +116,13 @@ export function dimScaleFactors(
           const prevDimIndex = previousImage.dims.indexOf(dim);
           const previousSize = previousImage.data.shape[prevDimIndex];
 
+          const nominal = Math.floor(
+            scaleFactor / (previousDimFactors[dim] || 1),
+          );
           dimFactors[dim] = calculateIncrementalFactor(
             previousSize,
             targetSize,
+            nominal,
           );
         } else {
           dimFactors[dim] = 1;
@@ -129,7 +152,14 @@ export function dimScaleFactors(
         const prevDimIndex = previousImage.dims.indexOf(dim);
         const previousSize = previousImage.data.shape[prevDimIndex];
 
-        dimFactors[dim] = calculateIncrementalFactor(previousSize, targetSize);
+        const nominal = Math.floor(
+          scaleFactor[dim] / (previousDimFactors[dim] || 1),
+        );
+        dimFactors[dim] = calculateIncrementalFactor(
+          previousSize,
+          targetSize,
+          nominal,
+        );
       }
     } else {
       // Fallback to old behavior when images not provided
