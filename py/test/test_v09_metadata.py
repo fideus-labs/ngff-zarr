@@ -121,6 +121,26 @@ def test_read_flat_axes_shape(tmp_path):
 
 
 @zarr_v3
+def test_the_flat_axes_shape_fails_the_schema_pass(tmp_path):
+    """The flat shape is a read tolerance, not a second valid 0.9.dev1 shape.
+
+    The entry the test above reads breaks the 0.9.dev1 schema twice over: it
+    declares no ``coordinateSystems``, which ``image.schema`` requires, and its
+    dataset transforms name no ``input`` or ``output``. Which of the two the
+    error reports is jsonschema's choice, so this pins the refusal rather than
+    a message. Reading the shape at all is a concession to stores that carry a
+    0.9 version string over a 0.5-shaped entry.
+    """
+    from jsonschema.exceptions import ValidationError
+
+    axes = [{"name": n, "type": "space"} for n in "zyx"]
+    root = _write_v09(tmp_path / "flat-validate.ome.zarr", axes, (2, 3, 4), flat=True)
+
+    with pytest.raises(ValidationError):
+        from_ome_zarr(root, validate=True)
+
+
+@zarr_v3
 @pytest.mark.parametrize("flat", [False, True], ids=["coordinate-systems", "flat-axes"])
 def test_read_axis_without_type(tmp_path, flat):
     """An axis declaring only ``name`` reads back with ``type`` ``None``."""
