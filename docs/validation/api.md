@@ -46,8 +46,9 @@ image/multiscales rules. When `options` is `None` it uses `ValidateOptions()`,
 i.e. `ValidationLevel.STRICT`. `version` is the OME-Zarr version the metadata
 declares; the axis count, type and order rules are inert for the versions that
 adopt the RFC-3 axis model (see [[parity]]), so omitting it holds every store to
-the v0.4 axis caps. `axis-names-unique` is never inert: RFC-3 states it and no
-released schema carries it. A `ValidationError` carries `.rule` (a `SpecRule`),
+the v0.4 axis caps. Pass it whenever the metadata is v0.6 or RFC-3, or those
+stores are measured against caps their version lifts. `axis-names-unique` is
+never inert: RFC-3 states it and no released schema carries it. A `ValidationError` carries `.rule` (a `SpecRule`),
 `.message` (str), and `.location` (`str | None`); `str(exc)` is
 `Spec rule [<rule>] violated: <message>`.
 
@@ -77,6 +78,7 @@ try:
     validate_structural(
         multiscales.metadata,
         ValidateOptions(level=ValidationLevel.STRICT),  # the default
+        version=multiscales.metadata.version,  # pass it: see above
     )
 except ValidationError as exc:
     print(exc)  # "Spec rule [<rule>] violated: <message>"

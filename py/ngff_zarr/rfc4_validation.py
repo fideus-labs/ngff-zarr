@@ -186,20 +186,12 @@ def validate_rfc4_orientation(axes: list[dict[str, Any]]) -> None:
     if not has_orientation:
         return
 
-    # The bundled artifact reports nothing. Its root is ``{"type": "object",
-    # "additionalProperties": true}`` with every definition parked in ``$defs``
-    # and no ``$ref`` reaching them, so any JSON object satisfies it: an axis
-    # list of strings, an ``axes`` value that is not a list at all, and an
-    # orientation whose ``type`` and ``value`` are nonsense all pass. Upstream
-    # ome/ngff#585 and #586 describe the same two defects, the missing entry
-    # point and the unconstrained ``AnatomicalOrientation``.
-    #
-    # Every RFC 4 rule that fires is therefore the hand-written Python above,
-    # and none of it is redundant with this call. That is what
-    # ``test_the_bundled_rfc4_schema_checks_nothing`` pins, so the checks above
-    # cannot be deleted in favour of a schema pass that does not run. The call
-    # stays because it starts reporting the moment upstream gives the artifact
-    # a root entry point.
+    # The bundled artifact reports nothing: its root is an open object with
+    # every definition parked in ``$defs`` and no ``$ref`` reaching them, so any
+    # JSON object satisfies it (upstream ome/ngff#585 and #586). The RFC 4 rules
+    # that fire are the hand-written Python above, which
+    # ``test_the_bundled_rfc4_schema_checks_nothing`` pins. The call stays: it
+    # starts reporting the moment upstream gives the artifact an entry point.
     schema = load_rfc4_orientation_schema()
     registry = Registry().with_resource(
         "https://w3id.org/ome/ngff", resource=Resource.from_contents(schema)
