@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ngff.openmicroscopy.org/0.9.dev1/schemas/axis_orientation.schema",
+  "title": "Axis Orientation",
+  "description": "Controlled vocabulary for orientation of each spatial axis according to subject or subject-global reference.",
+  "type": "object",
+      "properties": {
+        "type": {
+          "enum": ["anatomical"]
+        },
+        "value": {
+          "enum": [
+            "left-to-right",
+            "right-to-left",
+            "anterior-to-posterior",
+            "posterior-to-anterior",
+            "inferior-to-superior",
+            "superior-to-inferior",
+            "dorsal-to-ventral",
+            "ventral-to-dorsal",
+            "dorsal-to-palmar",
+            "palmar-to-dorsal",
+            "dorsal-to-plantar",
+            "plantar-to-dorsal",
+            "rostral-to-caudal",
+            "caudal-to-rostral",
+            "cranial-to-caudal",
+            "caudal-to-cranial",
+            "proximal-to-distal",
+            "distal-to-proximal",
+            "superficial-to-deep",
+            "deep-to-superficial",
+            "apical-to-basal",
+            "basal-to-apical",
+            "apex-to-base",
+            "base-to-apex"
+          ]
+        }
+      },
+      "required": ["type", "value"]
+}

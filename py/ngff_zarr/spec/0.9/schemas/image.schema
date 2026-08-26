@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ngff.openmicroscopy.org/0.9.dev1/schemas/image.schema",
+  "title": "Image",
+  "description": "OME-Zarr image.",
+  "type": "object",
+  "properties": {
+    "ome": {
+      "description": "The versioned OME-Zarr Metadata namespace",
+      "type": "object",
+      "properties": {
+        "omero": {
+          "$ref": "#/$defs/omero"
+        },
+        "multiscales": {
+          "$ref": "#/$defs/multiscales"
+        },
+        "version": {
+          "$ref": "https://ngff.openmicroscopy.org/0.9.dev1/schemas/_version.schema"
+        }
+      },
+      "required": [
+        "multiscales",
+        "version"
+      ]
+    }
+  },
+  "required": [
+    "ome"
+  ],
+  "$defs": {
+    "multiscales": {
+      "description": "The multiscale datasets for this image",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "datasets": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "coordinateTransformations": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "oneOf": [
+                      {
+                        "description": "A single scale transformation",
+                        "allOf": [
+                          {
+                            "$ref": "https://ngff.openmicroscopy.org/0.9.dev1/schemas/coordinate_transformations.schema#/$defs/scale"
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "input": {
+                                "allOf": [
+                                  {"$ref": "https://ngff.openmicroscopy.org/0.9.dev1/schemas/coordinate_transformations.schema#/$defs/inputOutput"},
+                                  {
+                                    "required": ["path"]
+                                  }
+                                ]
+                              },
+                              "output": {
+                                "allOf": [
+                                  {"$ref": "https://ngff.openmicroscopy.org/0.9.dev1/schemas/coordinate_transformations.schema#/$defs/inputOutput"},
+                                  {
+                                    "required": ["name"]
+                                  }
+                                ]
+                              },
+                              "name": {"type": "string"}
+                            },
+                            "required": ["input", "output"]
+                          }
+                        ]
+                      },
+                      {
+                        "description": "A single identity transformation",
+                        "allOf": [
+                          {"$ref": "https://ngff.openmicroscopy.org/0.9.dev1/schemas/coordinate_transformations.schema#/$defs/identity"},
+                          {
+                            "type": "object",
+                            "properties": {
+                              "input": {
+                                "allOf": [
+                                  {"$ref": "https://ngff.openmicroscopy.org/0.9.dev1/schemas/coordinate_transformations.schema#/$defs/inputOutput"},
+                                  {
+                                    "required": ["path"]
+                                  }
+                                ]
+                              },
+                              "output": {
+                                "allOf": [
+                                  {"$ref": "https://ngff.openmicroscopy.org/0.9.dev1/schemas/coordinate_transformations.schema#/$defs/inputOutput"},
+                                  {
+                                    "required": ["name"]
+                                  }
+                                ]
+                              },
+                              "name": {"type": "string"}
+                            },
+                            "required": ["input", "output"]
+                          }
+                        ]
+                      },
+                      {
+                        "description": "A sequence of a ingle scale followed by a single translation",
+                        "type": "object",
+                        "properties": {
+                          "type": {"const": "sequence"},
+                          "transformations": {
+                            "type": "array",
+                            "items": {
+                              "oneOf": [
+                                {"$ref": "https://ngff.openmicroscopy.org/0.9.dev1/schemas/coordinate_transformations.schema#/$defs/scale"},
+                                {"$ref": "https://ngff.openmicroscopy.org/0.9.dev1/schemas/coordinate_transformations.schema#/$defs/translation"}
+                              ]
+                            },
+                            "minItems": 2,
+                            "maxItems": 2
+                          },
+                          "input": {
+                            "allOf": [
+                              {"$ref": "https://ngff.openmicroscopy.org/0.9.dev1/schemas/coordinate_transformations.schema#/$defs/inputOutput"},
+                              {
+                                "required": ["path"]
+                              }
+                            ]
+                          },
+                          "output": {
+                            "allOf": [
+                              {"$ref": "https://ngff.openmicroscopy.org/0.9.dev1/schemas/coordinate_transformations.schema#/$defs/inputOutput"},
+                              {
+                                "required": ["name"]
+                              }
+                            ]
+                          },
+                          "name": {"type": "string"}
+                        },
+                        "required": ["type", "transformations", "input", "output"]
+                      }
+                    ]
+                  },
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "description": "Multiscale transformations (identity/scale/sequence of scale and translation) from this dataset to the coordinate system specified by 'output'."
+                }
+              },
+              "required": [
+                "path",
+                "coordinateTransformations"
+              ]
+            }
+          },
+          "coordinateSystems": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "https://ngff.openmicroscopy.org/0.9.dev1/schemas/coordinate_systems.schema#/$defs/coordinateSystem"
+            }
+          },
+          "coordinateTransformations": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "https://ngff.openmicroscopy.org/0.9.dev1/schemas/coordinate_transformations.schema#/$defs/coordinateTransformation",
+                  "description": "Parameters of any possible transform"
+                },
+                {
+                  "type": "object",
+                  "description": "Transformations between two named coordinate systems same metadata document or in a child labels group",
+                  "properties": {
+                    "input": {
+                      "type": "object",
+                      "properties": {
+                        "name": {"type": "string"}
+                      },
+                      "required": ["name"],
+                      "description": "Reference to named coordinate system in the same metadata document (path empty) or in a child labels group (path to the labels group)"
+                    },
+                    "output": {
+                      "type": "object",
+                      "properties": {
+                        "name": {"type": "string"}
+                      },
+                      "required": ["name"],
+                      "description": "Reference to named coordinate system in the same metadata document (path empty) or in a child labels group (path to the labels group)"
+                    }
+                  },
+                  "required": ["input", "output"]
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "datasets",
+          "coordinateSystems"
+        ]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "omero": {
+      "type": "object",
+      "properties": {
+        "channels": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "window": {
+                "type": "object",
+                "properties": {
+                  "end": {
+                    "type": "number"
+                  },
+                  "max": {
+                    "type": "number"
+                  },
+                  "min": {
+                    "type": "number"
+                  },
+                  "start": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "start",
+                  "end"
+                ]
+              },
+              "label": {
+                "type": "string"
+              },
+              "color": {
+                "type": "string"
+              },
+              "active": {
+                "type": "boolean"
+              },
+              "inverted": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "channels"
+      ]
+    }
+  }
+}

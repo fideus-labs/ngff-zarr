@@ -197,9 +197,8 @@ ngff-zarr upgrade src.zarr -o dst.zarr --to 0.5
 
 The target version is selected with `--to` (alias `--version`), one of `0.4`,
 `0.5`, `0.6`, or `0.9.dev1` (default `0.6`). `0.9.dev1` is the development
-version that adopts RFC-3; OME publishes no JSON Schema for it yet, so
-`--validate` cannot check a store at that version. Add `--validate` to validate
-the source metadata against the NGFF schema while reading. For the write-to-new-store mode,
+version that adopts RFC-3. Add `--validate` to validate the source metadata
+against the NGFF schema while reading. For the write-to-new-store mode,
 `--overwrite` (the default) replaces any pre-existing data at the output store,
 while `--no-overwrite` refuses to; both flags are ignored for an in-place
 upgrade, which never overwrites array data.
