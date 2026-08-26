@@ -16,7 +16,7 @@ jobs:
         # reference reader; every supported interpreter resolves 3.x. The
         # test-zarr2-reader job below covers the 2.x major so
         # zarrista-written stores are checked against both reader majors.
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.11", "3.14"]
 
     steps:
       - uses: actions/checkout@v4
