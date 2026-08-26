@@ -11,6 +11,7 @@ from ._remote_reader import (
 )
 from ._store_types import StoreLike
 from ._zarrista_utils import (
+    OME_ROOT_KEYS,
     _is_bytes_mapping,
     _is_local_path,
     open_local_node,
@@ -436,7 +437,12 @@ def from_ome_zarr(
     metadata_obj.type = method_type
     metadata_obj.metadata = method_metadata
 
-    return NgffMultiscales(images, metadata_obj, method=method)
+    root_attributes = {
+        key: value for key, value in root_attrs.items() if key not in OME_ROOT_KEYS
+    }
+    return NgffMultiscales(
+        images, metadata_obj, method=method, root_attributes=root_attributes or None
+    )
 
 
 #: Backwards-compatible alias for :func:`from_ome_zarr`.

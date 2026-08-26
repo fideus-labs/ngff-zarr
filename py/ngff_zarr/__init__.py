@@ -9,6 +9,7 @@ from ._supported_versions import (
     V06_ONDISK_VERSION,
     NgffVersion,
 )
+from ._zarrista_utils import open_array
 from .cli_input_to_ngff_image import cli_input_to_ngff_image
 from .codecs import codec_from_name, get_available_codecs
 from .compute_omero import (
@@ -90,7 +91,12 @@ from .tiff_to_ngff_image import (
 )
 from .to_multiscales import to_multiscales
 from .to_ngff_image import to_ngff_image
-from .to_ngff_zarr import ScaleStrategy, to_ngff_zarr, to_ome_zarr
+from .to_ngff_zarr import (
+    ScaleStrategy,
+    to_ngff_zarr,
+    to_ome_zarr,
+    update_root_attributes,
+)
 from .upgrade_ome_zarr import upgrade_ome_zarr
 from .v04.zarr_metadata import (
     AxesType,
@@ -154,9 +160,11 @@ __all__ = [
     "to_multiscales",
     "Methods",
     "to_ome_zarr",
+    "update_root_attributes",
     "to_ngff_zarr",
     "ScaleStrategy",
     "from_ome_zarr",
+    "open_array",
     "from_ngff_zarr",
     "upgrade_ome_zarr",
     "detect_cli_io_backend",

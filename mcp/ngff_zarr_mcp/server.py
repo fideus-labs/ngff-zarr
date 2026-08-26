@@ -242,6 +242,7 @@ def get_downsampling_methods() -> str:
         "dask_image_gaussian": "Gaussian smoothing with dask-image (scipy-based)",
         "dask_image_mode": "Mode-based downsampling for labels (slower, fewer artifacts)",
         "dask_image_nearest": "Nearest neighbor for labels (artifacts, fast)",
+        "dask_bin_shrink": "Local mean with dask.array.coarsen (no native or wasm dependency)",
     }
 
     for method in methods:

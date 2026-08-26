@@ -133,3 +133,16 @@ pip install "ngff-zarr[dask-image]"
 [scale space]: https://en.wikipedia.org/wiki/Scale_space
 [scipy]: https://scipy.org/
 [WebAssembly]: https://webassembly.org/
+
+## `DASK_BIN_SHRINK`
+
+Uses the [local mean] for the output value, computed with
+`dask.array.coarsen`. Produces the same samples as `ITKWASM_BIN_SHRINK` and
+`ITK_BIN_SHRINK`: the remainder past the last full window is dropped, and
+integer values are rounded half up.
+
+Runs on plain dask with no native or WebAssembly dependency, accepts any chunk
+layout, and has no limit on block size. Fast but generates more artifacts than
+gaussian-based methods.
+
+Appropriate for intensity images.

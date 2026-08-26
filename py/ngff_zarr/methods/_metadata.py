@@ -89,4 +89,9 @@ _METHOD_INFO: dict[str, dict[str, str]] = {
         "package": "dask-image",
         "method": "dask_image.ndinterp.affine_transform",
     },
+    "DASK_BIN_SHRINK": {
+        "description": "Uses the local mean for the output value, computed with dask.array.coarsen. Same samples as the ITK bin-shrink methods, without a native or WebAssembly dependency. Appropriate for intensity images.",
+        "package": "dask",
+        "method": "dask.array.coarsen",
+    },
 }

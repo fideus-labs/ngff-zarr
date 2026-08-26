@@ -379,6 +379,120 @@ for a chunk shape of `(64, 64, 64)`.
 Sharded stores are written through the same zarrista direct-write path as
 regular stores; no extra options are required.
 
+### Root attributes
+
+Keys beside the OME metadata at the root of a store hold application
+metadata: a direction matrix, provenance, a processing log. `from_ome_zarr`
+reads them into `multiscales.root_attributes`, `to_ome_zarr` writes them back
+beside the OME keys, and an overwrite of an existing store keeps the ones
+already there. The OME keys themselves (`multiscales`, `omero`, `ome`) are
+derived from the multiscales and cannot be set this way.
+
+```python
+multiscales.root_attributes = {'acquisition': {'direction': [0, -1, 0, 1, 0, 0, 0, 0, 1]}}
+nz.to_ome_zarr('image.ome.zarr', multiscales, version='0.5')
+
+nz.from_ome_zarr('image.ome.zarr').root_attributes
+# {'acquisition': {'direction': [0, -1, 0, 1, 0, 0, 0, 0, 1]}}
+```
+
+A fact known only once the data is on disk, such as the bound of a field
+filled region by region, goes in afterwards; existing keys are replaced and
+the others kept:
+
+```python
+nz.update_root_attributes('image.ome.zarr', {'acquisition': {'max_displacement': 3.2}})
+```
+
+### Create the store before its data
+
+A producer that drives its own computation, such as an acquisition writer
+filling a volume over hours, a stitcher placing tiles as they arrive, or a GPU
+pipeline running one block at a time, can create the store first and fill it
+afterwards. With `metadata_only=True`, `to_ome_zarr` writes the OME-Zarr
+metadata and creates every scale array with its shape, dtype, chunks, shards
+and codecs, but evaluates no dask graph and writes no chunk. The call returns
+at once whatever the image size.
+
+```python
+import dask.array as da
+
+shape = (1, 4096, 8192, 8192)
+chunks = (1, 64, 512, 512)
+placeholder = da.zeros(shape, dtype='float32', chunks=chunks)
+image = nz.to_ngff_image(placeholder, dims=['c', 'z', 'y', 'x'])
+multiscales = nz.to_multiscales(image, scale_factors=[], chunks=chunks, cache=False)
+nz.to_ome_zarr('volume.ome.zarr', multiscales, version='0.5', metadata_only=True)
+
+level0 = nz.open_array('volume.ome.zarr', multiscales.metadata.datasets[0].path)
+for z in range(0, shape[1], 64):
+    level0[:, z:z + 64] = compute_slab(z)
+```
+
+Pass `cache=False` to `to_multiscales`: the placeholder has nothing worth
+caching, and the default would serialize it to disk. With `scale_factors=[]`
+no pyramid graph is built; coarser levels can be appended later with
+`start_level` (below).
+
+Choose the chunk grid from the regions the producer writes: when every region
+covers whole chunks (whole shards when `chunks_per_shard` is set), each chunk
+has exactly one writer, so no locking and no read-modify-write is needed, and
+the fill stays safe across processes and cluster ranks. The handle from
+`open_array` reads and writes regions through zarrista, and any other Zarr
+writer can fill the arrays as well; `to_ome_zarr` is not involved. Chunks that
+are never written read back as the fill value.
+
+### Append coarser levels to an existing store
+
+Once the finest level is on disk, `start_level` derives the next levels from
+it and writes them beside it. The levels below `start_level` are read, never
+rewritten; root attributes the writer does not own are kept; the multiscales
+entry is rewritten in full.
+
+```python
+base = nz.from_ome_zarr('volume.ome.zarr').images[0]
+multiscales = nz.to_multiscales(base, scale_factors=[2, 4], chunks=chunks)
+nz.to_ome_zarr('volume.ome.zarr', multiscales, version='0.5',
+                overwrite=False, start_level=1)
+```
+
+`start_level` requires `overwrite=False`, and the store must hold every level
+below it with the shape and dtype the multiscales describes. Running the same
+call again replaces the appended levels. `metadata_only=True` composes with it
+to allocate the new levels empty. The appended levels take the chunks given to
+`to_multiscales`; pass the chunks of the stored level to keep one grid. A level
+whose data the caller replaced in the multiscales is written as given, so a
+pipeline that already holds a coarse level can bring it instead of deriving it.
+
+### Read a store region by region
+
+A chunk is the unit a reader decompresses. A window that covers part of a chunk
+costs the whole chunk, and a sweep that advances in steps smaller than the chunk
+pays that for every step. On a 256 MB volume with chunks of 64 along z, reading
+the whole of it in slabs 8 deep takes about four times the chunk-aligned read,
+and in slabs 2 deep about fifteen times.
+
+The chunk grid is therefore chosen for the way the data will be read, and a
+producer that creates its store with `metadata_only=True` chooses both grids at
+once: pass `to_multiscales(chunks=...)` the shape of the regions the readers
+will ask for.
+
+For a store whose grid is already fixed, read the aligned block that contains
+the windows and slice it in memory. `open_array` reports the grid:
+
+```python
+level0 = nz.open_array('volume.ome.zarr', 'scale0/image')
+depth = level0.chunks[1]
+
+for start in range(0, level0.shape[1], depth):
+    block = level0[:, start:start + depth]        # one aligned read
+    for z in range(block.shape[1]):
+        plane = block[:, z]                       # a view, no read
+```
+
+This reaches the same speed as reading the volume in aligned blocks, whatever
+the size of the windows the loop serves.
+
 ## TIFF and OME-TIFF Files
 
 NGFF-Zarr provides support for converting TIFF files, including multi-series

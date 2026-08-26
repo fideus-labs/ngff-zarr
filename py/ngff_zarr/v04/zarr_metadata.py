@@ -440,7 +440,7 @@ class Metadata:
         import packaging.version
 
         from .._zarrista_utils import open_lazy_array
-        from ..ngff_image import NgffImage
+        from ..ngff_image import NgffImage, non_default_axes_types
         from ..parse_metadata import _parse_omero, _raw_axes
         from ..rfc4_validation import (
             has_any_rfc4_orientation,
@@ -593,6 +593,7 @@ class Metadata:
                 translation=translation,
                 name=root_attrs.get("name", "image"),
                 axes_units=units,
+                axes_types=non_default_axes_types(axes),
             )
             images.append(ngff_image)
 
