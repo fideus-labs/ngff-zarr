@@ -341,7 +341,7 @@ async function createOmeNamespacedStore(
 /** A single-level `ome` block over `axes`, tagged with the given version. */
 function omeBlock(
   version: string,
-  axes: Array<{ name: string; type: string }>,
+  axes: Array<Record<string, unknown>>,
 ): Record<string, unknown> {
   const rank = axes.length;
   return {
@@ -425,5 +425,72 @@ Deno.test(
 
     const result = await fromOmeZarr(store, { validate: true });
     assertEquals(result.images[0].dims, ["i", "j"]);
+  },
+);
+
+// --- The declared version drives the RFC 4 orientation checks on read ---
+
+/** `(t, y, x)` axes with an orientation on the non-spatial time axis. */
+const NON_SPACE_ORIENTED_AXES: Array<Record<string, unknown>> = [
+  {
+    name: "t",
+    type: "time",
+    orientation: { type: "anatomical", value: "inferior-to-superior" },
+  },
+  { name: "y", type: "space" },
+  { name: "x", type: "space" },
+];
+
+Deno.test(
+  "reader - a 0.6 store with orientation on a non-space axis reads under validate",
+  async () => {
+    // RFC 4 orientation is normative from OME-Zarr 0.9.dev1 only; at 0.6 a
+    // declared orientation is read back but not validated.
+    const store = await createOmeNamespacedStore(
+      omeBlock("0.6.dev4", NON_SPACE_ORIENTED_AXES),
+      [2, 2, 2],
+    );
+
+    const result = await fromOmeZarr(store, { validate: true });
+    assertEquals(result.images[0].dims, ["t", "y", "x"]);
+  },
+);
+
+Deno.test(
+  "reader - the same store tagged 0.9.dev1 is refused",
+  async () => {
+    // The negative control: at 0.9.dev1 the orientation rules are normative,
+    // so the same document is refused with the on-non-space rule.
+    const store = await createOmeNamespacedStore(
+      omeBlock("0.9.dev1", NON_SPACE_ORIENTED_AXES),
+      [2, 2, 2],
+    );
+
+    const error = await assertRejects(
+      () => fromOmeZarr(store, { validate: true }),
+      Error,
+    );
+    assertStringIncludes(error.message, SpecRule.AxisOrientationOnNonSpace);
+  },
+);
+
+Deno.test(
+  "fromZarrAttrsV04 - an out-of-vocabulary orientation reads under validate",
+  async () => {
+    // The v0.4 reader hook takes the same gate: an orientation value outside
+    // the RFC 4 vocabulary reads cleanly at 0.4.
+    const metadata = buildValidImageMetadata();
+    (metadata.axes as Array<Record<string, unknown>>)[0].orientation = {
+      type: "anatomical",
+      value: "up-to-down",
+    };
+    const store = await createImageStore(metadata);
+
+    const result = await fromZarrAttrsV04(
+      { multiscales: [metadata] },
+      store,
+      true,
+    );
+    assertExists(result.metadata);
   },
 );

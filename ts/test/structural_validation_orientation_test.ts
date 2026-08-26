@@ -168,6 +168,29 @@ Deno.test("validateAxisOrientation - accepts partial orientation", () => {
   validateAxisOrientation(metadata);
 });
 
+Deno.test("validateAxisOrientation - inert below the RFC-4 versions", () => {
+  // RFC 4 orientation is normative from OME-Zarr 0.9.dev1 (ome/ngff-spec#190);
+  // when the caller declares 0.4, 0.5 or 0.6 the same metadata passes. With no
+  // version the rule stays on as a strictness choice, which every no-version
+  // test above relies on. Mirrors the Python
+  // test_axis_orientation_version_gate.
+  const metadata = metadataWithOrientations([
+    { type: "anatomical", value: LPS_VALUES[0] },
+    { type: "other", value: LPS_VALUES[1] },
+    { type: "anatomical", value: LPS_VALUES[2] },
+  ]);
+  for (const version of ["0.4", "0.5", "0.6", "0.6.dev4"]) {
+    validateAxisOrientation(metadata, version);
+  }
+  for (const version of ["0.9.dev1", undefined]) {
+    assertRuleViolation(
+      () => validateAxisOrientation(metadata, version),
+      SpecRule.AxisOrientationAnatomicalType,
+      "multiscales[0].axes",
+    );
+  }
+});
+
 Deno.test(
   "validateRfc4Orientation - messages carry the SpecRule mapping markers",
   () => {

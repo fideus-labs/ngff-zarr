@@ -23,8 +23,12 @@ stable, lower-kebab-case identifier (the `SpecRule` value) that is identical
 across the Python and TypeScript ports — see [[parity]] for the guarantee. Most
 rules enforce OME-Zarr v0.4 MUSTs; the two v0.5 namespacing rules
 (`zarr-format`, `ome-namespace`) fire only for v0.5 metadata and are inert (a
-no-op) for v0.4. For the conceptual background and the two validation levels,
-see [[overview]]; for invocation, see [[api]].
+no-op) for v0.4. The three RFC 4 orientation rules (9–11) are normative from
+OME-Zarr 0.9.dev1, which incorporates RFC-4 through `ome/ngff-spec#190`: they are
+inert when the caller declares 0.4, 0.5 or 0.6, where RFC 4 has no normative
+status, and stay on when no version is declared — a strictness choice, like
+`axis-names-unique` below 0.9.dev1. For the conceptual background and the two
+validation levels, see [[overview]]; for invocation, see [[api]].
 
 Location strings are dotted-segment, JSON-Pointer-style identifiers of the
 offending metadata node, emitted byte-for-byte identically in both languages.
@@ -44,9 +48,9 @@ the `SpecRule` enum declares them and the orchestrators evaluate them.
 | 6 | `global-coord-transform-after-per-level` | images/multiscales | Exactly one `scale` per dataset, and a `translation` must follow — not precede — its `scale`. | v0.4: each dataset defines exactly one scale; a translation follows its scale. | `multiscales[0].datasets[1].coordinateTransformations` |
 | 7 | `dataset-order-highest-to-lowest` | images/multiscales | Datasets ordered finest → coarsest; the spatial scale must not decrease as the level index rises. | v0.4: multiscale datasets ordered from highest to lowest resolution. | `multiscales[0].datasets[2]` |
 | 8 | `omero-channel-color-format` | OMERO | Each OMERO channel `color` is exactly six hexadecimal digits (RGB). | v0.4: OMERO channel color is 6 hex digits. | `multiscales[0].omero.channels[0].color` |
-| 9 | `axis-orientation-anatomical-type` | RFC 4 orientation | Every declared spatial-axis `orientation` has `type` `anatomical`. | RFC 4: an orientation's `type` is `anatomical`. | `multiscales[0].axes` |
-| 10| `axis-orientation-on-non-space` | RFC 4 orientation | An `orientation` is declared only on `space` axes, never on a non-spatial axis. | RFC 4: orientation applies to spatial axes only. | `multiscales[0].axes[0]` |
-| 11| `axis-orientation-unique-axis` | RFC 4 orientation | No two spatial axes declare orientations describing the same anatomical axis. | RFC 4: each spatial axis describes a distinct anatomical axis. | `multiscales[0].axes` |
+| 9 | `axis-orientation-anatomical-type` | RFC 4 orientation | Every declared spatial-axis `orientation` has `type` `anatomical`. Inert below 0.9.dev1 when the caller declares a version; kept on when none is given. | RFC 4 (normative from 0.9.dev1): an orientation's `type` is `anatomical`. No released spec below 0.9.dev1 adopts RFC 4, so enforcement without a declared version is a strictness choice, not a spec MUST of those versions. | `multiscales[0].axes` |
+| 10| `axis-orientation-on-non-space` | RFC 4 orientation | An `orientation` is declared only on `space` axes, never on a non-spatial axis. Inert below 0.9.dev1 when the caller declares a version; kept on when none is given. | RFC 4 (normative from 0.9.dev1): orientation applies to spatial axes only. Same below-0.9.dev1 status as rule 9. | `multiscales[0].axes[0]` |
+| 11| `axis-orientation-unique-axis` | RFC 4 orientation | No two spatial axes declare orientations describing the same anatomical axis. Inert below 0.9.dev1 when the caller declares a version; kept on when none is given. | RFC 4 (normative from 0.9.dev1): each spatial axis describes a distinct anatomical axis. Same below-0.9.dev1 status as rule 9. | `multiscales[0].axes` |
 | 12| `zarr-format` | images/multiscales (v0.5) | A v0.5 entry implies a Zarr v3 store; a `zarr_format` value that leaked into the entry must be exactly `3`. Inert for v0.4. | v0.5: metadata is backed by a Zarr v3 store (`zarr_format == 3`). | `multiscales[0]` |
 | 13| `ome-namespace` | images/multiscales (v0.5) | A v0.5 entry must not retain a group-level `ome` or `multiscales` wrapper key — the `ome` namespace wraps the group attributes, not each entry. Inert for v0.4. | v0.5: multiscales live under the top-level `ome` namespace, with `version` hoisted to `ome.version`. | `multiscales[0]` |
 | 14| `plate-row-index-consistency` | HCS plate | Each well's `path` is `<row>/<column>`, naming declared row/column entries, with `rowIndex`/`columnIndex` equal to those entries' positions. | v0.4: well `rowIndex`/`columnIndex` match the named row/column positions in `plate.rows`/`plate.columns`. | `plate.wells[3]` |
@@ -65,11 +69,12 @@ rules:
   class-ordering then spatial-name ordering for `axis-order`; per-dataset
   scale-count then transform-ordering for
   `global-coord-transform-after-per-level`. The v0.5 namespacing rules (12 and
-  13) run last and are inert for v0.4 input. The orientation rules
-  `axis-orientation-on-non-space` (10) and `axis-orientation-unique-axis` (11)
-  fire only for specific axis shapes, so the linear fail-fast cascade for a v0.4
-  metadata is an 11-step sequence ending at
-  `axis-orientation-anatomical-type`.
+  13) run last and are inert for v0.4 input, and the orientation rules (9–11)
+  are inert when the caller declares a version below 0.9.dev1. The orientation
+  rules `axis-orientation-on-non-space` (10) and `axis-orientation-unique-axis`
+  (11) fire only for specific axis shapes, so the linear fail-fast cascade for
+  a v0.4-shaped metadata validated with no declared version is an 11-step
+  sequence ending at `axis-orientation-anatomical-type`.
 - **`validate_plate` / `validatePlate`** evaluates rule **14**
   (`plate-row-index-consistency`).
 - **`validate_well` / `validateWell`** evaluates rule **15**
@@ -96,8 +101,9 @@ TypeScript by checking the target version in `axisViews`.
   `global-coord-transform-after-per-level`,
   `dataset-order-highest-to-lowest`.
 - **OMERO** — `omero-channel-color-format`.
-- **RFC 4 orientation** — `axis-orientation-anatomical-type`,
-  `axis-orientation-on-non-space`, `axis-orientation-unique-axis`.
+- **RFC 4 orientation** (normative from 0.9.dev1) —
+  `axis-orientation-anatomical-type`, `axis-orientation-on-non-space`,
+  `axis-orientation-unique-axis`.
 - **v0.5 namespacing** — `zarr-format`, `ome-namespace` (inert for v0.4).
 - **HCS plate / well** — `plate-row-index-consistency`,
   `well-acquisition-missing`.

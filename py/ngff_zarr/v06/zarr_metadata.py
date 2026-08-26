@@ -731,11 +731,7 @@ class Metadata:
 
         from .._zarrista_utils import open_lazy_array
         from ..ngff_image import NgffImage
-        from ..parse_metadata import _parse_omero, _raw_axes
-        from ..rfc4_validation import (
-            has_any_rfc4_orientation,
-            validate_rfc4_orientation,
-        )
+        from ..parse_metadata import _parse_omero
         from ..validate import validate as validate_ngff
 
         # make sure root_attrs['ome]['multiscales'] exists
@@ -777,18 +773,6 @@ class Metadata:
                 schema_attrs["ome"]["version"] = V06_ONDISK_VERSION.value
                 schema_version = V06_ONDISK_VERSION.value
             validate_ngff(schema_attrs, version=schema_version)
-
-            # RFC 4 validation for anatomical orientation. From v0.6 the axes
-            # live in the intrinsic coordinate system, so they are read through
-            # the shared helper rather than from a flat ``axes`` key, which a
-            # v0.6 entry does not carry.
-            axes_dicts = [
-                axis
-                for axis in _raw_axes(root_attrs["ome"]["multiscales"][0])
-                if isinstance(axis, dict)
-            ]
-            if axes_dicts and has_any_rfc4_orientation(axes_dicts):
-                validate_rfc4_orientation(axes_dicts)
 
         omero = _parse_omero(root_attrs.get("ome", {}).get("omero"))
         root_attrs = root_attrs["ome"]["multiscales"][0]

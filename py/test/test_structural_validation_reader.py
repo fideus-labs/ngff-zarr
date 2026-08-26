@@ -187,6 +187,43 @@ def test_v05_namespacing_validated_when_ome_version_missing(tmp_path):
     assert exc_info.value.rule == SpecRule.OME_NAMESPACE
 
 
+def _add_out_of_vocabulary_orientation(entry: dict) -> None:
+    """Give the entry's first (spatial) axis an orientation RFC 4 does not define."""
+    entry["axes"][0]["orientation"] = {
+        "type": "anatomical",
+        "value": "up-to-down",
+    }
+
+
+def test_v04_pre_rfc4_orientation_reads_cleanly_when_validating(tmp_path):
+    # RFC 4 orientation is normative from OME-Zarr 0.9.dev1 only; a 0.4 store
+    # whose orientation value is outside the RFC 4 vocabulary must read cleanly
+    # under validate=True.
+    store = _write_valid_2d_store(tmp_path / "valid.zarr")
+    root = zarr.open_group(str(store), mode="r+")
+    attrs = root.attrs.asdict()
+    _add_out_of_vocabulary_orientation(attrs["multiscales"][0])
+    root.attrs["multiscales"] = attrs["multiscales"]
+
+    multiscales = from_ngff_zarr(store, validate=True)
+    assert multiscales is not None
+
+
+@requires_zarr_v3
+def test_v05_pre_rfc4_orientation_reads_cleanly_when_validating(tmp_path):
+    # The v0.5 read path shares the v0.4 parser and its RFC 4 hook; the same
+    # out-of-vocabulary orientation must read cleanly at 0.5 too.
+    store = _write_valid_2d_store_v05(tmp_path / "valid_v05.zarr")
+    root = zarr.open_group(str(store), mode="r+")
+    attrs = root.attrs.asdict()
+    ome = attrs["ome"]
+    _add_out_of_vocabulary_orientation(ome["multiscales"][0])
+    root.attrs["ome"] = ome
+
+    multiscales = from_ngff_zarr(store, validate=True)
+    assert multiscales is not None
+
+
 def test_scale_length_violation_raises_only_when_validating(tmp_path):
     store = _write_valid_2d_store(tmp_path / "valid.zarr")
     # Corrupt one dataset's scale to length 3 against the 2-axis (y, x) image.

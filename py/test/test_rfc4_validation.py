@@ -461,8 +461,15 @@ def test_from_ngff_zarr_with_rfc4_validation(tmp_path):
     assert multiscales is not None
 
 
-def test_from_ngff_zarr_with_rfc4_validation_invalid(tmp_path):
-    """Test from_ngff_zarr with RFC 4 validation fails on invalid orientation."""
+def test_from_ngff_zarr_invalid_orientation_reads_below_rfc4(tmp_path):
+    """An invalid orientation reads back at 0.4 under validate=True.
+
+    RFC 4 orientation is normative from OME-Zarr 0.9.dev1 only
+    (fideus-labs/ngff-zarr#667); this store declares 0.4, so its
+    out-of-vocabulary orientation value is read back without complaint. The
+    version gate lives in the read path alone: the module-level check rejects
+    the value at every version.
+    """
     pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
 
     # Create a store with invalid RFC 4 orientation metadata
@@ -475,31 +482,32 @@ def test_from_ngff_zarr_with_rfc4_validation_invalid(tmp_path):
     else:
         root.create_dataset("0", shape=(10, 10, 10), dtype="uint8")
 
-    # Add OME-NGFF metadata with incomplete RFC 4 orientation (missing z orientation)
+    axes = [
+        {
+            "name": "z",
+            "type": "space",
+            "unit": "micrometer",
+            # Out-of-vocabulary value: rejected by validate_rfc4_orientation,
+            # tolerated by every pre-RFC-4 read.
+            "orientation": {"type": "anatomical", "value": "not-a-direction"},
+        },
+        {
+            "name": "y",
+            "type": "space",
+            "unit": "micrometer",
+            "orientation": {"type": "anatomical", "value": "anterior-to-posterior"},
+        },
+        {
+            "name": "x",
+            "type": "space",
+            "unit": "micrometer",
+            "orientation": {"type": "anatomical", "value": "right-to-left"},
+        },
+    ]
     multiscales_metadata = {
         "version": "0.4",
         "name": "test",
-        "axes": [
-            {
-                "name": "x",
-                "type": "space",
-                "unit": "micrometer",
-                "orientation": {"type": "anatomical", "value": "right-to-left"},
-            },
-            {
-                "name": "y",
-                "type": "space",
-                "unit": "micrometer",
-                "orientation": {"type": "anatomical", "value": "anterior-to-posterior"},
-            },
-            {
-                "name": "z",
-                "type": "space",
-                "unit": "micrometer",
-                # Out-of-vocabulary value - this should cause validation to fail
-                "orientation": {"type": "anatomical", "value": "not-a-direction"},
-            },
-        ],
+        "axes": axes,
         "datasets": [
             {
                 "path": "0",
@@ -512,9 +520,13 @@ def test_from_ngff_zarr_with_rfc4_validation_invalid(tmp_path):
 
     root.attrs["multiscales"] = [multiscales_metadata]
 
-    # Should fail on the out-of-vocabulary orientation value
+    # The module-level check rejects the out-of-vocabulary value...
     with pytest.raises(ValidationError, match="Invalid orientation value"):
-        from_ngff_zarr(store, validate=True)
+        validate_rfc4_orientation(axes)
+
+    # ...and the 0.4 read path does not apply it: RFC 4 gates on 0.9.dev1.
+    multiscales = from_ngff_zarr(store, validate=True)
+    assert multiscales is not None
 
 
 def test_from_ngff_zarr_without_rfc4_validation(tmp_path):
@@ -631,11 +643,12 @@ def test_a_falsey_orientation_still_reaches_the_validator(orientation):
         validate_rfc4_orientation(axes)
 
 
-def test_read_rejects_orientation_on_a_non_space_axis(tmp_path):
-    """The reader reaches the non-space rule with no spatial axis oriented.
+def test_read_accepts_orientation_on_a_non_space_axis_below_0_9(tmp_path):
+    """A 0.4 store with an orientation on its time axis reads cleanly.
 
-    Gating on a spatial orientation left this document accepted: nothing in it
-    orients a space axis, which is exactly what makes it invalid.
+    The non-space rule is reachable with no spatial axis oriented (see
+    ``test_orientation_on_a_non_space_axis_is_reachable``), but RFC 4 gates on
+    0.9.dev1, so the 0.4 read path does not apply it to this document.
     """
     pytest.importorskip("jsonschema", reason="jsonschema required for RFC 4 validation")
 
@@ -673,5 +686,5 @@ def test_read_rejects_orientation_on_a_non_space_axis(tmp_path):
         }
     ]
 
-    with pytest.raises(ValueError, match="non-space axes"):
-        from_ngff_zarr(store, validate=True)
+    multiscales = from_ngff_zarr(store, validate=True)
+    assert [axis.name for axis in multiscales.metadata.axes] == ["t", "y", "x"]

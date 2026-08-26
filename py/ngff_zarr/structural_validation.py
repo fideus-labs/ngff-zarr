@@ -61,13 +61,13 @@ violation, in canonical spec-MUST order.
 #       each OMERO channel color is exactly 6 hex digits
 #       e.g. multiscales[0].omero.channels[0].color
 #   axis-orientation-anatomical-type
-#       each RFC 4 orientation type is "anatomical" (the only value defined)
+#       each RFC 4 orientation type is "anatomical"; normative from 0.9.dev1
 #       e.g. multiscales[0].axes
 #   axis-orientation-on-non-space
-#       orientation is declared only on spatial axes (never time/channel)
+#       orientation only on spatial axes (never time/channel); from 0.9.dev1
 #       e.g. multiscales[0].axes
 #   axis-orientation-unique-axis
-#       at most one direction per anatomical axis (antonyms are exclusive)
+#       one direction per anatomical axis (antonyms exclusive); from 0.9.dev1
 #       e.g. multiscales[0].axes
 #   zarr-format
 #       a v0.5 entry implies a Zarr v3 store (a leaked zarr_format must be 3)
@@ -365,6 +365,24 @@ def is_rfc3_axis_model_allowed(version: object | None = None) -> bool:
     test against ``"0.9"`` is ``False``.
     """
     return version is not None and version == NgffVersion.V09dev1
+
+
+def is_rfc4_orientation_enforced(version: object | None = None) -> bool:
+    """Whether ``version`` makes the RFC-4 orientation rules normative.
+
+    Only OME-Zarr ``0.9.dev1`` does (``ome/ngff-spec#190`` folds RFC-4 into
+    it): the released 0.4, 0.5 and 0.6 specs give ``orientation`` no normative
+    status, so when the caller declares one of those versions the orientation
+    rules are inert. ``None`` keeps them on: with no declared version,
+    enforcement is a strictness choice, exactly like ``axis-names-unique``
+    below 0.9.dev1 (see docs/validation/rule-reference.md).
+
+    The gate points the opposite way from :func:`is_rfc3_axis_model_allowed`:
+    at 0.9.dev1 RFC-3 *lifts* the axis restrictions while RFC-4 *adds* the
+    orientation requirements, so the rules exit early below 0.9.dev1 rather
+    than at it.
+    """
+    return version is None or version == NgffVersion.V09dev1
 
 
 def validate_axis_count(metadata: Metadata, version: object | None = None) -> None:
@@ -752,7 +770,9 @@ def _axis_to_validation_dict(axis: Axis) -> dict[str, Any]:
     return axis_dict
 
 
-def validate_axis_orientation(metadata: Metadata) -> None:
+def validate_axis_orientation(
+    metadata: Metadata, version: object | None = None
+) -> None:
     """Validate RFC 4 anatomical-orientation metadata on the spatial axes.
 
     This rule does not reimplement RFC 4; it wraps the package's existing logic
@@ -765,6 +785,10 @@ def validate_axis_orientation(metadata: Metadata) -> None:
     Orientation is optional in RFC 4, so when no axis carries one the rule is a
     no-op and the comparatively heavy ``jsonschema`` import inside
     :func:`validate_rfc4_orientation` is never triggered.
+
+    Inert when ``version`` declares a release below 0.9.dev1, where RFC-4 has
+    no normative status; ``None`` keeps the checks on (see
+    :func:`is_rfc4_orientation_enforced`).
 
     Raises
     ------
@@ -779,6 +803,8 @@ def validate_axis_orientation(metadata: Metadata) -> None:
         Propagated unchanged when an orientation value is outside the RFC 4
         vocabulary -- a schema-level concern with no dedicated structural rule.
     """
+    if not is_rfc4_orientation_enforced(version):
+        return
     from .rfc4_validation import (
         has_any_rfc4_orientation,
         validate_rfc4_orientation,
@@ -1050,7 +1076,10 @@ def validate_structural(
     version:
         The OME-Zarr version the metadata declares. Rules 1-3 are inert for the
         versions that adopt the RFC-3 axis model, so omitting it holds every
-        store to the v0.4 axis caps.
+        store to the v0.4 axis caps. The RFC 4 orientation checks
+        (:func:`validate_axis_orientation`) gate the opposite way: they are
+        normative from 0.9.dev1, inert when an earlier version is declared,
+        and kept on when the version is omitted.
 
     Raises
     ------
@@ -1063,7 +1092,8 @@ def validate_structural(
     -----
     This orchestrator covers the image/multiscales rules, including the RFC 4
     anatomical-orientation checks (:func:`validate_axis_orientation`, a no-op
-    when no axis declares orientation). The HCS plate/well structural rules
+    when no axis declares orientation and inert when ``version`` declares a
+    release below 0.9.dev1). The HCS plate/well structural rules
     operate on separate metadata objects and are dispatched by the companion
     :func:`validate_plate` and :func:`validate_well` entry points.
     """
@@ -1082,7 +1112,7 @@ def validate_structural(
     validate_transform_order(metadata)
     validate_dataset_order(metadata)
     validate_omero_color_hex(metadata)
-    validate_axis_orientation(metadata)
+    validate_axis_orientation(metadata, version)
     validate_zarr_format_for_version(metadata)
     validate_ome_namespace(metadata)
 
