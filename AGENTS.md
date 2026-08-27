@@ -12,6 +12,11 @@ This is a multi-language implementation of the OME Next Generation File Format
 - **`ts/`** - TypeScript/Deno implementation for web/Node environments
   (@fideus-labs/ngff-zarr)
 
+The human-facing contributor guide lives in `docs/development.md`, rendered at
+<https://ngff-zarr.readthedocs.io/en/latest/development.html>; `CONTRIBUTING.md`
+is a short pointer to it. When workflow, commit, or tooling conventions change,
+update `docs/development.md` alongside this file so the two stay in sync.
+
 ## Core Architecture Patterns
 
 ### Data Flow: The Multiscale Pipeline
@@ -66,7 +71,7 @@ cd ts && pixi run --as-is test          # Deno test suite
 cd ts && pixi run --as-is lint          # Deno lint
 cd ts && pixi run --as-is fmt           # Deno format
 cd ts && pixi run --as-is build         # Full build pipeline
-cd ts && pixi run --as-is test:browser  # Browser compatibility tests
+cd ts && pixi run --as-is test-browser  # Browser compatibility tests
 cd ts && pixi run --as-is check         # Type checking
 ```
 

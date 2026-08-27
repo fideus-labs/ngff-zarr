@@ -3,13 +3,15 @@
 """Find the region of a moving image needed to resample a fixed image grid."""
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
 
 from .ngff_image import NgffImage
+from .ngff_transform_to_itk_transform import ngff_transform_to_itk_transform
 from .rfc4 import anatomical_orientation_to_itk_direction
+from .v06.zarr_metadata import BaseTransform
 
 _SPATIAL_DIMS = ("x", "y", "z")
 
@@ -218,7 +220,7 @@ def _shifted_translation(ngff_image: NgffImage, starts: dict) -> dict:
     """
     translation = dict(ngff_image.translation)
     spatial = _spatial_dims(ngff_image)
-    itk_dims = list(reversed(spatial))
+    itk_dims = [dim for dim in _SPATIAL_DIMS if dim in spatial]
     direction = _itk_direction(ngff_image, itk_dims)
     offset = direction @ np.array(
         [starts.get(dim, 0) * ngff_image.scale[dim] for dim in itk_dims], dtype=float
@@ -245,6 +247,7 @@ def _itk_direction(ngff_image: NgffImage, itk_dims: Sequence[str]) -> np.ndarray
         return direction
 
     columns = []
+    seen_axes = set()
     for dim in itk_dims:
         orientation = orientations.get(dim)
         if orientation is None:
@@ -252,6 +255,16 @@ def _itk_direction(ngff_image: NgffImage, itk_dims: Sequence[str]) -> np.ndarray
         column = anatomical_orientation_to_itk_direction(orientation.value)
         if column is None:
             return direction
+        # A column pointing outside the matrix's dimension (e.g. a
+        # superior/inferior orientation on a 2D image), or two dims mapping
+        # onto the same LPS axis, would truncate to a singular matrix; keep
+        # the identity fallback instead.
+        if any(component != 0 for component in column[len(itk_dims) :]):
+            return direction
+        axis = max(range(len(column)), key=lambda i: abs(column[i]))
+        if axis in seen_axes:
+            return direction
+        seen_axes.add(axis)
         columns.append(column)
 
     for col_index, column in enumerate(columns):
@@ -290,6 +303,32 @@ def _metadata_only_itk_image(
         metadata={},
         data=np.empty((0,), dtype=np.uint8),
     )
+
+
+#: RFC-5 transformation types, plus the v0.4 spellings of the three that
+#: predate it. ``ngff_zarr.Scale`` and friends are the v0.4 dataclasses, which
+#: do not share the v0.6 base class.
+_NGFF_TRANSFORM_TYPES = frozenset(
+    {
+        "identity",
+        "scale",
+        "translation",
+        "rotation",
+        "affine",
+        "mapAxis",
+        "byDimension",
+        "bijection",
+        "sequence",
+        "coordinates",
+        "displacements",
+    }
+)
+
+
+def _is_ngff_transform(transform) -> bool:
+    if isinstance(transform, BaseTransform):
+        return True
+    return getattr(transform, "type", None) in _NGFF_TRANSFORM_TYPES
 
 
 def _as_itk_transform_list(transform) -> list:
@@ -352,11 +391,13 @@ def _transform_from_dict(entry: dict):
     return ItkTransform(**entry)
 
 
-def itk_transform_resample_bounding_box(
+def resample_bounding_box(
     transform,
     fixed: NgffImage,
     moving: NgffImage,
     padding: int = 1,
+    *,
+    fields: Mapping[str, object] | None = None,
 ) -> ResampleBoundingBox:
     """Compute the moving-image region needed to resample a fixed image grid.
 
@@ -366,15 +407,31 @@ def itk_transform_resample_bounding_box(
     numbers, learn exactly which block of the moving image a resample will
     touch, and only then move pixels.
 
-    The transform acts on ITK physical space, so the image geometry is built
-    the way :func:`ngff_zarr.ngff_image_to_itk_image` builds it, including the
-    direction matrix derived from RFC-4 anatomical orientation. It maps *fixed*
-    points into *moving* space, matching the direction registration libraries
-    return.
+    Two kinds of transform are accepted, and they are interpreted in different
+    coordinate spaces:
 
-    :param transform: An ``itk.Transform`` (including the ``CompositeTransform``
-        an Elastix registration returns), or an ITK-Wasm ``Transform`` /
-        ``TransformList``.
+    * An **RFC-5 coordinate transformation** acts on the intrinsic coordinate
+      system, where a point is ``translation + scale * index``. Its parameters
+      are in Zarr axis order and no direction matrix applies. Its ``input``
+      and ``output`` identifiers are **not resolved**: the transformation is
+      applied from the fixed image's intrinsic system to the moving image's,
+      whatever the identifiers name.
+    * An **ITK transform** (for example a ``CompositeTransform`` returned by
+      Elastix) acts on ITK physical space, so the geometry is built the way
+      :func:`ngff_zarr.ngff_image_to_itk_image` builds it, including the
+      direction matrix derived from RFC-4 anatomical orientation.
+
+    An ITK transform need not be linear. An RFC-5 transformation is converted
+    first, so it must be one this package can convert: a linear mapping --
+    ``identity``, ``scale``, ``translation``, ``rotation``, ``affine``,
+    ``mapAxis``, ``byDimension``, ``bijection``, or a ``sequence`` of them --
+    or a ``displacements`` or ``coordinates`` transformation whose field is
+    passed in ``fields``.
+
+    In both cases the transform maps *fixed* points into *moving* space.
+
+    :param transform: An RFC-5 coordinate transformation, an ``itk.Transform``,
+        or an ITK-Wasm ``Transform`` / ``TransformList``.
 
     :param fixed: The image whose grid is resampled. Geometry only.
     :type  fixed: NgffImage
@@ -387,6 +444,16 @@ def itk_transform_resample_bounding_box(
         index bound. Use 0 for the tight region, or more for wider kernels.
     :type  padding: int
 
+    :param fields: The field images an RFC-5 ``displacements`` or
+        ``coordinates`` transformation points at, keyed by its ``path``, as
+        :func:`ngff_zarr.ngff_transform_to_itk_transform` takes them. Required
+        for those two, ignored otherwise. A field
+        carrying an anatomical orientation is refused here, since this branch
+        works on the intrinsic systems where none applies: convert it with
+        :func:`ngff_zarr.ngff_transform_to_itk_transform`, passing ``fixed``
+        and ``moving``, and pass the ITK transform it returns.
+    :type  fields: Mapping[str, NgffImage | NgffMultiscales], optional
+
     :return: The region, keyed by dimension name in Zarr order.
     :rtype: ResampleBoundingBox
 
@@ -395,8 +462,9 @@ def itk_transform_resample_bounding_box(
         translation entry is missing, zero or non-finite, if ``padding`` is
         negative, if the transform couples spatial and non-spatial axes, or if
         the region spans more than the index range the pipeline can represent.
+    :raises NotImplementedError: If the RFC-5 transformation is not linear.
     """
-    from itkwasm_downsample import resample_bounding_box
+    from itkwasm_downsample import resample_bounding_box as itkwasm_bounding_box
 
     if not isinstance(padding, int) or isinstance(padding, bool) or padding < 0:
         msg = f"padding must be a non-negative integer, got {padding!r}"
@@ -420,8 +488,10 @@ def itk_transform_resample_bounding_box(
     for label, image in (("fixed", fixed), ("moving", moving)):
         _check_geometry(label, image, fixed_spatial)
 
-    # ITK orders points fastest-axis-first, the reverse of the Zarr order.
-    itk_dims = list(reversed(fixed_spatial))
+    # ITK orders points fastest-axis-first: x, then y, then z, whatever order
+    # the image spells its spatial dims in. Reversing the dims is only right
+    # for the canonical (z, y, x); binding by name is right for every order.
+    itk_dims = [dim for dim in _SPATIAL_DIMS if dim in fixed_spatial]
 
     fixed_dims = tuple(fixed.dims)
     fixed_extent = {
@@ -448,11 +518,20 @@ def itk_transform_resample_bounding_box(
             moving_shape=moving_shape,
         )
 
-    transform_list = _as_itk_transform_list(transform)
-    fixed_direction = _itk_direction(fixed, itk_dims)
-    moving_direction = _itk_direction(moving, itk_dims)
+    if _is_ngff_transform(transform):
+        transform_list = ngff_transform_to_itk_transform(
+            transform, fixed.dims, fields=fields
+        )
+        # An RFC-5 transformation is defined on the intrinsic coordinate
+        # system, which carries no direction matrix.
+        fixed_direction = np.eye(len(itk_dims))
+        moving_direction = np.eye(len(itk_dims))
+    else:
+        transform_list = _as_itk_transform_list(transform)
+        fixed_direction = _itk_direction(fixed, itk_dims)
+        moving_direction = _itk_direction(moving, itk_dims)
 
-    result = resample_bounding_box(
+    result = itkwasm_bounding_box(
         transform_list,
         _metadata_only_itk_image(fixed, itk_dims, fixed_direction),
         _metadata_only_itk_image(moving, itk_dims, moving_direction),

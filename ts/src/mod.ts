@@ -5,7 +5,7 @@ export { config, setWorkerPoolSize } from "./config.ts";
 export * from "./io/from_ngff_zarr.ts";
 export * from "./io/hcs.ts";
 export * from "./io/itk_image_to_ngff_image.ts";
-export * from "./io/itk_transform_resample_bounding_box.ts";
+export * from "./io/resample_bounding_box.ts";
 export * from "./io/ngff_image_to_itk_image.ts";
 export type { MemoryStoreToZipOptions } from "./io/rfc9_zip.ts";
 // RFC-9 exports
@@ -69,6 +69,19 @@ export {
   createNgffImage,
   createNgffMultiscales,
 } from "./utils/factory.ts";
+export {
+  itkTransformToNgffMatrix,
+  itkTransformToNgffTransform,
+  type NgffMatrixAndOffset,
+} from "./utils/itk_transform_to_ngff_transform.ts";
+export { ngffTransformToItkTransform } from "./utils/ngff_transform_to_itk_transform.ts";
+export {
+  type FieldFrames,
+  type ItkDisplacementFieldOptions,
+  itkDisplacementFieldToNgffTransform,
+  type NgffDisplacementField,
+  ngffDisplacementFieldToItkTransform,
+} from "./utils/displacement_field_transform.ts";
 export {
   fromZarrAttrsV04,
   fromZarrAttrsV05,

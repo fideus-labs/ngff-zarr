@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ngff.openmicroscopy.org/0.9.dev1/schemas/axes.schema",
+  "title": "Axes",
+  "description": "OME-Zarr Axes.",
+  "type": "array",
+  "uniqueItems": true,
+  "minItems": 1,
+  "items": {
+    "$ref": "#/$defs/axis"
+  },
+  "$defs": {
+    "axis": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name of the axis. Must be unique within the coordinate system."
+        },
+        "longName": {
+          "type": "string",
+          "description": "Longer name or description of the axis."
+        },
+        "type": {
+          "type": "string",
+          "description": "Type of the axis. Can be a predefined type or custom type."
+        },
+        "discrete": {
+          "type": "boolean",
+          "description": "Whether the dimension is discrete"
+        },
+        "unit": {
+          "type": "string",
+          "description": "Unit for the axis"
+        },
+        "orientation": {
+          "$ref": "axis_orientation.schema"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  }
+}

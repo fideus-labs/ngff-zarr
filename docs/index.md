@@ -31,8 +31,8 @@ A lean and kind
 - v0.6 adds RFC-5 coordinate systems and transformations
 - [Sharded Zarr] stores
 - Zarr I/O backed by [zarrista] / Rust [zarrs] (Python) or zarrita
-  (TypeScript) -- no zarr-python dependency; outputs stay readable by
-  zarr-python 2 and 3
+  (TypeScript) -- no zarr-python dependency; OME-Zarr 0.4 (Zarr v2) outputs
+  stay readable by zarr-python 2 and 3, and 0.5+ (Zarr v3) by zarr-python 3
 - [Arbitrary axis dimensions, names, types, and ordering](./rfc3.md) (RFC-3)
 - [Anatomical orientation metadata](./rfc4.md) (RFC-4)
 - [Coordinate systems and transformations](./rfc5.md) (RFC-5)
@@ -60,6 +60,13 @@ itk.md
 methods.md
 faq.md
 development.md
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: 🔀 Migration Guides
+
+migration_guides/v0-43_to_v0-44.md
 ```
 
 ```{toctree}

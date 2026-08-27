@@ -58,6 +58,11 @@ class Methods(Enum):
     """Nearest neighbor for label images. Will have many artifacts for
     high-frequency content and/or multiple scales."""
 
+    DASK_BIN_SHRINK = "dask_bin_shrink"
+    """Uses the local mean for the output value, computed with dask.array.coarsen.
+    Same samples as the ITK bin-shrink methods, no native or WebAssembly
+    dependency and no limit on block size. Appropriate for intensity images."""
+
 
 # Backwards-compatible (name, value) pairs and value strings, derived from the
 # Methods enum. ``methods_values`` is used for CLI ``--method`` argument choices.

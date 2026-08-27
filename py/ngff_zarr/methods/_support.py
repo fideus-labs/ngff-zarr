@@ -133,6 +133,30 @@ def _channel_dim_last(ngff_image: NgffImage) -> NgffImage:
     return result
 
 
+def _incremental_factor(previous_size: int, target_size: int, nominal: int) -> int:
+    """The integer factor that shrinks ``previous_size`` to ``target_size``.
+
+    ``nominal`` is the requested factor relative to the previous level, floored
+    when the ladder step is not an integer: a ``[2, 5]`` ladder steps by 2.5
+    and floors to 2. It is kept whenever ``floor(previous_size / nominal)`` is
+    the target, so a level asked for at 4x is shrunk 4x. Flooring the step can
+    only leave the level larger than the target, and the guard keeps it only
+    when it lands on the target exactly, so a floored step never shrinks past
+    the requested size. The search below runs only when the nominal factor
+    misses the target, which happens on ladders such as ``[2, 3]``.
+    """
+    if target_size <= 0:
+        return 1
+    if nominal >= 1 and int(previous_size / nominal) == target_size:
+        return nominal
+    factor = int(np.ceil(previous_size / (target_size + 0.5)))
+    if int(previous_size / factor) != target_size:
+        factor = max(1, int(previous_size / target_size))
+        if int(previous_size / factor) != target_size:
+            factor = max(1, int(np.ceil(previous_size / target_size)))
+    return max(1, factor)
+
+
 def _dim_scale_factors(
     dims, scale_factor, previous_dim_factors, original_image=None, previous_image=None
 ):
@@ -156,25 +180,10 @@ def _dim_scale_factors(
                     prev_dim_index = previous_image.dims.index(dim)
                     previous_size = previous_image.data.shape[prev_dim_index]
 
-                    # Calculate factor such that floor(previous_size / factor) = target_size
-                    if target_size > 0:
-                        # Start with the theoretical factor
-                        factor = int(np.ceil(previous_size / (target_size + 0.5)))
-                        # Verify this gives us the right size
-                        actual_size = int(previous_size / factor)
-                        if actual_size != target_size:
-                            # Adjust factor to get exact target
-                            factor = max(1, int(previous_size / target_size))
-                            actual_size = int(previous_size / factor)
-                            # If still not exact, try factor+1
-                            if actual_size != target_size:
-                                factor = max(
-                                    1, int(np.ceil(previous_size / target_size))
-                                )
-                        incremental_factor = max(1, factor)
-                    else:
-                        incremental_factor = 1
-                    result_scale_factors[dim] = incremental_factor
+                    nominal = int(scale_factor // previous_dim_factors.get(dim, 1))
+                    result_scale_factors[dim] = _incremental_factor(
+                        previous_size, target_size, nominal
+                    )
         else:
             # Fallback to old behavior when images not provided
             result_scale_factors = {
@@ -193,18 +202,10 @@ def _dim_scale_factors(
                 prev_dim_index = previous_image.dims.index(d)
                 previous_size = previous_image.data.shape[prev_dim_index]
 
-                if target_size > 0:
-                    factor = int(np.ceil(previous_size / (target_size + 0.5)))
-                    actual_size = int(previous_size / factor)
-                    if actual_size != target_size:
-                        factor = max(1, int(previous_size / target_size))
-                        actual_size = int(previous_size / factor)
-                        if actual_size != target_size:
-                            factor = max(1, int(np.ceil(previous_size / target_size)))
-                    incremental_factor = max(1, factor)
-                else:
-                    incremental_factor = 1
-                result_scale_factors[d] = incremental_factor
+                nominal = int(scale_factor[d] // previous_dim_factors.get(d, 1))
+                result_scale_factors[d] = _incremental_factor(
+                    previous_size, target_size, nominal
+                )
         else:
             result_scale_factors = {
                 d: int(scale_factor[d] / previous_dim_factors[d]) for d in scale_factor

@@ -40,6 +40,7 @@ import {
 import { formatNameList, pyRepr } from "./py_format.ts";
 import {
   isRfc3AxisModelAllowed,
+  isRfc4OrientationEnforced,
   isV06Version,
 } from "../types/supported_versions.ts";
 
@@ -704,7 +705,12 @@ function axisToValidationRecord(axis: Axis): Record<string, unknown> {
  * Orientation is optional in RFC 4, so when no spatial axis carries it the rule
  * is a no-op.
  *
+ * Inert when `version` declares a release below 0.9.dev1, where RFC-4 has no
+ * normative status; `undefined` keeps the checks on (see
+ * {@link isRfc4OrientationEnforced}).
+ *
  * @param metadata - The parsed multiscales metadata to validate.
+ * @param version - The OME-Zarr version the metadata declares.
  * @throws {ValidationError} With {@link SpecRule.AxisOrientationAnatomicalType}
  * when an orientation `type` is not `"anatomical"`,
  * {@link SpecRule.AxisOrientationOnNonSpace} when
@@ -716,7 +722,13 @@ function axisToValidationRecord(axis: Axis): Record<string, unknown> {
  * RFC 4 vocabulary, a schema-level concern with no dedicated structural rule
  * -- propagates unchanged.
  */
-export function validateAxisOrientation(metadata: Metadata): void {
+export function validateAxisOrientation(
+  metadata: Metadata,
+  version?: string,
+): void {
+  if (!isRfc4OrientationEnforced(version)) {
+    return;
+  }
   const axesRecords = metadata.axes.map(axisToValidationRecord);
   // A stray orientation on a non-spatial axis carries no spatial-axis
   // orientation, so hasRfc4OrientationMetadata alone would skip it; check for any
@@ -985,7 +997,8 @@ export function validateWellAcquisition(
  *
  * This orchestrator covers the image/multiscales rules, including the RFC 4
  * anatomical-orientation checks ({@link validateAxisOrientation}, a no-op when
- * no axis declares orientation). The HCS plate/well structural rules operate on
+ * no axis declares orientation and inert when `version` declares a release
+ * below 0.9.dev1). The HCS plate/well structural rules operate on
  * separate metadata objects and are dispatched by the companion
  * {@link validatePlate} and {@link validateWell} entry points.
  *
@@ -994,7 +1007,10 @@ export function validateWellAcquisition(
  * `{ level: "strict", allowUnknownFields: true }`.
  * @param version - The OME-Zarr version the metadata declares. Rules 1-3 are
  * inert for the versions that adopt the RFC-3 axis model, so omitting it holds
- * every store to the v0.4 axis caps.
+ * every store to the v0.4 axis caps. The RFC 4 orientation checks
+ * ({@link validateAxisOrientation}) gate the opposite way: they are normative
+ * from 0.9.dev1, inert when an earlier version is declared, and kept on when
+ * the version is omitted.
  * @throws {ValidationError} For the first structural rule violated, carrying
  * the offending {@link SpecRule} and `location`. Never thrown under
  * {@link ValidationLevel.SchemaOnly}, which runs no structural rule.
@@ -1021,7 +1037,7 @@ export function validateStructural(
   validateTransformOrder(metadata);
   validateDatasetOrder(metadata);
   validateOmeroColorHex(metadata);
-  validateAxisOrientation(metadata);
+  validateAxisOrientation(metadata, version);
   validateZarrFormatForVersion(metadata);
   validateOmeNamespace(metadata);
 }
