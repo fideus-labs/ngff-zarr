@@ -167,6 +167,14 @@ commit = { cmd = "../py/.pixi/envs/lint/bin/cz c", description = "Interactive co
 version-check = { cmd = "../py/.pixi/envs/lint/bin/cz version -p", description = "Check current package version" }
 bump = { cmd = "../py/.pixi/envs/lint/bin/cz bump", description = "Bump MCP package version" }
 
+# Per-version Python pins so the MCP CI can exercise every supported
+# interpreter. The unpinned `dev` environment tracks the latest version.
+[tool.pixi.feature.py311.dependencies]
+python = "3.11.*"
+
+[tool.pixi.feature.py313.dependencies]
+python = "3.13.*"
+
 [tool.pixi.feature.cloud.pypi-dependencies]
 ngff-zarr-mcp = { path = ".", editable = true, extras = ["cloud"] }
 
@@ -176,6 +184,8 @@ ngff-zarr-mcp = { path = ".", editable = true, extras = ["all"] }
 [tool.pixi.environments]
 default = { solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
+dev-py311 = { features = ["dev", "py311"], solve-group = "py311" }
+dev-py313 = { features = ["dev", "py313"], solve-group = "py313" }
 cloud = { features = ["cloud"], solve-group = "default" }
 all = { features = ["all"], solve-group = "default" }
 
