@@ -329,3 +329,16 @@ def test_validate_structural_is_version_aware(version, accepted):
     else:
         with pytest.raises(ValidationError):
             validate_structural(metadata, version=version)
+
+
+@pytest.mark.parametrize("ome", [None, "0.9.dev1", [{"version": "0.9.dev1"}]])
+def test_a_non_object_ome_fails_the_schema_rather_than_the_reader(ome):
+    """A document with no object to read a version from goes to the schema.
+
+    Reaching for the version first turned a malformed document into an
+    AttributeError about ``.get``, which says nothing about the document.
+    """
+    import jsonschema
+
+    with pytest.raises(jsonschema.ValidationError):
+        Metadata._from_zarr_attrs({"ome": ome}, None, validate=True)

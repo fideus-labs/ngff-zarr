@@ -356,8 +356,12 @@ class Metadata:
             # ``0.9.dev1`` tag its ``_version.schema`` binds.
             from ..validate import validate as validate_ngff
 
-            schema_version = str(root_attrs.get("ome", {}).get("version") or "0.9.dev1")
-            validate_ngff(root_attrs, version=schema_version)
+            # A document whose ``ome`` is not an object has no version to
+            # read; it goes to the schema pass, which says so, rather than
+            # failing here on the way to asking.
+            ome = root_attrs.get("ome")
+            declared = ome.get("version") if isinstance(ome, dict) else None
+            validate_ngff(root_attrs, version=str(declared or "0.9.dev1"))
 
         if "ome" not in root_attrs or "multiscales" not in root_attrs.get("ome", {}):
             raise ValueError(

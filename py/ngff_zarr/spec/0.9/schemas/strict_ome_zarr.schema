@@ -19,6 +19,9 @@
     },
     {
       "$ref": "https://ngff.openmicroscopy.org/0.9.dev1/schemas/strict_well.schema"
+    },
+    {
+      "$ref": "https://ngff.openmicroscopy.org/0.9.dev1/schemas/scene.schema"
     }
   ]
 }
