@@ -113,7 +113,7 @@
                         ]
                       },
                       {
-                        "description": "A sequence of a ingle scale followed by a single translation",
+                        "description": "A sequence of a single scale followed by a single translation",
                         "type": "object",
                         "properties": {
                           "type": {"const": "sequence"},

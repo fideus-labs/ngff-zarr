@@ -365,14 +365,14 @@
                 "items": {
                   "type": "number"
                 },
-                "description": "Names of the input axes for this transformation."
+                "description": "Positions of the input axes for this transformation."
               },
               "outputAxes": {
                 "type": "array",
                 "items": {
                   "type": "number"
                 },
-                "description": "Names of the output axes for this transformation."
+                "description": "Positions of the output axes for this transformation."
               }
             },
             "required": [
