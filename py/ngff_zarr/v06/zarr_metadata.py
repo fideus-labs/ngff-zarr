@@ -241,6 +241,101 @@ class MapAxis(BaseTransform):
                 )
 
 
+#: The ``maxItems`` the schema sets on ``droppedInputs`` and ``createdOutputs``.
+#: Its companion ``maximum: 4`` is not mirrored: an index is bounded by the
+#: coordinate system it points into, which ``validate`` checks.
+_PROJECT_AXIS_MAX_OPERATIONS = 3
+
+
+@dataclass(kw_only=True)
+class ProjectAxis(BaseTransform):
+    """A projection that drops input axes and inserts zero-valued output axes.
+
+    ``droppedInputs`` are indices of the input vector to remove,
+    ``createdOutputs`` indices of the output vector to zero-fill; at least one
+    is given. Output dimensionality is the input less the dropped plus the
+    created. Dropping loses information, so it is not invertible in general.
+    """
+
+    droppedInputs: list[int] | None = None
+    createdOutputs: list[int] | None = None
+    type: str = "projectAxis"
+
+    def __post_init__(self) -> None:
+        self._check_intrinsic()
+
+    def _check_intrinsic(self) -> None:
+        if self.droppedInputs is None and self.createdOutputs is None:
+            raise ValueError(
+                "projectAxis must declare droppedInputs, createdOutputs, or both"
+            )
+        for field_name in ("droppedInputs", "createdOutputs"):
+            indices = getattr(self, field_name)
+            if indices is None:
+                continue
+            _require_integer_axes(indices, field_name)
+            if not indices:
+                raise ValueError(f"{field_name} must hold at least one index")
+            if any(index < 0 for index in indices):
+                raise ValueError(
+                    f"{field_name} indices are zero-based positions and must "
+                    f"not be negative; got {indices}"
+                )
+            if len(set(indices)) != len(indices):
+                raise ValueError(f"{field_name} indices must be unique; got {indices}")
+            if len(indices) > _PROJECT_AXIS_MAX_OPERATIONS:
+                raise ValueError(
+                    f"{field_name} may name at most "
+                    f"{_PROJECT_AXIS_MAX_OPERATIONS} axes; got {indices}"
+                )
+
+    def validate(self, coordinateSystems: list[CoordinateSystem] | None = None) -> None:
+        self._check_intrinsic()
+        dropped = self.droppedInputs or []
+        created = self.createdOutputs or []
+        input_count = _resolved_axis_count(self.input, coordinateSystems)
+        output_count = _resolved_axis_count(self.output, coordinateSystems)
+
+        if input_count is not None:
+            if len(dropped) > input_count:
+                raise ValueError(
+                    f"projectAxis drops {len(dropped)} axes, more than the "
+                    f"{input_count} axes of coordinate system "
+                    f"'{self.input.name}'"
+                )
+            beyond = [index for index in dropped if index >= input_count]
+            if beyond:
+                raise ValueError(
+                    f"droppedInputs indices {beyond} are beyond the "
+                    f"{input_count} axes of coordinate system "
+                    f"'{self.input.name}'"
+                )
+
+        if output_count is not None:
+            if len(created) > output_count:
+                raise ValueError(
+                    f"projectAxis creates {len(created)} axes, more than the "
+                    f"{output_count} axes of coordinate system "
+                    f"'{self.output.name}'"
+                )
+            beyond = [index for index in created if index >= output_count]
+            if beyond:
+                raise ValueError(
+                    f"createdOutputs indices {beyond} are beyond the "
+                    f"{output_count} axes of coordinate system "
+                    f"'{self.output.name}'"
+                )
+
+        if input_count is not None and output_count is not None:
+            expected = input_count - len(dropped) + len(created)
+            if expected != output_count:
+                raise ValueError(
+                    f"projectAxis maps {input_count} input axes to {expected} "
+                    f"output axes, but coordinate system '{self.output.name}' "
+                    f"declares {output_count}"
+                )
+
+
 Transform = Union[
     Identity,
     Scale,
@@ -250,6 +345,7 @@ Transform = Union[
     Coordinates,
     Displacements,
     MapAxis,
+    ProjectAxis,
     "ByDimension",
     "Bijection",
     "TransformSequence",
@@ -931,6 +1027,19 @@ class Metadata:
             elif transform["type"] == "mapAxis":
                 _require_keys(transform, ("mapAxis",), "mapAxis")
                 transformation = MapAxis(mapAxis=list(transform["mapAxis"]))
+            elif transform["type"] == "projectAxis":
+                transformation = ProjectAxis(
+                    droppedInputs=(
+                        list(transform["droppedInputs"])
+                        if "droppedInputs" in transform
+                        else None
+                    ),
+                    createdOutputs=(
+                        list(transform["createdOutputs"])
+                        if "createdOutputs" in transform
+                        else None
+                    ),
+                )
             elif transform["type"] == "byDimension":
                 transformation = ByDimension.from_dict(transform, coordinateSystems)
             elif transform["type"] == "bijection":

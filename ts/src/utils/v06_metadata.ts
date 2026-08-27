@@ -104,6 +104,19 @@ export function buildV06MultiscalesEntry(
           );
         }
       }
+      // The reader's own check, against the systems that get serialized: the
+      // intrinsic one built above when `metadata.coordinateSystems` is absent.
+      try {
+        validateV06Transform(transform, coordinateSystems);
+      } catch (invalid) {
+        throw new Error(
+          `multiscales coordinateTransformations[${index}] ` +
+            `(${transform.type}) would be written as a transform this ` +
+            `package cannot read back: ${
+              invalid instanceof Error ? invalid.message : String(invalid)
+            }`,
+        );
+      }
     });
     entry.coordinateTransformations = metadata.coordinateTransformations.map(
       serializeV06Transform,
@@ -170,6 +183,14 @@ export function serializeV06Transform(
       break;
     case "mapAxis":
       out.mapAxis = transform.mapAxis;
+      break;
+    case "projectAxis":
+      if (transform.droppedInputs !== undefined) {
+        out.droppedInputs = transform.droppedInputs;
+      }
+      if (transform.createdOutputs !== undefined) {
+        out.createdOutputs = transform.createdOutputs;
+      }
       break;
     case "byDimension":
       out.transformations = transform.transformations.map((item) => ({
@@ -271,6 +292,22 @@ function parseV06Transform(
         mapAxis: asIntegerArray(entry.mapAxis, "mapAxis"),
       };
       break;
+    case "projectAxis": {
+      transform = { type: "projectAxis" };
+      if (entry.droppedInputs !== undefined) {
+        transform.droppedInputs = asIntegerArray(
+          entry.droppedInputs,
+          "droppedInputs",
+        );
+      }
+      if (entry.createdOutputs !== undefined) {
+        transform.createdOutputs = asIntegerArray(
+          entry.createdOutputs,
+          "createdOutputs",
+        );
+      }
+      break;
+    }
     case "byDimension": {
       if (!Array.isArray(entry.transformations)) {
         throw new Error(
@@ -375,6 +412,16 @@ function axisCount(
     .length;
 }
 
+/**
+ * `projectAxis` may add or drop at most this many axes at once, which is the
+ * `maxItems` its schema sets on `droppedInputs` and `createdOutputs`. The
+ * companion `maximum: 4` on each index is deliberately not mirrored: it follows
+ * from the five-axis cap of 0.4 through 0.6, which RFC-3 lifts at 0.9.dev1, so
+ * an index is bounded by the coordinate system it points into rather than by a
+ * constant.
+ */
+const PROJECT_AXIS_MAX_OPERATIONS = 3;
+
 /** Dimensionality a byDimension item's axis lists must have, if knowable. */
 function itemDimensions(transformation: V06Transform): number | undefined {
   switch (transformation.type) {
@@ -438,10 +485,103 @@ export function validateV06Transform(
         );
       }
     }
+  } else if (transform.type === "projectAxis") {
+    const dropped = transform.droppedInputs;
+    const created = transform.createdOutputs;
+    if (dropped === undefined && created === undefined) {
+      throw new Error(
+        "projectAxis must declare droppedInputs, createdOutputs, or both",
+      );
+    }
+    for (
+      const [name, indices] of [
+        ["droppedInputs", dropped],
+        ["createdOutputs", created],
+      ] as const
+    ) {
+      if (indices === undefined) {
+        continue;
+      }
+      if (!indices.every((axis) => Number.isInteger(axis))) {
+        throw new Error(
+          `${name} axis indices must be integers; got [${indices}]`,
+        );
+      }
+      if (indices.length === 0) {
+        throw new Error(`${name} must hold at least one index`);
+      }
+      if (indices.some((axis) => axis < 0)) {
+        throw new Error(
+          `${name} indices are zero-based positions and must not be ` +
+            `negative; got [${indices}]`,
+        );
+      }
+      if (new Set(indices).size !== indices.length) {
+        throw new Error(`${name} indices must be unique; got [${indices}]`);
+      }
+      if (indices.length > PROJECT_AXIS_MAX_OPERATIONS) {
+        throw new Error(
+          `${name} may name at most ${PROJECT_AXIS_MAX_OPERATIONS} axes; ` +
+            `got [${indices}]`,
+        );
+      }
+    }
+    const droppedCount = dropped?.length ?? 0;
+    const createdCount = created?.length ?? 0;
+    const inputCount = axisCount(transform.input, coordinateSystems);
+    const outputCount = axisCount(transform.output, coordinateSystems);
+    if (inputCount !== undefined) {
+      if (droppedCount > inputCount) {
+        throw new Error(
+          `projectAxis drops ${droppedCount} axes, more than the ` +
+            `${inputCount} axes of coordinate system ` +
+            `'${transform.input?.name}'`,
+        );
+      }
+      const beyond = (dropped ?? []).filter((axis) => axis >= inputCount);
+      if (beyond.length > 0) {
+        throw new Error(
+          `droppedInputs indices [${beyond}] are beyond the ${inputCount} ` +
+            `axes of coordinate system '${transform.input?.name}'`,
+        );
+      }
+    }
+    if (outputCount !== undefined) {
+      if (createdCount > outputCount) {
+        throw new Error(
+          `projectAxis creates ${createdCount} axes, more than the ` +
+            `${outputCount} axes of coordinate system ` +
+            `'${transform.output?.name}'`,
+        );
+      }
+      const beyond = (created ?? []).filter((axis) => axis >= outputCount);
+      if (beyond.length > 0) {
+        throw new Error(
+          `createdOutputs indices [${beyond}] are beyond the ${outputCount} ` +
+            `axes of coordinate system '${transform.output?.name}'`,
+        );
+      }
+    }
+    if (inputCount !== undefined && outputCount !== undefined) {
+      const expected = inputCount - droppedCount + createdCount;
+      if (expected !== outputCount) {
+        throw new Error(
+          `projectAxis maps ${inputCount} input axes to ${expected} output ` +
+            `axes, but coordinate system '${transform.output?.name}' ` +
+            `declares ${outputCount}`,
+        );
+      }
+    }
+  } else if (transform.type === "sequence") {
+    for (const nested of transform.transformations) {
+      validateV06Transform(nested, coordinateSystems);
+    }
   } else if (transform.type === "byDimension") {
     const inputCount = axisCount(transform.input, coordinateSystems);
     const seenOutputAxes = new Set<number>();
     for (const item of transform.transformations) {
+      // The reader validates each child as it parses it.
+      validateV06Transform(item.transformation, coordinateSystems);
       const axes = [...item.inputAxes, ...item.outputAxes];
       if (!axes.every((axis) => Number.isInteger(axis))) {
         throw new Error(
@@ -501,6 +641,8 @@ export function validateV06Transform(
       }
     }
   } else if (transform.type === "bijection") {
+    validateV06Transform(transform.forward, coordinateSystems);
+    validateV06Transform(transform.inverse, coordinateSystems);
     const inputCount = axisCount(transform.input, coordinateSystems);
     const outputCount = axisCount(transform.output, coordinateSystems);
     if (
