@@ -11,7 +11,10 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.11", "3.12", "3.13"]
+        # One locked dev environment per supported Python version; the pinned
+        # interpreter comes from the matching pixi feature, so each leg really
+        # runs on its own Python.
+        environment: [dev-py311, dev-py313]
 
     steps:
       - uses: actions/checkout@v4
@@ -21,20 +24,17 @@ jobs:
         with:
           pixi-version: v0.69.0
           manifest-path: ./mcp/pyproject.toml
+          environments: ${{ matrix.environment }}
           frozen: true
-
-      - name: Install dependencies
-        working-directory: ./mcp
-        run: pixi install
 
       - name: Run linting
         working-directory: ./mcp
-        run: pixi run -e dev lint
+        run: pixi run -e ${{ matrix.environment }} lint
 
       - name: Run type checking
         working-directory: ./mcp
-        run: pixi run -e dev typecheck
+        run: pixi run -e ${{ matrix.environment }} typecheck
 
       - name: Run tests
         working-directory: ./mcp
-        run: pixi run -e dev test-cov
+        run: pixi run -e ${{ matrix.environment }} test-cov

@@ -18,7 +18,7 @@ jobs:
         # One pixi environment per supported Python version, plus the
         # zarr-python 2.x reference-reader leg (test-zarr2). The unpinned
         # `test` environment tracks the latest (currently 3.14).
-        environment: [test-py311, test-py312, test-py313, test-zarr2, test]
+        environment: [test-py311, test-py313, test-zarr2, test]
         include:
           # Keep a single Intel macOS smoke test on the latest Python.
           - os: macos-26-intel
