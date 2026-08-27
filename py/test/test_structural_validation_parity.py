@@ -84,6 +84,26 @@ NON_RFC3_VERSIONS = [
     if version.value not in CANONICAL_RFC3_VERSIONS
 ] + [None]
 
+# The locked RFC-4 orientation version manifest: the versions at which the
+# three axis-orientation rules are normative (ome/ngff-spec#190 folds RFC-4
+# into 0.9.dev1). This identical literal list appears in the Deno mirror test.
+# The gate points the opposite way from CANONICAL_RFC3_VERSIONS: RFC-3 *lifts*
+# the axis restrictions at 0.9.dev1 while RFC-4 *adds* the orientation
+# requirements, so the rules are inert below these versions. No version at all
+# keeps them on, as a strictness choice (like axis-names-unique).
+CANONICAL_RFC4_VERSIONS = [
+    "0.9.dev1",
+]
+
+# Every other supported version must leave the orientation rules inert. Read
+# off SUPPORTED_VERSIONS so a newly supported version has to be classified
+# here rather than silently defaulting to either side.
+PRE_RFC4_VERSIONS = [
+    version.value
+    for version in SUPPORTED_VERSIONS
+    if version.value not in CANONICAL_RFC4_VERSIONS
+]
+
 # The canonical fail-fast evaluation order of the image/multiscales
 # orchestrator (validate_structural). Each entry is the SpecRule the
 # orchestrator must raise when that rule -- and every rule after it -- is
@@ -421,6 +441,92 @@ def test_axis_names_unique_is_never_inert():
         with pytest.raises(ValidationError) as exc_info:
             validate_structural(_repeated_name_metadata(), version=version)
         assert exc_info.value.rule == SpecRule.AXIS_NAMES_UNIQUE, version
+
+
+# ---------------------------------------------------------------------------
+# Manifest: the locked RFC-4 orientation version set
+# ---------------------------------------------------------------------------
+
+
+def _orientation_metadata(axes: list[Axis]) -> Metadata:
+    """Wrap ``axes`` in metadata that satisfies every non-orientation rule.
+
+    The axis lists below are legal under both the restricted axis model and
+    RFC-3, so at every version the orientation rules alone decide the verdict.
+    """
+    return Metadata(
+        axes=axes,
+        datasets=[
+            Dataset(
+                path="0",
+                coordinateTransformations=[
+                    Scale([1.0] * len(axes)),
+                    Translation([0.0] * len(axes)),
+                ],
+            )
+        ],
+        coordinateTransformations=None,
+    )
+
+
+def _orientation_on_non_space_axes() -> list[Axis]:
+    """Orientation on the non-spatial time axis, and nowhere else.
+
+    Only a stray orientation violates RFC 4 here, and it sits on the one axis
+    that may not carry it -- exercising the non-space arm the orchestrator
+    reaches even when no spatial axis is oriented.
+    """
+    return [
+        Axis(
+            name="t",
+            type="time",
+            orientation=_orientation("anatomical", "inferior-to-superior"),
+        ),
+        Axis(name="y", type="space"),
+        Axis(name="x", type="space"),
+    ]
+
+
+def _duplicate_anatomical_axis_axes() -> list[Axis]:
+    """Two spatial axes on the one left-right anatomical axis."""
+    return [
+        Axis(
+            name="y",
+            type="space",
+            orientation=_orientation("anatomical", "left-to-right"),
+        ),
+        Axis(
+            name="x",
+            type="space",
+            orientation=_orientation("anatomical", "right-to-left"),
+        ),
+    ]
+
+
+# One violating document per orientation rule. Each satisfies every other rule
+# at every version, so the orientation rule alone decides accept or reject.
+_RFC4_ORIENTATION_CASES = [
+    (
+        _valid_axes_with_inconsistent_orientation,
+        SpecRule.AXIS_ORIENTATION_ANATOMICAL_TYPE,
+    ),
+    (_orientation_on_non_space_axes, SpecRule.AXIS_ORIENTATION_ON_NON_SPACE),
+    (_duplicate_anatomical_axis_axes, SpecRule.AXIS_ORIENTATION_UNIQUE_AXIS),
+]
+
+
+def test_rfc4_orientation_version_manifest_is_locked():
+    for build_axes, rule in _RFC4_ORIENTATION_CASES:
+        # Enforced at the manifest versions, and when no version is given...
+        for version in [*CANONICAL_RFC4_VERSIONS, None]:
+            with pytest.raises(ValidationError) as exc_info:
+                validate_structural(
+                    _orientation_metadata(build_axes()), version=version
+                )
+            assert exc_info.value.rule == rule, (rule, version)
+        # ...and inert at every earlier supported version.
+        for version in PRE_RFC4_VERSIONS:
+            validate_structural(_orientation_metadata(build_axes()), version=version)
 
 
 def _commented_rule_ids() -> list[str]:

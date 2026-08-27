@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ngff.openmicroscopy.org/0.6rc0/schemas/coordinate_transformations.schema",
+  "$id": "https://ngff.openmicroscopy.org/0.9.dev1/schemas/coordinate_transformations.schema",
   "title": "Coordinate Transformations",
   "description": "OME-Zarr Coordinate transforms.",
   "type": "array",
@@ -123,11 +123,8 @@
           "type": "array",
           "items": {
             "type": "integer",
-            "minimum": 0,
-            "maximum": 4
+            "minimum": 0
           },
-          "minItems": 2,
-          "maxItems": 5,
           "uniqueItems": true,
           "description": "An array of integers representing the new axis order as zero-based indices of the input axes."
         }
@@ -151,10 +148,8 @@
               "minItems": 1,
               "items": {
                 "type": "integer",
-                "minimum": 0,
-                "maximum": 4
+                "minimum": 0
               },
-              "maxItems": 3,
               "uniqueItems": true,
               "description": "An array of integers representing the indices of the input axes to drop."
             },
@@ -163,10 +158,8 @@
               "minItems": 1,
               "items": {
                 "type": "integer",
-                "minimum": 0,
-                "maximum": 4
+                "minimum": 0
               },
-              "maxItems": 3,
               "uniqueItems": true,
               "description": "An array of integers representing the indices where zeros are inserted in the output coordinate vector."
             }

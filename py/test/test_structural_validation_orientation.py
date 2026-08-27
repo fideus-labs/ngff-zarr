@@ -193,6 +193,33 @@ def test_axis_orientation_duplicate_anatomical_axis():
     assert exc_info.value.location == "multiscales[0].axes"
 
 
+def test_axis_orientation_version_gate():
+    """The rule is inert when the caller declares a pre-RFC-4 version.
+
+    RFC 4 orientation is normative from OME-Zarr 0.9.dev1
+    (``ome/ngff-spec#190``); when the caller declares 0.4, 0.5 or 0.6 the same
+    metadata passes. With no version the rule stays on as a strictness choice,
+    which every no-version test above relies on.
+    """
+    metadata = _metadata_with_axes(
+        [
+            Axis(name="z", type="space", orientation=_orientation_dict(_LPS_VALUES[0])),
+            Axis(
+                name="y",
+                type="space",
+                orientation={"type": "other", "value": _LPS_VALUES[1]},
+            ),
+            Axis(name="x", type="space", orientation=_orientation_dict(_LPS_VALUES[2])),
+        ]
+    )
+    for version in ("0.4", "0.5", "0.6", "0.6.dev4"):
+        validate_axis_orientation(metadata, version=version)
+    for version in ("0.9.dev1", None):
+        with pytest.raises(ValidationError) as exc_info:
+            validate_axis_orientation(metadata, version=version)
+        assert exc_info.value.rule == SpecRule.AXIS_ORIENTATION_ANATOMICAL_TYPE, version
+
+
 def test_rfc4_orientation_messages_carry_mapping_markers():
     """Pin the substrings :func:`validate_axis_orientation` maps onto rules.
 

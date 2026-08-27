@@ -79,3 +79,22 @@ export function isV06Version(version: string): boolean {
 export function isRfc3AxisModelAllowed(version?: string): boolean {
   return version !== undefined && version === NgffVersion.V09dev1;
 }
+
+/**
+ * Whether a version makes the RFC-4 orientation rules normative.
+ *
+ * Only `0.9.dev1` does (ome/ngff-spec#190 folds RFC-4 into it): the released
+ * 0.4, 0.5 and 0.6 specs give `orientation` no normative status, so when the
+ * caller declares one of those versions the orientation rules are inert.
+ * `undefined` keeps them on: with no declared version, enforcement is a
+ * strictness choice, exactly like `axis-names-unique` below 0.9.dev1 (see
+ * docs/validation/rule-reference.md).
+ *
+ * The gate points the opposite way from {@link isRfc3AxisModelAllowed}: at
+ * 0.9.dev1 RFC-3 *lifts* the axis restrictions while RFC-4 *adds* the
+ * orientation requirements, so the rules exit early below 0.9.dev1 rather
+ * than at it.
+ */
+export function isRfc4OrientationEnforced(version?: string): boolean {
+  return version === undefined || version === NgffVersion.V09dev1;
+}

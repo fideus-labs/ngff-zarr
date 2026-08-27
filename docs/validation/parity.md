@@ -26,7 +26,7 @@ for usage, see [[api]].
 
 ## The contract
 
-Both ports must agree on five observable dimensions:
+Both ports must agree on six observable dimensions:
 
 1. **Rule identifiers** — the same `SpecRule` string values, in the same
    canonical declaration/iteration order.
@@ -42,6 +42,10 @@ Both ports must agree on five observable dimensions:
    inert for the versions that adopt the RFC-3 free-form axis model. Both ports
    must treat exactly the same version strings as RFC-3, or the same metadata
    validates in one language and not the other.
+6. **The RFC-4 orientation version set** — the three orientation rules gate the
+   opposite way: they are normative at exactly the versions that adopt RFC-4
+   (and when no version is given), and inert below. Both ports must treat the
+   same version strings as RFC-4 for the same reason.
 
 Because both test suites assert these facts against the **same literal
 identifier list**, adding, removing, renaming, or reordering a rule — or
@@ -85,6 +89,15 @@ at every other. Rule 4, `axis-names-unique`, is never inert: RFC-3 *adds* it,
 and ngff-zarr applies it at all versions as a strictness choice (see
 [[rule-reference]]).
 
+The versions at which the RFC-4 orientation rules are normative are pinned the
+same way, as a `CANONICAL_RFC4_VERSIONS` literal:
+
+1. `0.9.dev1`
+
+Rules 9–11 gate the opposite way from the RFC-3 set: they are enforced at
+those versions and when no version is given, and inert at every earlier
+version, where RFC-4 has no normative status (see [[rule-reference]]).
+
 ## The parity tests
 
 | Language   | Test file |
@@ -116,6 +129,10 @@ Each suite independently locks:
   `CANONICAL_RFC3_VERSIONS` and enforced at every other supported version and
   when no version is given, asserted through the public orchestrator rather
   than through the internal predicate.
+- **RFC-4 orientation version set** — the orientation rules are enforced at
+  exactly the versions in `CANONICAL_RFC4_VERSIONS` (and when no version is
+  given) and inert at every other supported version, asserted the same way,
+  once per orientation rule.
 
 Four of the fifteen rules never appear in `EXPECTED_EVALUATION_ORDER`, each for
 its own reason. The two v0.5 namespacing rules (`zarr-format`, `ome-namespace`)

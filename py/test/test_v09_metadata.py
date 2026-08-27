@@ -121,6 +121,26 @@ def test_read_flat_axes_shape(tmp_path):
 
 
 @zarr_v3
+def test_the_flat_axes_shape_fails_the_schema_pass(tmp_path):
+    """The flat shape is a read tolerance, not a second valid 0.9.dev1 shape.
+
+    The entry the test above reads breaks the 0.9.dev1 schema twice over: it
+    declares no ``coordinateSystems``, which ``image.schema`` requires, and its
+    dataset transforms name no ``input`` or ``output``. Which of the two the
+    error reports is jsonschema's choice, so this pins the refusal rather than
+    a message. Reading the shape at all is a concession to stores that carry a
+    0.9 version string over a 0.5-shaped entry.
+    """
+    from jsonschema.exceptions import ValidationError
+
+    axes = [{"name": n, "type": "space"} for n in "zyx"]
+    root = _write_v09(tmp_path / "flat-validate.ome.zarr", axes, (2, 3, 4), flat=True)
+
+    with pytest.raises(ValidationError):
+        from_ome_zarr(root, validate=True)
+
+
+@zarr_v3
 @pytest.mark.parametrize("flat", [False, True], ids=["coordinate-systems", "flat-axes"])
 def test_read_axis_without_type(tmp_path, flat):
     """An axis declaring only ``name`` reads back with ``type`` ``None``."""
@@ -206,12 +226,69 @@ def test_axes_property_is_not_a_field():
     assert metadata.axes == metadata.coordinateSystems[0].axes
 
 
-def test_no_bundled_schema_is_reported_explicitly():
-    """``load_schema`` names the missing 0.9.dev1 schema instead of failing on I/O."""
+def test_the_0_9_dev1_schemas_are_bundled():
+    """``spec/0.9`` holds the schemas of the 0.9.dev1 release."""
     from ngff_zarr.validate import load_schema
 
-    with pytest.raises(ValueError, match="0.9.dev1"):
-        load_schema(version="0.9.dev1")
+    assert load_schema(version="0.9.dev1", model="_version")["enum"] == ["0.9.dev1"]
+    assert (
+        load_schema(version="0.9.dev1", model="image")["$id"]
+        == "https://ngff.openmicroscopy.org/0.9.dev1/schemas/image.schema"
+    )
+
+
+def test_a_0_9_dev1_store_reads_with_validate(tmp_path):
+    """The schema pass runs at 0.9.dev1 as it does at every bundled version."""
+    import dask.array as da
+    import ngff_zarr as nz
+    import numpy as np
+
+    image = nz.NgffImage(
+        da.zeros((1, 8, 8), dtype=np.uint8, chunks=(1, 8, 8)),
+        ["c", "y", "x"],
+        {"c": 1.0, "y": 1.0, "x": 1.0},
+        {"c": 0.0, "y": 0.0, "x": 0.0},
+    )
+    store = str(tmp_path / "s.ome.zarr")
+    nz.to_ome_zarr(
+        store,
+        nz.to_multiscales(image, scale_factors=[2], cache=False),
+        version="0.9.dev1",
+    )
+
+    assert len(nz.from_ome_zarr(store, validate=True).images) == 2
+
+
+def test_a_broken_0_9_dev1_store_is_refused(tmp_path):
+    import json
+    from pathlib import Path
+
+    import dask.array as da
+    import ngff_zarr as nz
+    from jsonschema.exceptions import ValidationError
+
+    image = nz.NgffImage(
+        da.zeros((1, 8, 8), dtype=np.uint8, chunks=(1, 8, 8)),
+        ["c", "y", "x"],
+        {"c": 1.0, "y": 1.0, "x": 1.0},
+        {"c": 0.0, "y": 0.0, "x": 0.0},
+    )
+    store = str(tmp_path / "s.ome.zarr")
+    nz.to_ome_zarr(
+        store,
+        nz.to_multiscales(image, scale_factors=[], cache=False),
+        version="0.9.dev1",
+    )
+
+    doc_path = Path(store) / "zarr.json"
+    doc = json.loads(doc_path.read_text())
+    doc["attributes"]["ome"]["multiscales"][0]["coordinateSystems"][0]["axes"][0].pop(
+        "name"
+    )
+    doc_path.write_text(json.dumps(doc, indent=4))
+
+    with pytest.raises(ValidationError):
+        nz.from_ome_zarr(store, validate=True)
 
 
 def test_version_is_supported():
@@ -252,3 +329,30 @@ def test_validate_structural_is_version_aware(version, accepted):
     else:
         with pytest.raises(ValidationError):
             validate_structural(metadata, version=version)
+
+
+@pytest.mark.parametrize("ome", [None, "0.9.dev1", [{"version": "0.9.dev1"}]])
+def test_a_non_object_ome_fails_the_schema_rather_than_the_reader(ome):
+    """A document with no object to read a version from goes to the schema.
+
+    Reaching for the version first turned a malformed document into an
+    AttributeError about ``.get``, which says nothing about the document.
+    """
+    import jsonschema
+
+    with pytest.raises(jsonschema.ValidationError):
+        Metadata._from_zarr_attrs({"ome": ome}, None, validate=True)
+
+
+@pytest.mark.parametrize("declared", [5, True, ["0.9.dev1"], {"a": 1}, ""])
+def test_a_non_string_version_does_not_select_a_schema(declared):
+    """A version that is not a string names no schema, so it selects none.
+
+    Passing it on turned the document into a ValueError listing which
+    schemas are bundled, which describes this package rather than the store.
+    """
+    import jsonschema
+
+    document = {"ome": {"version": declared, "multiscales": []}}
+    with pytest.raises(jsonschema.ValidationError):
+        Metadata._from_zarr_attrs(document, None, validate=True)
