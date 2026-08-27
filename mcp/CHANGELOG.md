@@ -1,3 +1,47 @@
+## mcp-v0.13.0 (2026-08-27)
+
+### BREAKING CHANGE
+
+- the old names are removed rather than kept as aliases. ([d3e48f5](https://github.com/fideus-labs/ngff-zarr/commit/d3e48f53500d1f0726ff3e4334d03f231a58b62b))
+- `ByDimensionItem.input_axes` and `.output_axes` are now
+`inputAxes` and `outputAxes`, in the Python dataclass and the TypeScript
+interface. ([65a0e10](https://github.com/fideus-labs/ngff-zarr/commit/65a0e103b234b6138d0d5759802ae4b4c9efb007))
+- ngff-zarr now requires Python >= 3.11. Python 3.10
+users should remain on the previous release series. ([6ea8c96](https://github.com/fideus-labs/ngff-zarr/commit/6ea8c96802a593ad52edcb1b73dad251c5543ccf))
+- installing ngff-zarr no longer installs zarr-python.
+Code that imported zarr relying on ngff-zarr's dependency tree must
+declare it explicitly. The remote extra no longer ships the fsspec
+backends (fsspec, aiohttp, requests, s3fs, gcsfs, adlfs); remote URL
+targets for writes are not supported. ([9f76343](https://github.com/fideus-labs/ngff-zarr/commit/9f76343dbb43a377cee16e4eb9db7553c59f0c53))
+
+### ♻️ Refactoring
+
+- **py,ts**: name the resamplers after what they take ([d3e48f5](https://github.com/fideus-labs/ngff-zarr/commit/d3e48f53500d1f0726ff3e4334d03f231a58b62b))
+
+### ✨ Features
+
+- **py,ts**: support the RFC-5 projectAxis transformation ([367eb06](https://github.com/fideus-labs/ngff-zarr/commit/367eb069674e4fa6588474ca2387c3d61dcb0d23))
+- **py,ts**: convert every RFC-5 transformation type to ITK ([1d4f063](https://github.com/fideus-labs/ngff-zarr/commit/1d4f063f09b6b1704500137be37651fddbd6752b))
+- **py,ts**: exact frame conversion and hardened ITK-Wasm decoding ([444c879](https://github.com/fideus-labs/ngff-zarr/commit/444c879c881b2c8f248838125100dff12b00ecbe))
+- convert coordinate transformations between RFC-5 and ITK ([16ec87b](https://github.com/fideus-labs/ngff-zarr/commit/16ec87bd0348ba8eec08df0c736ab6d7833e21db))
+- **py,ts**: offer 0.9.dev1 as an upgrade target and document it ([c256ea3](https://github.com/fideus-labs/ngff-zarr/commit/c256ea3af4816a09c9bcfdf17fccf3403187d184))
+- **py,ts**: add the OME-Zarr 0.9.dev1 version and its metadata model ([264c8bd](https://github.com/fideus-labs/ngff-zarr/commit/264c8bdd46a5caa8c7a515446f509998e9dc8f16))
+- **py,ts**: track the OME-Zarr 0.6rc0 schemas and version tag ([69b6e14](https://github.com/fideus-labs/ngff-zarr/commit/69b6e14c64c0338731177f62ec53380482e3e833))
+- **mcp**: deprecate use_tensorstore and drop runtime zarr-python usage ([41c2cdc](https://github.com/fideus-labs/ngff-zarr/commit/41c2cdcdf0e3c16224b87e2a477bf3400eade968))
+
+### 🐛 Bug Fixes
+
+- **py,ts**: refuse to write a transform the reader would reject ([36d3e92](https://github.com/fideus-labs/ngff-zarr/commit/36d3e924c08de5c697900a9d1eb522dd8a31539c))
+- **py,ts**: hold projectAxis to the arity its schema declares ([71d52e7](https://github.com/fideus-labs/ngff-zarr/commit/71d52e7ef3d12a90f9f754d75a1f873fbe40555d))
+- **py,ts**: refuse the conversions that returned a wrong matrix silently ([967e438](https://github.com/fideus-labs/ngff-zarr/commit/967e4387c1dc4b1c21c5db30c116b2a8c54372f9))
+- **py,ts**: follow the byDimension axis key rename ([945b590](https://github.com/fideus-labs/ngff-zarr/commit/945b590ab9e8746ff0b5618e26a326a7d0aad003))
+- **py,ts**: recover an ITK affine exactly and bind sub-grid axes by name ([f756056](https://github.com/fideus-labs/ngff-zarr/commit/f756056f6bc3e1e6157ce61981484ef86b787034))
+- **py,ts**: stop applying the v0.6 mapAxis arity to a 0.9.dev1 store ([ed4aee4](https://github.com/fideus-labs/ngff-zarr/commit/ed4aee4d8d0f9893d879686a6ec6a633450164ee))
+- **py,ts**: carry the v0.6 transform rules over to 0.9.dev1 ([3393a2d](https://github.com/fideus-labs/ngff-zarr/commit/3393a2dda5761f4675095c0d89aa4c1a0dcfecfa))
+- **py,ts**: gate the axes each version reads and writes ([a022dca](https://github.com/fideus-labs/ngff-zarr/commit/a022dca968a7f7fc13886e374e92df58d5f44ba5))
+- **py,ts**: correct the axis model and gate the RFC-3 rules by version ([e418a39](https://github.com/fideus-labs/ngff-zarr/commit/e418a39dbb0f278a8eaaadab1d7d71e845515fa6))
+- **py,ts**: write byDimension and top-level transforms the 0.6rc0 schema accepts ([65a0e10](https://github.com/fideus-labs/ngff-zarr/commit/65a0e103b234b6138d0d5759802ae4b4c9efb007))
+
 ## mcp-v0.12.0 (2026-08-21)
 
 ### ♻️ Refactoring
