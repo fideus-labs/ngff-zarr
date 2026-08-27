@@ -1,3 +1,103 @@
+## py-v0.44.0 (2026-08-27)
+
+### BREAKING CHANGE
+
+- the old names are removed rather than kept as aliases. ([d3e48f5](https://github.com/fideus-labs/ngff-zarr/commit/d3e48f53500d1f0726ff3e4334d03f231a58b62b))
+- `ByDimensionItem.input_axes` and `.output_axes` are now
+`inputAxes` and `outputAxes`, in the Python dataclass and the TypeScript
+interface. ([65a0e10](https://github.com/fideus-labs/ngff-zarr/commit/65a0e103b234b6138d0d5759802ae4b4c9efb007))
+- ngff-zarr now requires Python >= 3.11. Python 3.10
+users should remain on the previous release series. ([6ea8c96](https://github.com/fideus-labs/ngff-zarr/commit/6ea8c96802a593ad52edcb1b73dad251c5543ccf))
+- installing ngff-zarr no longer installs zarr-python.
+Code that imported zarr relying on ngff-zarr's dependency tree must
+declare it explicitly. The remote extra no longer ships the fsspec
+backends (fsspec, aiohttp, requests, s3fs, gcsfs, adlfs); remote URL
+targets for writes are not supported. ([9f76343](https://github.com/fideus-labs/ngff-zarr/commit/9f76343dbb43a377cee16e4eb9db7553c59f0c53))
+- to_ngff_zarr, from_ngff_zarr, to_hcs_zarr,
+write_hcs_well_image, and upgrade_ome_zarr no longer accept zarr-python
+store objects (MemoryStore, LocalStore, ...). Pass a local directory
+path instead; reads additionally accept remote URL strings, .ozx
+archives, and key-to-bytes mappings. ([a65596f](https://github.com/fideus-labs/ngff-zarr/commit/a65596f30f12a102ec0590a21360ea6be0dd9c58))
+
+### ♻️ Refactoring
+
+- **py,ts**: name the resamplers after what they take ([d3e48f5](https://github.com/fideus-labs/ngff-zarr/commit/d3e48f53500d1f0726ff3e4334d03f231a58b62b))
+- **py**: adopt enum.StrEnum now that Python >= 3.11 is required ([6201bb2](https://github.com/fideus-labs/ngff-zarr/commit/6201bb2a7b5d12923aebc2a682e8a3bb22a78311))
+- **py**: remove legacy zarr-python fallback branches ([a65596f](https://github.com/fideus-labs/ngff-zarr/commit/a65596f30f12a102ec0590a21360ea6be0dd9c58))
+- **py**: replace zarr-python type helpers with self-contained store types ([07beb3c](https://github.com/fideus-labs/ngff-zarr/commit/07beb3c1e0741a52c8664a6fd0ed0dce77d0fcb9))
+
+### ⚡ Performance
+
+- **py**: walk each dask layer once when guarding an overwrite ([635ae78](https://github.com/fideus-labs/ngff-zarr/commit/635ae7896b07ef0a592ce027b33b7999c90ff0fb))
+- **py**: name the transform once in the graph instead of once per block ([0aee194](https://github.com/fideus-labs/ngff-zarr/commit/0aee19431657df53d3898d906dcb4a32b5300982))
+- **py**: read each moving chunk once across resample blocks ([edca3c1](https://github.com/fideus-labs/ngff-zarr/commit/edca3c1479f286a8e1743ba21073f1430b7c23b4))
+
+### ✨ Features
+
+- **py,ts**: support the RFC-5 projectAxis transformation ([367eb06](https://github.com/fideus-labs/ngff-zarr/commit/367eb069674e4fa6588474ca2387c3d61dcb0d23))
+- **py**: open a store array for region reads and writes ([51ec893](https://github.com/fideus-labs/ngff-zarr/commit/51ec893732607bacaafc1ba863a3aee4f5663a05))
+- **py**: carry root attributes beside the OME metadata ([aea7a15](https://github.com/fideus-labs/ngff-zarr/commit/aea7a15e72a23df68ae1640183d5f2e0e7f3b449))
+- **py**: add start_level to to_ome_zarr ([a0ee542](https://github.com/fideus-labs/ngff-zarr/commit/a0ee542004eea33bf4a74612cdfc657ada6979df))
+- **py**: add metadata_only to to_ome_zarr ([2b6dfa1](https://github.com/fideus-labs/ngff-zarr/commit/2b6dfa1cc8c0e652caade1575b151ac2ba330f88))
+- **py**: add Methods.DASK_BIN_SHRINK ([80036d6](https://github.com/fideus-labs/ngff-zarr/commit/80036d66d4d55d8929b8331c29be732f485ac4e3))
+- **py,ts**: convert every RFC-5 transformation type to ITK ([1d4f063](https://github.com/fideus-labs/ngff-zarr/commit/1d4f063f09b6b1704500137be37651fddbd6752b))
+- **py**: convert ITK displacement fields to and from RFC-5 displacements ([297c201](https://github.com/fideus-labs/ngff-zarr/commit/297c201f476073ae09e44ebc66480d468adae871))
+- **py,ts**: exact frame conversion and hardened ITK-Wasm decoding ([444c879](https://github.com/fideus-labs/ngff-zarr/commit/444c879c881b2c8f248838125100dff12b00ecbe))
+- convert coordinate transformations between RFC-5 and ITK ([16ec87b](https://github.com/fideus-labs/ngff-zarr/commit/16ec87bd0348ba8eec08df0c736ab6d7833e21db))
+- **py,ts**: offer 0.9.dev1 as an upgrade target and document it ([c256ea3](https://github.com/fideus-labs/ngff-zarr/commit/c256ea3af4816a09c9bcfdf17fccf3403187d184))
+- **py,ts**: add the OME-Zarr 0.9.dev1 version and its metadata model ([264c8bd](https://github.com/fideus-labs/ngff-zarr/commit/264c8bdd46a5caa8c7a515446f509998e9dc8f16))
+- **py,ts**: track the OME-Zarr 0.6rc0 schemas and version tag ([69b6e14](https://github.com/fideus-labs/ngff-zarr/commit/69b6e14c64c0338731177f62ec53380482e3e833))
+- **py**: require Python >= 3.11 ([6ea8c96](https://github.com/fideus-labs/ngff-zarr/commit/6ea8c96802a593ad52edcb1b73dad251c5543ccf))
+- **py**: drop zarr-python runtime dependency in favor of zarrista ([9f76343](https://github.com/fideus-labs/ngff-zarr/commit/9f76343dbb43a377cee16e4eb9db7553c59f0c53))
+- **py**: read remote stores through zarrista and obstore ([8341f56](https://github.com/fideus-labs/ngff-zarr/commit/8341f56733ebe9d37de312901b80df52f577028f))
+- **py**: read OZX zip archives through zarrista ([656eeb7](https://github.com/fideus-labs/ngff-zarr/commit/656eeb7ee4d48b4083b2a9cfea48c5e594fb1459))
+- **py**: read tifffile aszarr stores through the store reader ([f477399](https://github.com/fideus-labs/ngff-zarr/commit/f4773996159ea38f7870eb9289fb20455f2e47ba))
+- **py**: route remaining local readers through zarrista ([b9f832d](https://github.com/fideus-labs/ngff-zarr/commit/b9f832db12e03c4d7354aefa4f83b78f1fbefaa5))
+- **py**: route from_ngff_zarr reads through zarrista ([dfaa48f](https://github.com/fideus-labs/ngff-zarr/commit/dfaa48ffb1995bad57fa4bf6a14206a889bc0ba9))
+- **py**: add internal zarr v2 bytes-mapping store reader ([99d3679](https://github.com/fideus-labs/ngff-zarr/commit/99d36798de621f1916d76b53a74eef3fdfd75bc8))
+- **py**: resolve compat-layer store handles for RFC-9 zip creation ([fad75b3](https://github.com/fideus-labs/ngff-zarr/commit/fad75b337d58f9d61d3a101c43c68b259abfe3ad))
+- **py**: upgrade OME-Zarr stores in place through zarrista ([7d70727](https://github.com/fideus-labs/ngff-zarr/commit/7d707274c16cb8caeaa823acb1f5e9b776187a37))
+- **py**: write HCS plates through zarrista for path stores ([61f69bd](https://github.com/fideus-labs/ngff-zarr/commit/61f69bdfe4f5baefbd10570e89013bb0eea65f9e))
+- **py**: route the to_multiscales disk cache through zarrista ([ddb0a58](https://github.com/fideus-labs/ngff-zarr/commit/ddb0a5849cdd07a28081c721e08f48dde9e48019))
+- **py**: write arrays through zarrista for path stores ([217b68a](https://github.com/fideus-labs/ngff-zarr/commit/217b68ab950bc357482a39005650d90baca4ea3f))
+- **py**: write group metadata through zarrista for path stores ([0d53be1](https://github.com/fideus-labs/ngff-zarr/commit/0d53be19f762f6c0de423c48db980f4177940be5))
+- **py**: add use_zarrista_for backend dispatch helper ([d7a2598](https://github.com/fideus-labs/ngff-zarr/commit/d7a25986580676a77e1e0403044a85635dbc2e06))
+- **py**: deprecate use_tensorstore in favor of the zarrista writer ([8326fad](https://github.com/fideus-labs/ngff-zarr/commit/8326fad2db1dacc694c89264851377e8fcca60d8))
+- **py**: implement zarrista writer for the tensorstore fast path ([ff1e31f](https://github.com/fideus-labs/ngff-zarr/commit/ff1e31fdb0a04601067e05cb2cee3d54d4b05c67))
+- **py**: add zarrista dependency and compatibility layer ([4796ab8](https://github.com/fideus-labs/ngff-zarr/commit/4796ab8ab4095f5bb5e0b65b875824a2f9ba828b))
+- **py**: add itk_transform_resample for out-of-core resampling ([822d90f](https://github.com/fideus-labs/ngff-zarr/commit/822d90f1a8fff0c327984772c66e59276004c9f9))
+
+### 🐛 Bug Fixes
+
+- **py,ts**: refuse to write a transform the reader would reject ([36d3e92](https://github.com/fideus-labs/ngff-zarr/commit/36d3e924c08de5c697900a9d1eb522dd8a31539c))
+- **py,ts**: hold projectAxis to the arity its schema declares ([71d52e7](https://github.com/fideus-labs/ngff-zarr/commit/71d52e7ef3d12a90f9f754d75a1f873fbe40555d))
+- **py**: keep the requested factor when it reaches the target size ([0627c36](https://github.com/fideus-labs/ngff-zarr/commit/0627c36a1d13f92d39ce6b33b1437ae6c36ddafd))
+- **py**: clamp a small array's shards and keep the consolidation state ([664ebb5](https://github.com/fideus-labs/ngff-zarr/commit/664ebb51600630929f0e2f9c5e0f4ecf63bdc2c3))
+- **py**: read non-default axis types back onto the image ([f302cdc](https://github.com/fideus-labs/ngff-zarr/commit/f302cdccacc46bf54908518b684c96ee75bef529))
+- **py**: guard itkwasm block sizes and trim bin-shrink remainders ([3c0188f](https://github.com/fideus-labs/ngff-zarr/commit/3c0188f610f487475f901ee722d644870da7e760))
+- **py**: keep foreign root attributes across an overwrite ([91e4fac](https://github.com/fideus-labs/ngff-zarr/commit/91e4fac11212e1aeea82ff3d157d8434e2883949))
+- **py**: write supplied scale levels as given ([e31124e](https://github.com/fideus-labs/ngff-zarr/commit/e31124e7b3a5f97780dd2aa3ba49778b1574b36a))
+- **py**: refuse to overwrite the store a multiscales still reads from ([e862300](https://github.com/fideus-labs/ngff-zarr/commit/e862300bd603f8ee9e9d23a9a00e2c6d720898eb))
+- **py,ts**: refuse the conversions that returned a wrong matrix silently ([967e438](https://github.com/fideus-labs/ngff-zarr/commit/967e4387c1dc4b1c21c5db30c116b2a8c54372f9))
+- **py,ts**: follow the byDimension axis key rename ([945b590](https://github.com/fideus-labs/ngff-zarr/commit/945b590ab9e8746ff0b5618e26a326a7d0aad003))
+- **py,ts**: recover an ITK affine exactly and bind sub-grid axes by name ([f756056](https://github.com/fideus-labs/ngff-zarr/commit/f756056f6bc3e1e6157ce61981484ef86b787034))
+- **py,ts**: stop applying the v0.6 mapAxis arity to a 0.9.dev1 store ([ed4aee4](https://github.com/fideus-labs/ngff-zarr/commit/ed4aee4d8d0f9893d879686a6ec6a633450164ee))
+- **py,ts**: carry the v0.6 transform rules over to 0.9.dev1 ([3393a2d](https://github.com/fideus-labs/ngff-zarr/commit/3393a2dda5761f4675095c0d89aa4c1a0dcfecfa))
+- **py,ts**: gate the axes each version reads and writes ([a022dca](https://github.com/fideus-labs/ngff-zarr/commit/a022dca968a7f7fc13886e374e92df58d5f44ba5))
+- **py,ts**: correct the axis model and gate the RFC-3 rules by version ([e418a39](https://github.com/fideus-labs/ngff-zarr/commit/e418a39dbb0f278a8eaaadab1d7d71e845515fa6))
+- **py**: substitute only the 0.6 tags earlier releases wrote ([e8dec2a](https://github.com/fideus-labs/ngff-zarr/commit/e8dec2a08ee89eb4f470294142e7ada06cdc5a9f))
+- **py**: validate the rest of a store that carries a superseded 0.6 tag ([edfd283](https://github.com/fideus-labs/ngff-zarr/commit/edfd2831683042f85bc3710288d84736e6037e20))
+- **py,ts**: write byDimension and top-level transforms the 0.6rc0 schema accepts ([65a0e10](https://github.com/fideus-labs/ngff-zarr/commit/65a0e103b234b6138d0d5759802ae4b4c9efb007))
+- **py**: make large-image cache paths unique per call ([05182ce](https://github.com/fideus-labs/ngff-zarr/commit/05182ce3f86c442969c6b8405db411043ee7bd44))
+- **py**: tolerate the replace window when reading group documents ([1c87020](https://github.com/fideus-labs/ngff-zarr/commit/1c870202086ba6a51503c1766b168a7f2280c078))
+- **py**: retry the atomic group-document replace on Windows ([ff16e17](https://github.com/fideus-labs/ngff-zarr/commit/ff16e173362a96ca1250e241e6045c643e345b95))
+- **py**: address review findings in the zarrista read/write paths ([205fe87](https://github.com/fideus-labs/ngff-zarr/commit/205fe8714633328808766fd9f88b404162749435))
+- **py**: convert TIFF inputs without zarr-python ([be129ab](https://github.com/fideus-labs/ngff-zarr/commit/be129ab7926215bed3d5c238a1b51071cca94660))
+- **py**: name the read/write API to_ome_zarr and from_ome_zarr ([d3ccfcf](https://github.com/fideus-labs/ngff-zarr/commit/d3ccfcf0fd3c302937fcb87158e5f7fc25795a4c))
+- **py**: render the v0.6 dataset transform instead of normalizing it ([40ec3e2](https://github.com/fideus-labs/ngff-zarr/commit/40ec3e2f74a8991eb9097e86cb3a84174264f025))
+- **py**: validate the coordinate-systems metadata model ([4fedb2d](https://github.com/fideus-labs/ngff-zarr/commit/4fedb2d1335199888eeaeb3cea16468353541f41))
+- **py**: carry RFC-4 orientation through block geometry ([4fb33c0](https://github.com/fideus-labs/ngff-zarr/commit/4fb33c0b4a11ae13d1641d2ebad8888eb54120d3))
+
 ## py-v0.43.0 (2026-08-21)
 
 ### ♻️ Refactoring
