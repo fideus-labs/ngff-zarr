@@ -1,3 +1,17 @@
+## py-v0.45.0 (2026-08-27)
+
+### ✨ Features
+
+- **py**: validate 0.9.dev1 stores against the bundled schemas ([98d38b8](https://github.com/fideus-labs/ngff-zarr/commit/98d38b882c6ad776f0d64689c5b32ad51880c21d))
+
+### 🐛 Bug Fixes
+
+- **py**: treat a version that is not a string as no version at all ([2309416](https://github.com/fideus-labs/ngff-zarr/commit/2309416908b48deae5bfd804f1b425802aeea4ac))
+- **py**: word the byDimension axes as upstream words them ([e95535f](https://github.com/fideus-labs/ngff-zarr/commit/e95535fb9ce372fa1d607e8df44659acfe388364))
+- **py**: let a malformed 0.9 document reach the schema that describes it ([144b418](https://github.com/fideus-labs/ngff-zarr/commit/144b418d818e9afa13c57f4e149a711613236930))
+- **py**: correct two schema descriptions the validator prints ([6eb7936](https://github.com/fideus-labs/ngff-zarr/commit/6eb793679d2767236b151eb4695966676d90ec2e))
+- **py,ts**: gate the RFC-4 orientation rules on 0.9.dev1 ([7205c2e](https://github.com/fideus-labs/ngff-zarr/commit/7205c2e85e84f8bb1f07fa5a188b7440634e9846))
+
 ## py-v0.44.0 (2026-08-27)
 
 ### BREAKING CHANGE
