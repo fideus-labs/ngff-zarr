@@ -342,3 +342,17 @@ def test_a_non_object_ome_fails_the_schema_rather_than_the_reader(ome):
 
     with pytest.raises(jsonschema.ValidationError):
         Metadata._from_zarr_attrs({"ome": ome}, None, validate=True)
+
+
+@pytest.mark.parametrize("declared", [5, True, ["0.9.dev1"], {"a": 1}, ""])
+def test_a_non_string_version_does_not_select_a_schema(declared):
+    """A version that is not a string names no schema, so it selects none.
+
+    Passing it on turned the document into a ValueError listing which
+    schemas are bundled, which describes this package rather than the store.
+    """
+    import jsonschema
+
+    document = {"ome": {"version": declared, "multiscales": []}}
+    with pytest.raises(jsonschema.ValidationError):
+        Metadata._from_zarr_attrs(document, None, validate=True)
