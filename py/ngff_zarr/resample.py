@@ -3,19 +3,23 @@
 """Resample a moving image onto a fixed image grid, one block at a time."""
 
 import functools
+from collections.abc import Mapping
+from dataclasses import replace
 
 import numpy as np
 
-from .itk_transform_resample_bounding_box import (
+from .ngff_image import NgffImage
+from .ngff_transform_to_itk_transform import ngff_transform_to_itk_transform
+from .resample_bounding_box import (
     _as_itk_transform_list,
     _check_geometry,
+    _is_ngff_transform,
     _itk_direction,
     _metadata_only_itk_image,
     _shifted_translation,
     _spatial_dims,
-    itk_transform_resample_bounding_box,
+    resample_bounding_box,
 )
-from .ngff_image import NgffImage
 
 _INTERPOLATORS = (
     "linear",
@@ -207,32 +211,50 @@ def _resample_block(
     return np.asarray(resampled.data).reshape(grid_shape).astype(out_dtype, copy=False)
 
 
-def itk_transform_resample(
+def resample(
     transform,
     fixed: NgffImage,
     moving: NgffImage,
     padding: int | None = None,
     interpolator: str = "linear",
     default_value: float = 0.0,
+    *,
+    fields: Mapping[str, object] | None = None,
 ) -> NgffImage:
     """Resample ``moving`` onto the grid of ``fixed`` through ``transform``.
 
     The result is a lazy :class:`NgffImage`: nothing is read or computed until
     the returned Dask array is. Each output block is resampled on its own from
     the moving chunks inside the region its resample reads, as reported by
-    :func:`ngff_zarr.itk_transform_resample_bounding_box`. The regions are
-    computed once, when the graph is built, and the blocks are tasks of a
-    single Dask graph that reference the moving chunks directly, so a chunk
-    that several blocks need is read and decoded once per computation. The
+    :func:`ngff_zarr.resample_bounding_box`. The regions are computed once,
+    when the graph is built, and the blocks are tasks of a single Dask graph
+    that reference the moving chunks directly, so a chunk that several blocks
+    need is read and decoded once per computation. The
     full moving image is never loaded, which is what makes this usable when it
     is larger than memory, remote, or chunked.
+
+    One input is not streamed: an RFC-5 ``displacements`` or ``coordinates``
+    transform is converted before the graph is built, and that conversion reads
+    its field in full. The field bounds where every block reads, so the regions
+    cannot be computed without it. A field the size of the volume therefore has
+    to fit in memory, while the moving image does not. Pass an ITK transform to
+    keep the field out of this call.
 
     Resampling runs through ``itkwasm-downsample``, so no native ITK build is
     required and the result is identical to one across platforms.
 
-    :param transform: An ``itk.Transform`` (including the ``CompositeTransform``
-        an Elastix registration returns), or an ITK-Wasm ``Transform`` /
-        ``TransformList``. It maps *fixed* points into *moving* space.
+    :param transform: An RFC-5 coordinate transformation, an ``itk.Transform``
+        (including the ``CompositeTransform`` an Elastix registration
+        returns), or an ITK-Wasm ``Transform`` / ``TransformList``. It maps
+        *fixed* points into *moving* space.
+
+        The two are interpreted in different coordinate spaces, exactly as
+        :func:`ngff_zarr.resample_bounding_box` interprets them. An RFC-5
+        transformation acts on the intrinsic coordinate systems, where a point
+        is ``translation + scale * index`` and no direction matrix applies, so
+        the anatomical orientation of either image does not enter; its
+        ``input`` and ``output`` identifiers are not resolved either. An ITK
+        transform acts on ITK physical space, direction matrix included.
 
     :param fixed: The image whose grid defines the output. Geometry only, its
         pixels are never read.
@@ -255,6 +277,12 @@ def itk_transform_resample(
     :param default_value: Value written where a block samples outside
         ``moving``.
     :type  default_value: float
+
+    :param fields: The field images an RFC-5 ``displacements`` or
+        ``coordinates`` transformation points at, keyed by its ``path``, as
+        :func:`ngff_zarr.ngff_transform_to_itk_transform` takes them. Required
+        for those two, ignored otherwise.
+    :type  fields: Mapping[str, NgffImage | NgffMultiscales], optional
 
     :return: The resampled image, carrying the geometry of ``fixed`` and the
         dtype of ``moving``.
@@ -304,7 +332,19 @@ def itk_transform_resample(
         _check_geometry(label, image, fixed_spatial)
 
     dtype = moving.data.dtype
-    transform_list = _as_itk_transform_list(transform)
+    out_orientations = fixed.axes_orientations
+    if _is_ngff_transform(transform):
+        transform_list = ngff_transform_to_itk_transform(
+            transform, fixed.dims, fields=fields
+        )
+        # An RFC-5 transformation acts on the intrinsic coordinate systems,
+        # which carry no direction matrix, so the blocks below are resampled
+        # with none either. That is what resample_bounding_box does with the
+        # same transformation, and the two have to read the same pixels.
+        fixed = replace(fixed, axes_orientations=None)
+        moving = replace(moving, axes_orientations=None)
+    else:
+        transform_list = _as_itk_transform_list(transform)
 
     out_chunks = fixed.data.chunks
     out_offsets = [np.concatenate([[0], np.cumsum(sizes)[:-1]]) for sizes in out_chunks]
@@ -324,7 +364,7 @@ def itk_transform_resample(
     # image's geometry is not carried by its array name, so leaving it out
     # gives two resamples of the same array at different origins the same key,
     # and one silently stands in for the other.
-    name = "itk-transform-resample-" + tokenize(
+    name = "ngff-zarr-resample-" + tokenize(
         moving.data.name,
         moving.dims,
         moving.scale,
@@ -353,9 +393,7 @@ def itk_transform_resample(
         }
         shape = tuple(int(out_chunks[axis][index[axis]]) for axis in range(len(index)))
         grid = _block_grid(fixed, starts, shape)
-        region = itk_transform_resample_bounding_box(
-            transform_list, grid, moving, padding=padding
-        )
+        region = resample_bounding_box(transform_list, grid, moving, padding=padding)
         if region.is_empty:
             graph[(name, *index)] = (np.full, shape, default_value, dtype)
             continue
@@ -417,7 +455,7 @@ def itk_transform_resample(
         translation=dict(fixed.translation),
         name=moving.name,
         axes_units=fixed.axes_units,
-        axes_orientations=fixed.axes_orientations,
+        axes_orientations=out_orientations,
         axes_types=fixed.axes_types,
         channel_names=moving.channel_names,
         channel_colors=moving.channel_colors,

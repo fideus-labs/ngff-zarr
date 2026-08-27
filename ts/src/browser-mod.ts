@@ -23,11 +23,24 @@ export {
   itkImageToNgffImage,
   type ItkImageToNgffImageOptions,
 } from "./io/itk_image_to_ngff_image.ts";
-export { itkTransformResampleBoundingBox } from "./io/itk_transform_resample_bounding_box-browser.ts";
+export { resampleBoundingBox } from "./io/resample_bounding_box-browser.ts";
 export {
-  type ItkTransformResampleBoundingBoxOptions,
   ResampleBoundingBox,
-} from "./io/itk_transform_resample_bounding_box-shared.ts";
+  type ResampleBoundingBoxOptions,
+} from "./io/resample_bounding_box-shared.ts";
+export {
+  itkTransformToNgffMatrix,
+  itkTransformToNgffTransform,
+  type NgffMatrixAndOffset,
+} from "./utils/itk_transform_to_ngff_transform.ts";
+export { ngffTransformToItkTransform } from "./utils/ngff_transform_to_itk_transform.ts";
+export {
+  type FieldFrames,
+  type ItkDisplacementFieldOptions,
+  itkDisplacementFieldToNgffTransform,
+  type NgffDisplacementField,
+  ngffDisplacementFieldToItkTransform,
+} from "./utils/displacement_field_transform.ts";
 export {
   dataTypeToComponentType,
   ngffImageToItkImage,

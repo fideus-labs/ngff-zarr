@@ -217,3 +217,16 @@ def test_axes_types_unknown_dim_raises():
     """An axes_types entry naming a missing dimension is rejected."""
     with pytest.raises(ValueError):
         to_multiscales(_field_image({"q": "displacement"}), scale_factors=[])
+
+
+@requires_zarr_v3
+def test_read_back_image_carries_the_displacement_type(tmp_path):
+    """A re-generated multiscales keeps the axis type the store declares."""
+    multiscales = to_multiscales(_field_image({"c": "displacement"}), scale_factors=[])
+    path = str(tmp_path / "field.ome.zarr")
+    nz.to_ome_zarr(path, multiscales, version="0.6")
+
+    image = nz.from_ome_zarr(path).images[0]
+    assert image.axes_types == {"c": "displacement"}
+    regenerated = to_multiscales(image, scale_factors=[])
+    assert [a.type for a in _axes(regenerated)] == ["displacement", "space", "space"]

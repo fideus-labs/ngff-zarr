@@ -7,10 +7,10 @@ import numpy as np
 import pytest
 from ngff_zarr import (
     NgffImage,
-    itk_transform_resample,
-    itk_transform_resample_bounding_box,
+    resample,
+    resample_bounding_box,
 )
-from ngff_zarr.itk_transform_resample import _INTERPOLATOR_PADDING
+from ngff_zarr.resample import _INTERPOLATOR_PADDING
 
 itk = pytest.importorskip("itk")
 
@@ -40,14 +40,14 @@ def _identity(dimension):
 def _whole_image_reference(transform, fixed, moving, interpolator="linear"):
     """Resample in a single ITK-Wasm call, without any block decomposition."""
     from itkwasm_downsample import resample_to_reference
-    from ngff_zarr.itk_transform_resample import _component_type
-    from ngff_zarr.itk_transform_resample_bounding_box import (
+    from ngff_zarr.ngff_image_to_itk_image import ngff_image_to_itk_image
+    from ngff_zarr.resample import _component_type
+    from ngff_zarr.resample_bounding_box import (
         _as_itk_transform_list,
         _itk_direction,
         _metadata_only_itk_image,
         _spatial_dims,
     )
-    from ngff_zarr.ngff_image_to_itk_image import ngff_image_to_itk_image
 
     itk_dims = list(reversed(_spatial_dims(fixed)))
     reference = _metadata_only_itk_image(
@@ -71,7 +71,7 @@ def test_block_decomposition_matches_a_single_whole_image_call():
     )
     transform = _translation(2, [3.5, -2.25])
 
-    result = itk_transform_resample(transform, fixed, moving)
+    result = resample(transform, fixed, moving)
     assert result.data.numblocks == (4, 4)
 
     expected = _whole_image_reference(transform, fixed, moving)
@@ -84,7 +84,7 @@ def test_geometry_and_dtype_follow_the_right_image():
     )
     fixed = _image("yx", {"y": 16, "x": 8}, {"y": 2.0, "x": 4.0}, {"y": 5.0, "x": 7.0})
 
-    result = itk_transform_resample(_identity(2), fixed, moving)
+    result = resample(_identity(2), fixed, moving)
 
     assert result.data.shape == (16, 8)
     assert result.dims == ("y", "x")
@@ -115,7 +115,7 @@ def test_nothing_is_computed_until_the_result_is():
     # dask probes the wrapper as it is built, so measure from there.
     baseline = len(reads)
 
-    result = itk_transform_resample(_identity(2), fixed, moving)
+    result = resample(_identity(2), fixed, moving)
     assert len(reads) == baseline
 
     np.asarray(result.data)
@@ -126,7 +126,7 @@ def test_a_block_outside_the_moving_image_gets_the_default_value():
     moving = _image("yx", {"y": 16, "x": 16}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
     fixed = _image("yx", {"y": 32, "x": 32}, {"y": 1, "x": 1}, {"y": 1000, "x": 1000})
 
-    result = itk_transform_resample(_identity(2), fixed, moving, default_value=7.0)
+    result = resample(_identity(2), fixed, moving, default_value=7.0)
 
     assert np.all(np.asarray(result.data) == 7.0)
 
@@ -139,17 +139,17 @@ def test_each_block_reads_only_its_own_region():
     )
     transform = _translation(2, [2.0, 3.0])
 
-    whole = itk_transform_resample_bounding_box(transform, fixed, moving)
+    whole = resample_bounding_box(transform, fixed, moving)
     whole_bounds = whole.clamped()
 
-    from ngff_zarr.itk_transform_resample import _block_grid
+    from ngff_zarr.resample import _block_grid
 
     block = 16
     pad = _INTERPOLATOR_PADDING["linear"]
     for y_start in range(0, 64, block):
         for x_start in range(0, 64, block):
             grid = _block_grid(fixed, {"y": y_start, "x": x_start}, (block, block))
-            region = itk_transform_resample_bounding_box(transform, grid, moving)
+            region = resample_bounding_box(transform, grid, moving)
             bounds = region.clamped()
             for dim in ("y", "x"):
                 assert bounds[dim][0] >= whole_bounds[dim][0]
@@ -166,7 +166,7 @@ def test_interpolators_are_forwarded(interpolator):
     transform = _translation(2, [0.5, 0.5])
 
     result = np.asarray(
-        itk_transform_resample(transform, fixed, moving, interpolator=interpolator).data
+        resample(transform, fixed, moving, interpolator=interpolator).data
     )
     expected = _whole_image_reference(
         transform, fixed, moving, interpolator=interpolator
@@ -177,14 +177,14 @@ def test_interpolators_are_forwarded(interpolator):
 def test_an_unknown_interpolator_is_rejected():
     fixed = _image("yx", {"y": 8, "x": 8}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
     with pytest.raises(ValueError, match="interpolator must be one of"):
-        itk_transform_resample(_identity(2), fixed, fixed, interpolator="cubic")
+        resample(_identity(2), fixed, fixed, interpolator="cubic")
 
 
 @pytest.mark.parametrize("bad", [-1, 1.5, float("nan")])
 def test_padding_that_is_not_a_non_negative_integer_is_rejected(bad):
     fixed = _image("yx", {"y": 8, "x": 8}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
     with pytest.raises(ValueError, match="padding must be a non-negative integer"):
-        itk_transform_resample(_identity(2), fixed, fixed, padding=bad)
+        resample(_identity(2), fixed, fixed, padding=bad)
 
 
 def test_mismatched_dims_are_rejected():
@@ -196,7 +196,7 @@ def test_mismatched_dims_are_rejected():
         {"z": 0, "y": 0, "x": 0},
     )
     with pytest.raises(ValueError, match="they must match"):
-        itk_transform_resample(_identity(2), fixed, moving)
+        resample(_identity(2), fixed, moving)
 
 
 def test_a_three_dimensional_grid_is_resampled_block_wise():
@@ -215,7 +215,7 @@ def test_a_three_dimensional_grid_is_resampled_block_wise():
     )
     transform = _translation(3, [1.5, -2.0, 0.75])
 
-    result = itk_transform_resample(transform, fixed, moving)
+    result = resample(transform, fixed, moving)
     assert result.data.numblocks == (2, 2, 2)
 
     expected = _whole_image_reference(transform, fixed, moving)
@@ -236,7 +236,7 @@ def test_default_padding_reproduces_an_undecomposed_resample(interpolator):
     transform = _translation(2, [3.5, -2.25])
 
     result = np.asarray(
-        itk_transform_resample(transform, fixed, moving, interpolator=interpolator).data
+        resample(transform, fixed, moving, interpolator=interpolator).data
     )
     expected = _whole_image_reference(
         transform, fixed, moving, interpolator=interpolator
@@ -267,7 +267,7 @@ def test_the_fixed_image_pixels_are_never_read():
     )
     baseline = len(reads)
 
-    result = itk_transform_resample(_identity(2), fixed, moving)
+    result = resample(_identity(2), fixed, moving)
     np.asarray(result.data)
 
     assert len(reads) == baseline
@@ -297,7 +297,7 @@ def test_moving_chunks_shared_by_several_blocks_are_read_once():
     )
     baseline = len(reads)
 
-    result = itk_transform_resample(_translation(2, [0.5, 0.5]), fixed, moving)
+    result = resample(_translation(2, [0.5, 0.5]), fixed, moving)
     np.asarray(result.data)
 
     assert len(reads) - baseline == moving.data.npartitions
@@ -324,7 +324,7 @@ def test_a_transform_that_shifts_off_the_moving_image_reads_no_chunks():
     )
     baseline = len(reads)
 
-    result = itk_transform_resample(_identity(2), fixed, moving, default_value=3.0)
+    result = resample(_identity(2), fixed, moving, default_value=3.0)
 
     assert np.all(np.asarray(result.data) == 3.0)
     assert len(reads) == baseline
@@ -348,8 +348,8 @@ def test_moving_geometry_is_part_of_the_graph_name():
         "yx", {"y": 32, "x": 32}, {"y": 1, "x": 1}, {"y": 0, "x": 0}, chunks=(16, 16)
     )
 
-    first = itk_transform_resample(_identity(2), fixed, moving)
-    second = itk_transform_resample(_identity(2), fixed, shifted)
+    first = resample(_identity(2), fixed, moving)
+    second = resample(_identity(2), fixed, shifted)
     assert first.data.name != second.data.name
 
     alone_first = np.asarray(first.data)
@@ -382,7 +382,7 @@ def test_the_graph_does_not_carry_a_buffer_for_every_block():
     fixed = lazy((1024, 1024), (256, 256))
     moving = lazy((1024, 1024), (256, 256))
 
-    result = itk_transform_resample(_identity(2), fixed, moving)
+    result = resample(_identity(2), fixed, moving)
     layer = result.data.dask.layers[result.data.name]
     weight = sum(len(pickle.dumps(task, protocol=5)) for task in layer.values())
 
@@ -400,7 +400,7 @@ def test_a_large_transform_crosses_the_graph_once():
     """
     import pickle
 
-    from ngff_zarr.itk_transform_resample_bounding_box import _as_itk_transform_list
+    from ngff_zarr.resample_bounding_box import _as_itk_transform_list
 
     def lazy(shape, chunks):
         return NgffImage(
@@ -416,7 +416,7 @@ def test_a_large_transform_crosses_the_graph_once():
     transform.SetTransformDomainPhysicalDimensions([1024.0, 1024.0])
 
     image = lazy((1024, 1024), (256, 256))
-    result = itk_transform_resample(transform, image, image)
+    result = resample(transform, image, image)
     layer = result.data.dask.layers[result.data.name]
     weight = sum(len(pickle.dumps(task, protocol=5)) for task in layer.values())
     once = len(pickle.dumps(_as_itk_transform_list(transform), protocol=5))
@@ -449,7 +449,7 @@ def test_b_spline_default_padding_is_exact_on_float64_images():
     transform = _translation(2, [3.5, -2.25])
 
     result = np.asarray(
-        itk_transform_resample(transform, fixed, moving, interpolator="b_spline").data
+        resample(transform, fixed, moving, interpolator="b_spline").data
     )
     expected = _whole_image_reference(transform, fixed, moving, interpolator="b_spline")
     np.testing.assert_array_equal(result, expected)
@@ -494,7 +494,7 @@ def test_oriented_images_match_an_undecomposed_resample():
     )
     transform = _translation(3, [1.5, -2.25, 3.0])
 
-    result = np.asarray(itk_transform_resample(transform, fixed, moving).data)
+    result = np.asarray(resample(transform, fixed, moving).data)
     expected = _whole_image_reference(transform, fixed, moving)
     np.testing.assert_array_equal(result, expected)
 
@@ -514,4 +514,97 @@ def test_non_spatial_dims_are_rejected():
     )
 
     with pytest.raises(ValueError, match="non-spatial dims"):
-        itk_transform_resample(_identity(2), fixed, moving)
+        resample(_identity(2), fixed, moving)
+
+
+def _oriented(image, orientations):
+    from dataclasses import replace
+
+    return replace(image, axes_orientations=orientations)
+
+
+def test_an_rfc5_transformation_resamples_like_the_itk_transform_it_equals():
+    """The two entry points differ in convention, not in the pixels they read.
+
+    RFC-5 orders the translation in ``dims`` order and ITK orders it
+    fastest-axis-first, so the same shift is written two ways; the resampled
+    grids must come out identical.
+    """
+    from ngff_zarr.v06.zarr_metadata import Translation
+
+    moving = _image(
+        "yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 0, "x": 0}, chunks=(16, 16)
+    )
+    fixed = _image(
+        "yx",
+        {"y": 48, "x": 40},
+        {"y": 1, "x": 1},
+        {"y": 2.0, "x": 3.0},
+        chunks=(16, 16),
+    )
+
+    through_rfc5 = resample(Translation(translation=[3.5, -2.25]), fixed, moving)
+    through_itk = resample(_translation(2, [-2.25, 3.5]), fixed, moving)
+
+    np.testing.assert_array_equal(
+        np.asarray(through_rfc5.data), np.asarray(through_itk.data)
+    )
+
+
+def test_an_rfc5_map_axis_resamples_like_the_affine_it_equals():
+    from ngff_zarr.v06.zarr_metadata import Affine, MapAxis
+
+    moving = _image("yx", {"y": 32, "x": 32}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+    fixed = _image(
+        "yx", {"y": 32, "x": 32}, {"y": 1, "x": 1}, {"y": 0, "x": 0}, chunks=(8, 8)
+    )
+
+    swapped = resample(MapAxis(mapAxis=[1, 0]), fixed, moving)
+    as_affine = resample(
+        Affine(affine=[[0.0, 1.0, 0.0], [1.0, 0.0, 0.0]]), fixed, moving
+    )
+
+    np.testing.assert_array_equal(np.asarray(swapped.data), np.asarray(as_affine.data))
+    # Swapping y and x transposes the sampled grid.
+    np.testing.assert_allclose(
+        np.asarray(swapped.data), np.asarray(moving.data).T, atol=1e-5
+    )
+
+
+def test_an_rfc5_transformation_ignores_anatomical_orientation():
+    """RFC-5 acts on the intrinsic systems, where no direction matrix applies.
+
+    The fixed and moving images are given opposite orientations, so an ITK
+    transform would be resampled through two different physical frames. An
+    RFC-5 identity must still return the moving pixels, and must read the
+    region ``resample_bounding_box`` reports for the same transformation.
+    """
+    from ngff_zarr.rfc4 import LPS, RAS
+    from ngff_zarr.v06.zarr_metadata import Identity
+
+    moving = _image("yx", {"y": 24, "x": 24}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+    fixed = _image(
+        "yx", {"y": 24, "x": 24}, {"y": 1, "x": 1}, {"y": 0, "x": 0}, chunks=(8, 8)
+    )
+    fixed_ras = _oriented(fixed, {"y": RAS["y"], "x": RAS["x"]})
+    moving_lps = _oriented(moving, {"y": LPS["y"], "x": LPS["x"]})
+
+    result = resample(Identity(), fixed_ras, moving_lps)
+
+    np.testing.assert_allclose(
+        np.asarray(result.data), np.asarray(moving.data), atol=1e-5
+    )
+    assert result.axes_orientations == fixed_ras.axes_orientations
+
+    region = resample_bounding_box(Identity(), fixed_ras, moving_lps)
+    assert region.clamped() == {"y": (0, 24), "x": (0, 24)}
+
+
+def test_a_displacements_transformation_needs_its_field():
+    from ngff_zarr.v06.zarr_metadata import Displacements
+
+    moving = _image("yx", {"y": 16, "x": 16}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+    fixed = _image("yx", {"y": 16, "x": 16}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+
+    with pytest.raises(ValueError, match="no field was passed"):
+        resample(Displacements(path="warp"), fixed, moving)

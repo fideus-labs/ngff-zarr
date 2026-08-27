@@ -730,7 +730,7 @@ class Metadata:
         import sys
 
         from .._zarrista_utils import open_lazy_array
-        from ..ngff_image import NgffImage
+        from ..ngff_image import NgffImage, non_default_axes_types
         from ..parse_metadata import _parse_omero
         from ..validate import validate as validate_ngff
 
@@ -864,6 +864,7 @@ class Metadata:
                 translation=dict(zip(dims, translation.translation)),
                 name=root_attrs.get("name", "image"),
                 axes_units=dict(zip(dims, [ax.unit for ax in cs_intrinsic.axes])),
+                axes_types=non_default_axes_types(cs_intrinsic.axes),
             )
             images.append(ngff_image)
 

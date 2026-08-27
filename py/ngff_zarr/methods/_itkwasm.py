@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+import copy
 from itertools import product
 
 import dask.array
@@ -26,6 +27,83 @@ _image_dims: tuple[str, str, str, str] = ("x", "y", "z", "t")
 # Images with more components will iterate over channels individually to avoid
 # itkwasm limitations with VariableLengthVector images.
 _MAX_VECTOR_COMPONENTS = 8
+
+
+#: Largest block, in bytes, each itkwasm-downsample filter can process before
+#: the wasm32 heap is exhausted. Measured on float32 blocks: the Gaussian
+#: filter aborts at 1.5 GiB and BinShrink at 2.0 GiB.
+_WASM_BLOCK_LIMITS = {
+    "gaussian": int(1.25 * 1024**3),
+    "label_image": int(1.25 * 1024**3),
+    "bin_shrink": int(1.75 * 1024**3),
+}
+
+
+def _check_wasm_block_size(
+    image: NgffImage, is_vector: bool, smoothing: str, kernel_radius=None
+) -> None:
+    """Raise before building a graph whose blocks the wasm sandbox cannot hold.
+
+    A block handed to itkwasm spans the spatial chunk, the channel chunk when
+    channels travel as vector components, and the overlap the Gaussian filter
+    reads past the chunk. Chunks smaller than that overlap are merged by
+    map_overlap before the filter runs, so the merged chunks are what count.
+    Integer input to the Gaussian filter is converted to float32 first, which
+    is the size that counts.
+    """
+    from dask.array.overlap import ensure_minimum_chunksize
+
+    numel = 1
+    shape = []
+    depth = 0 if kernel_radius is None else int(max(kernel_radius))
+    for dim, axis_chunks in zip(image.dims, image.data.chunks):
+        if dim in _spatial_dims:
+            if depth:
+                axis_chunks = ensure_minimum_chunksize(depth, axis_chunks)
+            extent = max(axis_chunks) + 2 * depth
+        elif dim == "c" and is_vector:
+            extent = max(axis_chunks)
+        else:
+            continue
+        shape.append(extent)
+        numel *= extent
+    dtype = image.data.dtype
+    if smoothing == "gaussian" and np.issubdtype(dtype, np.integer):
+        itemsize = 4
+    else:
+        itemsize = np.dtype(dtype).itemsize
+    nbytes = numel * itemsize
+    limit = _WASM_BLOCK_LIMITS[smoothing]
+    if nbytes > limit:
+        raise ValueError(
+            f"itkwasm {smoothing} downsampling needs {nbytes / 1024**3:.2f} GiB "
+            f"for one block of shape {tuple(shape)} ({dtype}), above the "
+            f"{limit / 1024**3:.2f} GiB the wasm sandbox can hold. Use smaller "
+            "chunks (to_multiscales(chunks=...)), or a method without this "
+            "limit: Methods.DASK_BIN_SHRINK, Methods.DASK_IMAGE_GAUSSIAN, "
+            "Methods.ITK_GAUSSIAN or Methods.ITK_BIN_SHRINK."
+        )
+
+
+def _trim_to_shrink_multiple(image: NgffImage, dim_factors: dict) -> NgffImage:
+    """Drop the voxels past the last full shrink window on each spatial axis.
+
+    BinShrink produces floor(n / factor) samples along an axis; the remainder
+    never contributes to the output, and a block made only of that remainder
+    shrinks to zero voxels, which aborts the wasm sandbox.
+    """
+    slices = []
+    trimmed = False
+    for dim, size in zip(image.dims, image.data.shape):
+        factor = dim_factors.get(dim, 1) if dim in _spatial_dims else 1
+        keep = (size // factor) * factor if factor > 1 else size
+        slices.append(slice(0, keep))
+        trimmed = trimmed or keep != size
+    if not trimmed:
+        return image
+    result = copy.copy(image)
+    result.data = image.data[tuple(slices)]
+    return result
 
 
 def _itkwasm_blur_and_downsample(
@@ -225,6 +303,9 @@ def _downsample_itkwasm(
         # but is_vector is False (many channels).  In that case itkwasm
         # needs each channel processed individually, so we fall through to
         # the standard path which iterates over non-spatial dims.
+        if smoothing == "bin_shrink":
+            source_image = _trim_to_shrink_multiple(source_image, dim_factors)
+
         _fp_source = _spatial_dims_last_zyx(source_image)
         _fp_c_is_last = _fp_source.dims[-1] == "c"
         if _fp_c_is_last:
@@ -257,6 +338,7 @@ def _downsample_itkwasm(
             is_vector = _fp_is_vector if c_is_last else False
 
             dtype = current_image.data.dtype
+            _check_wasm_block_size(current_image, is_vector, smoothing)
 
             # Build output chunks: input_chunk // factor for spatial dims,
             # unchanged for non-spatial dims.
@@ -354,6 +436,12 @@ def _downsample_itkwasm(
         kernel_radius = gaussian_kernel_radius(size=block_0_size, sigma=sigma_values)
 
         dtype = block_0_input.dtype
+        _check_wasm_block_size(
+            current_image,
+            is_vector,
+            smoothing,
+            kernel_radius if smoothing != "bin_shrink" else None,
+        )
 
         output_chunks = list(current_image.data.chunks)
         output_chunks_start = 0
