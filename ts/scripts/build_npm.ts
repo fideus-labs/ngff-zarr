@@ -266,7 +266,7 @@ async function createTsConfig(): Promise<void> {
 async function createPackageJson(): Promise<void> {
   const packageJson = {
     name: "@fideus-labs/ngff-zarr",
-    version: "0.29.0",
+    version: "0.30.0",
     description:
       "TypeScript implementation of ngff-zarr for reading and writing OME-Zarr files",
     license: "MIT",
