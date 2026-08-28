@@ -6,6 +6,7 @@ zarr-python is a test-only dependency here: reading the written stores back
 with it verifies that other zarr implementations can decode zarrista output.
 """
 
+import json
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -14,8 +15,12 @@ import numpy as np
 import pytest
 import zarr
 
-from ngff_zarr_mcp.models import ConversionOptions
-from ngff_zarr_mcp.tools import convert_to_ome_zarr, validate_ome_zarr
+from ngff_zarr_mcp.models import ConversionOptions, OptimizationOptions
+from ngff_zarr_mcp.tools import (
+    convert_to_ome_zarr,
+    optimize_zarr_store,
+    validate_ome_zarr,
+)
 
 
 @pytest.fixture
@@ -197,3 +202,58 @@ async def test_use_tensorstore_alias_contract(test_input_file, temp_output_dir):
 
     validation = await validate_ome_zarr(str(output_path))
     assert validation.valid, f"Store failed validation: {validation.errors}"
+
+
+def _first_scale_codecs(output_path: Path) -> list[str]:
+    """The codec names the first scale level's zarr v3 metadata records.
+
+    Read from the document on disk rather than through a group handle: it is
+    the artifact other implementations consume, and indexing a group yields a
+    union type that carries no ``codecs`` attribute.
+    """
+    group = zarr.open(str(output_path), mode="r")
+    attrs: dict[str, Any] = dict(group.attrs)
+    metadata = attrs["ome"] if "ome" in attrs else attrs
+    dataset_path = metadata["multiscales"][0]["datasets"][0]["path"]
+    doc = json.loads((output_path / dataset_path / "zarr.json").read_text())
+    return [codec["name"] for codec in doc["codecs"]]
+
+
+@pytest.mark.asyncio
+@pytest.mark.filterwarnings("error:to_ome_zarr() ignores")
+async def test_optimize_zarr_store_applies_compression(
+    test_input_file, temp_output_dir
+):
+    """``optimize_zarr_store``'s compression options must reach the writer.
+
+    They were passed as ``compression_codec=``/``compression_level=``, which
+    ``to_ome_zarr`` does not accept; the writer ignored them and the store came
+    out with the default codec chain, so the tool's compression options did
+    nothing at all. Assert the requested codec is in the written metadata --
+    a re-check of the option names alone would not have caught it.
+    """
+    source = Path(temp_output_dir) / "optimize_source.ome.zarr"
+    convert = await convert_to_ome_zarr(
+        [str(test_input_file)],
+        ConversionOptions(
+            output_path=str(source),
+            ome_zarr_version="0.5",
+            method="itkwasm_gaussian",
+            chunks=64,
+        ),
+    )
+    assert convert.success, f"Fixture conversion failed: {convert.error}"
+
+    optimized = Path(temp_output_dir) / "optimize_gzip.ome.zarr"
+    result = await optimize_zarr_store(
+        OptimizationOptions(
+            input_path=str(source),
+            output_path=str(optimized),
+            compression_codec="gzip",
+            compression_level=6,
+        )
+    )
+
+    assert result.success, f"Optimization failed: {result.error}"
+    assert optimized.exists(), "Optimized store was not created"
+    assert "gzip" in _first_scale_codecs(optimized)

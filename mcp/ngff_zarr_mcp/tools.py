@@ -463,13 +463,25 @@ async def optimize_zarr_store(options: OptimizationOptions) -> ConversionResult:
             elif isinstance(chunks_per_shard, list):
                 chunks_per_shard = tuple(chunks_per_shard)
 
-        # Save optimized store
+        # Save optimized store. Compression reaches to_ome_zarr as a codec
+        # under `compressor`, the way convert_to_ome_zarr passes it;
+        # `compression_codec`/`compression_level` are this module's own option
+        # names and are not array-creation keywords the writer knows.
+        compression_kwargs = {}
+        if options.compression_codec:
+            from ngff_zarr.codecs import (
+                codec_from_name,  # type: ignore[import-untyped]
+            )
+
+            compression_kwargs["compressor"] = codec_from_name(
+                options.compression_codec, options.compression_level
+            )
+
         to_ome_zarr(
             output_store,
             optimized_multiscales,
             chunks_per_shard=chunks_per_shard,
-            compression_codec=options.compression_codec,
-            compression_level=options.compression_level,
+            **compression_kwargs,
         )
 
         # Analyze the optimized store
