@@ -774,6 +774,25 @@ def _is_bytes_codec(codec) -> bool:
     return name == "bytes"
 
 
+def _unsupported_codec_message(subject: str) -> str:
+    """Explain that *subject* cannot be written, and what to do instead.
+
+    The engine encodes with the ``bytes`` codec plus one bytes-to-bytes
+    compressor, so any other codec chain has to be written by a writer that
+    implements it. ``metadata_only=True`` is what makes that a two-library
+    job rather than a reimplementation: this writer lays down the OME
+    metadata and the empty arrays, the other one fills them.
+    """
+    return (
+        f"{subject} not supported by the zarrista write engine, which encodes "
+        "with the bytes codec plus gzip, zstd, or blosc compression. To write "
+        "another codec chain, create the store's metadata and empty arrays "
+        "with to_ome_zarr(..., metadata_only=True), then create and fill each "
+        "dataset with a writer that supports those codecs (for example "
+        "zarr-python's zarr.create_array)."
+    )
+
+
 def _compression_chain(kwargs: dict) -> list | None:
     """Translate the public compression kwargs into a single ordered chain.
 
@@ -784,12 +803,22 @@ def _compression_chain(kwargs: dict) -> list | None:
     detected with a sentinel. Only the array-to-bytes ("bytes") codec is
     dropped from a supplied chain since the writer always leads with one. The
     consumed keys are removed from ``kwargs``.
+
+    ``filters`` and a ``serializer`` naming anything but the ``bytes`` codec
+    name codec chains the engine cannot write, and raise rather than being
+    dropped into an array whose metadata then disagrees with the request. A
+    ``serializer`` that names ``bytes`` asks for what the writer already
+    does, and is accepted as the no-op it is. Anything left over is not an
+    array-creation option this writer knows; it warns, since silently
+    ignoring it is how a caller comes to believe an inert argument works.
     """
     filters = kwargs.pop("filters", None)
     if filters:
+        raise ValueError(_unsupported_codec_message("filters are"))
+    serializer = kwargs.pop("serializer", None)
+    if serializer is not None and not _is_bytes_codec(serializer):
         raise ValueError(
-            "filters are not supported by the zarrista write engine; pass a "
-            "zarr store object as the target to use the zarr-python engine"
+            _unsupported_codec_message("a serializer other than the bytes codec is")
         )
     _unset = object()
     compressor = kwargs.pop("compressor", _unset)
@@ -804,6 +833,16 @@ def _compression_chain(kwargs: dict) -> list | None:
     else:
         compression_chain = None
     kwargs.pop("chunks", None)  # Remove chunks from kwargs since it's a positional arg
+    if kwargs:
+        warnings.warn(
+            "to_ome_zarr() ignores the array-creation keyword argument(s) "
+            + ", ".join(sorted(kwargs))
+            + ". Supported: compressor (zarr format 2), compressors (zarr "
+            "format 3), chunks. Ignoring them is deprecated and will become "
+            "a TypeError.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
     return compression_chain
 
 
@@ -1440,8 +1479,13 @@ def to_ome_zarr(
         ``start_level`` that already exists is replaced.
     :type  start_level: int, optional
 
-    :param **kwargs: Array-creation options, e.g. `compressor` / `compressors`
-        compression settings.
+    :param **kwargs: Array-creation options: `compressor` (zarr format 2),
+        `compressors` (zarr format 3), and `chunks`. The engine encodes with the
+        `bytes` codec plus gzip, zstd, or blosc compression, so `filters` and a
+        `serializer` naming any other codec raise `ValueError` — write those
+        chains by creating the store with ``metadata_only=True`` and filling the
+        arrays with a writer that implements them. Any other keyword is ignored
+        with a `DeprecationWarning` and will become a `TypeError`.
     """
     if use_tensorstore:
         warnings.warn(
