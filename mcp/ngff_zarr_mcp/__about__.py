@@ -1,3 +1,3 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
-__version__ = "0.13.0"
+__version__ = "0.14.0"

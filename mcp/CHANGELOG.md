@@ -1,3 +1,9 @@
+## mcp-v0.14.0 (2026-08-28)
+
+### 🐛 Bug Fixes
+
+- **py,ts**: gate the RFC-4 orientation rules on 0.9.dev1 ([7205c2e](https://github.com/fideus-labs/ngff-zarr/commit/7205c2e85e84f8bb1f07fa5a188b7440634e9846))
+
 ## mcp-v0.13.0 (2026-08-27)
 
 ### BREAKING CHANGE
