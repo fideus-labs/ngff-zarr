@@ -8,11 +8,16 @@ from dataclasses import replace
 
 import numpy as np
 
+from .displacement_field_transform import field_window
 from .ngff_image import NgffImage
 from .ngff_transform_to_itk_transform import ngff_transform_to_itk_transform
 from .resample_bounding_box import (
     _as_itk_transform_list,
     _check_geometry,
+    _field_stream,
+    _grown,
+    _identity_region,
+    _identity_transform_list,
     _is_ngff_transform,
     _itk_direction,
     _metadata_only_itk_image,
@@ -20,6 +25,7 @@ from .resample_bounding_box import (
     _spatial_dims,
     resample_bounding_box,
 )
+from .v06.zarr_metadata import Coordinates, Displacements
 
 _INTERPOLATORS = (
     "linear",
@@ -104,6 +110,109 @@ def _block_grid(fixed: NgffImage, starts: dict, shape: tuple) -> NgffImage:
     )
 
 
+def _chunk_offsets(chunks):
+    """The index of each chunk's first element, per axis."""
+    return [np.concatenate([[0], np.cumsum(sizes)[:-1]]) for sizes in chunks]
+
+
+def _nested_key(keys, index):
+    """The dask key at ``index`` in a nested key list."""
+    for axis in index:
+        keys = keys[axis]
+    return keys
+
+
+def _chunk_span(offsets, bounds):
+    """Which chunks a region touches: the first, how many, and where it starts.
+
+    ``offsets`` holds the index of each chunk's first element per axis, as
+    :func:`_chunk_offsets` gives them, and ``bounds`` the region as
+    ``(start, stop)`` per axis.
+    """
+    first = tuple(
+        int(np.searchsorted(offsets[axis], start, side="right") - 1)
+        for axis, (start, _stop) in enumerate(bounds)
+    )
+    last = tuple(
+        int(np.searchsorted(offsets[axis], stop - 1, side="right"))
+        for axis, (_start, stop) in enumerate(bounds)
+    )
+    nchunks = tuple(stop - start for start, stop in zip(first, last))
+    offset = tuple(int(offsets[axis][start]) for axis, start in enumerate(first))
+    return first, nchunks, offset
+
+
+def _field_block_transform(
+    chunks,
+    *,
+    transform,
+    nchunks,
+    offset,
+    bounds,
+    field_dims,
+    field_scale,
+    field_translation,
+    field_axes_types,
+):
+    """The ITK transform one output block needs, from that block's field window.
+
+    Built inside the task, from the field chunks the window touches, so the
+    field reaches ITK a window at a time instead of whole.
+    """
+    from .displacement_field_transform import ngff_displacement_field_to_itk_transform
+
+    crop = NgffImage(
+        data=_assemble_region(chunks, nchunks, offset, bounds),
+        dims=field_dims,
+        scale=dict(field_scale),
+        translation=dict(field_translation),
+        axes_types=dict(field_axes_types),
+    )
+    return ngff_displacement_field_to_itk_transform(transform, crop, field_dims[1:])
+
+
+def _assemble_region(chunks, nchunks, offset, bounds):
+    """Reassemble whole chunks into the sub-array ``bounds`` selects.
+
+    ``chunks`` are whole chunks in C order over the ``nchunks`` grid that
+    covers the region, ``offset`` the index of the first of them in the array
+    they came from, and ``bounds`` the region itself, as ``(start, stop)`` per
+    axis.
+    """
+    nested = np.empty(nchunks, dtype=object)
+    for flat, index in enumerate(np.ndindex(*nchunks)):
+        nested[index] = chunks[flat]
+
+    # Where each chunk of the grid starts in the array it came from, per axis.
+    starts = []
+    for axis in range(len(nchunks)):
+        picker = [0] * len(nchunks)
+        sizes = []
+        for position in range(nchunks[axis]):
+            picker[axis] = position
+            sizes.append(nested[tuple(picker)].shape[axis])
+        starts.append(np.concatenate([[0], np.cumsum(sizes)[:-1]]) + offset[axis])
+
+    # Trim every chunk to its share of the region before assembling. Assembling
+    # first and slicing after would allocate the union of the chunks, which for
+    # a block whose region straddles chunk borders is several times the region.
+    for index in np.ndindex(*nchunks):
+        chunk = nested[index]
+        nested[index] = chunk[
+            tuple(
+                slice(
+                    max(0, low - starts[axis][position]),
+                    min(chunk.shape[axis], high - starts[axis][position]),
+                )
+                for axis, (position, (low, high)) in enumerate(zip(index, bounds))
+            )
+        ]
+
+    if len(chunks) == 1:
+        return np.ascontiguousarray(nested[(0,) * len(nchunks)])
+    return np.block(nested.tolist())
+
+
 def _resample_block(
     chunks,
     transform_list,
@@ -137,39 +246,7 @@ def _resample_block(
 
     from .ngff_image_to_itk_image import ngff_image_to_itk_image
 
-    nested = np.empty(nchunks, dtype=object)
-    for flat, index in enumerate(np.ndindex(*nchunks)):
-        nested[index] = chunks[flat]
-
-    # Where each chunk of the grid starts in the moving image, per axis.
-    starts = []
-    for axis in range(len(nchunks)):
-        picker = [0] * len(nchunks)
-        sizes = []
-        for position in range(nchunks[axis]):
-            picker[axis] = position
-            sizes.append(nested[tuple(picker)].shape[axis])
-        starts.append(np.concatenate([[0], np.cumsum(sizes)[:-1]]) + offset[axis])
-
-    # Trim every chunk to its share of the region before assembling. Assembling
-    # first and slicing after would allocate the union of the chunks, which for
-    # a block whose region straddles chunk borders is several times the region.
-    for index in np.ndindex(*nchunks):
-        chunk = nested[index]
-        nested[index] = chunk[
-            tuple(
-                slice(
-                    max(0, low - starts[axis][position]),
-                    min(chunk.shape[axis], high - starts[axis][position]),
-                )
-                for axis, (position, (low, high)) in enumerate(zip(index, bounds))
-            )
-        ]
-
-    if len(chunks) == 1:
-        region = np.ascontiguousarray(nested[(0,) * len(nchunks)])
-    else:
-        region = np.block(nested.tolist())
+    region = _assemble_region(chunks, nchunks, offset, bounds)
     moving_geometry = NgffImage(
         data=_shape_only(tuple(stop - start for start, stop in bounds)),
         dims=moving_dims,
@@ -211,6 +288,45 @@ def _resample_block(
     return np.asarray(resampled.data).reshape(grid_shape).astype(out_dtype, copy=False)
 
 
+def _add_field_transform(
+    graph,
+    name,
+    index,
+    transform,
+    field: NgffImage,
+    field_keys,
+    field_offsets,
+    field_geometry,
+    window,
+):
+    """Add the task that builds one block's transform, and return its key."""
+    bounds = ((0, int(field.data.shape[0])), *window)
+    first, nchunks, offset = _chunk_span(field_offsets, bounds)
+    spatial = tuple(field.dims[1:])
+    key = (name, *index)
+    graph[key] = (
+        functools.partial(
+            _field_block_transform,
+            transform=transform,
+            nchunks=nchunks,
+            offset=offset,
+            bounds=bounds,
+            field_translation=_shifted_translation(
+                field, {dim: window[axis][0] for axis, dim in enumerate(spatial)}
+            ),
+            **field_geometry,
+        ),
+        [
+            _nested_key(
+                field_keys,
+                tuple(start + relative for start, relative in zip(first, position)),
+            )
+            for position in np.ndindex(*nchunks)
+        ],
+    )
+    return key
+
+
 def resample(
     transform,
     fixed: NgffImage,
@@ -233,12 +349,18 @@ def resample(
     full moving image is never loaded, which is what makes this usable when it
     is larger than memory, remote, or chunked.
 
-    One input is not streamed: an RFC-5 ``displacements`` or ``coordinates``
-    transform is converted before the graph is built, and that conversion reads
-    its field in full. The field bounds where every block reads, so the regions
-    cannot be computed without it. A field the size of the volume therefore has
-    to fit in memory, while the moving image does not. Pass an ITK transform to
-    keep the field out of this call.
+    An RFC-5 ``displacements`` or ``coordinates`` field is streamed the same
+    way. A block reads the window of the field its own points fall in, and
+    that window becomes the block's ITK transform; what sizes the block's
+    moving read is the range of displacement that window holds. The field is
+    passed over once when the graph is built, a chunk at a time, to learn that
+    range per chunk. Neither the moving image nor the field has to fit in
+    memory.
+
+    A window declares its own origin, and on a float64 moving image that
+    changes the last bits of the continuous index ITK computes from it, so
+    the result is bit-identical to an undecomposed call on float32 and equal
+    to about ``1e-13`` on float64.
 
     Resampling runs through ``itkwasm-downsample``, so no native ITK build is
     required and the result is identical to one across platforms.
@@ -333,10 +455,24 @@ def resample(
 
     dtype = moving.data.dtype
     out_orientations = fixed.axes_orientations
+    field = None
+    field_bound = None
     if _is_ngff_transform(transform):
-        transform_list = ngff_transform_to_itk_transform(
-            transform, fixed.dims, fields=fields
-        )
+        if isinstance(transform, (Coordinates, Displacements)):
+            # The blocks divide the grid, so the grid's own window is the
+            # union of theirs: the pass reads no chunk no block asks about.
+            field, field_bound, _window, _outside = _field_stream(
+                transform,
+                fields,
+                fixed,
+                fixed_spatial,
+                dict(zip(fixed.dims, fixed.data.shape)),
+            )
+            transform_list = _identity_transform_list(fixed.dims)
+        else:
+            transform_list = ngff_transform_to_itk_transform(
+                transform, fixed.dims, fields=fields
+            )
         # An RFC-5 transformation acts on the intrinsic coordinate systems,
         # which carry no direction matrix, so the blocks below are resampled
         # with none either. That is what resample_bounding_box does with the
@@ -347,18 +483,23 @@ def resample(
         transform_list = _as_itk_transform_list(transform)
 
     out_chunks = fixed.data.chunks
-    out_offsets = [np.concatenate([[0], np.cumsum(sizes)[:-1]]) for sizes in out_chunks]
-    moving_chunks = moving.data.chunks
-    moving_offsets = [
-        np.concatenate([[0], np.cumsum(sizes)[:-1]]) for sizes in moving_chunks
-    ]
+    out_offsets = _chunk_offsets(out_chunks)
+    moving_offsets = _chunk_offsets(moving.data.chunks)
     moving_keys = moving.data.__dask_keys__()
 
-    def moving_key(index):
-        key = moving_keys
-        for i in index:
-            key = key[i]
-        return key
+    field_data = None
+    if field is not None:
+        field_data = field.data
+        if not isinstance(field_data, da.Array):
+            field_data = da.from_array(field_data)
+        field_offsets = _chunk_offsets(field_data.chunks)
+        field_keys = field_data.__dask_keys__()
+        # The geometry every block's crop of the field shares, built once.
+        field_geometry = {
+            "field_dims": tuple(field.dims),
+            "field_scale": dict(field.scale),
+            "field_axes_types": dict(field.axes_types),
+        }
 
     # Every input the result depends on belongs in the token. The moving
     # image's geometry is not carried by its array name, so leaving it out
@@ -376,6 +517,8 @@ def resample(
         fixed.translation,
         fixed.axes_orientations,
         transform_list,
+        None if field_data is None else field_data.name,
+        None if field is None else (field.scale, field.translation, transform),
         padding,
         interpolator,
         default_value,
@@ -393,31 +536,51 @@ def resample(
         }
         shape = tuple(int(out_chunks[axis][index[axis]]) for axis in range(len(index)))
         grid = _block_grid(fixed, starts, shape)
-        region = resample_bounding_box(transform_list, grid, moving, padding=padding)
+        block_transform = transform_key
+        if field is not None:
+            window, outside = field_window(
+                field, tuple(fixed.dims), grid.translation, grid.scale, shape
+            )
+            region = _grown(
+                _identity_region(grid, moving, padding),
+                field_bound.over(window, outside),
+                moving,
+            )
+        else:
+            region = resample_bounding_box(
+                transform_list, grid, moving, padding=padding
+            )
         if region.is_empty:
             graph[(name, *index)] = (np.full, shape, default_value, dtype)
             continue
+        if field is not None and not any(stop <= start for start, stop in window):
+            # A block whose window is empty falls through to transform_key,
+            # which on this path holds the identity: outside the field ITK
+            # displaces nothing either.
+            block_transform = _add_field_transform(
+                graph,
+                f"{name}-field",
+                index,
+                transform,
+                field,
+                field_keys,
+                field_offsets,
+                field_geometry,
+                window,
+            )
         clamped = region.clamped()
         bounds = tuple(
             clamped[dim] if dim in clamped else (0, moving.data.shape[axis])
             for axis, dim in enumerate(moving.dims)
         )
-        first_chunk = tuple(
-            int(np.searchsorted(moving_offsets[axis], start, side="right") - 1)
-            for axis, (start, _stop) in enumerate(bounds)
-        )
-        last_chunk = tuple(
-            int(np.searchsorted(moving_offsets[axis], stop - 1, side="right"))
-            for axis, (_start, stop) in enumerate(bounds)
-        )
-        nchunks = tuple(last - first for first, last in zip(first_chunk, last_chunk))
+        first_chunk, nchunks, offset = _chunk_span(moving_offsets, bounds)
         chunk_keys = [
-            moving_key(tuple(first + rel for first, rel in zip(first_chunk, relative)))
+            _nested_key(
+                moving_keys,
+                tuple(first + rel for first, rel in zip(first_chunk, relative)),
+            )
             for relative in np.ndindex(*nchunks)
         ]
-        offset = tuple(
-            int(moving_offsets[axis][first]) for axis, first in enumerate(first_chunk)
-        )
         graph[(name, *index)] = (
             functools.partial(
                 _resample_block,
@@ -438,11 +601,14 @@ def resample(
                 out_dtype=dtype,
             ),
             chunk_keys,
-            transform_key,
+            block_transform,
         )
 
+    dependencies = [moving.data]
+    if field_data is not None:
+        dependencies.append(field_data)
     data = da.Array(
-        HighLevelGraph.from_collections(name, graph, dependencies=[moving.data]),
+        HighLevelGraph.from_collections(name, graph, dependencies=dependencies),
         name,
         chunks=out_chunks,
         dtype=dtype,
