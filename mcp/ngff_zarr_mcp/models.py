@@ -4,7 +4,23 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+def _reject_level_without_codec(options):
+    """A compression level is only ever read alongside a codec name.
+
+    Both tools build the compressor from the two together and skip it
+    entirely when the codec is absent, so a lone level asks for a setting
+    the write would not apply -- and would report success anyway.
+    """
+    if options.compression_level is not None and not options.compression_codec:
+        raise ValueError(
+            "compression_level requires compression_codec: the level is an "
+            "argument to the codec, and without one the store is written "
+            "with the default compression."
+        )
+    return options
 
 
 class ConversionOptions(BaseModel):
@@ -82,6 +98,10 @@ class ConversionOptions(BaseModel):
                 raise ValueError(f"All dimensions must be from {valid_dims}")
         return v
 
+    @model_validator(mode="after")
+    def validate_compression(self):
+        return _reject_level_without_codec(self)
+
 
 class ConversionResult(BaseModel):
     """Result of image conversion."""
@@ -143,6 +163,10 @@ class OptimizationOptions(BaseModel):
     storage_options: dict[str, str | int | bool] | None = Field(
         None, description="Storage options for remote stores"
     )
+
+    @model_validator(mode="after")
+    def validate_compression(self):
+        return _reject_level_without_codec(self)
 
 
 class ValidationResult(BaseModel):

@@ -7,13 +7,13 @@ with it verifies that other zarr implementations can decode zarrista output.
 """
 
 import json
-import tempfile
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 import zarr
+from pydantic import ValidationError
 
 from ngff_zarr_mcp.models import ConversionOptions, OptimizationOptions
 from ngff_zarr_mcp.tools import (
@@ -21,23 +21,6 @@ from ngff_zarr_mcp.tools import (
     optimize_zarr_store,
     validate_ome_zarr,
 )
-
-
-@pytest.fixture
-def test_input_file():
-    """Path to the test input file."""
-    return Path(__file__).parent.parent / "test" / "data" / "input" / "MR-head.nrrd"
-
-
-@pytest.fixture
-def temp_output_dir():
-    """Create a temporary directory for output files."""
-    temp_dir = tempfile.mkdtemp()
-    yield temp_dir
-    # Cleanup after test
-    import shutil
-
-    shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def _read_first_scale(output_path: Path) -> np.ndarray:
@@ -220,7 +203,9 @@ def _first_scale_codecs(output_path: Path) -> list[str]:
 
 
 @pytest.mark.asyncio
-@pytest.mark.filterwarnings("error:to_ome_zarr() ignores")
+# The message is matched as a regex, so the parentheses need escaping to mean
+# themselves; unescaped they are an empty group and the filter never fires.
+@pytest.mark.filterwarnings(r"error:to_ome_zarr\(\) ignores")
 async def test_optimize_zarr_store_applies_compression(
     test_input_file, temp_output_dir
 ):
@@ -257,3 +242,19 @@ async def test_optimize_zarr_store_applies_compression(
     assert result.success, f"Optimization failed: {result.error}"
     assert optimized.exists(), "Optimized store was not created"
     assert "gzip" in _first_scale_codecs(optimized)
+
+
+@pytest.mark.parametrize("options_model", [ConversionOptions, OptimizationOptions])
+def test_compression_level_requires_a_codec(tmp_path, options_model):
+    """A level with no codec names a setting neither tool would apply.
+
+    Both build the compressor from codec and level together and skip it when
+    the codec is absent, so the level would be dropped and the call would
+    still report success.
+    """
+    fields = {"output_path": str(tmp_path / "out.ome.zarr"), "compression_level": 6}
+    if options_model is OptimizationOptions:
+        fields["input_path"] = str(tmp_path / "in.ome.zarr")
+
+    with pytest.raises(ValidationError, match="compression_level requires"):
+        options_model(**fields)
