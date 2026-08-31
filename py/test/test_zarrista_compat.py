@@ -503,19 +503,64 @@ def test_path_store_rejects_foreign_serializer(tmp_path):
 
 
 def test_path_store_accepts_bytes_serializer(tmp_path):
-    """``serializer="bytes"`` asks for what the writer already does."""
+    """``serializer="bytes"`` asks for what the writer already does.
+
+    Accepting it as a no-op is only honest if the byte order it names is the
+    one that lands, so read the written ``endian`` back rather than the codec
+    names alone. A multi-byte dtype is what carries one: the spec forbids
+    ``endian`` on single-byte dtypes, and the writer drops it there.
+    """
     pytest.importorskip("zarrista")
     from ngff_zarr import to_ngff_zarr
 
     store_path = tmp_path / "bytes_serializer.ome.zarr"
     to_ngff_zarr(
         str(store_path),
-        _sample_multiscales(),
+        _sample_multiscales(dtype=np.uint16),
         version="0.5",
         serializer={"name": "bytes", "configuration": {"endian": "little"}},
     )
     doc = json.loads((store_path / "scale0" / "image" / "zarr.json").read_text())
     assert [codec["name"] for codec in doc["codecs"]] == ["bytes", "zstd"]
+    assert doc["codecs"][0]["configuration"]["endian"] == "little"
+
+
+def test_path_store_rejects_big_endian_serializer(tmp_path):
+    """A ``bytes`` serializer asking for big-endian must raise.
+
+    The engine encodes little-endian chunks and has no endian knob, so the
+    request was accepted as a no-op and the store came out little-endian --
+    the byte order the caller asked for, silently reversed.
+    """
+    pytest.importorskip("zarrista")
+    from ngff_zarr import to_ngff_zarr
+
+    with pytest.raises(ValueError, match="endian='big'"):
+        to_ngff_zarr(
+            str(tmp_path / "big_endian.ome.zarr"),
+            _sample_multiscales(dtype=np.uint16),
+            version="0.5",
+            serializer={"name": "bytes", "configuration": {"endian": "big"}},
+        )
+
+
+def test_path_store_rejects_chunks_kwarg(tmp_path):
+    """``chunks=`` is not an array-creation option this writer takes.
+
+    It collided with the writer's own positional argument, so it raised a
+    TypeError naming an internal function. Point at where the chunk shape
+    actually comes from instead.
+    """
+    pytest.importorskip("zarrista")
+    from ngff_zarr import to_ngff_zarr
+
+    with pytest.raises(TypeError, match="to_multiscales"):
+        to_ngff_zarr(
+            str(tmp_path / "chunks_kwarg.ome.zarr"),
+            _sample_multiscales(),
+            version="0.5",
+            chunks=(16, 16),
+        )
 
 
 def test_path_store_warns_on_unknown_array_kwarg(tmp_path):
