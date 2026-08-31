@@ -1367,3 +1367,39 @@ def test_an_affine_around_the_field_folds_its_interval():
     # The affine is outermost now, so the field's range doubles through it.
     assert folded[0].tolist() == [-120.0, 0.0]
     assert folded[1].tolist() == [0.0, 120.0]
+
+
+def test_a_lone_bspline_keeps_zero_in_its_range():
+    """A B-spline's lattice cannot prove the grid stays on its domain.
+
+    The control lattice reaches spline-order points beyond the domain of
+    support, so a grid inside the lattice can still land where ITK displaces
+    it by nothing: coefficients all one way must not carry the region off
+    the undisplaced points.
+    """
+    itk = pytest.importorskip("itk")
+
+    spline = itk.BSplineTransform[itk.D, 2, 3].New()
+    mesh = itk.Size[2]()
+    mesh.Fill(3)
+    spline.SetTransformDomainMeshSize(mesh)
+    physical = itk.Vector[itk.D, 2]()
+    physical[0], physical[1] = 32.0, 32.0
+    spline.SetTransformDomainPhysicalDimensions(physical)
+    count = spline.GetNumberOfParameters()
+    parameters = itk.OptimizerParameters[itk.D](count)
+    for index in range(count):
+        parameters.SetElement(index, 10.0)
+    spline.SetParameters(parameters)
+
+    fixed = _image("yx", {"y": 16, "x": 16}, {"y": 1.0, "x": 1.0}, {"y": 8.0, "x": 8.0})
+    moving = _image(
+        "yx", {"y": 64, "x": 64}, {"y": 1.0, "x": 1.0}, {"y": 0.0, "x": 0.0}
+    )
+
+    region = resample_bounding_box(spline, fixed, moving, padding=0)
+
+    for dim in ("y", "x"):
+        # Zero in the range keeps the grid's own undisplaced extent covered.
+        assert region.start_index[dim] <= 8
+        assert region.start_index[dim] + region.size[dim] >= 8 + 15 + 10

@@ -510,8 +510,14 @@ def _box_inside_field_domain(entry, dimension: int, grid_box) -> bool:
     leaves it takes zero into its range; one that stays inside keeps the
     values' own range, which is what makes a constant field an exact shift.
     Anything not answerable exactly, a rotated field grid included, answers
-    ``False``, which only widens.
+    ``False``, which only widens. A ``BSpline`` never answers ``True``: its
+    control lattice reaches spline-order points beyond its domain of support,
+    so lying inside the lattice proves nothing about staying on the domain.
     """
+    from .itk_transform_to_ngff_transform import _parameterization_name
+
+    if _parameterization_name(entry.transformType) != "DisplacementField":
+        return False
     fixed = np.asarray(
         [] if entry.fixedParameters is None else entry.fixedParameters, dtype=float
     )

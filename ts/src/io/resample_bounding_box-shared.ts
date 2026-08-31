@@ -386,6 +386,15 @@ function boxInsideFieldDomain(
   dimension: number,
   box: Interval,
 ): boolean {
+  // A BSpline never answers true: its control lattice reaches spline-order
+  // points beyond its domain of support, so lying inside the lattice proves
+  // nothing about staying on the domain.
+  if (
+    String(entry.transformType.transformParameterization) !==
+      "DisplacementField"
+  ) {
+    return false;
+  }
   const fixed = entry.fixedParameters as ArrayLike<number> | null | undefined;
   if (!fixed || fixed.length !== 3 * dimension + dimension * dimension) {
     return false;
