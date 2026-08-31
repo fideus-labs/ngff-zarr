@@ -16,7 +16,12 @@ import type { NgffMultiscales } from "../types/multiscales.ts";
 import { identityDirection, itkDirection } from "../utils/itk_direction.ts";
 export { itkDirection };
 import { ngffTransformToItkTransform } from "../utils/ngff_transform_to_itk_transform.ts";
-import { ngffDisplacementFieldToItkTransform } from "../utils/displacement_field_transform.ts";
+import {
+  checkUnorientedField,
+  fieldDisplacementRange,
+  fieldImage,
+  fieldWindow,
+} from "../utils/displacement_field_transform.ts";
 
 const SPATIAL_DIMS = ["x", "y", "z"];
 
@@ -394,6 +399,7 @@ export async function resampleBoundingBoxShared(
   let transformList: TransformList;
   let fixedDirection: Float64Array;
   let movingDirection: Float64Array;
+  let fieldRange: { low: number[]; high: number[] } | undefined;
 
   if (Array.isArray(transform)) {
     // An ITK transform list acts on ITK physical space, so the geometry is
@@ -402,16 +408,40 @@ export async function resampleBoundingBoxShared(
     fixedDirection = itkDirection(fixed, itkDims);
     movingDirection = itkDirection(moving, itkDims);
   } else if (isV06Transform(transform)) {
-    transformList =
+    if (
       transform.type === "displacements" || transform.type === "coordinates"
-        // The field is an array, so it comes in beside the transformation
-        // rather than inside it.
-        ? await ngffDisplacementFieldToItkTransform(
-          transform,
-          fieldFor(transform, options.fields),
-          fixedSpatial,
-        )
-        : ngffTransformToItkTransform(transform, fixed.dims);
+    ) {
+      // A field transform is the identity plus a displacement. The identity
+      // is what the pipeline measures; the displacement is read off the field
+      // a chunk at a time and widens the region afterwards, so the field is
+      // never held whole and a bump inside the grid is not walked past.
+      const image = fieldImage(
+        transform,
+        fieldFor(transform, options.fields),
+        fixedSpatial,
+      );
+      checkUnorientedField(image, fixedSpatial);
+      const { window, outside } = fieldWindow(
+        image,
+        fixedSpatial,
+        fixed.translation,
+        fixed.scale,
+        fixedSpatial.map((dim) => fixed.data.shape[fixed.dims.indexOf(dim)]),
+      );
+      fieldRange = await fieldDisplacementRange(
+        transform,
+        image,
+        fixedSpatial,
+        window,
+        outside,
+      );
+      transformList = ngffTransformToItkTransform(
+        { type: "identity" },
+        fixed.dims,
+      );
+    } else {
+      transformList = ngffTransformToItkTransform(transform, fixed.dims);
+    }
     // An RFC-5 transformation is defined on the intrinsic coordinate system,
     // which carries no direction matrix.
     fixedDirection = identityDirection(itkDims.length);
@@ -446,7 +476,7 @@ export async function resampleBoundingBoxShared(
     return record;
   };
 
-  return new ResampleBoundingBox({
+  const region = new ResampleBoundingBox({
     dims: fixedSpatial,
     startIndex: byDim(raw.paddedStartIndex),
     size: byDim(raw.paddedSize),
@@ -454,6 +484,70 @@ export async function resampleBoundingBoxShared(
     cornersMax: byDim(raw.corners.max),
     paddedCornersMin: byDim(raw.paddedCorners.min),
     paddedCornersMax: byDim(raw.paddedCorners.max),
+    movingShape,
+  });
+  return fieldRange === undefined
+    ? region
+    : grown(region, fieldRange, fixedSpatial, moving, movingShape);
+}
+
+/**
+ * `region` moved and widened by a per-axis displacement range.
+ *
+ * The pipeline walks the boundary of the transformed grid, which reports
+ * where a *linear* map sends the grid exactly and misses whatever a
+ * displacement does strictly inside it. A point `p` of the region reaches
+ * `p + d` with `d` in the range, so the region's image lies between the two
+ * ends of that range: a field that shifts every point the same way moves the
+ * region, and only what varies widens it.
+ */
+function grown(
+  region: ResampleBoundingBox,
+  range: { low: number[]; high: number[] },
+  spatial: string[],
+  moving: NgffImage,
+  movingShape: Record<string, number>,
+): ResampleBoundingBox {
+  const startIndex = { ...region.startIndex };
+  const size = { ...region.size };
+  const cornersMin = { ...region.cornersMin };
+  const cornersMax = { ...region.cornersMax };
+  const paddedCornersMin = { ...region.paddedCornersMin };
+  const paddedCornersMax = { ...region.paddedCornersMax };
+  spatial.forEach((dim, axis) => {
+    const low = range.low[axis];
+    const high = range.high[axis];
+    if (low === 0 && high === 0) return;
+    const scale = moving.scale[dim];
+    const first = Math.floor(Math.min(low / scale, high / scale));
+    const last = Math.ceil(Math.max(low / scale, high / scale));
+    startIndex[dim] += first;
+    size[dim] += last - first;
+    // The reported corners hold a first and a last index position, which swap
+    // when an axis direction is negative; move the span either way.
+    for (
+      const [begin, stop] of [
+        [cornersMin, cornersMax],
+        [paddedCornersMin, paddedCornersMax],
+      ] as Record<string, number>[][]
+    ) {
+      if (begin[dim] <= stop[dim]) {
+        begin[dim] += low;
+        stop[dim] += high;
+      } else {
+        begin[dim] += high;
+        stop[dim] += low;
+      }
+    }
+  });
+  return new ResampleBoundingBox({
+    dims: region.dims,
+    startIndex,
+    size,
+    cornersMin,
+    cornersMax,
+    paddedCornersMin,
+    paddedCornersMax,
     movingShape,
   });
 }

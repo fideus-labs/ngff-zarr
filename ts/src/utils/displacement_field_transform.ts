@@ -470,6 +470,251 @@ export async function itkDisplacementFieldToNgffTransform(
 }
 
 /**
+ * Refuse a field whose grid cannot be placed without the two images.
+ *
+ * An ITK transform lives in physical space, and an anatomical orientation only
+ * says where a grid sits once the images it relates are known.
+ *
+ * @param image The field image.
+ * @param dims The spatial axis names, in RFC-5 order.
+ * @throws If the field carries an anatomical orientation.
+ */
+export function checkUnorientedField(image: NgffImage, dims: string[]): void {
+  const itkDims = itkAxisOrder(dims);
+  const direction = directionRows(itkDirection(image, itkDims), dims.length);
+  if (allClose(direction, identity(dims.length))) return;
+  throw new Error(
+    "the field carries an anatomical orientation; pass the fixed and " +
+      "moving images so its grid is placed in their frame",
+  );
+}
+
+/**
+ * The field image a field transform names, checked against `dims`.
+ *
+ * Takes the `NgffImage` or the `NgffMultiscales` a caller passes in `fields`,
+ * and returns the single-scale image, after checking that its axes are the
+ * component axis followed by `dims` in order and that it holds one component
+ * per input axis.
+ *
+ * @param transform The `displacements` or `coordinates` transform.
+ * @param field The field image or multiscales, as `fields` holds it.
+ * @param dims The spatial axis names, in RFC-5 (Zarr) order.
+ * @returns The field as a single-scale image; the finest level of a
+ *   multiscales.
+ * @throws If the field has no single component axis of the type the transform
+ *   calls for, if its axes are not that axis followed by `dims`, or if it
+ *   holds a number of components other than `dims.length`.
+ */
+export function fieldImage(
+  transform: Displacements | Coordinates,
+  field: NgffImage | NgffMultiscales,
+  dims: string[],
+): NgffImage {
+  const componentType = transform.type === "coordinates"
+    ? "coordinate"
+    : "displacement";
+  let componentDims: string[];
+  let image: NgffImage;
+  if ("images" in field && "metadata" in field) {
+    // A read multiscales keeps the axis types in its metadata, not on the
+    // image: the component axis is the one typed there.
+    componentDims = field.metadata.axes
+      .filter((axis) => axis.type === componentType)
+      .map((axis) => axis.name);
+    image = field.images[0];
+  } else {
+    image = field;
+    componentDims = Object.entries(image.axesTypes ?? {})
+      .filter(([, type]) => type === componentType)
+      .map(([dim]) => dim);
+  }
+  if (componentDims.length !== 1) {
+    throw new Error(
+      `the field image must have exactly one axis of type '${componentType}' ` +
+        "(axesTypes on an NgffImage, the axes metadata of a multiscales); " +
+        `got [${componentDims.join(", ")}] on dims [${image.dims.join(", ")}]`,
+    );
+  }
+  const expectedDims = [componentDims[0], ...dims];
+  if (
+    image.dims.length !== expectedDims.length ||
+    image.dims.some((dim, i) => dim !== expectedDims[i])
+  ) {
+    throw new Error(
+      `the field's dims are [${image.dims.join(", ")}]; a ${transform.type} ` +
+        `transform over dims [${dims.join(", ")}] needs ` +
+        `[${expectedDims.join(", ")}]: the component axis first, then the ` +
+        "input axes in order",
+    );
+  }
+  if (image.data.shape[0] !== dims.length) {
+    throw new Error(
+      `the field holds ${image.data.shape[0]} components per point, but dims ` +
+        `[${dims.join(", ")}] name ${dims.length} axes`,
+    );
+  }
+  return image;
+}
+
+/**
+ * The field indices a grid of `shape` at `translation` reads.
+ *
+ * The field is evaluated at the grid's own points, so the window is that
+ * grid's extent expressed in field indices, whatever the displacement is:
+ * what a displacement sizes is the *moving* read, which
+ * {@link fieldDisplacementRange} answers.
+ *
+ * @param image The field image.
+ * @param dims The spatial axis names, in RFC-5 order.
+ * @param translation The grid's translation, keyed by dimension.
+ * @param scale The grid's scale, keyed by dimension.
+ * @param shape The grid's extent, in `dims` order.
+ * @param margin Lattice points kept beyond the bracketing pair, so that linear
+ *   interpolation at a point on the boundary reads the same values it reads
+ *   from the whole field.
+ * @returns `[start, stop]` per axis, in `dims` order, clamped to the field,
+ *   and whether the grid also has points beyond the field, which ITK
+ *   displaces by nothing. {@link fieldDisplacementRange} takes the second as
+ *   its `outside`.
+ */
+export function fieldWindow(
+  image: NgffImage,
+  dims: string[],
+  translation: Record<string, number>,
+  scale: Record<string, number>,
+  shape: number[],
+  margin = 1,
+): { window: [number, number][]; outside: boolean } {
+  let outside = false;
+  const window = dims.map((dim, axis) => {
+    const extent = image.data.shape[1 + axis];
+    if (shape[axis] === 0) return [0, 0] as [number, number];
+    const corners = [0, shape[axis] - 1].map((index) =>
+      (translation[dim] + scale[dim] * index - image.translation[dim]) /
+      image.scale[dim]
+    );
+    if (Math.min(...corners) < 0 || Math.max(...corners) > extent - 1) {
+      outside = true;
+    }
+    const low = Math.floor(Math.min(...corners)) - margin;
+    const high = Math.ceil(Math.max(...corners)) + margin + 1;
+    return [
+      Math.max(0, Math.min(low, extent)),
+      Math.max(0, Math.min(high, extent)),
+    ] as [number, number];
+  });
+  return { window, outside };
+}
+
+/**
+ * The range of displacement a window of the field can produce, per component.
+ *
+ * A field is read through a kernel that is non-negative and sums to one, so a
+ * displacement anywhere is a convex combination of the values around it and
+ * lies between their smallest and largest. That makes the range a bound on
+ * every interpolated displacement, not a sample of one: walking the boundary
+ * of a region instead misses a bump the region encloses.
+ *
+ * The window is read a chunk at a time and only a number per component is
+ * kept, so a field larger than memory is bounded without being held.
+ *
+ * @param transform The `displacements` or `coordinates` transform.
+ * @param image The field image, as {@link fieldImage} returns it.
+ * @param dims The spatial axis names, in RFC-5 order.
+ * @param window `[start, stop]` per axis, as {@link fieldWindow} returns it.
+ * @param outside Whether the grid the window came from also has points beyond
+ *   the field. ITK displaces those by nothing, so zero belongs in the range as
+ *   much as the values do; leaving it out lets a field that displaces every
+ *   point it covers one way carry the region away from the points it does not
+ *   cover.
+ * @returns The smallest and largest displacement per component, ordered like
+ *   `dims`. Zero for an empty window, where the field displaces nothing.
+ */
+export async function fieldDisplacementRange(
+  transform: Displacements | Coordinates,
+  image: NgffImage,
+  dims: string[],
+  window: [number, number][],
+  outside = false,
+): Promise<{ low: number[]; high: number[] }> {
+  const rank = dims.length;
+  const low = new Array(rank).fill(Number.POSITIVE_INFINITY);
+  const high = new Array(rank).fill(Number.NEGATIVE_INFINITY);
+  const zero = { low: new Array(rank).fill(0), high: new Array(rank).fill(0) };
+  if (window.some(([start, stop]) => stop <= start)) return zero;
+
+  const absolute = transform.type === "coordinates";
+  const chunkShape = image.data.chunks ?? image.data.shape;
+  const starts: number[][] = window.map(([begin, end], axis) => {
+    const size = chunkShape[1 + axis];
+    const first = Math.floor(begin / size) * size;
+    const positions: number[] = [];
+    for (let position = first; position < end; position += size) {
+      positions.push(position);
+    }
+    return positions;
+  });
+
+  for (const origin of gridPositions(starts)) {
+    const selection: (zarr.Slice | null)[] = [null];
+    const sizes: number[] = [];
+    origin.forEach((start, axis) => {
+      const stop = Math.min(
+        start + chunkShape[1 + axis],
+        image.data.shape[1 + axis],
+      );
+      selection.push(zarr.slice(start, stop));
+      sizes.push(stop - start);
+    });
+    const chunk = await zarr.get(image.data, selection);
+    const values = chunk.data as ArrayLike<number>;
+    const count = sizes.reduce((a, b) => a * b, 1);
+    const strides = new Array(rank).fill(1);
+    for (let axis = rank - 2; axis >= 0; axis--) {
+      strides[axis] = strides[axis + 1] * sizes[axis + 1];
+    }
+    for (let component = 0; component < rank; component++) {
+      const offset = component * count;
+      const origin_ = image.translation[dims[component]];
+      const step = image.scale[dims[component]];
+      for (let index = 0; index < count; index++) {
+        let value = values[offset + index];
+        if (absolute) {
+          // A coordinates field holds the output position of each grid point
+          // rather than the offset from it, so the grid point comes off first.
+          const along = Math.floor(index / strides[component]) %
+            sizes[component];
+          value -= origin_ + step * (origin[component] + along);
+        }
+        if (value < low[component]) low[component] = value;
+        if (value > high[component]) high[component] = value;
+      }
+    }
+  }
+  // A window that reached no value displaces nothing.
+  if (!Number.isFinite(low[0])) return zero;
+  if (outside) {
+    for (let component = 0; component < rank; component++) {
+      low[component] = Math.min(low[component], 0);
+      high[component] = Math.max(high[component], 0);
+    }
+  }
+  return { low, high };
+}
+
+function* gridPositions(starts: number[][]): Generator<number[]> {
+  if (starts.length === 0) {
+    yield [];
+    return;
+  }
+  const [head, ...rest] = starts;
+  for (const value of head) {
+    for (const tail of gridPositions(rest)) yield [value, ...tail];
+  }
+}
+
+/**
  * Convert an RFC-5 `displacements` or `coordinates` transform to ITK.
  *
  * The counterpart of {@link itkDisplacementFieldToNgffTransform}. The field
@@ -508,52 +753,12 @@ export async function ngffDisplacementFieldToItkTransform(
   // the position of the grid point itself. ITK has no absolute-coordinate
   // transform, so both reach it as one DisplacementField.
   const absolute = transform.type === "coordinates";
-  const componentType = absolute ? "coordinate" : "displacement";
-  let componentDims: string[];
-  let image: NgffImage;
-  if ("images" in field && "metadata" in field) {
-    // A read multiscales keeps the axis types in its metadata, not on the
-    // image: the component axis is the one typed there.
-    componentDims = field.metadata.axes
-      .filter((axis) => axis.type === componentType)
-      .map((axis) => axis.name);
-    image = field.images[0];
-  } else {
-    image = field;
-    componentDims = Object.entries(image.axesTypes ?? {})
-      .filter(([, type]) => type === componentType)
-      .map(([dim]) => dim);
-  }
-  if (componentDims.length !== 1) {
-    throw new Error(
-      `the field image must have exactly one axis of type '${componentType}' ` +
-        "(axesTypes on an NgffImage, the axes metadata of a multiscales); " +
-        `got [${componentDims.join(", ")}] on dims [${image.dims.join(", ")}]`,
-    );
-  }
-  const expectedDims = [componentDims[0], ...dims];
-  if (
-    image.dims.length !== expectedDims.length ||
-    image.dims.some((dim, i) => dim !== expectedDims[i])
-  ) {
-    throw new Error(
-      `the field's dims are [${image.dims.join(", ")}]; a ${transform.type} ` +
-        `transform over dims [${dims.join(", ")}] needs ` +
-        `[${expectedDims.join(", ")}]: the component axis first, then the ` +
-        "input axes in order",
-    );
-  }
+  const image = fieldImage(transform, field, dims);
 
   const chunk = await zarr.get(image.data, null);
   const data = chunk.data as ArrayLike<number>;
   const shape = chunk.shape;
   const dimension = dims.length;
-  if (shape[0] !== dimension) {
-    throw new Error(
-      `the field holds ${shape[0]} components per point, but dims ` +
-        `[${dims.join(", ")}] name ${dimension} axes`,
-    );
-  }
 
   const itkDims = itkAxisOrder(dims);
   const size = itkDims.map((dim) => shape[1 + dims.indexOf(dim)]);
@@ -563,12 +768,7 @@ export async function ngffDisplacementFieldToItkTransform(
 
   let frame = optionalFrameGeometry(frames_.fixed, frames_.moving, itkDims);
   if (frame === undefined) {
-    if (!allClose(ownDirection, identity(dimension))) {
-      throw new Error(
-        "the field carries an anatomical orientation; pass the fixed and " +
-          "moving images so its grid is placed in their frame",
-      );
-    }
+    checkUnorientedField(image, dims);
     frame = unorientedFrames(dimension);
   } else if (
     !allClose(ownDirection, identity(dimension)) &&
