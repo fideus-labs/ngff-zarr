@@ -14,13 +14,16 @@ from .ngff_transform_to_itk_transform import ngff_transform_to_itk_transform
 from .resample_bounding_box import (
     _as_itk_transform_list,
     _check_geometry,
+    _direction_bounds,
     _field_stream,
+    _grid_physical_box,
     _grown,
     _identity_region,
     _identity_transform_list,
     _is_ngff_transform,
     _itk_direction,
     _metadata_only_itk_image,
+    _nonlinear_interval,
     _shifted_translation,
     _spatial_dims,
     resample_bounding_box,
@@ -457,6 +460,8 @@ def resample(
     out_orientations = fixed.axes_orientations
     field = None
     field_bound = None
+    itk_interval = None
+    itk_growth = None
     if _is_ngff_transform(transform):
         if isinstance(transform, (Coordinates, Displacements)):
             # The blocks divide the grid, so the grid's own window is the
@@ -481,6 +486,20 @@ def resample(
         moving = replace(moving, axes_orientations=None)
     else:
         transform_list = _as_itk_transform_list(transform)
+        # A displacement stage would have its whole field scanned once per
+        # block below; the split and its range are loop constants, so they
+        # are taken here. The graph's tasks keep the original list: only the
+        # regions walk the linear part.
+        itk_dims = [dim for dim in ("x", "y", "z") if dim in fixed_spatial]
+        walked_list, itk_interval = _nonlinear_interval(
+            transform_list,
+            len(fixed_spatial),
+            _grid_physical_box(fixed, itk_dims),
+        )
+        if itk_interval is not None:
+            itk_growth = _direction_bounds(
+                itk_interval, itk_dims, _itk_direction(moving, itk_dims)
+            )
 
     out_chunks = fixed.data.chunks
     out_offsets = _chunk_offsets(out_chunks)
@@ -545,6 +564,13 @@ def resample(
                 _identity_region(grid, moving, padding),
                 field_bound.over(window, outside),
                 moving,
+            )
+        elif itk_interval is not None:
+            region = _grown(
+                resample_bounding_box(walked_list, grid, moving, padding=padding),
+                itk_growth[0],
+                moving,
+                itk_growth[1],
             )
         else:
             region = resample_bounding_box(

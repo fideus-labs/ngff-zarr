@@ -24,6 +24,7 @@ from ngff_zarr import (
 )
 from ngff_zarr.ngff_transform_to_itk_transform import _ngff_transform_to_itk_matrix
 from ngff_zarr.resample_bounding_box import (
+    _as_itk_transform_list,
     _itk_direction,
     _metadata_only_itk_image,
     _shifted_translation,
@@ -1196,3 +1197,173 @@ def test_the_identity_region_is_the_pipelines():
         ):
             for dim in dims:
                 np.testing.assert_allclose(mine[dim], theirs[dim], rtol=1e-12)
+
+
+def _bump_displacement_transform(itk, extent=64, radius=20, peaks=(60.0, -60.0)):
+    """A field that is zero on the grid boundary and peaks in the middle.
+
+    The boundary walk sees only the zero, which is what the interval has to
+    make up for. ``peaks`` are the (y, x) amplitudes; the field's grid is
+    unit-spaced at the origin.
+    """
+    grid_y, grid_x = np.mgrid[0:extent, 0:extent].astype(np.float64)
+    distance = np.sqrt((grid_y - extent / 2) ** 2 + (grid_x - extent / 2) ** 2)
+    profile = np.where(
+        distance < radius, 0.5 * (1 + np.cos(np.pi * distance / radius)), 0.0
+    )
+    field = itk.Image[itk.Vector[itk.D, 2], 2].New()
+    field.SetRegions(itk.ImageRegion[2]([extent, extent]))
+    field.Allocate()
+    view = itk.array_view_from_image(field)
+    view[..., 0] = peaks[1] * profile
+    view[..., 1] = peaks[0] * profile
+    transform = itk.DisplacementFieldTransform[itk.D, 2].New()
+    transform.SetDisplacementField(field)
+    return transform, profile
+
+
+def test_the_stage_interval_reads_the_layouts_itk_writes():
+    """A field interleaves components per point; a B-spline blocks them.
+
+    Pinned against ITK itself: one distinctive value planted per component
+    must come back on its own component, not on a neighbour's. Misreading the
+    layout would produce plausible wrong bounds silently.
+    """
+    itk = pytest.importorskip("itk")
+    from ngff_zarr.resample_bounding_box import _stage_interval
+
+    field = itk.Image[itk.Vector[itk.D, 2], 2].New()
+    field.SetRegions(itk.ImageRegion[2]([4, 3]))
+    field.Allocate()
+    field.FillBuffer(itk.Vector[itk.D, 2]())
+    vector = itk.Vector[itk.D, 2]()
+    vector[0], vector[1] = 7.0, -9.0
+    field.SetPixel([2, 1], vector)
+    warp = itk.DisplacementFieldTransform[itk.D, 2].New()
+    warp.SetDisplacementField(field)
+    (entry,) = _as_itk_transform_list(warp)
+    low, high = _stage_interval(entry, 2)
+    assert (low.tolist(), high.tolist()) == ([0.0, -9.0], [7.0, 0.0])
+
+    spline = itk.BSplineTransform[itk.D, 2, 3].New()
+    mesh = itk.Size[2]()
+    mesh.Fill(3)
+    spline.SetTransformDomainMeshSize(mesh)
+    count = spline.GetNumberOfParameters()
+    parameters = itk.OptimizerParameters[itk.D](count)
+    for index in range(count):
+        parameters.SetElement(index, 0.0)
+    parameters.SetElement(5, 11.0)
+    parameters.SetElement(count // 2 + 5, -13.0)
+    spline.SetParameters(parameters)
+    (entry,) = _as_itk_transform_list(spline)
+    low, high = _stage_interval(entry, 2)
+    assert (low.tolist(), high.tolist()) == ([0.0, -13.0], [11.0, 0.0])
+
+
+def test_an_interior_bump_in_an_itk_field_widens_the_region():
+    """A displacement the grid's boundary does not show still gets covered.
+
+    The walk reported the identity region for this field and resample
+    returned the default value for 64 of 4096 pixels, by up to 93.
+    """
+    itk = pytest.importorskip("itk")
+    warp, profile = _bump_displacement_transform(itk)
+
+    fixed = _image("yx", {"y": 64, "x": 64}, {"y": 1.0, "x": 1.0}, {"y": 0.0, "x": 0.0})
+    moving = _image(
+        "yx", {"y": 256, "x": 256}, {"y": 1.0, "x": 1.0}, {"y": 0.0, "x": 0.0}
+    )
+
+    region = resample_bounding_box(warp, fixed, moving, padding=1)
+
+    grid_y, grid_x = np.mgrid[0:64, 0:64].astype(np.float64)
+    for dim, reached in (
+        ("y", grid_y + 60.0 * profile),
+        ("x", grid_x - 60.0 * profile),
+    ):
+        assert region.start_index[dim] <= float(reached.min())
+        assert region.start_index[dim] + region.size[dim] >= float(reached.max())
+
+
+def test_an_interior_bump_resamples_exactly_in_one_block():
+    """One output block over the whole grid, against a whole-image call.
+
+    Small blocks hide the miss by accident, their boundaries crossing the
+    bump; one block is the case the walk got wrong.
+    """
+    itk = pytest.importorskip("itk")
+    from ngff_zarr import resample
+
+    warp, _profile = _bump_displacement_transform(itk)
+    # One block over the whole grid, said explicitly: left to itself dask
+    # cuts this small array into blocks whose boundaries cross the bump, and
+    # the walk then finds by accident what it misses on the block at stake.
+    fixed = NgffImage(
+        data=da.zeros((64, 64), chunks=(64, 64), dtype=np.float32),
+        dims=("y", "x"),
+        scale={"y": 1.0, "x": 1.0},
+        translation={"y": 0.0, "x": 0.0},
+    )
+    # The images this file builds carry no pixels, which the bounding box
+    # never reads; this test resamples, so the moving image has to carry
+    # something a missed region would lose.
+    moving = NgffImage(
+        data=da.from_array(
+            (np.random.default_rng(0).random((256, 256)) * 100).astype(np.float32)
+        ),
+        dims=("y", "x"),
+        scale={"y": 1.0, "x": 1.0},
+        translation={"y": 0.0, "x": 0.0},
+    )
+
+    result = np.asarray(resample(warp, fixed, moving).data)
+
+    from itkwasm_downsample import resample_to_reference
+    from ngff_zarr.ngff_image_to_itk_image import ngff_image_to_itk_image
+    from ngff_zarr.resample import _component_type
+    from ngff_zarr.resample_bounding_box import _spatial_dims
+
+    itk_dims = list(reversed(_spatial_dims(fixed)))
+    reference = _metadata_only_itk_image(
+        fixed, itk_dims, _itk_direction(fixed, itk_dims)
+    )
+    reference.imageType.componentType = _component_type(moving.data.dtype)
+    expected = np.asarray(
+        resample_to_reference(
+            ngff_image_to_itk_image(moving, wasm=True),
+            reference,
+            transform=_as_itk_transform_list(warp),
+            interpolator="linear",
+        ).data
+    ).reshape((64, 64))
+    np.testing.assert_array_equal(result, expected)
+
+
+def test_an_affine_around_the_field_folds_its_interval():
+    """A composite of an affine and a field bounds through the affine's signs."""
+    itk = pytest.importorskip("itk")
+    from ngff_zarr.resample_bounding_box import _nonlinear_interval
+
+    warp, _profile = _bump_displacement_transform(itk, peaks=(60.0, -60.0))
+    scaling = itk.AffineTransform[itk.D, 2].New()
+    scaling.Scale(2.0)
+    composite = itk.CompositeTransform[itk.D, 2].New()
+    composite.AddTransform(warp)
+    composite.AddTransform(scaling)  # applied first: entries = [warp? or scaling?]
+
+    entries = _as_itk_transform_list(composite)
+    walked, interval = _nonlinear_interval(entries, 2)
+
+    assert interval is not None
+    low, high = interval
+    # The field is the outermost stage here, so its range passes through no
+    # affine and keeps its own numbers, zero included.
+    assert low.tolist() == [-60.0, 0.0]
+    assert high.tolist() == [0.0, 60.0]
+
+    reordered = _as_itk_transform_list([entries[1], entries[0]])
+    _walked, folded = _nonlinear_interval(reordered, 2)
+    # The affine is outermost now, so the field's range doubles through it.
+    assert folded[0].tolist() == [-120.0, 0.0]
+    assert folded[1].tolist() == [0.0, 120.0]
