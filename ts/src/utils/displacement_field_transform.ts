@@ -188,6 +188,44 @@ function frameTerms(frame: FrameGeometry): FrameTerms {
   };
 }
 
+/**
+ * The per-voxel value conversion both field directions share.
+ *
+ * `toIntrinsic` turns an ITK vector into an RFC-5 displacement,
+ * `d(q) = D_out^-1 v + (M - I) q + b`, and `toPhysical` is its inverse. Every
+ * term is a function of the voxel's position and the frames alone, which is
+ * what lets a block be converted where it sits: see `convertFieldBlock`. A
+ * `coordinates` field holds `q + d` rather than `d`, so `absolute` folds the
+ * grid point itself into the positional term, in one pass over the grid.
+ */
+function fieldValueConverters(frame: FrameGeometry, absolute: boolean): {
+  toIntrinsic: (vector: number[], point: number[]) => number[];
+  toPhysical: (displacement: number[], point: number[]) => number[];
+} {
+  const terms = frameTerms(frame);
+  const inverseOut = transposed(terms.directionOut);
+  return {
+    toIntrinsic: (vector: number[], point: number[]): number[] => {
+      const rotated = matvec(inverseOut, vector);
+      if (!terms.shifts) return rotated;
+      const shift = matvec(terms.shiftMatrix, point);
+      return rotated.map((value, i) => value + shift[i] + terms.shiftVector[i]);
+    },
+    toPhysical: (displacement: number[], point: number[]): number[] => {
+      if (!terms.shifts && !absolute) {
+        return matvec(terms.directionOut, displacement);
+      }
+      const shift = matvec(terms.shiftMatrix, point);
+      return matvec(
+        terms.directionOut,
+        displacement.map((value, i) =>
+          value - shift[i] - terms.shiftVector[i] - (absolute ? point[i] : 0)
+        ),
+      );
+    },
+  };
+}
+
 /** The field a vector `Image` or a `DisplacementField` transform holds. */
 function decodeField(input: Transform | TransformList | Image): ItkField {
   if (Array.isArray(input)) {
@@ -371,15 +409,8 @@ export async function itkDisplacementFieldToNgffTransform(
     origin.map((value, i) => value - frame.originFixed[i]),
   ).map((value, i) => value + frame.originFixed[i]);
 
-  // d(q) = D_out^-1 v + (M - I) q + b -- see frameTerms.
-  const terms = frameTerms(frame);
-  const inverseOut = transposed(terms.directionOut);
-  const toIntrinsic = (vector: number[], point: number[]): number[] => {
-    const rotated = matvec(inverseOut, vector);
-    if (!terms.shifts) return rotated;
-    const shift = matvec(terms.shiftMatrix, point);
-    return rotated.map((value, i) => value + shift[i] + terms.shiftVector[i]);
-  };
+  // d(q) = D_out^-1 v + (M - I) q + b -- see fieldValueConverters.
+  const { toIntrinsic } = fieldValueConverters(frame, false);
 
   // (c, *dims) with components in dims order, C-contiguous.
   const shape = dims.map((dim) => size[itkDims.indexOf(dim)]);
@@ -479,6 +510,127 @@ export async function itkDisplacementFieldToNgffTransform(
  * @param dims The spatial axis names, in RFC-5 order.
  * @throws If the field carries an anatomical orientation.
  */
+export interface ConvertFieldBlockOptions {
+  /** `displacements` (the block holds offsets) or `coordinates` (absolute positions). */
+  transformType?: "displacements" | "coordinates";
+  /** The fixed and moving images the field relates; pass both or neither. */
+  fixed?: NgffImage;
+  /** See `fixed`. */
+  moving?: NgffImage;
+  /** Convert the store's values back to ITK's convention. */
+  inverse?: boolean;
+}
+
+/**
+ * Convert one block of a field between ITK's convention and RFC-5's.
+ *
+ * The block-level face of the two whole-field converters, for a field that is
+ * never assembled: a producer computing an ITK-convention field region by
+ * region converts each block on its way into a store, and `inverse` is the way
+ * back. Every term of the conversion is a function of the voxel's position and
+ * the frames alone (`fieldValueConverters`), so converting a block with the
+ * block's own translation equals cutting that block from the converted whole.
+ *
+ * @param values The block, channel-first: `shape[0]` components, then the
+ * spatial axes in `dims` order. Forward, the components are ITK's (a vector's
+ * x, then y, then z); with `inverse` they follow `dims`, as the store holds
+ * them.
+ * @param shape The block's shape, `[components, ...spatial in dims order]`.
+ * @param dims The spatial axis names of the input coordinate system, in RFC-5
+ * (Zarr) order.
+ * @param translation Where the block starts on the field's grid, per axis: the
+ * field's own translation advanced by the block's voxel offset times `scale`.
+ * This is the RFC-5 value, in the input coordinate system's frame -- with
+ * `fixed`/`moving` it is NOT the block's ITK physical origin.
+ * @param scale The field's scale per axis.
+ * @returns The converted block, channel-first, components in `dims` order
+ * (ITK's with `inverse`).
+ */
+export function convertFieldBlock(
+  values: Float32Array | Float64Array,
+  shape: number[],
+  dims: string[],
+  translation: Record<string, number>,
+  scale: Record<string, number>,
+  options: ConvertFieldBlockOptions = {},
+): Float32Array | Float64Array {
+  checkDims(dims);
+  const dimension = dims.length;
+  const { transformType = "displacements", inverse = false } = options;
+  if (transformType !== "displacements" && transformType !== "coordinates") {
+    throw new Error(
+      `transformType must be 'displacements' or 'coordinates', got '${transformType}'`,
+    );
+  }
+  if (shape.length !== dimension + 1) {
+    throw new Error(
+      `the block has shape ${shape.join(", ")}; dims ${
+        dims.join(", ")
+      } need one component axis and ${dimension} spatial axes`,
+    );
+  }
+  if (shape[0] !== dimension) {
+    throw new Error(
+      `the block holds ${shape[0]} components per point, but dims ${
+        dims.join(", ")
+      } name ${dimension} axes`,
+    );
+  }
+  for (const dim of dims) {
+    if (translation[dim] === undefined || scale[dim] === undefined) {
+      throw new Error(
+        `translation and scale must cover every axis dims ${
+          dims.join(", ")
+        } names; '${dim}' is missing`,
+      );
+    }
+  }
+
+  const itkDims = itkAxisOrder(dims);
+  const frame = optionalFrameGeometry(options.fixed, options.moving, itkDims) ??
+    unorientedFrames(dimension);
+  const absolute = transformType === "coordinates";
+  const { toIntrinsic, toPhysical } = fieldValueConverters(frame, absolute);
+  // The component axis of the block, per ITK axis and back.
+  const componentOf = dims.map((dim) => itkDims.indexOf(dim));
+
+  const spatial = shape.slice(1);
+  const voxels = spatial.reduce((a, b) => a * b, 1);
+  const out = values instanceof Float32Array
+    ? new Float32Array(values.length)
+    : new Float64Array(values.length);
+  // C-contiguous strides over the block's spatial axes, which are in dims order.
+  const dimsStrides = new Array<number>(dimension);
+  let step = 1;
+  for (let axis = dimension - 1; axis >= 0; axis--) {
+    dimsStrides[axis] = step;
+    step *= spatial[axis];
+  }
+  const point = new Array<number>(dimension);
+  const held = new Array<number>(dimension);
+  for (let voxel = 0; voxel < voxels; voxel++) {
+    for (let axis = 0; axis < dimension; axis++) {
+      const index = Math.floor(voxel / dimsStrides[axis]) % spatial[axis];
+      // The point in ITK axis order, which is what the converters index.
+      point[itkDims.indexOf(dims[axis])] = translation[dims[axis]] +
+        scale[dims[axis]] * index;
+    }
+    for (let axis = 0; axis < dimension; axis++) {
+      // Forward the components are ITK's already; inverse they follow dims.
+      const source = inverse ? componentOf[axis] : axis;
+      held[source] = values[axis * voxels + voxel];
+    }
+    const converted = inverse
+      ? toPhysical(held, point)
+      : toIntrinsic(held, point);
+    for (let axis = 0; axis < dimension; axis++) {
+      const target = inverse ? axis : componentOf[axis];
+      out[axis * voxels + voxel] = converted[target];
+    }
+  }
+  return out;
+}
+
 export function checkUnorientedField(image: NgffImage, dims: string[]): void {
   const itkDims = itkAxisOrder(dims);
   const direction = directionRows(itkDirection(image, itkDims), dims.length);
@@ -787,22 +939,8 @@ export async function ngffDisplacementFieldToItkTransform(
     translation.map((value, i) => value - frame.originFixed[i]),
   ).map((value, i) => value + frame.originFixed[i]);
 
-  // v(q) = D_out (d - (M - I) q - b) -- see frameTerms. A coordinates field
-  // holds q + d rather than d, so the grid point comes off along with the
-  // frame term, which is subtracting M q rather than (M - I) q.
-  const terms = frameTerms(frame);
-  const toPhysical = (displacement: number[], point: number[]): number[] => {
-    if (!terms.shifts && !absolute) {
-      return matvec(terms.directionOut, displacement);
-    }
-    const shift = matvec(terms.shiftMatrix, point);
-    return matvec(
-      terms.directionOut,
-      displacement.map((value, i) =>
-        value - shift[i] - terms.shiftVector[i] - (absolute ? point[i] : 0)
-      ),
-    );
-  };
+  // v(q) = D_out (d - (M - I) q - b) -- see fieldValueConverters.
+  const { toPhysical } = fieldValueConverters(frame, absolute);
 
   if (
     transform.interpolation !== undefined &&
