@@ -302,7 +302,7 @@ Metadata validation is supported for OME-Zarr version 0.1 to 0.5.
 To write the multiscales to OME-Zarr, use [`to_ngff_zarr`].
 
 ```python
-nz.to_ngff_zarr('cthead1.ome.zarr', multiscales)
+nz.to_ngff_zarr("cthead1.ome.zarr", multiscales)
 ```
 
 Use the `.ome.zarr` extension for local directory stores by convention.
@@ -346,11 +346,8 @@ Format Specification 3.
 This can be a single integer,
 
 ```python
-version = '0.5'
-nz.to_ngff_zarr('lightsheet.ome.zarr',
-                multiscales,
-                chunks_per_shard=2,
-                version=version)
+version = "0.5"
+nz.to_ngff_zarr("lightsheet.ome.zarr", multiscales, chunks_per_shard=2, version=version)
 ```
 
 This will use 2 chunks per shard for all dimensions.
@@ -358,19 +355,20 @@ This will use 2 chunks per shard for all dimensions.
 Or, specify a tuple of integers for each dimension.
 
 ```python
-nz.to_ngff_zarr('lightsheet.ome.zarr',
-                multiscales,
-                chunks_per_shard=(2, 2, 4),
-                version=version)
+nz.to_ngff_zarr(
+    "lightsheet.ome.zarr", multiscales, chunks_per_shard=(2, 2, 4), version=version
+)
 ```
 
 Or, specify a dictionary of integers for each dimension.
 
 ```python
-nz.to_ngff_zarr('lightsheet.ome.zarr',
-                multiscales,
-                chunks_per_shard={'z':4, 'y':2, 'x':2},
-                version=version)
+nz.to_ngff_zarr(
+    "lightsheet.ome.zarr",
+    multiscales,
+    chunks_per_shard={"z": 4, "y": 2, "x": 2},
+    version=version,
+)
 ```
 
 The resulting shard shape will be the product of the chunk shape and the
@@ -390,10 +388,12 @@ already there. The OME keys themselves (`multiscales`, `omero`, `ome`) are
 derived from the multiscales and cannot be set this way.
 
 ```python
-multiscales.root_attributes = {'acquisition': {'direction': [0, -1, 0, 1, 0, 0, 0, 0, 1]}}
-nz.to_ome_zarr('image.ome.zarr', multiscales, version='0.5')
+multiscales.root_attributes = {
+    "acquisition": {"direction": [0, -1, 0, 1, 0, 0, 0, 0, 1]}
+}
+nz.to_ome_zarr("image.ome.zarr", multiscales, version="0.5")
 
-nz.from_ome_zarr('image.ome.zarr').root_attributes
+nz.from_ome_zarr("image.ome.zarr").root_attributes
 # {'acquisition': {'direction': [0, -1, 0, 1, 0, 0, 0, 0, 1]}}
 ```
 
@@ -402,7 +402,7 @@ filled region by region, goes in afterwards; existing keys are replaced and
 the others kept:
 
 ```python
-nz.update_root_attributes('image.ome.zarr', {'acquisition': {'max_displacement': 3.2}})
+nz.update_root_attributes("image.ome.zarr", {"acquisition": {"max_displacement": 3.2}})
 ```
 
 ### Create the store before its data
@@ -420,14 +420,14 @@ import dask.array as da
 
 shape = (1, 4096, 8192, 8192)
 chunks = (1, 64, 512, 512)
-placeholder = da.zeros(shape, dtype='float32', chunks=chunks)
-image = nz.to_ngff_image(placeholder, dims=['c', 'z', 'y', 'x'])
+placeholder = da.zeros(shape, dtype="float32", chunks=chunks)
+image = nz.to_ngff_image(placeholder, dims=["c", "z", "y", "x"])
 multiscales = nz.to_multiscales(image, scale_factors=[], chunks=chunks, cache=False)
-nz.to_ome_zarr('volume.ome.zarr', multiscales, version='0.5', metadata_only=True)
+nz.to_ome_zarr("volume.ome.zarr", multiscales, version="0.5", metadata_only=True)
 
-level0 = nz.open_array('volume.ome.zarr', multiscales.metadata.datasets[0].path)
+level0 = nz.open_array("volume.ome.zarr", multiscales.metadata.datasets[0].path)
 for z in range(0, shape[1], 64):
-    level0[:, z:z + 64] = compute_slab(z)
+    level0[:, z : z + 64] = compute_slab(z)
 ```
 
 Pass `cache=False` to `to_multiscales`: the placeholder has nothing worth
@@ -451,10 +451,11 @@ rewritten; root attributes the writer does not own are kept; the multiscales
 entry is rewritten in full.
 
 ```python
-base = nz.from_ome_zarr('volume.ome.zarr').images[0]
+base = nz.from_ome_zarr("volume.ome.zarr").images[0]
 multiscales = nz.to_multiscales(base, scale_factors=[2, 4], chunks=chunks)
-nz.to_ome_zarr('volume.ome.zarr', multiscales, version='0.5',
-                overwrite=False, start_level=1)
+nz.to_ome_zarr(
+    "volume.ome.zarr", multiscales, version="0.5", overwrite=False, start_level=1
+)
 ```
 
 `start_level` requires `overwrite=False`, and the store must hold every level
@@ -482,13 +483,13 @@ For a store whose grid is already fixed, read the aligned block that contains
 the windows and slice it in memory. `open_array` reports the grid:
 
 ```python
-level0 = nz.open_array('volume.ome.zarr', 'scale0/image')
+level0 = nz.open_array("volume.ome.zarr", "scale0/image")
 depth = level0.chunks[1]
 
 for start in range(0, level0.shape[1], depth):
-    block = level0[:, start:start + depth]        # one aligned read
+    block = level0[:, start : start + depth]  # one aligned read
     for z in range(block.shape[1]):
-        plane = block[:, z]                       # a view, no read
+        plane = block[:, z]  # a view, no read
 ```
 
 This reaches the same speed as reading the volume in aligned blocks, whatever
@@ -568,7 +569,7 @@ Use [`from_hcs_zarr`] to load HCS plate data:
 
 ```python
 # Load an HCS plate
-plate = nz.from_hcs_zarr('screening_plate.ome.zarr')
+plate = nz.from_hcs_zarr("screening_plate.ome.zarr")
 
 print(f"Plate: {plate.metadata.name}")
 print(f"Wells: {len(plate.metadata.wells)}")
@@ -618,7 +619,7 @@ Validate HCS metadata during loading:
 
 ```python
 # Validate against HCS schema
-plate = nz.from_hcs_zarr('plate.ome.zarr', validate=True)
+plate = nz.from_hcs_zarr("plate.ome.zarr", validate=True)
 ```
 
 For more detailed examples and advanced usage, see the
@@ -632,14 +633,14 @@ the desired version when writing.
 
 ```python
 # Convert from 0.4 to 0.5
-multiscales = from_ngff_zarr('cthead1.ome.zarr')
-to_ngff_zarr('cthead1_zarr3.ome.zarr', multiscales, version='0.5')
+multiscales = from_ngff_zarr("cthead1.ome.zarr")
+to_ngff_zarr("cthead1_zarr3.ome.zarr", multiscales, version="0.5")
 ```
 
 ```python
 # Convert from 0.5 to 0.4
-multiscales = from_ngff_zarr('cthead1.ome.zarr')
-to_ngff_zarr('cthead1_zarr2.ome.zarr', multiscales, version='0.4')
+multiscales = from_ngff_zarr("cthead1.ome.zarr")
+to_ngff_zarr("cthead1_zarr2.ome.zarr", multiscales, version="0.4")
 ```
 
 ## Upgrade OME-Zarr versions
@@ -678,13 +679,12 @@ import numpy as np
 import ngff_zarr as nz
 
 # Synthesize a tiny store written at OME-Zarr 0.5 (Zarr v3).
-image = nz.to_ngff_image(np.zeros((4, 32, 32), dtype=np.uint8),
-                         dims=['z', 'y', 'x'])
+image = nz.to_ngff_image(np.zeros((4, 32, 32), dtype=np.uint8), dims=["z", "y", "x"])
 multiscales = nz.to_multiscales(image, scale_factors=[2])
-nz.to_ome_zarr('image.ome.zarr', multiscales, version='0.5')
+nz.to_ome_zarr("image.ome.zarr", multiscales, version="0.5")
 
 # Rewrite only the root metadata to 0.6; array chunks are left untouched.
-nz.upgrade_ome_zarr('image.ome.zarr', version='0.6')
+nz.upgrade_ome_zarr("image.ome.zarr", version="0.6")
 ```
 
 Write an upgraded 0.6 copy from a 0.4 source, leaving the source intact:
@@ -694,13 +694,12 @@ import numpy as np
 import ngff_zarr as nz
 
 # Synthesize a tiny store written at OME-Zarr 0.4 (Zarr v2).
-image = nz.to_ngff_image(np.zeros((4, 32, 32), dtype=np.uint8),
-                         dims=['z', 'y', 'x'])
+image = nz.to_ngff_image(np.zeros((4, 32, 32), dtype=np.uint8), dims=["z", "y", "x"])
 multiscales = nz.to_multiscales(image, scale_factors=[2])
-nz.to_ome_zarr('image_v04.ome.zarr', multiscales, version='0.4')
+nz.to_ome_zarr("image_v04.ome.zarr", multiscales, version="0.4")
 
 # Write a new 0.6 store; 'image_v04.ome.zarr' is read lazily and never erased.
-nz.upgrade_ome_zarr('image_v04.ome.zarr', 'image_v06.ome.zarr', version='0.6')
+nz.upgrade_ome_zarr("image_v04.ome.zarr", "image_v06.ome.zarr", version="0.6")
 ```
 
 Pass `validate=True` to validate the source metadata against the NGFF schema

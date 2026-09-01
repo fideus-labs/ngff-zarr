@@ -55,10 +55,15 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.5
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: [--fix, --exit-non-zero-on-fix]
         exclude: py/test/conftest.py
       - id: ruff-format
+        # ruff-format also formats Python blocks in Markdown as of
+        # ruff-pre-commit v0.16. AGENTS.md documents formatting mistakes with
+        # deliberately misformatted "WRONG" examples, so formatting it would
+        # erase the distinction it is trying to draw.
+        exclude: ^AGENTS\.md$
 
   - repo: https://github.com/commitizen-tools/commitizen
     rev: "v4.18.0"

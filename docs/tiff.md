@@ -215,8 +215,8 @@ For an OME-TIFF with this metadata:
 The resulting NgffImage will have:
 
 ```python
-ngff_image.scale = {'x': 0.5, 'y': 0.5, 'z': 2.0}
-ngff_image.axes_units = {'x': 'micrometer', 'y': 'micrometer', 'z': 'micrometer'}
+ngff_image.scale = {"x": 0.5, "y": 0.5, "z": 2.0}
+ngff_image.axes_units = {"x": "micrometer", "y": "micrometer", "z": "micrometer"}
 ```
 
 ## Pyramidal TIFFs

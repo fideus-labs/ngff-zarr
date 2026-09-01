@@ -25,7 +25,7 @@ data = np.random.randint(0, 256, int(1e6)).reshape((1000, 1000))
 
 multiscales = nz.to_multiscales(data)
 
-nz.to_ngff_zarr('example.ome.zarr', multiscales)
+nz.to_ngff_zarr("example.ome.zarr", multiscales)
 ```
 
 ## High Content Screening (HCS)
@@ -34,7 +34,7 @@ nz.to_ngff_zarr('example.ome.zarr', multiscales)
 import ngff_zarr as nz
 
 # Load HCS plate data
-plate = nz.from_hcs_zarr('screening_plate.ome.zarr')
+plate = nz.from_hcs_zarr("screening_plate.ome.zarr")
 
 # Access a specific well
 well = plate.get_well("A", "1")
