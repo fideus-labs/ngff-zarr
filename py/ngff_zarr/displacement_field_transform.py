@@ -137,6 +137,46 @@ def _grid_shift(shape, origin, spacing, matrix, vector):
     return (origin + spacing * indices) @ matrix.T + vector
 
 
+def _convert_field_values(
+    vectors: np.ndarray,
+    origin: np.ndarray,
+    spacing: np.ndarray,
+    frames: _FrameGeometry,
+    *,
+    absolute: bool = False,
+    inverse: bool = False,
+) -> np.ndarray:
+    """The per-voxel value conversion both field directions share.
+
+    ``vectors`` is ``(*grid, N)`` with ITK-ordered components; ``origin`` and
+    ``spacing`` are the GRID the values sit on, in ITK order -- for a window
+    of a larger field, the window's own origin, which is what makes the
+    conversion per-block: every term is a function of the voxel's position
+    and the frames alone.
+
+    Forward (``inverse=False``) turns ITK vectors into RFC-5 values:
+    ``v @ inverse_out.T`` then the positional frame term added. Inverse takes
+    the frame term off first and rotates back, so the two are exact inverses.
+    ``shift_matrix`` is ``M - I``; an absolute (``coordinates``) field holds
+    ``q + d`` rather than ``d``, so ``absolute`` folds the grid point itself
+    into the positional term, in one pass over the grid.
+    """
+    from .itk_transform_to_ngff_transform import _inverse_direction
+
+    dimension = vectors.shape[-1]
+    direction_out, shift_matrix, shift_vector = _frame_terms(frames)
+    grid_matrix = shift_matrix + np.eye(dimension) if absolute else shift_matrix
+    shift = _grid_shift(vectors.shape[:-1], origin, spacing, grid_matrix, shift_vector)
+    if inverse:
+        values = vectors if shift is None else vectors - shift
+        if not _is_identity(direction_out):
+            values = values @ direction_out.T
+        return values
+    inverse_out = _inverse_direction(direction_out)
+    values = vectors if _is_identity(inverse_out) else vectors @ inverse_out.T
+    return values if shift is None else values + shift
+
+
 def _is_identity(matrix: np.ndarray) -> bool:
     return bool(np.array_equal(matrix, np.eye(len(matrix))))
 
@@ -348,14 +388,7 @@ def itk_displacement_field_to_ngff_transform(
         + frames.origin_in
     )
 
-    direction_out, shift_matrix, shift_vector = _frame_terms(frames)
-    inverse_out = _inverse_direction(direction_out)
-    displacements = vectors if _is_identity(inverse_out) else vectors @ inverse_out.T
-    shift = _grid_shift(
-        vectors.shape[:-1], grid_origin, spacing, shift_matrix, shift_vector
-    )
-    if shift is not None:
-        displacements = displacements + shift
+    displacements = _convert_field_values(vectors, grid_origin, spacing, frames)
 
     # [z][y][x][c] with ITK components -> (c, *dims) with components in dims
     # order. The transposes are views; indexing the component axis is the one
@@ -459,6 +492,128 @@ def field_image(
         )
         raise ValueError(msg)
     return field
+
+
+def convert_field_block(
+    values: np.ndarray,
+    dims: Sequence[str],
+    *,
+    translation: Sequence[float],
+    spacing: Sequence[float],
+    fixed: NgffImage | None = None,
+    moving: NgffImage | None = None,
+    transform_type: str = "displacements",
+    inverse: bool = False,
+) -> np.ndarray:
+    """Convert one block of a field between ITK's convention and RFC-5's.
+
+    The block-level face of the two whole-field converters, for a field that
+    is never assembled: a producer computing an ITK-convention field region by
+    region converts each block on its way into a store created with
+    ``metadata_only=True``, and a consumer reads a window back the same way.
+    Every term of the conversion is a function of the voxel's position and the
+    frames alone, so converting a block with the BLOCK's own origin equals
+    cutting that block from the converted whole -- which is what the tests
+    pin, against the whole-field converters themselves.
+
+    :param values: The block, channel-first ``(N, *block)`` with the spatial
+        axes in ``dims`` order. Forward, the components are ITK's (a vector's
+        x, then y, then z); with ``inverse=True`` they follow ``dims``, as the
+        store holds them.
+    :type  values: np.ndarray
+    :param dims: The spatial axis names of the input coordinate system, in
+        RFC-5 (Zarr) order.
+    :type  dims: Sequence[str]
+    :param translation: Where the block starts on the field's grid, per axis in
+        ``dims`` order: the field's own ``translation`` advanced by the block's
+        voxel offset times ``spacing``. This is the RFC-5 value, in the input
+        coordinate system's frame -- with ``fixed``/``moving`` it is NOT the
+        block's ITK physical origin, which the fixed image's direction moves
+        away from it, and the whole-field converters take this same value.
+    :type  translation: Sequence[float]
+    :param spacing: The field's scale per axis, in ``dims`` order.
+    :type  spacing: Sequence[float]
+    :param fixed: The fixed and moving images the field relates; see
+        :func:`itk_displacement_field_to_ngff_transform`. Pass both or
+        neither; with neither the frames are one, and the conversion is the
+        component permutation alone.
+    :type  fixed: NgffImage, optional
+    :param moving: See ``fixed``.
+    :type  moving: NgffImage, optional
+    :param transform_type: ``displacements`` (offsets) or ``coordinates``
+        (absolute output positions).
+    :type  transform_type: str, optional
+    :param inverse: Convert the store's values back to ITK's convention.
+    :type  inverse: bool, optional
+    :return: The converted block, channel-first, contiguous, components in
+        ``dims`` order (ITK's with ``inverse=True``).
+    :rtype: np.ndarray
+    :raises ValueError: If the block's component count does not match
+        ``dims``, or for an unknown ``transform_type``.
+    """
+    from .itk_transform_to_ngff_transform import _itk_axis_order
+
+    dims = _check_dims(dims)
+    if transform_type not in ("displacements", "coordinates"):
+        msg = (
+            "transform_type must be 'displacements' or 'coordinates', "
+            f"got '{transform_type}'"
+        )
+        raise ValueError(msg)
+    if values.shape[0] != len(dims):
+        msg = (
+            f"the block holds {values.shape[0]} components per point, but "
+            f"dims {dims} name {len(dims)} axes"
+        )
+        raise ValueError(msg)
+    if values.ndim != len(dims) + 1:
+        msg = (
+            f"the block has shape {values.shape}; dims {dims} need one "
+            f"component axis and {len(dims)} spatial axes"
+        )
+        raise ValueError(msg)
+    if len(translation) != len(dims) or len(spacing) != len(dims):
+        msg = (
+            f"translation and spacing give {len(translation)} and "
+            f"{len(spacing)} values for the {len(dims)} axes dims {dims} name"
+        )
+        raise ValueError(msg)
+    itk_dims = _itk_axis_order(dims)
+    canonical = tuple(reversed(itk_dims))
+    frames = _frames(fixed, moving, dims)
+    if frames is None:
+        frames = _unoriented_frames(len(dims))
+    translation_itk = np.asarray(
+        [float(translation[dims.index(dim)]) for dim in itk_dims]
+    )
+    spacing_itk = np.asarray([float(spacing[dims.index(dim)]) for dim in itk_dims])
+    # (c, *dims) -> (*canonical, N) with ITK components. The positional term is
+    # indexed on the canonical grid, so the block's spatial axes are taken
+    # there and put back in the caller's order after; both are views, and the
+    # one copy is the contiguous result.
+    component = len(dims)
+    arranged = np.moveaxis(values, 0, -1)
+    arranged = np.transpose(
+        arranged, [dims.index(dim) for dim in canonical] + [component]
+    )
+    if inverse:
+        arranged = arranged[..., [dims.index(dim) for dim in itk_dims]]
+    converted = _convert_field_values(
+        arranged,
+        translation_itk,
+        spacing_itk,
+        frames,
+        absolute=transform_type == "coordinates",
+        inverse=inverse,
+    )
+    converted = np.transpose(
+        converted, [canonical.index(dim) for dim in dims] + [component]
+    )
+    if not inverse:
+        converted = converted[..., [itk_dims.index(dim) for dim in dims]]
+    return np.ascontiguousarray(
+        np.moveaxis(converted, -1, 0).astype(values.dtype, copy=False)
+    )
 
 
 def check_unoriented_field(field: NgffImage, dims: Sequence[str]) -> None:
@@ -818,18 +973,9 @@ def ngff_displacement_field_to_itk_transform(
     direction = frames.direction_in
     origin = direction @ (translation - frames.origin_in) + frames.origin_in
 
-    direction_out, shift_matrix, shift_vector = _frame_terms(frames)
-    # ``shift_matrix`` is ``M - I``, so subtracting it turns an RFC-5
-    # displacement into an ITK vector. A coordinates field holds ``q + d``
-    # rather than ``d``, so subtracting ``M`` instead removes the grid point
-    # along with the frame term, in one pass over the grid.
-    grid_matrix = shift_matrix + np.eye(dimension) if absolute else shift_matrix
-    shift = _grid_shift(
-        displacements.shape[:-1], translation, spacing, grid_matrix, shift_vector
+    vectors = _convert_field_values(
+        displacements, translation, spacing, frames, absolute=absolute, inverse=True
     )
-    vectors = displacements if shift is None else displacements - shift
-    if not _is_identity(direction_out):
-        vectors = vectors @ direction_out.T
 
     if transform.interpolation not in (None, "linear"):
         warnings.warn(
