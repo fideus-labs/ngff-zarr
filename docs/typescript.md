@@ -234,6 +234,23 @@ transformations (the `Displacements` and `Coordinates` types) that reference suc
 a field from a registered image. Like the other v0.6 transforms, they round-trip
 through reading and writing.
 
+A typed component axis says what the channels are; it does not say between which
+coordinate systems the field maps, so nothing can apply it. `declareFieldTransform`
+adds that entry, validated:
+
+```typescript
+import { declareFieldTransform } from "@fideus-labs/ngff-zarr";
+
+// The standalone store -- the artifact a registration emits: the field maps a
+// spatial coordinate system onto itself through its own level-0 array.
+const declared = declareFieldTransform(multiscales);
+await toNgffZarr("displacement.ome.zarr", declared, { version: "0.6" });
+```
+
+For a field written beside the image it displaces, declare the entry on the
+image's multiscales instead, with `path` naming the field's array and
+`inputSystem`/`outputSystem` referencing the image's own coordinate systems.
+
 See [RFC-5: Coordinate Systems and Transformations](./rfc5.md) for the full
 transformation model, including how to write an image and its transformation
 (an affine, or a displacement/coordinate field) into a single store.
