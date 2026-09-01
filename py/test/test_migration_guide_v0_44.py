@@ -217,11 +217,19 @@ class TestArrayLevelNthreads:
         )
 
 
-def _sharded_multiscales():
-    """Two sharded scale levels, so a layout the migration must preserve."""
+def _codec_multiscales():
+    """Two scale levels, so a chunk layout the migration must carry over."""
     rng = np.random.default_rng(7)
     data = rng.integers(0, 4096, size=(32, 32), dtype=np.uint16)
     return to_multiscales(data, scale_factors=[2], chunks=8)
+
+
+def _array_codecs(doc):
+    """The codec chain, reaching inside the sharding codec when there is one."""
+    codecs = doc["codecs"]
+    if codecs[0]["name"] == "sharding_indexed":
+        return codecs[0]["configuration"]["codecs"]
+    return codecs
 
 
 class TestForeignCodecMigration:
@@ -245,7 +253,10 @@ class TestForeignCodecMigration:
                 filters=[numcodecs.Delta(dtype="uint8")],
             )
 
-    def test_documented_recipe_writes_the_foreign_chain(self, tmp_path):
+    @pytest.mark.parametrize("chunks_per_shard", [None, 2])
+    def test_documented_recipe_writes_the_foreign_chain(
+        self, tmp_path, chunks_per_shard
+    ):
         """Run the guide's migration snippet and check what it produced.
 
         The chain is a transpose filter: an array-to-array codec zarr-python
@@ -253,6 +264,11 @@ class TestForeignCodecMigration:
         is easy to get wrong -- dropping the skeleton's chunk and shard
         layout, and leaving the consolidated metadata describing the codec
         chain of the skeletons rather than of the arrays.
+
+        The guide writes the skeleton without sharding, which is the
+        ``chunks_per_shard=None`` case. The sharded one runs too because
+        ``shards=skeleton.shards`` is the line of the snippet most easily
+        dropped, and it does nothing unless the skeleton has shards.
         """
         zarr = pytest.importorskip("zarr")
         da = pytest.importorskip("dask.array")
@@ -261,17 +277,20 @@ class TestForeignCodecMigration:
         from zarr.codecs import TransposeCodec
 
         store_path = tmp_path / "foreign_codec.ome.zarr"
-        multiscales = _sharded_multiscales()
+        multiscales = _codec_multiscales()
         expected = [level.data.compute() for level in multiscales.images]
 
-        # --- as published in the migration guide ---
+        # The guide's skeleton call, with this test's sharding parameter added.
         to_ome_zarr(
             str(store_path),
             multiscales,
             version="0.5",
             metadata_only=True,
-            chunks_per_shard=2,
+            chunks_per_shard=chunks_per_shard,
         )
+
+        # --- as published in the migration guide, with the store path and the
+        # placeholder codec chain filled in ---
         for dataset, level in zip(multiscales.metadata.datasets, multiscales.images):
             skeleton = zarr.open_array(str(store_path), path=dataset.path, mode="r")
             array = zarr.create_array(
@@ -298,18 +317,18 @@ class TestForeignCodecMigration:
             multiscales,
             version="0.5",
             metadata_only=True,
-            chunks_per_shard=2,
+            chunks_per_shard=chunks_per_shard,
         )
 
         root = json.loads((store_path / "zarr.json").read_text())
         consolidated = root["consolidated_metadata"]["metadata"]
         for index, dataset in enumerate(multiscales.metadata.datasets):
             doc = json.loads((store_path / dataset.path / "zarr.json").read_text())
-            inner = doc["codecs"][0]["configuration"]["codecs"]
-            assert doc["codecs"][0]["name"] == "sharding_indexed", (
+            is_sharded = doc["codecs"][0]["name"] == "sharding_indexed"
+            assert is_sharded == (chunks_per_shard is not None), (
                 "the skeleton's sharding must survive the re-creation"
             )
-            assert inner[0]["name"] == "transpose"
+            assert _array_codecs(doc)[0]["name"] == "transpose"
 
             written = zarr.open_array(str(store_path), path=dataset.path, mode="r")
             reference = zarr.open_array(
