@@ -18,6 +18,7 @@ import {
   legacyTopLevelTransforms,
 } from "../utils/v06_metadata.ts";
 import {
+  type ImageVersion,
   NgffVersion,
   V06_ONDISK_VERSION,
 } from "../types/supported_versions.ts";
@@ -171,8 +172,20 @@ export function processAxes(
  */
 export function buildRootAttributes(
   metadata: MetadataInterface,
-  version: "0.4" | "0.5" | "0.6" | "0.9.dev1",
+  version: ImageVersion,
 ): Record<string, unknown> {
+  // The ImageVersion union excludes "0.9.dev3" at compile time, but plain
+  // JavaScript callers can still pass it; without this runtime refusal the
+  // string would fall through to the bare-multiscales v0.4 arm below.
+  if ((version as string) === NgffVersion.V09dev3) {
+    throw new Error(
+      'version="0.9.dev3" stores the RFC-8 node model in place of the ' +
+        "multiscales metadata; writing images at 0.9.dev3 is not " +
+        "implemented yet (issue #714). Write the image at 0.9.dev1 and " +
+        "reference it from a 0.9.dev3 collection with toCollectionZarr().",
+    );
+  }
+
   gateAxisModel(metadata, version);
 
   // Process axes (orientation included when present).

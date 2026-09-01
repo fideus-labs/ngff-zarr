@@ -19,6 +19,7 @@ import type { NgffMultiscales } from "../types/multiscales.ts";
 import type { MemoryStore } from "./rfc9_zip.ts";
 import { detectVersion } from "../utils/parse_metadata.ts";
 import {
+  type ImageVersion,
   isV06Version,
   V06_ONDISK_VERSION,
 } from "../types/supported_versions.ts";
@@ -40,7 +41,7 @@ export interface UpgradeOmeZarrOptions {
    */
   output?: string | MemoryStore;
   /** Target OME-Zarr specification version. Defaults to `"0.6"`. */
-  version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
+  version?: ImageVersion;
   /** Validate the source metadata against the NGFF schema while reading. */
   validate?: boolean;
   /**
@@ -57,7 +58,7 @@ export interface UpgradeOmeZarrDeps {
     store: UpgradeInput,
     options?: {
       validate?: boolean;
-      version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
+      version?: ImageVersion;
     },
   ) => Promise<NgffMultiscales>;
   toOmeZarr: (
@@ -65,7 +66,7 @@ export interface UpgradeOmeZarrDeps {
     multiscales: NgffMultiscales,
     options?: {
       overwrite?: boolean;
-      version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
+      version?: ImageVersion;
     },
   ) => Promise<void>;
   /**
@@ -110,7 +111,7 @@ function onDiskVersion(rootAttrs: Record<string, unknown>): string | undefined {
  * `_ondisk_version_for`.
  */
 function onDiskVersionFor(
-  version: "0.4" | "0.5" | "0.6" | "0.9.dev1",
+  version: ImageVersion,
 ): string {
   return version === "0.6" ? V06_ONDISK_VERSION : version;
 }
