@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://w3id.org/ome/ngff/rfc/8/node.schema.json",
+  "title": "RFC-8 node document",
+  "description": "The value of the `ome` key of an OME-Zarr 0.9.dev3 metadata document: a typed node, optionally a collection of nested or path-referenced nodes. Authored in ngff-zarr from the RFC-8 draft text (https://ngff.openmicroscopy.org/rfc/8/index.html); RFC-8 publishes no normative JSON schema yet.",
+  "$ref": "#/$defs/node",
+  "properties": {
+    "version": {
+      "type": "string",
+      "enum": ["0.9.dev3"]
+    }
+  },
+  "required": ["version"],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9\\-_.]+$"
+    },
+    "path": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "anyOf": [
+            { "enum": ["zarr", "json"] },
+            { "pattern": "^[^:]+:.+$" }
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": ["type", "path"],
+      "additionalProperties": false
+    },
+    "reference": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "path": { "$ref": "#/$defs/path" }
+      },
+      "required": ["id"]
+    },
+    "node": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "id": { "$ref": "#/$defs/id" },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attributes": {
+          "type": "object"
+        },
+        "nodes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/node" }
+        },
+        "path": { "$ref": "#/$defs/path" }
+      },
+      "required": ["type", "name"],
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "collection" } }
+          },
+          "then": {
+            "oneOf": [
+              { "required": ["nodes"], "not": { "required": ["path"] } },
+              { "required": ["path"], "not": { "required": ["nodes"] } }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

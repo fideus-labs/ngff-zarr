@@ -359,6 +359,21 @@ def from_ome_zarr(
             "within the plate (e.g., 'plate.zarr/A/1/0' for well A1, field 0)."
         )
 
+    if version == "0.9.dev3":
+        # RFC-8: the root ``ome`` value is a typed node document, not a
+        # multiscales wrapper, so the multiscales readers below cannot parse
+        # it (and without this guard a 0.9.dev3 store would fall through to
+        # the v0.4 branch and fail on a missing ``multiscales`` key).
+        ome_value = root_attrs.get("ome")
+        node_type = ome_value.get("type") if isinstance(ome_value, dict) else None
+        raise ValueError(
+            f"The input is an OME-Zarr 0.9.dev3 store whose root is a "
+            f"{node_type!r} node. 0.9.dev3 stores the RFC-8 node model in "
+            "place of the multiscales metadata; use from_collection_zarr() "
+            "to read it. from_ome_zarr() reads multiscale image stores "
+            "written at earlier versions."
+        )
+
     if version == "0.9.dev1":
         from .v09.zarr_metadata import Metadata
 
