@@ -403,7 +403,7 @@ def test_tiff_file_to_ngff_images_with_sample_axis():
     assert img.data.shape == (5, 100, 100, 3)
 
 
-def test_tiff_file_to_ngff_images_with_ome_translation():
+def test_tiff_file_to_ngff_images_with_ome_translation(tmp_path):
     """Test that OME translation metadata is extracted, and that axes_units
     is filled in from Position*Unit for any dim missing a PhysicalSize*Unit
     (whether none, some, or all dims are missing one)."""
@@ -414,8 +414,6 @@ def test_tiff_file_to_ngff_images_with_ome_translation():
 
     from ngff_zarr import NgffMultiscales, tiff_file_to_ngff_images
     from ngff_zarr.tiff_to_ngff_image import _convert_unit_value
-
-    tmpdir = Path(tempfile.mkdtemp())
 
     size_x, size_y, size_z = 100, 100, 10
     position = {"x": 1.1, "y": 2.2, "z": 3.3}
@@ -476,7 +474,7 @@ def test_tiff_file_to_ngff_images_with_ome_translation():
 
     for case_name, case in cases.items():
         array_dims = case["array_dims"]
-        tiff_path = tmpdir / f"ome_with_translation_{case_name}.ome.tiff"
+        tiff_path = tmp_path / f"ome_with_translation_{case_name}.ome.tiff"
 
         metadata = {"DimensionOrder": "XYZCT", "Plane": {}}
         for dim, (value, unit) in case["scale"].items():
