@@ -154,6 +154,45 @@ The axis type round-trips through reading and writing. It can also be set after
 the fact by editing the metadata directly, for example
 `multiscales.metadata.intrinsic_coordinate_system.axes[0].type = "displacement"`.
 
+## A standalone field store, written region by region
+
+A registration's artifact is often the field itself. `declare_field_transform`
+declares it on the field's own multiscales -- a spatial coordinate system
+derived from its axes, mapped onto itself -- and the declared store can then be
+created with `metadata_only=True` and filled through `open_array`, so a field
+larger than memory is never assembled:
+
+```python
+import dask.array as da
+import ngff_zarr as nz
+
+field = nz.to_ngff_image(
+    da.zeros((3, 512, 512, 512), dtype="float32", chunks=(3, 64, 512, 512)),
+    dims=["c", "z", "y", "x"],
+    scale={"c": 1.0, "z": 2.0, "y": 1.0, "x": 1.0},
+    translation={"c": 0.0, "z": 0.0, "y": 0.0, "x": 0.0},
+)
+field.axes_types = {"c": "displacement"}
+multiscales = nz.to_multiscales(field, scale_factors=[])
+multiscales = nz.declare_field_transform(multiscales)
+
+store = "field.ome.zarr"
+nz.to_ome_zarr(store, multiscales, version="0.6", metadata_only=True)
+array = nz.open_array(store, multiscales.metadata.datasets[0].path)
+for start in range(0, 512, 64):
+    # Whatever produces the field: a registration, a simulation, a read.
+    block = my_solver.displacements(z_start=start, rows=64)
+    array[:, start : start + 64] = block
+```
+
+The component order is the specification's: component *i* displaces the *i*-th
+spatial axis (`z`, `y`, `x` here). A producer holding ITK-ordered vectors
+(`x`, `y`, `z` components) reverses its component axis before assigning.
+
+The declaration requires OME-Zarr 0.6: earlier versions cannot carry
+multiscale-level transformations, and `to_ome_zarr` refuses to write one there
+rather than dropping the declaration silently.
+
 ## Write an image and its transformation into one store
 
 A `displacements` or `coordinates` transform points at a field array by `path`.
@@ -170,12 +209,8 @@ discoverable under its `path`.
 import dask.array as da
 import numpy as np
 import ngff_zarr as nz
-from ngff_zarr.v06.zarr_metadata import (
-    Axis,
-    CoordinateSystem,
-    CoordinateSystemIdentifier,
-    Displacements,
-)
+from ngff_zarr import CoordinateSystem
+from ngff_zarr.v06.zarr_metadata import Axis
 
 store = "warped.ome.zarr"
 field_path = "displacement_field"
@@ -201,14 +236,13 @@ output_cs = CoordinateSystem(
     name="output",
     axes=[Axis(name="y", type="space"), Axis(name="x", type="space")],
 )
-transform = Displacements(path=field_path, interpolation="linear")
-transform.input = CoordinateSystemIdentifier(
-    name=multiscales.metadata.intrinsic_coordinate_system.name
-)
-transform.output = CoordinateSystemIdentifier(name=output_cs.name)
-transform.name = "warp"
 multiscales.metadata.coordinateSystems.append(output_cs)
-multiscales.metadata.coordinateTransformations = [transform]
+multiscales = nz.declare_field_transform(
+    multiscales,
+    path=field_path,
+    input_system=multiscales.metadata.intrinsic_coordinate_system.name,
+    output_system=output_cs.name,
+)
 
 # Write the field subgroup first, then the image at the store root.
 nz.to_ome_zarr(f"{store}/{field_path}", field_multiscales, version="0.6")
