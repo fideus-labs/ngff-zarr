@@ -257,3 +257,83 @@ def test_remote_hcs_plate_read(tmp_path):
         assert isinstance(image.images[0].data, dask.array.Array)
         # Pixel data resolves through the shared obstore client.
         np.asarray(image.images[0].data)
+
+
+def test_open_array_reads_regions_from_a_remote_store(tmp_path):
+    """``open_array`` serves a remote node the way it serves a local one.
+
+    The handle is what a consumer reads regions through, and it was local-only:
+    a caller holding a URL had to fall back to another Zarr library for the one
+    thing this package could otherwise do end to end.
+    """
+    from ngff_zarr import from_ome_zarr, open_array
+
+    data = _write_ramp_store(tmp_path / "image.zarr", "0.5")
+
+    open_group_patch, from_zarr_patch = _forbid_zarr_python()
+    with _serve(tmp_path) as base_url, open_group_patch, from_zarr_patch:
+        store = f"{base_url}/image.zarr"
+        path = from_ome_zarr(store).metadata.datasets[0].path
+        array = open_array(store, path)
+
+        assert array.shape == data.shape
+        assert array.dtype == data.dtype
+        assert array.chunks == (8, 8)
+        # A window, and the whole array: the same values the store holds.
+        assert np.array_equal(np.asarray(array[4:12, 2:6]), data[4:12, 2:6])
+        assert np.array_equal(np.asarray(array[...]), data)
+
+
+def test_a_remote_array_refuses_a_region_write(tmp_path):
+    """Read-only, and said so: the write path needs a local directory store,
+    and a silent no-op would leave a producer believing its region landed."""
+    from ngff_zarr import from_ome_zarr, open_array
+
+    _write_ramp_store(tmp_path / "image.zarr", "0.5")
+    with _serve(tmp_path) as base_url:
+        store = f"{base_url}/image.zarr"
+        array = open_array(store, from_ome_zarr(store).metadata.datasets[0].path)
+        with pytest.raises(TypeError, match="read-only"):
+            array[0:2, 0:2] = np.zeros((2, 2), dtype="uint16")
+
+
+def test_open_array_on_a_remote_group_is_refused(tmp_path):
+    from ngff_zarr import open_array
+
+    _write_ramp_store(tmp_path / "image.zarr", "0.5")
+    with _serve(tmp_path) as base_url:
+        with pytest.raises(ValueError, match="is a group, not an array"):
+            open_array(f"{base_url}/image.zarr")
+
+
+def test_a_store_object_is_not_opened_as_a_url():
+    """A wrapper around a URL is remote, but it is not a URL.
+
+    ``_is_remote_store`` calls a zarr-python ``FsspecStore`` remote by its
+    filesystem protocol, while its ``str()`` is a repr rather than the URL
+    obstore would be handed. ``from_ome_zarr`` does not route one through the
+    remote engine either, so neither does this: it keeps the path it has today.
+    """
+    from ngff_zarr._zarrista_utils import _remote_handle
+    from ngff_zarr.from_ngff_zarr import _is_remote_store
+
+    class _FsspecStoreLike:
+        class fs:
+            protocol = "s3"
+
+        path = "bucket/image.zarr"
+
+    store = _FsspecStoreLike()
+    assert _is_remote_store(store)
+    assert _remote_handle(store, None) is None
+
+
+def test_a_url_without_the_remote_extra_names_the_extra(monkeypatch):
+    """The install hint ``from_ome_zarr`` gives, given here too: reaching
+    obstore's own constructor instead raises a bare ModuleNotFoundError."""
+    import ngff_zarr._remote_reader as remote_reader
+    from ngff_zarr._zarrista_utils import _remote_handle
+
+    monkeypatch.setattr(remote_reader, "remote_read_available", lambda: False)
+    with pytest.raises(ImportError, match=r"ngff-zarr\[remote\]"):
+        _remote_handle("https://example.org/image.zarr", None)

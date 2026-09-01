@@ -293,7 +293,13 @@ def _remote_array_to_dask(arr) -> dask.array.Array:
 
 
 class RemoteZarrArray:
-    """Read-only handle for an array node within a remote store."""
+    """Read-only handle for an array node within a remote store.
+
+    The read half of :class:`~ngff_zarr._zarrista_utils.LocalZarrArray`: the
+    node's ``shape``, ``dtype``, ``chunks`` and ``attrs``, numpy style ``[]``
+    reads, and :meth:`to_dask` for lazy pixel access. Writes are refused, a
+    remote store being read-only here.
+    """
 
     def __init__(self, store: RemoteZarrStore, component: str, arr):
         self._store = store
@@ -302,6 +308,30 @@ class RemoteZarrArray:
         self.shape = tuple(int(s) for s in arr.shape)
         self.ndim = arr.ndim
         self.attrs = AttrsDict(dict(arr.attrs))
+        self._adapter = None
+
+    def _array(self):
+        """The synchronous adapter over the async node, made once."""
+        if self._adapter is None:
+            self._adapter = _async_adapter(self._arr)
+        return self._adapter
+
+    @property
+    def dtype(self) -> np.dtype:
+        return self._array().dtype
+
+    @property
+    def chunks(self) -> tuple[int, ...]:
+        """The stored chunk grid, the inner chunk shape of a sharded array."""
+        if self._arr.is_sharded:
+            return tuple(int(c) for c in self._arr.subchunk_shape)
+        return tuple(int(c) for c in self._arr.chunk_shape([0] * self._arr.ndim))
+
+    def __getitem__(self, selection) -> np.ndarray:
+        return self._array()[selection]
+
+    def __setitem__(self, selection, value) -> None:
+        raise TypeError("Remote zarr stores are read-only")
 
     def to_dask(self) -> dask.array.Array:
         return _remote_array_to_dask(self._arr)
