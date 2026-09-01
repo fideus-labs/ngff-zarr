@@ -18,7 +18,8 @@ With, for example, the [Pyodide REPL] or [JupyterLite]
 
 ```python
 import micropip
-await micropip.install('ngff-zarr')
+
+await micropip.install("ngff-zarr")
 ```
 
 :::

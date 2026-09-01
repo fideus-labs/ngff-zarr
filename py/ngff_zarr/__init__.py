@@ -197,7 +197,6 @@ __all__ = [
     "Translation",
     "Transform",
     "Dataset",
-    "Metadata",
     "Omero",
     "OmeroChannel",
     "OmeroWindow",
