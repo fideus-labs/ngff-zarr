@@ -11,36 +11,44 @@ export const AxisSchema: z.ZodObject<{
   type: typeof AxesTypeSchema;
   unit: z.ZodOptional<typeof UnitsSchema>;
   orientation: z.ZodOptional<typeof AnatomicalOrientationSchema>;
-}> = z.object({
-  name: SupportedDimsSchema,
-  type: AxesTypeSchema,
-  unit: UnitsSchema.optional(),
-  // RFC4: Optional orientation for space axes
-  orientation: AnatomicalOrientationSchema.optional(),
-});
+}> = z.compile(
+  z.object({
+    name: SupportedDimsSchema,
+    type: AxesTypeSchema,
+    unit: UnitsSchema.optional(),
+    // RFC4: Optional orientation for space axes
+    orientation: AnatomicalOrientationSchema.optional(),
+  }),
+);
 
 // Legacy schemas for backward compatibility
 export const IdentitySchema: z.ZodObject<{
   type: z.ZodLiteral<"identity">;
-}> = z.object({
-  type: z.literal("identity"),
-});
+}> = z.compile(
+  z.object({
+    type: z.literal("identity"),
+  }),
+);
 
 export const ScaleSchema: z.ZodObject<{
   scale: z.ZodArray<z.ZodNumber>;
   type: z.ZodLiteral<"scale">;
-}> = z.object({
-  scale: z.array(z.number()),
-  type: z.literal("scale"),
-});
+}> = z.compile(
+  z.object({
+    scale: z.array(z.number()),
+    type: z.literal("scale"),
+  }),
+);
 
 export const TranslationSchema: z.ZodObject<{
   translation: z.ZodArray<z.ZodNumber>;
   type: z.ZodLiteral<"translation">;
-}> = z.object({
-  translation: z.array(z.number()),
-  type: z.literal("translation"),
-});
+}> = z.compile(
+  z.object({
+    translation: z.array(z.number()),
+    type: z.literal("translation"),
+  }),
+);
 
 // Enhanced transform schema that includes all RFC5 transformations
 export const TransformSchema: z.ZodType<unknown> = z.union([
@@ -63,40 +71,48 @@ export const OmeroWindowSchema: z.ZodObject<{
   max: z.ZodNumber;
   start: z.ZodNumber;
   end: z.ZodNumber;
-}> = z.object({
-  min: z.number(),
-  max: z.number(),
-  start: z.number(),
-  end: z.number(),
-});
+}> = z.compile(
+  z.object({
+    min: z.number(),
+    max: z.number(),
+    start: z.number(),
+    end: z.number(),
+  }),
+);
 
 export const OmeroChannelSchema: z.ZodObject<{
   color: z.ZodString;
   window: typeof OmeroWindowSchema;
   label: z.ZodOptional<z.ZodString>;
-}> = z.object({
-  color: z.string().regex(/^[0-9A-Fa-f]{6}$/, {
-    message: "Color must be 6 hex digits",
+}> = z.compile(
+  z.object({
+    color: z.string().regex(/^[0-9A-Fa-f]{6}$/, {
+      message: "Color must be 6 hex digits",
+    }),
+    window: OmeroWindowSchema,
+    label: z.string().optional(),
   }),
-  window: OmeroWindowSchema,
-  label: z.string().optional(),
-});
+);
 
 export const OmeroSchema: z.ZodObject<{
   channels: z.ZodArray<typeof OmeroChannelSchema>;
-}> = z.object({
-  channels: z.array(OmeroChannelSchema),
-});
+}> = z.compile(
+  z.object({
+    channels: z.array(OmeroChannelSchema),
+  }),
+);
 
 export const MethodMetadataSchema: z.ZodType<{
   description: string;
   method: string;
   version: string;
-}> = z.object({
-  description: z.string(),
-  method: z.string(),
-  version: z.string(),
-});
+}> = z.compile(
+  z.object({
+    description: z.string(),
+    method: z.string(),
+    version: z.string(),
+  }),
+);
 
 export const MetadataSchema: z.ZodObject<{
   axes: z.ZodArray<typeof AxisSchema>;

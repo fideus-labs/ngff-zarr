@@ -1,14 +1,41 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
-import { assertEquals, assertThrows } from "@std/assert";
+import { assertEquals, assertExists, assertThrows } from "@std/assert";
 import {
   AxisSchema,
+  IdentitySchema,
   MetadataSchema,
+  MethodMetadataSchema,
   OmeroChannelSchema,
+  OmeroSchema,
+  OmeroWindowSchema,
   ScaleSchema,
   TranslationSchema,
 } from "../src/schemas/zarr_metadata.ts";
 import { MethodsSchema } from "../src/schemas/methods.ts";
+
+Deno.test("metadata schema islands use compiled validators", () => {
+  for (
+    const [name, schema] of Object.entries({
+      AxisSchema,
+      IdentitySchema,
+      MethodMetadataSchema,
+      OmeroChannelSchema,
+      OmeroSchema,
+      OmeroWindowSchema,
+      ScaleSchema,
+      TranslationSchema,
+    })
+  ) {
+    const run = schema._zod.run as typeof schema._zod.run & {
+      __originalRun?: unknown;
+    };
+    assertExists(
+      run.__originalRun,
+      `${name} does not have a compiled fast path`,
+    );
+  }
+});
 
 Deno.test("AxisSchema validation", () => {
   const validAxis = {

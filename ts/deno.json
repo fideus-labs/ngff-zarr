@@ -42,7 +42,7 @@
     "dnt": "jsr:@deno/dnt@^0.42.3",
     "itk-wasm": "npm:itk-wasm@^1.0.0-b.201",
     "microdiff": "npm:microdiff@^1.5.0",
-    "zod": "npm:zod@^4.3.6",
+    "zod": "npm:zod@^4.5.0",
     "zarrita": "jsr:@zarrita/zarrita@^0.6.1",
     "fflate": "npm:fflate@^0.8.2",
     "playwright/test": "npm:@playwright/test@^1.58.1"
