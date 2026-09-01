@@ -1059,3 +1059,140 @@ def test_rfc5_coordinates_matches_the_displacements_it_equals():
 
     assert via_coordinates.start_index == via_displacements.start_index
     assert via_coordinates.size == via_displacements.size
+
+
+def _interior_bump(extent, radius, peaks):
+    """A displacement that is zero on the grid boundary and peaks in the middle.
+
+    The boundary walk the pipeline runs sees only the zero, which is what
+    makes this the case a region has to be widened for.
+    """
+    axes = np.mgrid[tuple(slice(0, extent) for _ in peaks)].astype(np.float64)
+    distance = np.sqrt(sum((axis - extent / 2) ** 2 for axis in axes))
+    profile = np.where(
+        distance < radius, 0.5 * (1 + np.cos(np.pi * distance / radius)), 0.0
+    )
+    return np.stack([peak * profile for peak in peaks]).astype(np.float32)
+
+
+def test_a_bump_inside_the_grid_widens_the_region():
+    """The reported region has to contain what the field displaces onto.
+
+    The pipeline sizes a region by walking the boundary of the transformed
+    grid, so a displacement that is zero there and large inside left the
+    region covering the grid alone. The peak here carries the grid past its
+    own extent, so that is not enough.
+    """
+    fixed = _image("yx", {"y": 64, "x": 64}, {"y": 1.0, "x": 1.0}, {"y": 0.0, "x": 0.0})
+    moving = _image(
+        "yx", {"y": 160, "x": 160}, {"y": 1.0, "x": 1.0}, {"y": 0.0, "x": 0.0}
+    )
+    values = _interior_bump(64, 20, (60.0, -60.0))
+    assert float(np.abs(values[:, 0, :]).max()) == 0.0
+    assert float(np.abs(values[:, -1, :]).max()) == 0.0
+    field = NgffImage(
+        data=da.from_array(values, chunks=(2, 16, 16)),
+        dims=("c", "y", "x"),
+        scale=dict.fromkeys(("c", "y", "x"), 1.0),
+        translation=dict.fromkeys(("c", "y", "x"), 0.0),
+        axes_types={"c": "displacement"},
+    )
+
+    region = resample_bounding_box(
+        Displacements(path="warp"), fixed, moving, fields={"warp": field}
+    )
+
+    index = np.mgrid[0:64, 0:64].astype(np.float64)
+    for axis, dim in enumerate(("y", "x")):
+        reached = index[axis] + values[axis]
+        assert region.start_index[dim] <= float(reached.min())
+        assert region.start_index[dim] + region.size[dim] >= float(reached.max())
+
+
+def test_a_fields_chunking_does_not_change_the_region_it_reports():
+    """The range is read a chunk at a time; over the whole grid it is one range."""
+    fixed = _image("yx", {"y": 64, "x": 64}, {"y": 1.0, "x": 1.0}, {"y": 0.0, "x": 0.0})
+    moving = _image(
+        "yx", {"y": 160, "x": 160}, {"y": 1.0, "x": 1.0}, {"y": 0.0, "x": 0.0}
+    )
+    values = _interior_bump(64, 20, (60.0, -60.0))
+
+    regions = []
+    for chunks in ((2, 16, 16), (2, 64, 64)):
+        field = NgffImage(
+            data=da.from_array(values, chunks=chunks),
+            dims=("c", "y", "x"),
+            scale=dict.fromkeys(("c", "y", "x"), 1.0),
+            translation=dict.fromkeys(("c", "y", "x"), 0.0),
+            axes_types={"c": "displacement"},
+        )
+        regions.append(
+            resample_bounding_box(
+                Displacements(path="warp"), fixed, moving, fields={"warp": field}
+            )
+        )
+
+    assert regions[0].start_index == regions[1].start_index
+    assert regions[0].size == regions[1].size
+
+
+def test_the_identity_region_is_the_pipelines():
+    """The arithmetic region and the pipeline's agree, field for field.
+
+    The field path derives its region from `_identity_region` rather than a
+    per-block pipeline call, so the two must not drift: randomized geometry,
+    fractional and integer scales and translations, paddings 0 to 3.
+    """
+    from ngff_zarr.ngff_transform_to_itk_transform import (
+        ngff_transform_to_itk_transform,
+    )
+    from ngff_zarr.resample_bounding_box import _identity_region
+
+    rng = np.random.default_rng(0)
+    for _ in range(25):
+        ndim = int(rng.integers(2, 4))
+        dims = ("z", "y", "x")[-ndim:]
+
+        def geometry():
+            kind = int(rng.integers(0, 3))
+            if kind == 0:
+                return 1.0
+            if kind == 1:
+                return float(rng.integers(1, 4))
+            return float(np.round(rng.random() * 3 + 0.25, 3))
+
+        def offset():
+            if rng.random() < 0.7:
+                return float(np.round(rng.random() * 20 - 10, 3))
+            return float(rng.integers(-10, 10))
+
+        grid = NgffImage(
+            data=da.zeros(tuple(int(v) for v in rng.integers(1, 40, ndim))),
+            dims=dims,
+            scale={dim: geometry() for dim in dims},
+            translation={dim: offset() for dim in dims},
+        )
+        moving = NgffImage(
+            data=da.zeros(tuple(int(v) for v in rng.integers(8, 200, ndim))),
+            dims=dims,
+            scale={dim: geometry() for dim in dims},
+            translation={dim: offset() for dim in dims},
+        )
+        padding = int(rng.integers(0, 4))
+        identity = ngff_transform_to_itk_transform(Identity(), dims)
+
+        pipeline = resample_bounding_box(identity, grid, moving, padding=padding)
+        direct = _identity_region(grid, moving, padding)
+
+        assert direct.dims == pipeline.dims
+        assert direct.start_index == pipeline.start_index
+        assert direct.size == pipeline.size
+        assert direct.moving_shape == pipeline.moving_shape
+        for mine, theirs in (
+            (direct.corners_min, pipeline.corners_min),
+            (direct.corners_max, pipeline.corners_max),
+            (direct.padded_corners_min, pipeline.padded_corners_min),
+            (direct.padded_corners_max, pipeline.padded_corners_max),
+        ):
+            for dim in dims:
+                np.testing.assert_allclose(mine[dim], theirs[dim], rtol=1e-12)

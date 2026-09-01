@@ -1232,3 +1232,218 @@ Deno.test("a bijection region follows its forward direction", async () => {
   assertEquals(region.startIndex, directly.startIndex);
   assertEquals(region.size, directly.size);
 });
+
+/** A field image over `dims`, its component axis first, from raw values. */
+async function bumpField(
+  values: Float32Array,
+  dims: string[],
+  extent: number,
+  chunk: number,
+): Promise<NgffImage> {
+  const shape = [dims.length, ...dims.map(() => extent)];
+  const voxels = shape.slice(1).reduce((a, b) => a * b, 1);
+  const strides = new Array<number>(dims.length);
+  let step = 1;
+  for (let axis = dims.length - 1; axis >= 0; axis--) {
+    strides[axis] = step;
+    step *= extent;
+  }
+  const data = await zarr.create(zarr.root(new Map()).resolve("warp"), {
+    shape,
+    chunk_shape: [dims.length, ...dims.map(() => chunk)],
+    data_type: "float32",
+    fill_value: 0,
+  });
+  await zarr.set(data, null, {
+    data: values,
+    shape,
+    stride: [voxels, ...strides],
+  });
+  const geometry: Record<string, number> = { c: 1 };
+  const origin: Record<string, number> = { c: 0 };
+  for (const dim of dims) {
+    geometry[dim] = 1;
+    origin[dim] = 0;
+  }
+  return new NgffImage({
+    data,
+    dims: ["c", ...dims],
+    scale: geometry,
+    translation: origin,
+    name: "warp",
+    axesUnits: undefined,
+    axesTypes: { c: "displacement" },
+    axesOrientations: undefined,
+    computedCallbacks: undefined,
+  });
+}
+
+/** A displacement that is zero on the grid boundary and peaks in the middle. */
+function interiorBump(extent: number, radius: number, peaks: number[]) {
+  const values = new Float32Array(peaks.length * extent * extent);
+  const voxels = extent * extent;
+  for (let y = 0; y < extent; y++) {
+    for (let x = 0; x < extent; x++) {
+      const distance = Math.hypot(y - extent / 2, x - extent / 2);
+      const profile = distance < radius
+        ? 0.5 * (1 + Math.cos(Math.PI * distance / radius))
+        : 0;
+      peaks.forEach((peak, component) => {
+        values[component * voxels + y * extent + x] = peak * profile;
+      });
+    }
+  }
+  return values;
+}
+
+Deno.test("a bump inside the grid widens the region", async () => {
+  // The pipeline sizes a region by walking the boundary of the transformed
+  // grid, so a displacement that is zero there and large inside left the
+  // region unchanged and the pixels it reaches unread.
+  const extent = 64;
+  // The peak carries the grid past its own extent, so a region that only
+  // covers the grid is not enough.
+  const values = interiorBump(extent, 20, [60, -60]);
+  const field = await bumpField(values, ["y", "x"], extent, 16);
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: extent, x: extent },
+    { y: 1, x: 1 },
+    { y: 0, x: 0 },
+  );
+  const moving = await geometryImage(["y", "x"], { y: 160, x: 160 }, {
+    y: 1,
+    x: 1,
+  }, { y: 0, x: 0 });
+
+  const region = await resampleBoundingBox(
+    { type: "displacements", path: "warp" },
+    fixed,
+    moving,
+    { fields: { warp: field } },
+  );
+
+  const voxels = extent * extent;
+  ["y", "x"].forEach((dim, component) => {
+    let lowest = Number.POSITIVE_INFINITY;
+    let highest = Number.NEGATIVE_INFINITY;
+    for (let y = 0; y < extent; y++) {
+      for (let x = 0; x < extent; x++) {
+        const index = component === 0 ? y : x;
+        const reached = index + values[component * voxels + y * extent + x];
+        lowest = Math.min(lowest, reached);
+        highest = Math.max(highest, reached);
+      }
+    }
+    assertEquals(region.startIndex[dim] <= lowest, true);
+    assertEquals(region.startIndex[dim] + region.size[dim] >= highest, true);
+  });
+});
+
+Deno.test("a field's chunking does not change the region it reports", async () => {
+  // The range is read a chunk at a time; over the whole grid that has to be
+  // the same range whatever the chunks are.
+  const extent = 64;
+  const values = interiorBump(extent, 20, [60, -60]);
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: extent, x: extent },
+    { y: 1, x: 1 },
+    { y: 0, x: 0 },
+  );
+  const moving = await geometryImage(["y", "x"], { y: 160, x: 160 }, {
+    y: 1,
+    x: 1,
+  }, { y: 0, x: 0 });
+  const transform = { type: "displacements" as const, path: "warp" };
+
+  const chunked = await resampleBoundingBox(transform, fixed, moving, {
+    fields: { warp: await bumpField(values, ["y", "x"], extent, 16) },
+  });
+  const whole = await resampleBoundingBox(transform, fixed, moving, {
+    fields: { warp: await bumpField(values, ["y", "x"], extent, extent) },
+  });
+
+  assertEquals(chunked.startIndex, whole.startIndex);
+  assertEquals(chunked.size, whole.size);
+});
+
+Deno.test("a grid reaching past the field keeps its undisplaced part", async () => {
+  // ITK displaces a point beyond the field by nothing, so zero belongs in the
+  // range as much as the values do. A field that displaces every point it
+  // covers the same way otherwise carries the region off the points it does
+  // not cover.
+  const extent = 32;
+  const grid = 64;
+  const values = new Float32Array(2 * extent * extent).fill(-5);
+  const field = await bumpField(values, ["y", "x"], extent, 16);
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: grid, x: grid },
+    { y: 1, x: 1 },
+    { y: 0, x: 0 },
+  );
+  const moving = await geometryImage(["y", "x"], { y: 160, x: 160 }, {
+    y: 1,
+    x: 1,
+  }, { y: 0, x: 0 });
+
+  const region = await resampleBoundingBox(
+    { type: "displacements", path: "warp" },
+    fixed,
+    moving,
+    { fields: { warp: field } },
+  );
+
+  // The half beyond the field maps identically, so the region has to reach
+  // the grid's own last index, not only that index shifted by -5.
+  for (const dim of ["y", "x"]) {
+    assertEquals(region.startIndex[dim] <= -5, true);
+    assertEquals(region.startIndex[dim] + region.size[dim] >= grid - 1, true);
+  }
+});
+
+Deno.test("an oriented field is refused by the bounding box", async () => {
+  // This branch works on the intrinsic systems, where no orientation applies,
+  // so a field carrying one cannot be placed here.
+  const { AnatomicalOrientationValues, createAnatomicalOrientation } =
+    await import("../src/types/rfc4.ts");
+  const values = new Float32Array(2 * 32 * 32);
+  const field = await bumpField(values, ["y", "x"], 32, 16);
+  const oriented = new NgffImage({
+    data: field.data,
+    dims: field.dims,
+    scale: field.scale,
+    translation: field.translation,
+    name: field.name,
+    axesUnits: undefined,
+    axesTypes: field.axesTypes,
+    axesOrientations: {
+      y: createAnatomicalOrientation(
+        AnatomicalOrientationValues.AnteriorToPosterior,
+      ),
+      x: createAnatomicalOrientation(AnatomicalOrientationValues.LeftToRight),
+    },
+    computedCallbacks: undefined,
+  });
+  const fixed = await geometryImage(["y", "x"], { y: 32, x: 32 }, {
+    y: 1,
+    x: 1,
+  }, { y: 0, x: 0 });
+  const moving = await geometryImage(["y", "x"], { y: 64, x: 64 }, {
+    y: 1,
+    x: 1,
+  }, { y: 0, x: 0 });
+
+  await assertRejects(
+    () =>
+      resampleBoundingBox(
+        { type: "displacements", path: "warp" },
+        fixed,
+        moving,
+        { fields: { warp: oriented } },
+      ),
+    Error,
+    "anatomical orientation",
+  );
+});
