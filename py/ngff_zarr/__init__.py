@@ -18,6 +18,7 @@ from .compute_omero import (
     compute_omero_from_ngff_image,
 )
 from .config import config
+from .declare_field_transform import declare_field_transform
 from .detect_cli_io_backend import ConversionBackend, detect_cli_io_backend
 from .displacement_field_transform import (
     itk_displacement_field_to_ngff_transform,
@@ -125,6 +126,12 @@ from .v04.zarr_metadata import (
     Well,
     WellImage,
 )
+from .v06.zarr_metadata import (
+    Coordinates,
+    CoordinateSystem,
+    CoordinateSystemIdentifier,
+    Displacements,
+)
 from .validate import validate
 
 __all__ = [
@@ -151,6 +158,11 @@ __all__ = [
     "itk_transform_to_ngff_transform",
     "itk_displacement_field_to_ngff_transform",
     "ngff_displacement_field_to_itk_transform",
+    "declare_field_transform",
+    "CoordinateSystem",
+    "CoordinateSystemIdentifier",
+    "Coordinates",
+    "Displacements",
     # Out-of-core resampling
     "resample",
     "resample_bounding_box",
