@@ -337,3 +337,45 @@ def test_a_url_without_the_remote_extra_names_the_extra(monkeypatch):
     monkeypatch.setattr(remote_reader, "remote_read_available", lambda: False)
     with pytest.raises(ImportError, match=r"ngff-zarr\[remote\]"):
         _remote_handle("https://example.org/image.zarr", None)
+
+
+def test_open_array_reads_a_real_s3_store():
+    """A windowed read from S3 itself, not from the localhost stand-in.
+
+    The harness above serves HTTP; the S3 path differs in the store obstore
+    builds and in what signature and region settings reach. The bucket is
+    public, so no credentials are involved: opt in with
+    ``NGFF_ZARR_NETWORK_TESTS=1``.
+    """
+    import obstore.exceptions as obstore_exceptions
+    from ngff_zarr import open_array
+
+    if not os.environ.get("NGFF_ZARR_NETWORK_TESTS"):
+        pytest.skip("live remote read is opt-in; set NGFF_ZARR_NETWORK_TESTS=1 to run")
+
+    url = (
+        "s3://aind-open-data/exaSPIM_773889_2026-04-10_15-04-57_processed"
+        "_2026-07-08_23-41-18/fusion2halves/SPIM.ome.zarr/3"
+    )
+    # obstore reaches us-east-1 without a region, and S3 answers for a bucket
+    # held elsewhere with a redirect it does not follow.
+    options = {"anon": True, "region": "us-west-2"}
+    # The bucket going away, changing its policy or the network failing is not
+    # a regression here; a decoding or indexing error is one, and raises.
+    unavailable = (
+        OSError,
+        obstore_exceptions.GenericError,
+        obstore_exceptions.NotFoundError,
+        obstore_exceptions.PermissionDeniedError,
+        obstore_exceptions.UnauthenticatedError,
+    )
+    try:
+        array = open_array(url, storage_options=options)
+        window = np.asarray(array[:, :, :4, :8, :8])
+    except unavailable as exc:
+        pytest.skip(f"remote store unavailable: {exc!r}")
+
+    assert array.dtype == np.dtype("uint16")
+    assert array.chunks == (1, 1, 256, 256, 256)
+    assert window.shape == (1, 1, 4, 8, 8)
+    assert window.any()
