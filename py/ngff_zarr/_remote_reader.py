@@ -26,8 +26,11 @@ zarrista requires Python >= 3.11 and obstore is an optional dependency
 
 import asyncio
 import importlib.util
+import os
 import posixpath
 import threading
+import urllib.error
+import urllib.request
 import warnings
 from urllib.parse import urlsplit
 
@@ -182,12 +185,63 @@ def _translate_storage_options(
     return translated, passthrough
 
 
+#: Regions already resolved, keyed by bucket. A bucket does not move.
+_BUCKET_REGIONS: dict[str, str] = {}
+
+_REGION_TIMEOUT = 10.0
+
+
+def _resolve_bucket_region(bucket: str) -> str | None:
+    """The region AWS reports for *bucket*, or ``None`` if it does not say.
+
+    obstore sends the request to ``us-east-1`` when no region is configured,
+    and S3 answers for a bucket held elsewhere with a 301 that carries no
+    ``Location``, so the read fails instead of being redirected. AWS names
+    the region in a header on the bucket itself, and answers unsigned.
+    """
+    if bucket in _BUCKET_REGIONS:
+        return _BUCKET_REGIONS[bucket]
+    request = urllib.request.Request(
+        f"https://{bucket}.s3.amazonaws.com/", method="HEAD"
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=_REGION_TIMEOUT) as response:
+            region = response.headers.get("x-amz-bucket-region")
+    except urllib.error.HTTPError as error:
+        # A bucket that exists still names its region when it refuses the read.
+        region = error.headers.get("x-amz-bucket-region")
+    except OSError:
+        return None
+    if region:
+        _BUCKET_REGIONS[bucket] = region
+    return region
+
+
+def _fill_bucket_region(url: str, translated: dict, passthrough: dict) -> None:
+    """Add the bucket's region to *translated* when nothing else supplies one."""
+    if "region" in translated or "region" in passthrough:
+        return
+    if "endpoint" in translated or "endpoint" in passthrough:
+        # An endpoint names an S3-compatible service, not AWS.
+        return
+    if os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION"):
+        return
+    bucket = urlsplit(url).netloc
+    if not bucket:
+        return
+    region = _resolve_bucket_region(bucket)
+    if region:
+        translated["region"] = region
+
+
 def _build_obstore(url: str, storage_options: dict | None):
     """Construct the obstore store for *url*, translating *storage_options*."""
     from obstore.store import from_url
 
     scheme = urlsplit(url).scheme.lower()
     translated, passthrough = _translate_storage_options(scheme, storage_options)
+    if scheme in ("s3", "s3a"):
+        _fill_bucket_region(url, translated, passthrough)
 
     def _construct(options: dict):
         if scheme in ("http", "https"):
