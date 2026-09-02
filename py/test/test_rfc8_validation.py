@@ -52,6 +52,8 @@ def test_every_rule_is_exercised_by_the_shared_cases():
         "coordinate-system-id-required",
         "reference-id-required",
         "reference-path-required",
+        "label-value-required",
+        "label-color-format",
     }
 
 

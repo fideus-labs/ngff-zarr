@@ -622,6 +622,263 @@
       "ok": true
     },
     {
+      "name": "a label map with attributes and sources",
+      "ome": {
+        "type": "collection",
+        "name": "label-example",
+        "nodes": [
+          {
+            "id": "raw",
+            "name": "raw",
+            "type": "multiscale",
+            "path": {
+              "type": "zarr",
+              "path": "./raw"
+            }
+          },
+          {
+            "name": "nuclei",
+            "type": "multiscale",
+            "path": {
+              "type": "zarr",
+              "path": "./nuclei"
+            },
+            "attributes": {
+              "labels": {
+                "source": [
+                  {
+                    "id": "raw"
+                  }
+                ],
+                "labelAttributes": [
+                  {
+                    "labelValue": 1,
+                    "color": [
+                      255,
+                      0,
+                      0,
+                      255
+                    ]
+                  },
+                  {
+                    "labelValue": 2,
+                    "color": [
+                      0,
+                      255,
+                      0,
+                      255
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "ok": true
+    },
+    {
+      "name": "an empty labels object denotes a label map",
+      "ome": {
+        "type": "multiscale",
+        "name": "mito_seg",
+        "path": {
+          "type": "zarr",
+          "path": "./mito_seg"
+        },
+        "attributes": {
+          "labels": {}
+        }
+      },
+      "version": "0.9.dev3",
+      "ok": true
+    },
+    {
+      "name": "a label attributes entry without a labelValue",
+      "ome": {
+        "type": "multiscale",
+        "name": "nuclei",
+        "path": {
+          "type": "zarr",
+          "path": "./nuclei"
+        },
+        "attributes": {
+          "labels": {
+            "labelAttributes": [
+              {
+                "color": [
+                  255,
+                  0,
+                  0,
+                  255
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "label-value-required",
+      "message": "Spec rule [label-value-required] violated: Label attributes must declare a numeric 'labelValue'; got None.",
+      "location": "ome.attributes.labels.labelAttributes[0]"
+    },
+    {
+      "name": "a non-numeric labelValue",
+      "ome": {
+        "type": "multiscale",
+        "name": "nuclei",
+        "path": {
+          "type": "zarr",
+          "path": "./nuclei"
+        },
+        "attributes": {
+          "labels": {
+            "labelAttributes": [
+              {
+                "labelValue": "one"
+              }
+            ]
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "label-value-required",
+      "message": "Spec rule [label-value-required] violated: Label attributes must declare a numeric 'labelValue'; got 'one'.",
+      "location": "ome.attributes.labels.labelAttributes[0]"
+    },
+    {
+      "name": "a label color with the wrong length",
+      "ome": {
+        "type": "multiscale",
+        "name": "nuclei",
+        "path": {
+          "type": "zarr",
+          "path": "./nuclei"
+        },
+        "attributes": {
+          "labels": {
+            "labelAttributes": [
+              {
+                "labelValue": 1,
+                "color": [
+                  255,
+                  0,
+                  0
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "label-color-format",
+      "message": "Spec rule [label-color-format] violated: Label color must be an array of four integers between 0 and 255.",
+      "location": "ome.attributes.labels.labelAttributes[0].color"
+    },
+    {
+      "name": "a label color channel out of range",
+      "ome": {
+        "type": "multiscale",
+        "name": "nuclei",
+        "path": {
+          "type": "zarr",
+          "path": "./nuclei"
+        },
+        "attributes": {
+          "labels": {
+            "labelAttributes": [
+              {
+                "labelValue": 1,
+                "color": [
+                  255,
+                  0,
+                  0,
+                  256
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "label-color-format",
+      "message": "Spec rule [label-color-format] violated: Label color must be an array of four integers between 0 and 255.",
+      "location": "ome.attributes.labels.labelAttributes[0].color"
+    },
+    {
+      "name": "a label source without an id",
+      "ome": {
+        "type": "multiscale",
+        "name": "nuclei",
+        "path": {
+          "type": "zarr",
+          "path": "./nuclei"
+        },
+        "attributes": {
+          "labels": {
+            "source": [
+              "raw"
+            ]
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "reference-id-required",
+      "message": "Spec rule [reference-id-required] violated: Label source reference must be an object with an 'id'.",
+      "location": "ome.attributes.labels.source[0]"
+    },
+    {
+      "name": "an unresolved label source without a path",
+      "ome": {
+        "type": "multiscale",
+        "name": "nuclei",
+        "path": {
+          "type": "zarr",
+          "path": "./nuclei"
+        },
+        "attributes": {
+          "labels": {
+            "source": [
+              {
+                "id": "raw"
+              }
+            ]
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "reference-path-required",
+      "message": "Spec rule [reference-path-required] violated: Reference id 'raw' is not declared in this document, so the reference must carry a 'path'.",
+      "location": "ome.attributes.labels.source[0]"
+    },
+    {
+      "name": "a remote label source with a path",
+      "ome": {
+        "type": "multiscale",
+        "name": "mito_seg",
+        "path": {
+          "type": "zarr",
+          "path": "./mito_seg"
+        },
+        "attributes": {
+          "labels": {
+            "source": [
+              {
+                "id": "em",
+                "path": {
+                  "type": "zarr",
+                  "path": "https://example.com/em.zarr"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "ok": true
+    },
+    {
       "name": "name uniqueness reported before the id format",
       "ome": {
         "type": "collection",
