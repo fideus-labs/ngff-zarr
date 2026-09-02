@@ -194,7 +194,7 @@ function frameTerms(frame: FrameGeometry): FrameTerms {
  * `toIntrinsic` turns an ITK vector into an RFC-5 displacement,
  * `d(q) = D_out^-1 v + (M - I) q + b`, and `toPhysical` is its inverse. Every
  * term is a function of the voxel's position and the frames alone, which is
- * what lets a block be converted where it sits: see `convertFieldBlock`. A
+ * what lets a block be converted where it sits: see `convertItkFieldBlock`. A
  * `coordinates` field holds `q + d` rather than `d`, so `absolute` folds the
  * grid point itself into the positional term, in one pass over the grid.
  */
@@ -548,7 +548,7 @@ export interface ConvertFieldBlockOptions {
  * @returns The converted block, channel-first, components in `dims` order
  * (ITK's with `inverse`).
  */
-export function convertFieldBlock(
+export function convertItkFieldBlock(
   values: Float32Array | Float64Array,
   shape: number[],
   dims: string[],

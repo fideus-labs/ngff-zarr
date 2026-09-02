@@ -4,7 +4,7 @@
 /**
  * Converting one block of a field between ITK's convention and RFC-5's.
  *
- * Mirrors `py/test/test_convert_field_block.py`. The reference is the
+ * Mirrors `py/test/test_convert_itk_field_block.py`. The reference is the
  * whole-field converter itself, so the two cannot drift apart: a block
  * converted where it sits must equal that block of the converted whole. The
  * framed cases are the ones that matter -- without frames the positional term
@@ -15,7 +15,7 @@ import { assertAlmostEquals, assertThrows } from "@std/assert";
 import type { Transform } from "itk-wasm";
 import * as zarr from "zarrita";
 import {
-  convertFieldBlock,
+  convertItkFieldBlock,
   itkDisplacementFieldToNgffTransform,
   NgffImage,
 } from "../src/mod.ts";
@@ -160,7 +160,7 @@ for (const ndim of [2, 3]) {
       number
     >;
 
-    const converted = convertFieldBlock(
+    const converted = convertItkFieldBlock(
       itkBlock(transform, dims, size),
       [...field.data.shape],
       dims,
@@ -200,7 +200,7 @@ for (const dims of [["z", "y", "x"], ["x", "y", "z"]]) {
         number
       >;
 
-      const converted = convertFieldBlock(
+      const converted = convertItkFieldBlock(
         itkBlock(transform, dims, size),
         [...field.data.shape],
         dims,
@@ -227,7 +227,7 @@ Deno.test("forward then inverse is the identity", async () => {
   };
   const fixed = await frameImage(dims);
   const moving = await frameImage(dims);
-  const stored = convertFieldBlock(
+  const stored = convertItkFieldBlock(
     block,
     shape,
     dims,
@@ -235,7 +235,7 @@ Deno.test("forward then inverse is the identity", async () => {
     geometry.scale,
     { fixed, moving },
   );
-  const back = convertFieldBlock(
+  const back = convertItkFieldBlock(
     stored,
     shape,
     dims,
@@ -263,14 +263,14 @@ Deno.test("a coordinates block holds q + d and round-trips", () => {
   const block = new Float64Array(shape.reduce((a, b) => a * b, 1));
   for (let i = 0; i < block.length; i++) block[i] = next();
 
-  const displacements = convertFieldBlock(
+  const displacements = convertItkFieldBlock(
     block,
     shape,
     dims,
     translation,
     scale,
   );
-  const coordinates = convertFieldBlock(
+  const coordinates = convertItkFieldBlock(
     block,
     shape,
     dims,
@@ -290,10 +290,17 @@ Deno.test("a coordinates block holds q + d and round-trips", () => {
     );
   }
 
-  const back = convertFieldBlock(coordinates, shape, dims, translation, scale, {
-    transformType: "coordinates",
-    inverse: true,
-  });
+  const back = convertItkFieldBlock(
+    coordinates,
+    shape,
+    dims,
+    translation,
+    scale,
+    {
+      transformType: "coordinates",
+      inverse: true,
+    },
+  );
   for (let i = 0; i < block.length; i++) {
     assertAlmostEquals(back[i], block[i], 1e-12);
   }
@@ -302,7 +309,7 @@ Deno.test("a coordinates block holds q + d and round-trips", () => {
 Deno.test("a values buffer that does not match the shape is refused", () => {
   assertThrows(
     () =>
-      convertFieldBlock(
+      convertItkFieldBlock(
         new Float64Array(11),
         [3, 4, 5, 6],
         CANONICAL[3],
@@ -317,7 +324,7 @@ Deno.test("a values buffer that does not match the shape is refused", () => {
 Deno.test("a block shape that is not the grid is refused", () => {
   assertThrows(
     () =>
-      convertFieldBlock(
+      convertItkFieldBlock(
         new Float64Array(12),
         [3, 4],
         CANONICAL[3],
@@ -332,7 +339,7 @@ Deno.test("a block shape that is not the grid is refused", () => {
 Deno.test("geometry that does not cover the axes is refused", () => {
   assertThrows(
     () =>
-      convertFieldBlock(
+      convertItkFieldBlock(
         new Float64Array(3 * 4 * 5 * 6),
         [3, 4, 5, 6],
         CANONICAL[3],

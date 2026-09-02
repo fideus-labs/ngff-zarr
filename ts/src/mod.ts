@@ -80,8 +80,8 @@ export {
   type DeclareFieldTransformOptions,
 } from "./utils/declare_field_transform.ts";
 export {
-  convertFieldBlock,
   type ConvertFieldBlockOptions,
+  convertItkFieldBlock,
   type FieldFrames,
   type ItkDisplacementFieldOptions,
   itkDisplacementFieldToNgffTransform,

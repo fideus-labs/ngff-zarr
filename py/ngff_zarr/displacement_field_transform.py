@@ -323,9 +323,11 @@ def itk_displacement_field_to_ngff_transform(
         RFC-5 (Zarr) order. The field must be defined on these axes and no
         others.
     :type  dims: Sequence[str]
+
     :param path: Where the field will be written, relative to the image's
         group. Recorded on the returned transform.
     :type  path: str
+
     :param fixed: The fixed and moving images the field relates. Passing both
         re-expresses the vectors on the images' intrinsic coordinate systems,
         including the direction matrix derived from RFC-4 anatomical
@@ -333,6 +335,7 @@ def itk_displacement_field_to_ngff_transform(
         units. Omitting them is exact only when neither image carries an
         anatomical orientation.
     :type  fixed: NgffImage, optional
+
     :param moving: See ``fixed``. Pass both or neither.
     :type  moving: NgffImage, optional
     :return: The ``displacements`` transform, with ``interpolation`` set to
@@ -444,6 +447,7 @@ def field_image(
 
     :param transform: The ``displacements`` or ``coordinates`` transform.
     :type  transform: Displacements | Coordinates
+
     :param field: The field image or multiscales, as ``fields`` holds it.
     :param dims: The spatial axis names of the input coordinate system, in
         RFC-5 (Zarr) order.
@@ -494,7 +498,7 @@ def field_image(
     return field
 
 
-def convert_field_block(
+def convert_itk_field_block(
     values: np.ndarray,
     dims: Sequence[str],
     *,
@@ -521,9 +525,11 @@ def convert_field_block(
         x, then y, then z); with ``inverse=True`` they follow ``dims``, as the
         store holds them.
     :type  values: np.ndarray
+
     :param dims: The spatial axis names of the input coordinate system, in
         RFC-5 (Zarr) order.
     :type  dims: Sequence[str]
+
     :param translation: Where the block starts on the field's grid, per axis in
         ``dims`` order: the field's own ``translation`` advanced by the block's
         voxel offset times ``spacing``. This is the RFC-5 value, in the input
@@ -531,18 +537,23 @@ def convert_field_block(
         block's ITK physical origin, which the fixed image's direction moves
         away from it, and the whole-field converters take this same value.
     :type  translation: Sequence[float]
+
     :param spacing: The field's scale per axis, in ``dims`` order.
     :type  spacing: Sequence[float]
+
     :param fixed: The fixed and moving images the field relates; see
         :func:`itk_displacement_field_to_ngff_transform`. Pass both or
         neither; with neither the frames are one, and the conversion is the
         component permutation alone.
     :type  fixed: NgffImage, optional
+
     :param moving: See ``fixed``.
     :type  moving: NgffImage, optional
+
     :param transform_type: ``displacements`` (offsets) or ``coordinates``
         (absolute output positions).
     :type  transform_type: str, optional
+
     :param inverse: Convert the store's values back to ITK's convention.
     :type  inverse: bool, optional
     :return: The converted block, channel-first, contiguous, components in
@@ -624,6 +635,7 @@ def check_unoriented_field(field: NgffImage, dims: Sequence[str]) -> None:
 
     :param field: The field image.
     :type  field: NgffImage
+
     :param dims: The spatial axis names, in RFC-5 order.
     :type  dims: Sequence[str]
     :raises ValueError: If the field carries an anatomical orientation.
@@ -753,11 +765,14 @@ def field_displacement_bound(
     :param transform: The ``displacements`` or ``coordinates`` transform the
         field belongs to.
     :type  transform: Displacements | Coordinates
+
     :param field: The field image, as :func:`field_image` returns it.
     :type  field: NgffImage
+
     :param dims: The spatial axis names of the input coordinate system, in
         RFC-5 (Zarr) order.
     :type  dims: Sequence[str]
+
     :param window: The field indices a caller will ask about, as
         :func:`field_window` returns them. The pass then covers the chunks
         that window touches and no others, which is what a grid smaller than
@@ -849,14 +864,19 @@ def field_window(
 
     :param field: The field image.
     :type  field: NgffImage
+
     :param dims: The spatial axis names, in RFC-5 order.
     :type  dims: Sequence[str]
+
     :param translation: The grid's translation, keyed by dimension.
     :type  translation: Mapping[str, float]
+
     :param scale: The grid's scale, keyed by dimension.
     :type  scale: Mapping[str, float]
+
     :param shape: The grid's extent, in ``dims`` order.
     :type  shape: Sequence[int]
+
     :param margin: Lattice points kept beyond the bracketing pair, so that
         linear interpolation at a point on the boundary reads the same values
         it reads from the whole field.
@@ -910,6 +930,7 @@ def ngff_displacement_field_to_itk_transform(
 
     :param transform: The ``displacements`` or ``coordinates`` transform.
     :type  transform: Displacements | Coordinates
+
     :param field: The field image: an ``NgffImage`` whose component axis is
         the one with ``axes_types`` ``displacement`` (``coordinate`` for a
         ``coordinates`` transform), followed by ``dims`` in order; or an
@@ -917,10 +938,12 @@ def ngff_displacement_field_to_itk_transform(
     :param dims: The spatial axis names of the input coordinate system, in
         RFC-5 (Zarr) order.
     :type  dims: Sequence[str]
+
     :param fixed: The fixed and moving images the field relates; see
         :func:`itk_displacement_field_to_ngff_transform`. The field's own
         orientation, if any, must be the fixed image's.
     :type  fixed: NgffImage, optional
+
     :param moving: See ``fixed``. Pass both or neither.
     :type  moving: NgffImage, optional
     :return: A single-entry ITK-Wasm ``TransformList`` of parameterization

@@ -4,7 +4,7 @@ from dataclasses import asdict
 
 import numpy as np
 import pytest
-from ngff_zarr import convert_field_block, to_ngff_image
+from ngff_zarr import convert_itk_field_block, to_ngff_image
 
 itk = pytest.importorskip("itk")
 
@@ -69,7 +69,7 @@ def test_blockwise_equals_the_whole_field_converter(ndim):
     for start, stop in _blocks(itk_block.shape[1:], rows=2):
         origin = list(translation)
         origin[0] += start * spacing[0]
-        assembled[:, start:stop] = convert_field_block(
+        assembled[:, start:stop] = convert_itk_field_block(
             itk_block[:, start:stop], dims, translation=origin, spacing=spacing
         )
     np.testing.assert_allclose(assembled, reference, rtol=0, atol=1e-12)
@@ -102,7 +102,7 @@ def test_blockwise_inverse_equals_the_reader(tmp_path):
     for start, stop in _blocks(stored.shape[1:], rows=2):
         origin = list(translation)
         origin[0] += start * spacing[0]
-        assembled[:, start:stop] = convert_field_block(
+        assembled[:, start:stop] = convert_itk_field_block(
             stored[:, start:stop],
             dims,
             translation=origin,
@@ -119,8 +119,10 @@ def test_forward_then_inverse_is_the_identity():
     geometry = {"translation": [5.0, -3.0, 7.0], "spacing": [2.0, 1.5, 1.0]}
     fixed = _frame_image(dims)
     moving = _frame_image(dims)
-    stored = convert_field_block(block, dims, fixed=fixed, moving=moving, **geometry)
-    back = convert_field_block(
+    stored = convert_itk_field_block(
+        block, dims, fixed=fixed, moving=moving, **geometry
+    )
+    back = convert_itk_field_block(
         stored, dims, fixed=fixed, moving=moving, inverse=True, **geometry
     )
     np.testing.assert_allclose(back, block, rtol=0, atol=1e-12)
@@ -134,7 +136,7 @@ def test_without_frames_the_conversion_is_the_component_permutation():
     dims = CANONICAL[3]
     rng = np.random.default_rng(9)
     block = rng.normal(size=(3, 2, 3, 4))
-    stored = convert_field_block(
+    stored = convert_itk_field_block(
         block, dims, translation=[0.0, 0.0, 0.0], spacing=[1.0, 1.0, 1.0]
     )
     np.testing.assert_array_equal(stored, block[::-1])
@@ -164,7 +166,7 @@ def test_noncanonical_dims_keep_the_positional_term_on_its_own_axes(dims):
     block = np.ascontiguousarray(
         np.transpose(block, [0] + [1 + canonical.index(dim) for dim in dims])
     )
-    converted = convert_field_block(
+    converted = convert_itk_field_block(
         block,
         dims,
         translation=[float(whole.translation[dim]) for dim in dims],
@@ -179,7 +181,7 @@ def test_a_block_shape_that_is_not_the_grid_is_refused():
     # Only the component axis was checked, so a (3, 4) block passed and a
     # coordinates conversion broadcast its one grid index over three axes.
     with pytest.raises(ValueError, match="one component axis"):
-        convert_field_block(
+        convert_itk_field_block(
             np.zeros((3, 4)),
             CANONICAL[3],
             translation=[0.0, 0.0, 0.0],
@@ -189,7 +191,7 @@ def test_a_block_shape_that_is_not_the_grid_is_refused():
 
 def test_geometry_that_does_not_cover_the_axes_is_refused():
     with pytest.raises(ValueError, match="translation and spacing"):
-        convert_field_block(
+        convert_itk_field_block(
             np.zeros((3, 4, 5, 6)),
             CANONICAL[3],
             translation=[0.0, 0.0],
@@ -199,7 +201,7 @@ def test_geometry_that_does_not_cover_the_axes_is_refused():
 
 def test_a_component_count_that_misses_an_axis_is_refused():
     with pytest.raises(ValueError, match="2 components per point"):
-        convert_field_block(
+        convert_itk_field_block(
             np.zeros((2, 4, 5, 6)),
             CANONICAL[3],
             translation=[0.0, 0.0, 0.0],
@@ -209,7 +211,7 @@ def test_a_component_count_that_misses_an_axis_is_refused():
 
 def test_an_unknown_transform_type_is_refused():
     with pytest.raises(ValueError, match="transform_type"):
-        convert_field_block(
+        convert_itk_field_block(
             np.zeros((3, 4, 5, 6)),
             CANONICAL[3],
             translation=[0.0, 0.0, 0.0],
