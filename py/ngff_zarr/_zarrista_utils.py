@@ -100,12 +100,19 @@ def _native_contiguous(value) -> np.ndarray:
     return value
 
 
-def _normalize_selection(shape, selection) -> tuple[tuple[slice, ...], list[int]]:
-    """``selection`` as one slice per axis, and the axes an integer index drops.
+def _normalize_selection(
+    shape, selection
+) -> tuple[tuple[slice, ...], list[int], tuple[slice, ...] | None]:
+    """``selection`` as one unit-step slice per axis, the axes an integer index
+    drops, and the residual striding to apply to the fetched block.
 
     An ellipsis and missing trailing axes expand to full slices. An integer
     becomes the length-1 slice zarrista reads it as, and its axis is reported
-    so numpy semantics, where the axis is dropped, can be restored.
+    so numpy semantics, where the axis is dropped, can be restored. A stepped
+    (or negative-step) slice becomes the ascending unit-step span covering the
+    selected indices, and the residual (``None`` when every step is 1) restores
+    the requested stride and direction on the fetched block: zarrista serves
+    unit steps only, and the covering span is what its chunks decode anyway.
     """
     if not isinstance(selection, tuple):
         selection = (selection,)
@@ -119,16 +126,33 @@ def _normalize_selection(shape, selection) -> tuple[tuple[slice, ...], list[int]
     selection = selection + (slice(None),) * (ndim - len(selection))
     normalized = []
     dropped = []
+    residual = []
+    strided = False
     for axis, index in enumerate(selection):
         if isinstance(index, (int, np.integer)):
             index = int(index)
             if index < 0:
                 index += shape[axis]
             normalized.append(slice(index, index + 1))
+            residual.append(slice(None))
             dropped.append(axis)
+        elif isinstance(index, slice) and index.step not in (None, 1):
+            start, stop, step = index.indices(shape[axis])
+            picked = range(start, stop, step)
+            if not picked:
+                normalized.append(slice(0, 0))
+                residual.append(slice(None))
+                continue
+            low, high = (picked[-1], picked[0]) if step < 0 else (picked[0], picked[-1])
+            normalized.append(slice(low, high + 1))
+            # The span's length is |step| * (count - 1) + 1, so striding it from
+            # the appropriate end lands exactly on the selected indices.
+            residual.append(slice(None, None, step))
+            strided = True
         else:
             normalized.append(index)
-    return tuple(normalized), dropped
+            residual.append(slice(None))
+    return tuple(normalized), dropped, tuple(residual) if strided else None
 
 
 class _ZarristaArrayAdapter:
@@ -164,8 +188,10 @@ class _ZarristaArrayAdapter:
         # zarrista treats an integer index like a length-1 slice, keeping the
         # axis; dask's fused getters rely on numpy semantics where integer
         # indices drop it. Normalize integers to slices and squeeze after.
-        normalized, drop_axes = _normalize_selection(self.shape, selection)
+        normalized, drop_axes, residual = _normalize_selection(self.shape, selection)
         result = self._fetch(normalized)
+        if residual is not None:
+            result = result[residual]
         if drop_axes:
             result = np.squeeze(result, axis=tuple(drop_axes))
         return result
@@ -981,7 +1007,11 @@ class LocalZarrArray:
         return self._array()[selection]
 
     def __setitem__(self, selection, value) -> None:
-        normalized, dropped = _normalize_selection(self.shape, selection)
+        normalized, dropped, residual = _normalize_selection(self.shape, selection)
+        if residual is not None:
+            raise NotImplementedError(
+                "writing through a stepped slice is not supported: write the unit-step region"
+            )
         region = tuple(
             len(range(*index.indices(size)))
             for index, size in zip(normalized, self.shape)

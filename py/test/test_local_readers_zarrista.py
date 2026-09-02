@@ -327,3 +327,31 @@ def test_upgrade_in_place_reads_bypass_zarr_python(
 def test_upgrade_missing_local_store_raises_file_not_found(tmp_path):
     with pytest.raises(FileNotFoundError):
         upgrade_ome_zarr(str(tmp_path / "missing.ome.zarr"), version="0.6")
+
+
+def test_lazy_array_serves_stepped_and_negative_step_slices(tmp_path):
+    """A stepped read is served by striding the unit-step covering span.
+
+    zarrista reads unit steps only, and the covering span is what its chunks
+    decode anyway, so downstream code (a downsampling view, an axis flip) no
+    longer has to re-derive span-and-restride itself.
+    """
+    import numpy as np
+
+    from ngff_zarr import from_ngff_zarr, to_multiscales, to_ngff_image, to_ngff_zarr
+
+    rng = np.random.default_rng(0)
+    data = rng.random((9, 16, 17)).astype(np.float32)
+    store = str(tmp_path / "img.ome.zarr")
+    to_ngff_zarr(store, to_multiscales(to_ngff_image(data, dims=("z", "y", "x")), scale_factors=[2]))
+    arr = from_ngff_zarr(store).images[0].data
+
+    selections = [
+        (slice(0, 9, 2), slice(None), slice(None)),
+        (slice(None, None, -1), slice(None), slice(None)),
+        (slice(7, 1, -3), slice(1, 15, 2), slice(None, None, -2)),
+        (slice(2, 2, 2), slice(None), slice(None)),  # empty pick
+        (3, slice(None, None, 4), slice(16, None, -5)),  # integer beside steps
+    ]
+    for selection in selections:
+        np.testing.assert_array_equal(np.asarray(arr[selection]), data[selection])
