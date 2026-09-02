@@ -131,6 +131,63 @@ function* iterTransformReferenceSites(
   }
 }
 
+function* iterLabelEntries(
+  document: Record<string, unknown>,
+): Generator<[string, Record<string, unknown>]> {
+  for (const [location, node] of iterNodes(document, "ome")) {
+    const attributes = node.attributes;
+    if (!isRecord(attributes)) {
+      continue;
+    }
+    const labels = attributes.labels;
+    if (!isRecord(labels)) {
+      continue;
+    }
+    const entries = labels.labelAttributes;
+    if (!Array.isArray(entries)) {
+      continue;
+    }
+    for (const [index, entry] of entries.entries()) {
+      if (isRecord(entry)) {
+        yield [
+          `${location}.attributes.labels.labelAttributes[${index}]`,
+          entry,
+        ];
+      }
+    }
+  }
+}
+
+function* iterLabelSourceSites(
+  document: Record<string, unknown>,
+): Generator<[string, unknown]> {
+  for (const [location, node] of iterNodes(document, "ome")) {
+    const attributes = node.attributes;
+    if (!isRecord(attributes)) {
+      continue;
+    }
+    const labels = attributes.labels;
+    if (!isRecord(labels)) {
+      continue;
+    }
+    const sources = labels.source;
+    if (!Array.isArray(sources)) {
+      continue;
+    }
+    for (const [index, source] of sources.entries()) {
+      yield [`${location}.attributes.labels.source[${index}]`, source];
+    }
+  }
+}
+
+/** Every reference site of the document: transformations, then labels. */
+function* iterReferenceSites(
+  document: Record<string, unknown>,
+): Generator<[string, unknown]> {
+  yield* iterTransformReferenceSites(document);
+  yield* iterLabelSourceSites(document);
+}
+
 /**
  * Every typed path in the document: each node's own `path` and the `path`
  * of every reference site, so an extension path type is judged the same
@@ -167,7 +224,7 @@ function* iterIdSites(
       yield [`${location}.id`, system.id, true];
     }
   }
-  for (const [location, reference] of iterTransformReferenceSites(document)) {
+  for (const [location, reference] of iterReferenceSites(document)) {
     if (
       isRecord(reference) && reference.id !== undefined &&
       reference.id !== null
@@ -407,6 +464,18 @@ export function validateReferenceIdRequired(
       );
     }
   }
+  for (const [location, reference] of iterLabelSourceSites(document)) {
+    if (
+      !isRecord(reference) || reference.id === undefined ||
+      reference.id === null
+    ) {
+      throw new ValidationError(
+        SpecRule.ReferenceIdRequired,
+        "Label source reference must be an object with an 'id'.",
+        location,
+      );
+    }
+  }
 }
 
 /**
@@ -420,7 +489,7 @@ export function validateReferencePathRequired(
   document: Record<string, unknown>,
 ): void {
   const declared = declaredIds(document);
-  for (const [location, reference] of iterTransformReferenceSites(document)) {
+  for (const [location, reference] of iterReferenceSites(document)) {
     if (!isRecord(reference)) {
       continue;
     }
@@ -434,6 +503,60 @@ export function validateReferencePathRequired(
         `Reference id ${pyRepr(value)} is not declared in this document, ` +
           `so the reference must carry a 'path'.`,
         location,
+      );
+    }
+  }
+}
+
+/**
+ * Every label attributes entry declares a numeric `labelValue`
+ * (`label-value-required`).
+ */
+export function validateLabelValueRequired(
+  document: Record<string, unknown>,
+): void {
+  for (const [location, entry] of iterLabelEntries(document)) {
+    const value = entry.labelValue;
+    if (typeof value !== "number") {
+      throw new ValidationError(
+        SpecRule.LabelValueRequired,
+        `Label attributes must declare a numeric 'labelValue'; got ` +
+          `${pyReprValue(value)}.`,
+        location,
+      );
+    }
+  }
+}
+
+/**
+ * A declared label `color` is four integers in 0..=255
+ * (`label-color-format`): the uint8 red, green, blue and alpha values.
+ */
+export function validateLabelColorFormat(
+  document: Record<string, unknown>,
+): void {
+  for (const [location, entry] of iterLabelEntries(document)) {
+    const color = entry.color;
+    if (color === undefined || color === null) {
+      continue;
+    }
+    let valid = Array.isArray(color) && color.length === 4;
+    if (valid) {
+      for (const channel of color as unknown[]) {
+        if (
+          typeof channel !== "number" || !Number.isInteger(channel) ||
+          channel < 0 || channel > 255
+        ) {
+          valid = false;
+          break;
+        }
+      }
+    }
+    if (!valid) {
+      throw new ValidationError(
+        SpecRule.LabelColorFormat,
+        "Label color must be an array of four integers between 0 and 255.",
+        `${location}.color`,
       );
     }
   }
@@ -454,6 +577,8 @@ const COLLECTION_RULES = [
   validateCoordinateSystemIdRequired,
   validateReferenceIdRequired,
   validateReferencePathRequired,
+  validateLabelValueRequired,
+  validateLabelColorFormat,
 ] as const;
 
 /**
