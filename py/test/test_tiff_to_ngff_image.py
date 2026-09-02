@@ -403,8 +403,10 @@ def test_tiff_file_to_ngff_images_with_sample_axis():
     assert img.data.shape == (5, 100, 100, 3)
 
 
-def test_tiff_file_to_ngff_images_with_ome_translation():
-    """Test that OME translation metadata is extracted."""
+def test_tiff_file_to_ngff_images_with_ome_translation(tmp_path):
+    """Test that OME translation metadata is extracted, and that axes_units
+    is filled in from Position*Unit for any dim missing a PhysicalSize*Unit
+    (whether none, some, or all dims are missing one)."""
     try:
         import tifffile
     except ImportError:
@@ -413,57 +415,80 @@ def test_tiff_file_to_ngff_images_with_ome_translation():
     from ngff_zarr import NgffMultiscales, tiff_file_to_ngff_images
     from ngff_zarr.tiff_to_ngff_image import _convert_unit_value
 
-    # Create an OME-TIFF with translation metadata
-    tmpdir = Path(tempfile.mkdtemp())
-    tiff_path = tmpdir / "ome_with_translation.ome.tiff"
-
-    pixel_size = 1
-    default_unit = "micrometer"
-
     size_x, size_y, size_z = 100, 100, 10
     position = {"x": 1.1, "y": 2.2, "z": 3.3}
-    ome_unit = "µm"
+    position_unit = "µm"
     nplanes = size_z
+    attr_letter = {"x": "X", "y": "Y", "z": "Z"}
 
     expected_position = {
-        dim: _convert_unit_value(position[dim], ome_unit, default_unit) for dim in "xyz"
+        dim: _convert_unit_value(position[dim], position_unit, "micrometer")
+        for dim in "xyz"
     }
 
-    metadata_xyz = {
-        "DimensionOrder": "XYZCT",
-        "PhysicalSizeX": pixel_size,
-        "PhysicalSizeXUnit": default_unit,
-        "PhysicalSizeY": pixel_size,
-        "PhysicalSizeYUnit": default_unit,
-        "PhysicalSizeZ": pixel_size,
-        "PhysicalSizeZUnit": default_unit,
-        "Plane": {
-            "PositionX": [position["x"]] * nplanes,
-            "PositionXUnit": [ome_unit] * nplanes,
-            "PositionY": [position["y"]] * nplanes,
-            "PositionYUnit": [ome_unit] * nplanes,
-            "PositionZ": [position["z"]] * nplanes,
-            "PositionZUnit": [ome_unit] * nplanes,
+    # Each case varies which dims have a PhysicalSize*Unit set, via
+    # "scale" = {dim: (PhysicalSize value, PhysicalSize*Unit or None)}:
+    # - xy_all_units/xyz_all_units: every dim has a matching scale unit.
+    # - xyz_no_units: PhysicalSize values are present but no units at all,
+    #   so axes_units starts as None.
+    # - xyz_partial_units: x/y have a scale unit, z has no PhysicalSize at
+    #   all, so axes_units is a partial dict missing just "z".
+    cases = {
+        "xy_all_units": {
+            "array_dims": "xy",
+            "scale": {"x": (1, "micrometer"), "y": (1, "micrometer")},
+            "expected_axes_units": {"x": "micrometer", "y": "micrometer"},
+        },
+        "xyz_all_units": {
+            "array_dims": "xyz",
+            "scale": {
+                "x": (1, "micrometer"),
+                "y": (1, "micrometer"),
+                "z": (1, "micrometer"),
+            },
+            "expected_axes_units": {
+                "x": "micrometer",
+                "y": "micrometer",
+                "z": "micrometer",
+            },
+        },
+        "xyz_no_units": {
+            "array_dims": "xyz",
+            "scale": {"x": (1, None), "y": (1, None), "z": (1, None)},
+            "expected_axes_units": {
+                "x": "micrometer",
+                "y": "micrometer",
+                "z": "micrometer",
+            },
+        },
+        "xyz_partial_units": {
+            "array_dims": "xyz",
+            "scale": {"x": (0.5, "mm"), "y": (0.5, "mm")},
+            "expected_axes_units": {
+                "x": "millimeter",
+                "y": "millimeter",
+                "z": "micrometer",
+            },
         },
     }
 
-    metadata_xy = {
-        "DimensionOrder": "XYZCT",
-        "PhysicalSizeX": pixel_size,
-        "PhysicalSizeXUnit": default_unit,
-        "PhysicalSizeY": pixel_size,
-        "PhysicalSizeYUnit": default_unit,
-        "Plane": {
-            "PositionX": [position["x"]] * nplanes,
-            "PositionXUnit": [ome_unit] * nplanes,
-            "PositionY": [position["y"]] * nplanes,
-            "PositionYUnit": [ome_unit] * nplanes,
-        },
-    }
+    for case_name, case in cases.items():
+        array_dims = case["array_dims"]
+        tiff_path = tmp_path / f"ome_with_translation_{case_name}.ome.tiff"
 
-    for metadata, expected_dims in zip([metadata_xy, metadata_xyz], ["xy", "xyz"]):
+        metadata = {"DimensionOrder": "XYZCT", "Plane": {}}
+        for dim, (value, unit) in case["scale"].items():
+            letter = attr_letter[dim]
+            metadata[f"PhysicalSize{letter}"] = value
+            if unit is not None:
+                metadata[f"PhysicalSize{letter}Unit"] = unit
+        for dim in array_dims:
+            letter = attr_letter[dim]
+            metadata["Plane"][f"Position{letter}"] = [position[dim]] * nplanes
+            metadata["Plane"][f"Position{letter}Unit"] = [position_unit] * nplanes
+
         with tifffile.TiffWriter(tiff_path, ome=True) as tif:
-            if "z" in expected_dims:
+            if "z" in array_dims:
                 data = np.random.rand(size_z, size_y, size_x).astype(np.float32)
                 data_downscaled = np.random.rand(
                     size_z // 2, size_y // 2, size_x // 2
@@ -497,12 +522,16 @@ def test_tiff_file_to_ngff_images_with_ome_translation():
             if isinstance(img, NgffMultiscales):
                 img = img.images[0]  # Get the first NgffImage from the multiscales
 
-            # Check translation was extracted from OME metadata
+            # Check translation and axes_units were extracted from OME metadata
             assert img.translation is not None
-            for dim in expected_dims:
+            assert img.axes_units is not None
+            for dim in array_dims:
+                assert img.axes_units[dim] == case["expected_axes_units"][dim], (
+                    f"{case_name}: unexpected axes_units for dim {dim!r}"
+                )
                 assert _convert_unit_value(
-                    img.translation[dim], img.axes_units[dim], default_unit
-                ) == pytest.approx(expected_position[dim])
+                    img.translation[dim], img.axes_units[dim], "micrometer"
+                ) == pytest.approx(expected_position[dim]), case_name
 
 
 def test_tiff_file_to_ngff_images_simple_rgb():
