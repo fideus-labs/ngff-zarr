@@ -248,12 +248,13 @@ def test_dev3_write_accepts_id_only_transform_references(tmp_path):
 
     array = np.random.random((4, 8, 8)).astype("float32")
     multiscales = to_multiscales(array, [2])
-    intrinsic = multiscales.metadata.intrinsic_coordinate_system.name
+    # An id distinct from every name: resolving it as a name would fail.
+    multiscales.metadata.intrinsic_coordinate_system.id = "pixel-id"
     multiscales.metadata.coordinateTransformations = [
         Scale(
             scale=[2.0, 2.0, 2.0],
-            input=CoordinateSystemIdentifier(id=intrinsic),
-            output=CoordinateSystemIdentifier(id=intrinsic),
+            input=CoordinateSystemIdentifier(id="pixel-id"),
+            output=CoordinateSystemIdentifier(id="pixel-id"),
         )
     ]
 
@@ -264,11 +265,13 @@ def test_dev3_write_accepts_id_only_transform_references(tmp_path):
     store = tmp_path / "img.ome.zarr"
     to_ome_zarr(store, multiscales, version="0.9.dev3")
     document = json.loads((store / "zarr.json").read_text())
-    transform = document["attributes"]["ome"]["attributes"][
-        "coordinateTransformations"
-    ][0]
-    assert transform["input"] == {"id": intrinsic}
-    from_ome_zarr(store, validate=True)
+    attributes = document["attributes"]["ome"]["attributes"]
+    assert attributes["coordinateSystems"][0]["id"] == "pixel-id"
+    transform = attributes["coordinateTransformations"][0]
+    assert transform["input"] == {"id": "pixel-id"}
+    assert transform["output"] == {"id": "pixel-id"}
+    read_back = from_ome_zarr(store, validate=True)
+    assert read_back.metadata.coordinateSystems[0].id == "pixel-id"
 
 
 def test_corrupt_distributed_singlescale_document_raises(tmp_path):
@@ -298,3 +301,26 @@ def test_nameless_systems_refuse_name_based_writes(tmp_path):
     ]
     with pytest.raises(ValueError, match="carry a name"):
         to_ome_zarr(tmp_path / "img.ome.zarr", multiscales, version="0.9.dev1")
+
+
+def test_project_axis_transforms_validate_with_a_version(tmp_path):
+    from ngff_zarr.v06.zarr_metadata import (
+        CoordinateSystem,
+        CoordinateSystemIdentifier,
+        ProjectAxis,
+    )
+
+    multiscales = _multiscales()
+    intrinsic = multiscales.metadata.intrinsic_coordinate_system
+    multiscales.metadata.coordinateSystems = [
+        intrinsic,
+        CoordinateSystem(name="line", axes=[intrinsic.axes[0]]),
+    ]
+    multiscales.metadata.coordinateTransformations = [
+        ProjectAxis(
+            droppedInputs=[1],
+            input=CoordinateSystemIdentifier(name=intrinsic.name),
+            output=CoordinateSystemIdentifier(name="line"),
+        )
+    ]
+    to_ome_zarr(tmp_path / "img.ome.zarr", multiscales, version="0.9.dev1")
