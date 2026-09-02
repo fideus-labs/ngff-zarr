@@ -917,7 +917,9 @@ class Metadata:
             axes = [Axis(**axis) for axis in cs["axes"]]
 
             coordinate_systems.append(
-                CoordinateSystem(name=cs["name"], axes=axes, id=cs.get("id"))
+                # An RFC-8 system may declare only an id; the name is then
+                # absent rather than an error.
+                CoordinateSystem(name=cs.get("name"), axes=axes, id=cs.get("id"))
             )
 
         if not coordinate_systems:

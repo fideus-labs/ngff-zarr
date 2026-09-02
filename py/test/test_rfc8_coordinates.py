@@ -216,3 +216,26 @@ def test_reference_paths_pass_through_path_type_known():
     with pytest.raises(ValidationError) as exc_info:
         validate_collection(node, version="0.9.dev3")
     assert exc_info.value.rule.value == "path-type-known"
+
+
+def test_id_only_serialized_systems_parse(tmp_path):
+    import json
+
+    import numpy as np
+    from ngff_zarr import from_ome_zarr, to_multiscales, to_ngff_image, to_ome_zarr
+
+    store = tmp_path / "img.ome.zarr"
+    image = to_ngff_image(np.zeros((4, 4), dtype=np.uint8), dims=("y", "x"))
+    to_ome_zarr(store, to_multiscales(image, scale_factors=[]), version="0.9.dev1")
+    document = json.loads((store / "zarr.json").read_text())
+    entry = document["attributes"]["ome"]["multiscales"][0]
+    for system in entry["coordinateSystems"]:
+        system["id"] = system.pop("name")
+    for dataset in entry["datasets"]:
+        for transform in dataset["coordinateTransformations"]:
+            transform["output"] = {"id": transform["output"]["name"]}
+    (store / "zarr.json").write_text(json.dumps(document))
+
+    parsed = from_ome_zarr(store)
+    assert parsed.metadata.coordinateSystems[0].name is None
+    assert parsed.metadata.coordinateSystems[0].id is not None
