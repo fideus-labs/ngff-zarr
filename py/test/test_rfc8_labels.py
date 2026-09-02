@@ -154,3 +154,16 @@ def test_extra_keys_do_not_override_typed_fields():
     assert serialized["labelValue"] == 1
     assert serialized["color"] == [255, 0, 0, 255]
     assert serialized["myorg:note"] == "kept"
+
+
+def test_an_oversized_integer_color_channel_fails():
+    # Too large for a float conversion; the range check must still run.
+    node = Node(type="multiscale", name="nuclei", nodes=[])
+    node.attributes = {
+        "labels": {
+            "labelAttributes": [{"labelValue": 1, "color": [10**400, 0, 0, 255]}]
+        }
+    }
+    with pytest.raises(ValidationError) as exc_info:
+        validate_collection(node, version="0.9.dev3")
+    assert exc_info.value.rule.value == "label-color-format"
