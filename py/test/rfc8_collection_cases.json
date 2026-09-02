@@ -1142,6 +1142,39 @@
       },
       "version": "0.9.dev3",
       "ok": true
+    },
+    {
+      "name": "a pathless label source naming a collection id",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "collection",
+        "name": "study",
+        "id": "study",
+        "nodes": [
+          {
+            "type": "multiscale",
+            "name": "nuclei",
+            "id": "nuclei",
+            "path": {
+              "type": "zarr",
+              "path": "./nuclei"
+            },
+            "attributes": {
+              "labels": {
+                "source": [
+                  {
+                    "id": "study"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "reference-path-required",
+      "message": "Spec rule [reference-path-required] violated: Reference id 'study' is not declared in this document, so the reference must carry a 'path'.",
+      "location": "ome.nodes[0].attributes.labels.source[0]"
     }
   ]
 }

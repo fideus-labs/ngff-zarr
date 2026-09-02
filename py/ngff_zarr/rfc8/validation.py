@@ -180,12 +180,16 @@ def _iter_id_sites(
             yield f"{location}.id", reference.get("id"), False
 
 
-def _declared_node_ids(document: Mapping[str, Any]) -> set[str]:
-    """The node ids declared in the document."""
+def _declared_multiscale_ids(document: Mapping[str, Any]) -> set[str]:
+    """The ids of the document's multiscale nodes.
+
+    RFC-8 defines labels ``source`` entries as references to source
+    multiscales, so only these ids satisfy a pathless source.
+    """
     return {
         node.get("id")
         for _, node in _iter_nodes(document, "ome")
-        if isinstance(node.get("id"), str)
+        if node.get("type") == "multiscale" and isinstance(node.get("id"), str)
     }
 
 
@@ -455,7 +459,7 @@ def validate_reference_path_required(document: Mapping[str, Any]) -> None:
     locate their document with a ``path``. What the path points at is not
     resolved here. A transformation reference resolves against node and
     coordinate-system ids; a labels ``source`` reference designates an
-    annotated image, so only a node id satisfies it.
+    annotated image, so only a multiscale node id satisfies it.
 
     Raises
     ------
@@ -467,7 +471,7 @@ def validate_reference_path_required(document: Mapping[str, Any]) -> None:
     """
     site_groups = (
         (_iter_transform_reference_sites(document), _declared_ids(document)),
-        (_iter_label_source_sites(document), _declared_node_ids(document)),
+        (_iter_label_source_sites(document), _declared_multiscale_ids(document)),
     )
     for sites, resolvable in site_groups:
         for location, reference in sites:
@@ -528,13 +532,13 @@ def validate_label_color_format(document: Mapping[str, Any]) -> None:
             for channel in color:
                 # JSON has one number type, so an integral float such as
                 # 255.0 counts; the TypeScript port's Number.isInteger
-                # judges it the same way.
-                if (
-                    isinstance(channel, bool)
-                    or not isinstance(channel, (int, float))
-                    or not float(channel).is_integer()
-                    or not 0 <= channel <= 255
-                ):
+                # judges it the same way. Integers are ranged directly: an
+                # oversized one would overflow a float conversion.
+                integral = not isinstance(channel, bool) and (
+                    isinstance(channel, int)
+                    or (isinstance(channel, float) and channel.is_integer())
+                )
+                if not integral or not 0 <= channel <= 255:
                     valid = False
                     break
         if not valid:

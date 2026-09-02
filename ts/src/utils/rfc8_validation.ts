@@ -234,11 +234,17 @@ function* iterIdSites(
   }
 }
 
-/** The node ids declared in the document. */
-function declaredNodeIds(document: Record<string, unknown>): Set<string> {
+/**
+ * The ids of the document's multiscale nodes. RFC-8 defines labels `source`
+ * entries as references to source multiscales, so only these ids satisfy a
+ * pathless source.
+ */
+function declaredMultiscaleIds(
+  document: Record<string, unknown>,
+): Set<string> {
   const declared = new Set<string>();
   for (const [, node] of iterNodes(document, "ome")) {
-    if (typeof node.id === "string") {
+    if (node.type === "multiscale" && typeof node.id === "string") {
       declared.add(node.id);
     }
   }
@@ -496,14 +502,14 @@ export function validateReferenceIdRequired(
  * their document with a `path`. What the path points at is not resolved
  * here. A transformation reference resolves against node and
  * coordinate-system ids; a labels `source` reference designates an
- * annotated image, so only a node id satisfies it.
+ * annotated image, so only a multiscale node id satisfies it.
  */
 export function validateReferencePathRequired(
   document: Record<string, unknown>,
 ): void {
   const siteGroups: Array<[Generator<[string, unknown]>, Set<string>]> = [
     [iterTransformReferenceSites(document), declaredIds(document)],
-    [iterLabelSourceSites(document), declaredNodeIds(document)],
+    [iterLabelSourceSites(document), declaredMultiscaleIds(document)],
   ];
   for (const [sites, resolvable] of siteGroups) {
     for (const [location, reference] of sites) {
