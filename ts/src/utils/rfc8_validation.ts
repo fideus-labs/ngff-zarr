@@ -917,8 +917,12 @@ export function validateNodeVersionConsistent(
     if (location === "ome") {
       continue;
     }
+    if (!("version" in node)) {
+      continue;
+    }
+    // A present null is a declared value and differs from any string.
     const value = node.version;
-    if (value === undefined || value === null || value === rootVersion) {
+    if (value === rootVersion) {
       continue;
     }
     throw new ValidationError(
@@ -956,14 +960,23 @@ export function validateSinglescaleTransformShape(
       continue;
     }
     const attributes = node.attributes;
-    if (!isRecord(attributes)) {
-      continue;
-    }
-    const transformations = attributes.coordinateTransformations;
-    if (transformations === undefined || transformations === null) {
-      continue;
-    }
+    const transformations = isRecord(attributes)
+      ? attributes.coordinateTransformations
+      : undefined;
     const site = `${location}.attributes.coordinateTransformations`;
+    if (transformations === undefined || transformations === null) {
+      if (location === "ome") {
+        // Only entries inlined in a multiscale may leave their
+        // transformations to the level's own document.
+        throw new ValidationError(
+          SpecRule.SinglescaleTransformShape,
+          "A singlescale document must declare its " +
+            "'coordinateTransformations'.",
+          site,
+        );
+      }
+      continue;
+    }
     let shaped = Array.isArray(transformations) &&
       transformations.length === 1;
     const entry = shaped ? (transformations as unknown[])[0] : undefined;
@@ -994,14 +1007,14 @@ export function validateSinglescaleTransformShape(
     const nodeId = node.id;
     const reference = entry.input;
     const inputId = isRecord(reference) ? reference.id : undefined;
-    if (
-      typeof nodeId === "string" && typeof inputId === "string" &&
-      inputId !== nodeId
-    ) {
+    if (typeof inputId === "string" && inputId !== nodeId) {
+      const described = typeof nodeId === "string"
+        ? `the node's own id is ${pyRepr(nodeId)}`
+        : "the node declares no id";
       throw new ValidationError(
         SpecRule.SinglescaleTransformShape,
         `Singlescale transformation input references ${pyRepr(inputId)}, ` +
-          `but the node's own id is ${pyRepr(nodeId)}.`,
+          `but ${described}.`,
         `${site}[0].input`,
       );
     }
@@ -1022,7 +1035,9 @@ export function validateMultiscaleOutputConsistent(
       continue;
     }
     const attributes = node.attributes;
-    let declared: Set<string> | undefined;
+    // A missing or malformed coordinateSystems list declares nothing, so
+    // every inline output reference fails the membership check below.
+    let declared = new Set<string>();
     if (
       isRecord(attributes) && Array.isArray(attributes.coordinateSystems)
     ) {
@@ -1061,7 +1076,7 @@ export function validateMultiscaleOutputConsistent(
         }
         const site = `${location}.nodes[${index}].attributes` +
           `.coordinateTransformations[${entryIndex}].output`;
-        if (declared !== undefined && !declared.has(outputId)) {
+        if (!declared.has(outputId)) {
           throw new ValidationError(
             SpecRule.MultiscaleOutputConsistent,
             `Singlescale output references ${pyRepr(outputId)}, which ` +
@@ -1136,10 +1151,15 @@ export function validateCollection(
     return;
   }
   // A parsed node is structurally a document already: it carries the same
-  // modeled keys, and the keys the parser tucks under `extra` are ones no
-  // rule reads. The Python port serializes its dataclass first; walking the
-  // object directly yields the same verdicts, so both forms share one path.
-  const document = root as Record<string, unknown>;
+  // modeled keys. The Python port serializes its dataclass first; walking
+  // the object directly yields the same verdicts, so both forms share one
+  // path.
+  let document = root as Record<string, unknown>;
+  if (document.version === undefined && version !== undefined) {
+    // A parsed node tree carries its version separately; stamp it so the
+    // version-consistency rule judges the tree like its document.
+    document = { ...document, version };
+  }
   for (const rule of COLLECTION_RULES) {
     rule(document);
   }

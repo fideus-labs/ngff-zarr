@@ -860,10 +860,11 @@ def validate_node_version_consistent(document: Mapping[str, Any]) -> None:
     if not isinstance(root_version, str):
         return
     for location, node in _iter_nodes(document, "ome"):
-        if location == "ome":
+        if location == "ome" or "version" not in node:
             continue
+        # A present null is a declared value and differs from any string.
         value = node.get("version")
-        if value is None or value == root_version:
+        if value == root_version:
             continue
         raise ValidationError(
             SpecRule.NODE_VERSION_CONSISTENT,
@@ -906,12 +907,23 @@ def validate_singlescale_transform_shape(
         if node.get("type") != "singlescale":
             continue
         attributes = node.get("attributes")
-        if not isinstance(attributes, Mapping):
-            continue
-        transformations = attributes.get("coordinateTransformations")
-        if transformations is None:
-            continue
+        transformations = (
+            attributes.get("coordinateTransformations")
+            if isinstance(attributes, Mapping)
+            else None
+        )
         site = f"{location}.attributes.coordinateTransformations"
+        if transformations is None:
+            if location == "ome":
+                # Only entries inlined in a multiscale may leave their
+                # transformations to the level's own document.
+                raise ValidationError(
+                    SpecRule.SINGLESCALE_TRANSFORM_SHAPE,
+                    "A singlescale document must declare its "
+                    "'coordinateTransformations'.",
+                    site,
+                )
+            continue
         shaped = isinstance(transformations, list) and len(transformations) == 1
         entry = transformations[0] if shaped else None
         if shaped and isinstance(entry, Mapping):
@@ -935,15 +947,16 @@ def validate_singlescale_transform_shape(
         node_id = node.get("id")
         reference = entry.get("input")
         input_id = reference.get("id") if isinstance(reference, Mapping) else None
-        if (
-            isinstance(node_id, str)
-            and isinstance(input_id, str)
-            and input_id != node_id
-        ):
+        if isinstance(input_id, str) and input_id != node_id:
+            described = (
+                f"the node's own id is {node_id!r}"
+                if isinstance(node_id, str)
+                else "the node declares no id"
+            )
             raise ValidationError(
                 SpecRule.SINGLESCALE_TRANSFORM_SHAPE,
                 f"Singlescale transformation input references {input_id!r}, "
-                f"but the node's own id is {node_id!r}.",
+                f"but {described}.",
                 f"{site}[0].input",
             )
 
@@ -970,7 +983,9 @@ def validate_multiscale_output_consistent(
         if node.get("type") != "multiscale":
             continue
         attributes = node.get("attributes")
-        declared: set[str] | None = None
+        # A missing or malformed coordinateSystems list declares nothing, so
+        # every inline output reference fails the membership check below.
+        declared: set[str] = set()
         if isinstance(attributes, Mapping) and isinstance(
             attributes.get("coordinateSystems"), list
         ):
@@ -1007,7 +1022,7 @@ def validate_multiscale_output_consistent(
                     f"{location}.nodes[{index}].attributes"
                     f".coordinateTransformations[{entry_index}].output"
                 )
-                if declared is not None and output_id not in declared:
+                if output_id not in declared:
                     raise ValidationError(
                         SpecRule.MULTISCALE_OUTPUT_CONSISTENT,
                         f"Singlescale output references {output_id!r}, "
@@ -1083,5 +1098,9 @@ def validate_collection(
     if version is not None and not is_rfc8_node_model(version):
         return
     document = node_to_ome_dict(root) if isinstance(root, Node) else root
+    if document.get("version") is None and isinstance(version, str):
+        # A parsed node tree carries its version separately; stamp it so the
+        # version-consistency rule judges the tree like its document.
+        document = {**document, "version": version}
     for rule in _COLLECTION_RULES:
         rule(document)
