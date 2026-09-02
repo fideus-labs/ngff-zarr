@@ -1104,6 +1104,44 @@
       "rule": "path-type-known",
       "message": "Spec rule [path-type-known] violated: Path type 'google-sheet' is not 'zarr', 'json', or a prefixed extension type.",
       "location": "ome.attributes.labels.source[0].path.type"
+    },
+    {
+      "name": "an integral float color channel passes",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "multiscale",
+        "name": "nuclei",
+        "id": "nuclei",
+        "nodes": [],
+        "attributes": {
+          "coordinateSystems": [
+            {
+              "id": "physical",
+              "axes": [
+                {
+                  "name": "x",
+                  "type": "space"
+                }
+              ]
+            }
+          ],
+          "labels": {
+            "labelAttributes": [
+              {
+                "labelValue": 1,
+                "color": [
+                  255.0,
+                  0,
+                  0,
+                  255
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "ok": true
     }
   ]
 }

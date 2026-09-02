@@ -526,9 +526,13 @@ def validate_label_color_format(document: Mapping[str, Any]) -> None:
         valid = isinstance(color, list) and len(color) == 4
         if valid:
             for channel in color:
+                # JSON has one number type, so an integral float such as
+                # 255.0 counts; the TypeScript port's Number.isInteger
+                # judges it the same way.
                 if (
                     isinstance(channel, bool)
-                    or not isinstance(channel, int)
+                    or not isinstance(channel, (int, float))
+                    or not float(channel).is_integer()
                     or not 0 <= channel <= 255
                 ):
                     valid = False
