@@ -17,6 +17,7 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin
 
 from importlib_resources import files as file_resources
 
@@ -170,7 +171,7 @@ def from_collection_json(
     else:
         location = str(source)
         if _is_http(location):
-            base = location.rsplit("/", 1)[0]
+            base = urljoin(location, ".").rstrip("/")
         else:
             location = str(Path(location).resolve())
             base = str(Path(location).parent)

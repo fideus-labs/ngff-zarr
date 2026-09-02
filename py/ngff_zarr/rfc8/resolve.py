@@ -51,6 +51,12 @@ def resolve_location(path: OmePath, *, base: str | None = None) -> str:
         # (``file://C:/...``); rejoin it with the path before decoding.
         return url2pathname(f"{parsed.netloc}{parsed.path}")
     if base is None:
+        if not Path(location).is_absolute():
+            raise ValueError(
+                f"The relative path {location!r} cannot be resolved: the "
+                "document has no resolution base (it was loaded from an "
+                "in-memory mapping)."
+            )
         return str(Path(location))
     if _is_http(base):
         return urljoin(base.rstrip("/") + "/", location)

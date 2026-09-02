@@ -58,7 +58,24 @@ export async function toCollectionZarr(
         `writer derives the OME metadata from the collection.`,
     );
   }
-  const attributes: Record<string, unknown> = { ...(rootAttributes ?? {}) };
+  const attributes: Record<string, unknown> = {};
+  try {
+    const existing = await zarr.open(store as zarr.Readable, {
+      kind: "group",
+    });
+    for (
+      const [key, value] of Object.entries(
+        existing.attrs as Record<string, unknown>,
+      )
+    ) {
+      if (!OME_ROOT_KEYS.has(key)) {
+        attributes[key] = value;
+      }
+    }
+  } catch {
+    // No existing root group: nothing to preserve.
+  }
+  Object.assign(attributes, rootAttributes ?? {});
   attributes.ome = nodeToOmeDict(root, version);
   const location = zarr.root(store);
   await zarr.create(location, { attributes });

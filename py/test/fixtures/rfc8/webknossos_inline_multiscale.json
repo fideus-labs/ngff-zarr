@@ -1,6 +1,6 @@
 {
     "zarr_format": 3,
-    "node_type": "zarr",
+    "node_type": "group",
     "attributes": {
         "ome": {
             "version": "0.9.dev3",

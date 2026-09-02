@@ -100,6 +100,16 @@ class NgffCollection:
                 for node in loaded.walk():
                     if node.id == target.id:
                         return loaded.load(node)
+                raise KeyError(
+                    f"Reference id {target.id!r} is not declared by the "
+                    f"document at {target.path.path!r}"
+                )
+            if isinstance(loaded, Node) and loaded.id != target.id:
+                raise KeyError(
+                    f"Reference id {target.id!r} is not declared by the "
+                    f"document at {target.path.path!r}"
+                )
+            # A multiscales image store predates RFC-8 and declares no ids.
             return loaded
         if target.path is not None:
             return self._load_document(target.path)

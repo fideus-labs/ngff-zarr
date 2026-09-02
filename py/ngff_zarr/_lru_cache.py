@@ -14,6 +14,8 @@ class LRUCache:
     """
 
     def __init__(self, max_size: int = 100):
+        if max_size <= 0:
+            raise ValueError("max_size must be positive")
         self.max_size = max_size
         self.cache = OrderedDict()
 

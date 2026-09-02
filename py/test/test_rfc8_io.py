@@ -178,6 +178,45 @@ def test_external_collection_fixture_layout(tmp_path):
     assert child.base == str(tmp_path.resolve())
 
 
+def test_external_reference_with_undeclared_id_raises(tmp_path):
+    to_collection_json(
+        Collection("child", nodes=[Node(type="multiscale", name="img", id="img")]),
+        tmp_path / "child.json",
+    )
+    parent = NgffCollection(root=Collection("parent", nodes=[]), base=str(tmp_path))
+    reference = Reference("missing", OmePath("json", "./child.json"))
+    with pytest.raises(KeyError, match="missing"):
+        parent.load(reference)
+
+
+def test_in_memory_collection_cannot_resolve_relative_paths():
+    collection = from_collection_json(
+        {
+            "ome": {
+                "version": "0.9.dev3",
+                "type": "collection",
+                "name": "c",
+                "nodes": [
+                    {
+                        "type": "collection",
+                        "name": "n",
+                        "path": {"type": "json", "path": "./other.json"},
+                    }
+                ],
+            }
+        }
+    )
+    with pytest.raises(ValueError, match="resolution base"):
+        collection.load("n")
+
+
+def test_lru_cache_requires_a_positive_size():
+    from ngff_zarr._lru_cache import LRUCache
+
+    with pytest.raises(ValueError, match="positive"):
+        LRUCache(0)
+
+
 def test_node_lookup_prefers_ids(tmp_path):
     collection = NgffCollection(
         root=Collection(

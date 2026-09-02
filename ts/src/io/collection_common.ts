@@ -214,8 +214,16 @@ function joinLocalPath(base: string, relative: string): string {
       continue;
     }
     if (segment === "..") {
-      if (out.length > 1 || (out.length === 1 && out[0] !== "")) {
+      const last = out[out.length - 1];
+      if (out.length === 1 && out[0] === "") {
+        // The filesystem root has no parent.
+        continue;
+      }
+      if (out.length > 0 && last !== "..") {
         out.pop();
+      } else {
+        // A relative base cannot absorb the traversal; keep it.
+        out.push("..");
       }
       continue;
     }
@@ -268,7 +276,14 @@ export function documentBase(path: OmePath, location: string): string {
     return new URL(".", location).href.replace(/\/+$/, "");
   }
   const separator = location.lastIndexOf("/");
-  return separator <= 0 ? location : location.slice(0, separator);
+  if (separator === -1) {
+    // A bare filename lives in the current directory.
+    return ".";
+  }
+  if (separator === 0) {
+    return "/";
+  }
+  return location.slice(0, separator);
 }
 
 /** The environment-specific access a collection loader needs. */
@@ -427,7 +442,18 @@ export async function loadCollectionNodeWith(
           return loadCollectionNodeWith(loaded, node, io);
         }
       }
+      throw new Error(
+        `Reference id "${reference.id}" is not declared by the document ` +
+          `at "${reference.path.path}"`,
+      );
     }
+    if ("type" in loaded && loaded.id !== reference.id) {
+      throw new Error(
+        `Reference id "${reference.id}" is not declared by the document ` +
+          `at "${reference.path.path}"`,
+      );
+    }
+    // A multiscales image store predates RFC-8 and declares no ids.
     return loaded;
   }
   const node = target as OmeNode;

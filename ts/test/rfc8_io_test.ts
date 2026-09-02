@@ -20,6 +20,7 @@ import {
   toOmeZarr,
 } from "../src/mod.ts";
 import { buildRootAttributes } from "../src/io/to_ngff_zarr_ozx_common.ts";
+import { documentBase, resolveLocation } from "../src/io/collection_common.ts";
 import type { ImageVersion } from "../src/types/supported_versions.ts";
 import type { MemoryStore } from "../src/io/from_ngff_zarr.ts";
 
@@ -204,4 +205,72 @@ Deno.test("the external collection fixture layout loads", async () => {
   } finally {
     await Deno.remove(tmp, { recursive: true });
   }
+});
+
+Deno.test("an external reference must declare the requested id", async () => {
+  const tmp = await Deno.makeTempDir();
+  try {
+    await Deno.writeTextFile(
+      `${tmp}/child.json`,
+      JSON.stringify(
+        await toCollectionJson({
+          type: "collection",
+          name: "child",
+          nodes: [{ type: "multiscale", name: "img", id: "img" }],
+        }),
+      ),
+    );
+    const parent = new NgffCollection({
+      root: { type: "collection", name: "parent", nodes: [] },
+      base: tmp,
+    });
+    await assertRejects(
+      () =>
+        loadCollectionNode(parent, {
+          id: "missing",
+          path: { type: "json", path: "./child.json" },
+        }),
+      Error,
+      "missing",
+    );
+  } finally {
+    await Deno.remove(tmp, { recursive: true });
+  }
+});
+
+Deno.test("relative locations keep parent traversals above a relative base", () => {
+  assertEquals(
+    resolveLocation({ type: "json", path: "../child.json" }, "."),
+    "../child.json",
+  );
+  assertEquals(
+    resolveLocation({ type: "json", path: "../../c.json" }, "a"),
+    "../c.json",
+  );
+});
+
+Deno.test("documentBase handles bare and root-level filenames", () => {
+  assertEquals(documentBase({ type: "json", path: "x" }, "child.json"), ".");
+  assertEquals(documentBase({ type: "json", path: "x" }, "/a.json"), "/");
+});
+
+Deno.test("the browser writer preserves foreign root attributes", async () => {
+  const zarr = await import("zarrita");
+  const { toCollectionZarr: toCollectionZarrBrowser } = await import(
+    "../src/io/to_collection_zarr-browser.ts"
+  );
+  const store = new Map<string, Uint8Array>();
+  await zarr.create(zarr.root(store), {
+    attributes: { "myorg:note": "kept", ome: { stale: true } },
+  });
+  await toCollectionZarrBrowser(store, {
+    type: "collection",
+    name: "c",
+    nodes: [],
+  });
+  const written = JSON.parse(
+    new TextDecoder().decode(store.get("/zarr.json")),
+  );
+  assertEquals(written.attributes["myorg:note"], "kept");
+  assertEquals(written.attributes.ome.type, "collection");
 });

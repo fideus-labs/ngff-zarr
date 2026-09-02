@@ -73,6 +73,10 @@ Relative paths resolve against the document that holds them (the Zarr group
 or the JSON file), per the RFC; `file://` paths and `http(s)://` URLs stand
 alone. Dereferenced documents are cached per resolved location.
 
+Dereferencing follows whatever locations a document declares, local paths
+and http(s) URLs alike, with no allowlist in between. Load collections from
+sources you trust, or inspect `resolve_location` results first; a resolver
+policy hook is a candidate once the RFC stabilizes.
 ### Validation
 
 `validate_collection` runs the RFC-8 structural rules over a raw `ome`
