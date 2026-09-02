@@ -374,6 +374,7 @@ Deno.test("every published dependency resolves in deno.lock", () => {
 Deno.test("published Zod supports schema compilation", () => {
   const range = parseRange(NPM_DEPENDENCIES.zod);
   assertEquals(satisfies(parse(ZOD_COMPILE_MINIMUM), range), true);
+  assertEquals(satisfies(parse("4.4.99"), range), false);
 });
 
 Deno.test("JSR-resolved exceptions really are absent from npm resolution", () => {
