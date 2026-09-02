@@ -63,7 +63,13 @@ class WellAttribute:
 def _entry_from(value: Any) -> PlateEntry:
     if not isinstance(value, Mapping):
         raise ValueError(f"A plate entry must be an object; got {value!r}.")
-    return PlateEntry(id=value.get("id"), name=value.get("name"))
+    entry_id = value.get("id")
+    if not isinstance(entry_id, str):
+        raise ValueError(f"A plate entry must declare a string 'id'; got {value!r}.")
+    name = value.get("name")
+    if name is not None and not isinstance(name, str):
+        raise ValueError(f"A plate entry 'name' must be a string; got {name!r}.")
+    return PlateEntry(id=entry_id, name=name)
 
 
 def _entry_to_dict(entry: PlateEntry) -> dict[str, Any]:
@@ -76,10 +82,22 @@ def _entry_to_dict(entry: PlateEntry) -> dict[str, Any]:
 def _reference_from(value: Any) -> Reference:
     if not isinstance(value, Mapping):
         raise ValueError(f"A well reference must be an object; got {value!r}.")
+    reference_id = value.get("id")
+    if not isinstance(reference_id, str):
+        raise ValueError(f"A well reference must declare a string 'id'; got {value!r}.")
     path = value.get("path")
+    if path is not None and (
+        not isinstance(path, Mapping)
+        or not isinstance(path.get("type"), str)
+        or not isinstance(path.get("path"), str)
+    ):
+        raise ValueError(
+            f"A reference 'path' must be an object with string 'type' and "
+            f"'path'; got {path!r}."
+        )
     return Reference(
-        id=value.get("id"),
-        path=OmePath(path["type"], path["path"]) if isinstance(path, Mapping) else None,
+        id=reference_id,
+        path=OmePath(path["type"], path["path"]) if path is not None else None,
     )
 
 

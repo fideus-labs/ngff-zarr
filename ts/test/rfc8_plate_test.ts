@@ -130,3 +130,23 @@ Deno.test("plate entry ids join the document namespace", () => {
   );
   assertEquals(error.rule, "node-id-unique");
 });
+
+Deno.test("malformed plate metadata is rejected before typing", () => {
+  const node: OmeNode = {
+    type: "collection",
+    name: "plate",
+    nodes: [],
+    attributes: { plate: { columns: [{}], rows: [{ id: "A" }] } },
+  };
+  assertThrows(() => plate(node), Error, "string 'id'");
+
+  const wellNode: OmeNode = {
+    type: "collection",
+    name: "well",
+    nodes: [],
+    attributes: {
+      well: { column: { id: "1", path: { type: "zarr" } }, row: { id: "A" } },
+    },
+  };
+  assertThrows(() => well(wellNode), Error, "'type' and 'path'");
+});

@@ -194,3 +194,17 @@ def test_bridge_ids_survive_colliding_source_labels(tmp_path):
     validate_collection(root, version="0.9.dev3")
     parsed = plate(root)
     assert {entry.id for entry in parsed.acquisitions} == {"acq.0", f"acq.{collision}"}
+
+
+def test_malformed_plate_metadata_is_rejected_before_typing():
+    node = Node(type="collection", name="plate", nodes=[])
+    node.attributes = {"plate": {"columns": [{}], "rows": [{"id": "A"}]}}
+    with pytest.raises(ValueError, match="string 'id'"):
+        plate(node)
+
+    well_node = Node(type="collection", name="well", nodes=[])
+    well_node.attributes = {
+        "well": {"column": {"id": "1", "path": {"type": "zarr"}}, "row": {"id": "A"}}
+    }
+    with pytest.raises(ValueError, match="'type' and"):
+        well(well_node)

@@ -58,9 +58,21 @@ function entryFrom(value: unknown): PlateEntry {
       `A plate entry must be an object; got ${JSON.stringify(value)}.`,
     );
   }
+  if (typeof value.id !== "string") {
+    throw new Error(
+      `A plate entry must declare a string 'id'; got ${JSON.stringify(value)}.`,
+    );
+  }
+  if (value.name !== undefined && typeof value.name !== "string") {
+    throw new Error(
+      `A plate entry 'name' must be a string; got ${
+        JSON.stringify(value.name)
+      }.`,
+    );
+  }
   return {
-    id: value.id as string,
-    ...(typeof value.name === "string" && { name: value.name }),
+    id: value.id,
+    ...(value.name !== undefined && { name: value.name }),
   };
 }
 
@@ -77,8 +89,25 @@ function referenceFrom(value: unknown): Reference {
       `A well reference must be an object; got ${JSON.stringify(value)}.`,
     );
   }
+  if (typeof value.id !== "string") {
+    throw new Error(
+      `A well reference must declare a string 'id'; got ${
+        JSON.stringify(value)
+      }.`,
+    );
+  }
+  if (
+    value.path !== undefined &&
+    (!isRecord(value.path) || typeof value.path.type !== "string" ||
+      typeof value.path.path !== "string")
+  ) {
+    throw new Error(
+      `A reference 'path' must be an object with string 'type' and 'path'; ` +
+        `got ${JSON.stringify(value.path)}.`,
+    );
+  }
   return {
-    id: value.id as string,
+    id: value.id,
     ...(isRecord(value.path) && {
       path: {
         type: value.path.type as string,

@@ -387,7 +387,11 @@ def from_ome_zarr(
             if isinstance(store, (str, Path)):
                 joined = Path(store) / subpath
                 try:
-                    reopened = _open_root_node(str(joined), version)
+                    # The child's Zarr format is its own (this fallback
+                    # exists precisely because it differs from the root's),
+                    # so it is auto-detected rather than pinned by the
+                    # requested metadata version.
+                    reopened = _open_root_node(str(joined), None)
                 except (ValueError, TypeError):
                     reopened = None
                 if reopened is not None:
