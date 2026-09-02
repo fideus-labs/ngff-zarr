@@ -131,6 +131,13 @@ def _serialize_scene(value: Scene, version: str = "0.9.dev3") -> dict[str, Any]:
                         "name. Give it a name, or write the scene at version "
                         '"0.9.dev3".'
                     )
+                if isinstance(reference.get("path"), Mapping):
+                    raise ValueError(
+                        f"A 0.6-family scene {side} reference path is a "
+                        "string, but this reference carries a typed path "
+                        "object. Use a string path, or write the scene at "
+                        'version "0.9.dev3".'
+                    )
                 reference.pop("id", None)
         transforms.append(entry)
     serialized["coordinateTransformations"] = transforms

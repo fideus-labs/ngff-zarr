@@ -225,3 +225,33 @@ def test_write_scene_follows_the_declared_root_version(tmp_path):
     # An explicit mismatching shape is refused rather than corrupting it.
     with pytest.raises(ValueError, match="corrupt"):
         write_scene(store, _tiles_scene(), version="0.6")
+
+
+def test_typed_reference_paths_refuse_the_0_6_shape(tmp_path):
+    tiles = Scene(
+        coordinateTransformations=[
+            Translation(
+                translation=[0.0, 100.0],
+                input=Identifier(
+                    name="physical",
+                    path={"type": "zarr", "path": "./tile_0.zarr"},
+                ),
+                output=Identifier(name="world"),
+            )
+        ]
+    )
+    with pytest.raises(ValueError, match="typed path object"):
+        write_scene(tmp_path / "scene.ome.zarr", tiles, version="0.6")
+
+
+def test_write_scene_preserves_foreign_root_attributes(tmp_path):
+    store = tmp_path / "tiles.ome.zarr"
+    to_collection_zarr(
+        store,
+        Collection("tiles", nodes=[]),
+        root_attributes={"myorg:note": "kept"},
+    )
+    write_scene(store, _tiles_scene())
+    attrs = json.loads((store / "zarr.json").read_text())["attributes"]
+    assert attrs["myorg:note"] == "kept"
+    assert "scene" in attrs["ome"]["attributes"]

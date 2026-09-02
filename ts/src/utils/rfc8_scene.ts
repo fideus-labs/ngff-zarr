@@ -153,6 +153,13 @@ export function sceneToOmeValue(
                 'name, or write the scene at version "0.9.dev3".',
             );
           }
+          if (isRecord(reference.path)) {
+            throw new Error(
+              `A 0.6-family scene ${side} reference path is a string, but ` +
+                "this reference carries a typed path object. Use a string " +
+                'path, or write the scene at version "0.9.dev3".',
+            );
+          }
           delete reference.id;
         }
       }
