@@ -422,13 +422,23 @@ def _gate_top_level_transforms(source, metadata, version: str) -> None:
     for index, transform in enumerate(metadata.coordinateTransformations):
         for side in ("input", "output"):
             reference = getattr(transform, side, None)
-            if reference is None or getattr(reference, "name", None) is None:
-                raise ValueError(
-                    f"multiscales coordinateTransformations[{index}] "
-                    f"({transform.type}) names no {side} coordinate system; "
-                    "OME-Zarr 0.6 requires every multiscale-level transformation "
-                    "to name both its input and its output coordinate system"
-                )
+            named = (
+                reference is not None and getattr(reference, "name", None) is not None
+            )
+            # RFC-8 (0.9.dev3) references coordinate systems by id, so an
+            # id-only reference is complete there; 0.6 and 0.9.dev1 need the
+            # name the schema requires.
+            has_id = (
+                reference is not None and getattr(reference, "id", None) is not None
+            )
+            if named or (has_id and version == NgffVersion.V09dev3.value):
+                continue
+            raise ValueError(
+                f"multiscales coordinateTransformations[{index}] "
+                f"({transform.type}) names no {side} coordinate system; "
+                "OME-Zarr 0.6 requires every multiscale-level transformation "
+                "to name both its input and its output coordinate system"
+            )
         try:
             validate_transform(transform, systems)
         except ValueError as invalid:

@@ -222,7 +222,7 @@ def test_external_reference_typed_paths_round_trip():
 
 
 def test_reference_paths_pass_through_path_type_known():
-    node = Node(type="multiscale", name="img", id="img")
+    node = Node(type="multiscale", name="img", id="img", nodes=[])
     node.attributes = {
         "coordinateSystems": [
             {"id": "physical", "axes": [{"name": "x", "type": "space"}]}

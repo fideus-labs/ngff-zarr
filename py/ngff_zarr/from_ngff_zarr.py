@@ -197,7 +197,10 @@ def _distributed_singlescale_transforms(ome_value: dict, root) -> dict:
         path = raw_path[2:] if raw_path.startswith("./") else raw_path
         try:
             child = root[path]
-        except Exception:
+        except (KeyError, FileNotFoundError):
+            # An absent child means this level has no distributed document;
+            # any other failure (permissions, transport) must surface rather
+            # than silently dropping the level's transformations.
             continue
         child_ome = child.attrs.asdict().get("ome")
         if not isinstance(child_ome, dict):

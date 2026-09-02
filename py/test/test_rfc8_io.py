@@ -189,7 +189,17 @@ def test_external_collection_fixture_layout(tmp_path):
 
 def test_external_reference_with_undeclared_id_raises(tmp_path):
     to_collection_json(
-        Collection("child", nodes=[Node(type="multiscale", name="img", id="img")]),
+        Collection(
+            "child",
+            nodes=[
+                Node(
+                    type="multiscale",
+                    name="img",
+                    id="img",
+                    path=OmePath("zarr", "./img"),
+                )
+            ],
+        ),
         tmp_path / "child.json",
     )
     parent = NgffCollection(root=Collection("parent", nodes=[]), base=str(tmp_path))

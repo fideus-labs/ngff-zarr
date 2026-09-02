@@ -11,7 +11,10 @@
  * convert between the two, mirroring `py/ngff_zarr/v06/zarr_metadata.py`.
  */
 
-import { isRfc3AxisModelAllowed } from "../types/supported_versions.ts";
+import {
+  isRfc3AxisModelAllowed,
+  NgffVersion,
+} from "../types/supported_versions.ts";
 import type {
   ByDimensionItem,
   CoordinateSystem,
@@ -31,6 +34,7 @@ import { INTRINSIC_COORDINATE_SYSTEM_NAME } from "../types/zarr_metadata.ts";
 export function buildV06MultiscalesEntry(
   metadata: MetadataInterface,
   processedAxes: Array<Record<string, unknown>>,
+  version?: string,
 ): Record<string, unknown> {
   const coordinateSystems: CoordinateSystem[] =
     metadata.coordinateSystems && metadata.coordinateSystems.length > 0
@@ -95,9 +99,15 @@ export function buildV06MultiscalesEntry(
     // coordinate systems, and the schema requires both `input` and `output`
     // to name one. Serializing whatever the model holds would produce a store
     // the validated reader rejects.
+    // RFC-8 (0.9.dev3) references coordinate systems by id, so an id-only
+    // reference is complete there; 0.6 and 0.9.dev1 need the name the
+    // schema requires.
+    const allowIdReferences = version === NgffVersion.V09dev3;
     metadata.coordinateTransformations.forEach((transform, index) => {
       for (const side of ["input", "output"] as const) {
-        if (transform[side]?.name === undefined) {
+        const named = transform[side]?.name !== undefined;
+        const hasId = transform[side]?.id !== undefined;
+        if (!named && !(allowIdReferences && hasId)) {
           throw new Error(
             `multiscales coordinateTransformations[${index}] ` +
               `(${transform.type}) names no ${side} coordinate system; ` +

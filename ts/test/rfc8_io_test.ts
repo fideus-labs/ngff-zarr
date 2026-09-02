@@ -213,7 +213,12 @@ Deno.test("an external reference must declare the requested id", async () => {
         await toCollectionJson({
           type: "collection",
           name: "child",
-          nodes: [{ type: "multiscale", name: "img", id: "img" }],
+          nodes: [{
+            type: "multiscale",
+            name: "img",
+            id: "img",
+            path: { type: "zarr", path: "./img" },
+          }],
         }),
       ),
     );
