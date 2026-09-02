@@ -25,7 +25,7 @@ class NgffMultiscales:
         int
         | tuple[int, ...]
         | tuple[tuple[int, ...], ...]
-        | Mapping[Any, None | int | tuple[int, ...]]
+        | Mapping[Any, int | tuple[int, ...] | None]
         | None
     ) = None
     generated_data_keys: list[str] | None = field(

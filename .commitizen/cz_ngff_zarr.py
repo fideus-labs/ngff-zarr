@@ -24,9 +24,9 @@ class NgffZarrCz(ConventionalCommitsCz):
         tag_format = config.settings.get("tag_format", "")
         if "py-v" in tag_format:
             return "py"
-        elif "mcp-v" in tag_format:
+        if "mcp-v" in tag_format:
             return "mcp"
-        elif "ts-v" in tag_format:
+        if "ts-v" in tag_format:
             return "ts"
         return None
 
@@ -81,9 +81,9 @@ class NgffZarrCz(ConventionalCommitsCz):
         # Handle package-specific scope filtering
         if self.package == "py":
             return self._should_include_for_py(scope, files)
-        elif self.package == "mcp":
+        if self.package == "mcp":
             return self._should_include_for_mcp(scope, files)
-        elif self.package == "ts":
+        if self.package == "ts":
             return self._should_include_for_ts(scope, files)
 
         # If package unknown, include by default

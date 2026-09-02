@@ -76,10 +76,7 @@ from itk import imread
 image = imread("image.nrrd")
 
 # Convert to NGFF image with anatomical orientation
-ngff_image = ngff_zarr.itk_image_to_ngff_image(
-    image,
-    add_anatomical_orientation=True
-)
+ngff_image = ngff_zarr.itk_image_to_ngff_image(image, add_anatomical_orientation=True)
 
 # Convert to multiscales and write to Zarr -- because the image carries
 # orientation, it is written automatically
@@ -102,10 +99,7 @@ from itkwasm_image_io import imread
 image = imread("image.nii.gz")
 
 # Convert with anatomical orientation
-ngff_image = ngff_zarr.itk_image_to_ngff_image(
-    image,
-    add_anatomical_orientation=True
-)
+ngff_image = ngff_zarr.itk_image_to_ngff_image(image, add_anatomical_orientation=True)
 ```
 
 ## Anatomical Orientation Values
@@ -214,7 +208,7 @@ ngff_image = nz.NgffImage(
     dims=("z", "y", "x"),
     scale={"x": 1.0, "y": 1.0, "z": 1.0},
     translation={"x": 0.0, "y": 0.0, "z": 0.0},
-    axes_orientations=nz.LPS
+    axes_orientations=nz.LPS,
 )
 
 # Convert to multiscales and write -- orientation is written automatically
@@ -231,7 +225,7 @@ The `LPS` constant is equivalent to:
 {
     "x": AnatomicalOrientation(type="anatomical", value="right-to-left"),
     "y": AnatomicalOrientation(type="anatomical", value="anterior-to-posterior"),
-    "z": AnatomicalOrientation(type="anatomical", value="inferior-to-superior")
+    "z": AnatomicalOrientation(type="anatomical", value="inferior-to-superior"),
 }
 ```
 
@@ -257,7 +251,7 @@ ngff_image = nz.NgffImage(
     dims=("z", "y", "x"),
     scale={"x": 1.0, "y": 1.0, "z": 1.0},
     translation={"x": 0.0, "y": 0.0, "z": 0.0},
-    axes_orientations=nz.RAS
+    axes_orientations=nz.RAS,
 )
 
 # Convert to multiscales and write -- orientation is written automatically
@@ -274,7 +268,7 @@ The `RAS` constant is equivalent to:
 {
     "x": AnatomicalOrientation(type="anatomical", value="left-to-right"),
     "y": AnatomicalOrientation(type="anatomical", value="posterior-to-anterior"),
-    "z": AnatomicalOrientation(type="anatomical", value="inferior-to-superior")
+    "z": AnatomicalOrientation(type="anatomical", value="inferior-to-superior"),
 }
 ```
 
@@ -283,17 +277,11 @@ The `RAS` constant is equivalent to:
 You can also manually specify orientations for custom coordinate systems:
 
 ```python
-from ngff_zarr import (
-    AnatomicalOrientation,
-    AnatomicalOrientationValues,
-    NgffImage
-)
+from ngff_zarr import AnatomicalOrientation, AnatomicalOrientationValues, NgffImage
 import dask.array as da
 
 # Create orientation objects
-x_orientation = AnatomicalOrientation(
-    value=AnatomicalOrientationValues.right_to_left
-)
+x_orientation = AnatomicalOrientation(value=AnatomicalOrientationValues.right_to_left)
 y_orientation = AnatomicalOrientation(
     value=AnatomicalOrientationValues.anterior_to_posterior
 )
@@ -308,11 +296,7 @@ ngff_image = NgffImage(
     dims=("z", "y", "x"),
     scale={"x": 1.0, "y": 1.0, "z": 1.0},
     translation={"x": 0.0, "y": 0.0, "z": 0.0},
-    axes_orientations={
-        "x": x_orientation,
-        "y": y_orientation,
-        "z": z_orientation
-    }
+    axes_orientations={"x": x_orientation, "y": y_orientation, "z": z_orientation},
 )
 ```
 

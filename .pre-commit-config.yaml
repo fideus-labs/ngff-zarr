@@ -11,7 +11,7 @@ default_install_hook_types:
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: "v4.6.0"
+    rev: "v6.0.0"
     hooks:
       - id: check-added-large-files
         # Example notebooks are stored with their outputs, figures included.
@@ -41,27 +41,32 @@ repos:
         exclude: '^\.github/(agents/.*\.agent\.md|workflows/(.*\.lock\.yml|agentics-maintenance\.yml))$'
 
   - repo: https://github.com/codespell-project/codespell
-    rev: "v2.2.5"
+    rev: "v2.4.3"
     hooks:
       - id: codespell
         # Executed example notebooks embed base64 figures.
         exclude: ^(ts/deno\.lock|py/examples/.*\.ipynb)$
 
   - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: "v0.9.0.5"
+    rev: "v0.11.0.1-1"
     hooks:
       - id: shellcheck
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.2
+    rev: v0.16.5
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: [--fix, --exit-non-zero-on-fix]
         exclude: py/test/conftest.py
       - id: ruff-format
+        # ruff-format also formats Python blocks in Markdown as of
+        # ruff-pre-commit v0.16. AGENTS.md documents formatting mistakes with
+        # deliberately misformatted "WRONG" examples, so formatting it would
+        # erase the distinction it is trying to draw.
+        exclude: ^AGENTS\.md$
 
   - repo: https://github.com/commitizen-tools/commitizen
-    rev: "v4.13.0"
+    rev: "v4.18.0"
     hooks:
       - id: commitizen
         stages: [commit-msg]

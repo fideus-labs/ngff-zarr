@@ -306,6 +306,78 @@ def _validate_ngff_parameters(
         )
 
 
+def _gate_transform_arity(metadata) -> None:
+    """Refuse a scale or translation whose vector does not span the axes it applies to.
+
+    A ``scale`` of two values over three axes is metadata no consumer can
+    apply, and nothing caught it: the 0.4 and 0.5 models carry no validation of
+    their own, from 0.6 ``Scale`` and ``Translation`` inherit a ``validate``
+    that checks nothing, and the bundled schemas constrain what these vectors
+    hold rather than how many. Such a store was written and read back as valid
+    at every version, at the multiscales level and the dataset level alike.
+
+    Which axes a vector spans is the transform's own question. From 0.6 a
+    transform maps between the coordinate systems it names, whose arity need
+    not be the intrinsic one: a spatial system beside a channel axis is what a
+    field transform declares. So the count comes from the systems a transform
+    references, when they resolve, and from the intrinsic axes otherwise --
+    which is every 0.4 and 0.5 transform, none of which names a system.
+    """
+    systems = {
+        system.name: len(system.axes)
+        for system in getattr(metadata, "coordinateSystems", None) or ()
+    }
+    intrinsic = len(getattr(metadata, "axes", None) or ())
+    if not intrinsic:
+        return
+    levels = [
+        ("the multiscales", getattr(metadata, "coordinateTransformations", None) or ())
+    ]
+    levels += [
+        (f"dataset '{dataset.path}'", dataset.coordinateTransformations or ())
+        for dataset in getattr(metadata, "datasets", None) or ()
+    ]
+    for where, transforms in levels:
+        for index, transform in enumerate(transforms):
+            _gate_spans(
+                transform,
+                f"{where} coordinateTransformations[{index}]",
+                systems,
+                {intrinsic},
+            )
+
+
+def _gate_spans(
+    transform, where: str, systems: dict[str, int], inherited: set[int]
+) -> None:
+    """``transform``'s own vectors, then those of its sequence members.
+
+    A member names no system of its own -- at 0.6 a dataset's scale and
+    translation sit inside one sequence -- so it spans what the sequence spans.
+    """
+    named = {
+        systems[reference.name]
+        for reference in (
+            getattr(transform, "input", None),
+            getattr(transform, "output", None),
+        )
+        if reference is not None and reference.name in systems
+    }
+    spans = named or inherited
+    for kind in ("scale", "translation"):
+        vector = getattr(transform, kind, None)
+        if vector is not None and len(vector) not in spans:
+            axes = " or ".join(str(count) for count in sorted(spans))
+            raise ValueError(
+                f"{where} ({transform.type}) gives {len(vector)} {kind} values "
+                f"for the {axes} axes it applies to; a transform that does not "
+                "span its axes cannot be applied by a reader."
+            )
+    members = getattr(transform, "transformations", None) or ()
+    for position, member in enumerate(members):
+        _gate_spans(member, f"{where}.transformations[{position}]", systems, spans)
+
+
 def _gate_top_level_transforms(metadata, version: str) -> None:
     """Refuse a multiscale-level transform the 0.6 schema cannot express.
 
@@ -774,6 +846,53 @@ def _is_bytes_codec(codec) -> bool:
     return name == "bytes"
 
 
+# What to do about a codec chain this engine cannot encode. ``metadata_only``
+# makes it a two-library job rather than a reimplementation: this writer lays
+# down the OME metadata and the empty arrays, the other one replaces them. The
+# codec arguments are left out of that first call on purpose -- it validates
+# them exactly like a full write and would raise here again.
+_FOREIGN_CODEC_REMEDY = (
+    "To write another codec chain, create the store's metadata and empty "
+    "arrays with to_ome_zarr(..., metadata_only=True) -- without the codec "
+    "arguments, which that call rejects the same way -- then re-create and "
+    "fill each dataset with a writer that supports those codecs (for example "
+    "zarr-python's zarr.create_array with overwrite=True)."
+)
+
+
+def _unsupported_codec_message(subject: str) -> str:
+    """Explain that *subject* cannot be written, and what to do instead.
+
+    The engine encodes with the ``bytes`` codec plus one bytes-to-bytes
+    compressor, so any other codec chain has to be written by a writer that
+    implements it.
+    """
+    return (
+        f"{subject} not supported by the zarrista write engine, which encodes "
+        "with the bytes codec plus gzip, zstd, or blosc compression. "
+        + _FOREIGN_CODEC_REMEDY
+    )
+
+
+def _bytes_codec_endian(codec) -> str | None:
+    """The byte order a ``bytes`` codec asks for, or ``None`` if it asks none.
+
+    The bare ``"bytes"`` name and zarr-python's ``BytesCodec(endian=None)``
+    leave it open; a config dict or a codec object naming one is read off
+    whichever of the two forms it carries.
+    """
+    if isinstance(codec, str):
+        return None
+    if hasattr(codec, "to_dict"):
+        endian = (codec.to_dict().get("configuration") or {}).get("endian")
+    elif isinstance(codec, dict):
+        endian = (codec.get("configuration") or {}).get("endian")
+    else:
+        endian = getattr(codec, "endian", None)
+    # zarr-python carries it as an enum; the metadata form is its value.
+    return getattr(endian, "value", endian)
+
+
 def _compression_chain(kwargs: dict) -> list | None:
     """Translate the public compression kwargs into a single ordered chain.
 
@@ -784,13 +903,33 @@ def _compression_chain(kwargs: dict) -> list | None:
     detected with a sentinel. Only the array-to-bytes ("bytes") codec is
     dropped from a supplied chain since the writer always leads with one. The
     consumed keys are removed from ``kwargs``.
+
+    ``filters`` and a ``serializer`` naming anything but the ``bytes`` codec
+    name codec chains the engine cannot write, and raise rather than being
+    dropped into an array whose metadata then disagrees with the request. A
+    ``serializer`` that names ``bytes`` asks for what the writer already
+    does, and is accepted as the no-op it is -- unless it also asks for
+    big-endian chunks, which the engine does not encode either. Anything left
+    over is not an array-creation option this writer knows; it warns, since
+    silently ignoring it is how a caller comes to believe an inert argument
+    works.
     """
     filters = kwargs.pop("filters", None)
     if filters:
-        raise ValueError(
-            "filters are not supported by the zarrista write engine; pass a "
-            "zarr store object as the target to use the zarr-python engine"
-        )
+        raise ValueError(_unsupported_codec_message("filters are"))
+    serializer = kwargs.pop("serializer", None)
+    if serializer is not None:
+        if not _is_bytes_codec(serializer):
+            raise ValueError(
+                _unsupported_codec_message("a serializer other than the bytes codec is")
+            )
+        endian = _bytes_codec_endian(serializer)
+        if endian is not None and endian != "little":
+            raise ValueError(
+                f"a bytes serializer with endian={endian!r} is not supported "
+                "by the zarrista write engine, which encodes little-endian "
+                "chunks. " + _FOREIGN_CODEC_REMEDY
+            )
     _unset = object()
     compressor = kwargs.pop("compressor", _unset)
     compressors = kwargs.pop("compressors", None)
@@ -803,7 +942,16 @@ def _compression_chain(kwargs: dict) -> list | None:
         compression_chain = [] if compressor is None else [compressor]
     else:
         compression_chain = None
-    kwargs.pop("chunks", None)  # Remove chunks from kwargs since it's a positional arg
+    if kwargs:
+        warnings.warn(
+            "to_ome_zarr() ignores the array-creation keyword argument(s) "
+            + ", ".join(sorted(kwargs))
+            + ". Supported: compressor (zarr format 2), compressors (zarr "
+            "format 3). Ignoring them is deprecated and will become "
+            "a TypeError.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
     return compression_chain
 
 
@@ -1440,8 +1588,18 @@ def to_ome_zarr(
         ``start_level`` that already exists is replaced.
     :type  start_level: int, optional
 
-    :param **kwargs: Array-creation options, e.g. `compressor` / `compressors`
-        compression settings.
+    :param **kwargs: Array-creation options: `compressor` (zarr format 2) and
+        `compressors` (zarr format 3). The engine encodes with the `bytes` codec
+        plus gzip, zstd, or blosc compression, so `filters`, a `serializer`
+        naming any other codec, and a `bytes` serializer asking for big-endian
+        chunks raise `ValueError`. To write such a chain, create the store with
+        ``metadata_only=True`` — without these arguments, since that call
+        validates them the same way — then re-create and fill each array with a
+        writer that implements them (`zarr.create_array(..., overwrite=True)`).
+        `chunks` raises `TypeError`: the stored chunk shape follows the images'
+        dask chunking, set by ``to_multiscales(..., chunks=...)``. Any other
+        keyword is ignored with a `DeprecationWarning` and will become a
+        `TypeError`.
     """
     if use_tensorstore:
         warnings.warn(
@@ -1461,6 +1619,17 @@ def to_ome_zarr(
             "RFC-4 anatomical orientation is now written automatically whenever "
             "it is present. Set NgffImage.axes_orientations, or pass "
             "orientation= to to_multiscales()."
+        )
+
+    # ``chunks`` collides with the writer's own positional argument, so it has
+    # only ever raised a TypeError naming an internal function. The stored
+    # chunk shape comes from the images' dask chunking; say where to set it.
+    if "chunks" in kwargs:
+        raise TypeError(
+            "to_ome_zarr()/to_ngff_zarr() does not accept 'chunks': the stored "
+            "chunk shape comes from the dask chunking of the images. Set it "
+            "with to_multiscales(..., chunks=...), or rechunk NgffImage.data "
+            "before writing. Pass chunks_per_shard for sharding."
         )
 
     # RFC-9: Handle .ozx (zipped OME-Zarr) files
@@ -1582,6 +1751,7 @@ def _to_ngff_zarr_impl(
     root_attributes = _check_root_attributes(multiscales.root_attributes)
     metadata, dimension_names, _ = _prepare_metadata(multiscales, version)
     _gate_top_level_transforms(metadata, version)
+    _gate_transform_arity(metadata)
     if start_level:
         _guard_rewrite_of_read_levels(
             multiscales, store_path, metadata.datasets, start_level

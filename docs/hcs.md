@@ -187,9 +187,7 @@ The expected workflow for writing HCS data is to:
 The plate metadata structure is the same for both v0.4 and v0.5. The version is specified when creating the `Plate` object:
 
 ```python
-from ngff_zarr import (
-    Plate, PlateColumn, PlateRow, PlateWell, PlateAcquisition
-)
+from ngff_zarr import Plate, PlateColumn, PlateRow, PlateWell, PlateAcquisition
 
 # Define plate structure
 columns = [PlateColumn(name="1"), PlateColumn(name="2"), PlateColumn(name="3")]
@@ -308,6 +306,7 @@ with HCSPlateWriter("my_screen.ozx", plate_metadata) as writer:
 ```python
 from concurrent.futures import ThreadPoolExecutor
 
+
 def write_well(writer, well_data):
     writer.write_well_image(
         multiscales=well_data.image,
@@ -315,6 +314,7 @@ def write_well(writer, well_data):
         column_name=well_data.col,
         field_index=well_data.field,
     )
+
 
 with HCSPlateWriter("plate.ozx", plate_metadata) as writer:
     with ThreadPoolExecutor(max_workers=4) as executor:
@@ -361,8 +361,8 @@ from ngff_zarr import write_store_to_zip
 # Convert an existing plate to .ozx
 write_store_to_zip(
     "existing_plate.ome.zarr",  # Source plate directory
-    "plate.ozx",                 # Output .ozx file
-    version="0.5"                # Required for .ozx
+    "plate.ozx",  # Output .ozx file
+    version="0.5",  # Required for .ozx
 )
 ```
 
@@ -449,16 +449,16 @@ ome_zarr_version = "0.4"
 
 # Create plate layout for a 96-well plate (subset)
 columns = [PlateColumn(name=str(i)) for i in range(1, 13)]  # 12 columns
-rows = [PlateRow(name=chr(65 + i)) for i in range(8)]       # 8 rows (A-H)
+rows = [PlateRow(name=chr(65 + i)) for i in range(8)]  # 8 rows (A-H)
 
 wells = []
 for row_idx, row in enumerate(rows):
     for col_idx, col in enumerate(columns):
-        wells.append(PlateWell(
-            path=f"{row.name}/{col.name}",
-            rowIndex=row_idx,
-            columnIndex=col_idx
-        ))
+        wells.append(
+            PlateWell(
+                path=f"{row.name}/{col.name}", rowIndex=row_idx, columnIndex=col_idx
+            )
+        )
 
 plate_metadata = Plate(
     name="Compound Screen - Plate 1",
@@ -466,16 +466,16 @@ plate_metadata = Plate(
     rows=rows,
     wells=wells,
     field_count=4,  # 4 fields per well
-    version=ome_zarr_version  # Use consistent version
+    version=ome_zarr_version,  # Use consistent version
 )
+
 
 # Function to create synthetic field data
 def create_field_image(treatment_effect=1.0):
     # Create synthetic microscopy data: T, C, Z, Y, X
     base_intensity = 100
     data = np.random.poisson(
-        base_intensity * treatment_effect,
-        size=(1, 2, 10, 512, 512)
+        base_intensity * treatment_effect, size=(1, 2, 10, 512, 512)
     ).astype(np.uint16)
 
     ngff_image = NgffImage(
@@ -488,6 +488,7 @@ def create_field_image(treatment_effect=1.0):
 
     return to_multiscales(ngff_image, scale_factors=[2, 4])
 
+
 # Simulate acquisition workflow
 plate_store = "drug_screen_plate1.ome.zarr"
 
@@ -498,7 +499,6 @@ to_hcs_zarr(hcs_plate, plate_store)
 # Iterate through wells as they are imaged
 for row in ["A", "B", "C"]:  # First 3 rows for demo
     for col in ["1", "2", "3", "4"]:  # First 4 columns for demo
-
         # Simulate different treatment effects
         if row == "A":
             effect = 0.5  # Inhibitor
@@ -529,7 +529,9 @@ print(f"Screening complete! Plate saved to: {plate_store}")
 # Verify the written data
 final_plate = nz.from_hcs_zarr(plate_store)
 print(f"Plate: {final_plate.name}")
-print(f"Wells written: {len([w for w in final_plate.wells if final_plate.get_well(final_plate.rows[w.rowIndex].name, final_plate.columns[w.columnIndex].name) is not None])}")
+print(
+    f"Wells written: {len([w for w in final_plate.wells if final_plate.get_well(final_plate.rows[w.rowIndex].name, final_plate.columns[w.columnIndex].name) is not None])}"
+)
 ```
 
 ### Complete Example: v0.5 Drug Screening Workflow
@@ -546,16 +548,16 @@ ome_zarr_version = "0.5"
 
 # Create plate layout for v0.5
 columns = [PlateColumn(name=str(i)) for i in range(1, 4)]  # 3 columns
-rows = [PlateRow(name=chr(65 + i)) for i in range(2)]      # 2 rows (A-B)
+rows = [PlateRow(name=chr(65 + i)) for i in range(2)]  # 2 rows (A-B)
 
 wells = []
 for row_idx, row in enumerate(rows):
     for col_idx, col in enumerate(columns):
-        wells.append(PlateWell(
-            path=f"{row.name}/{col.name}",
-            rowIndex=row_idx,
-            columnIndex=col_idx
-        ))
+        wells.append(
+            PlateWell(
+                path=f"{row.name}/{col.name}", rowIndex=row_idx, columnIndex=col_idx
+            )
+        )
 
 plate_metadata = Plate(
     name="v0.5 Screening Plate",
@@ -566,12 +568,12 @@ plate_metadata = Plate(
     version=ome_zarr_version,  # Use consistent version
 )
 
+
 # Function to create synthetic field data
 def create_field_image(treatment_effect=1.0):
     base_intensity = 100
     data = np.random.poisson(
-        base_intensity * treatment_effect,
-        size=(1, 2, 10, 512, 512)
+        base_intensity * treatment_effect, size=(1, 2, 10, 512, 512)
     ).astype(np.uint16)
 
     ngff_image = NgffImage(
@@ -583,6 +585,7 @@ def create_field_image(treatment_effect=1.0):
     )
 
     return to_multiscales(ngff_image, scale_factors=[2, 4])
+
 
 # Create plate structure
 plate_store = "screening_v05.ome.zarr"
@@ -682,17 +685,21 @@ wells = [
 ]
 
 plate_metadata = Plate(
-    columns=columns, rows=rows, wells=wells,
-    name="Example Plate v0.4", field_count=1,
-    version=ome_zarr_version
+    columns=columns,
+    rows=rows,
+    wells=wells,
+    name="Example Plate v0.4",
+    field_count=1,
+    version=ome_zarr_version,
 )
 
 # Create synthetic image data
 data = np.random.randint(0, 255, size=(1, 1, 10, 256, 256), dtype=np.uint8)
 ngff_image = nz.NgffImage(
-    data=data, dims=["t", "c", "z", "y", "x"],
+    data=data,
+    dims=["t", "c", "z", "y", "x"],
     scale={"t": 1.0, "c": 1.0, "z": 0.5, "y": 0.325, "x": 0.325},
-    translation={"t": 0.0, "c": 0.0, "z": 0.0, "y": 0.0, "x": 0.0}
+    translation={"t": 0.0, "c": 0.0, "z": 0.0, "y": 0.0, "x": 0.0},
 )
 multiscales = nz.to_multiscales(ngff_image)
 
@@ -744,17 +751,21 @@ wells = [
 ]
 
 plate_metadata = Plate(
-    columns=columns, rows=rows, wells=wells,
-    name="Example Plate v0.5", field_count=1,
-    version=ome_zarr_version
+    columns=columns,
+    rows=rows,
+    wells=wells,
+    name="Example Plate v0.5",
+    field_count=1,
+    version=ome_zarr_version,
 )
 
 # Create synthetic image data
 data = np.random.randint(0, 255, size=(1, 1, 10, 256, 256), dtype=np.uint8)
 ngff_image = nz.NgffImage(
-    data=data, dims=["t", "c", "z", "y", "x"],
+    data=data,
+    dims=["t", "c", "z", "y", "x"],
     scale={"t": 1.0, "c": 1.0, "z": 0.5, "y": 0.325, "x": 0.325},
-    translation={"t": 0.0, "c": 0.0, "z": 0.0, "y": 0.0, "x": 0.0}
+    translation={"t": 0.0, "c": 0.0, "z": 0.0, "y": 0.0, "x": 0.0},
 )
 multiscales = nz.to_multiscales(ngff_image)
 
@@ -789,8 +800,13 @@ These approaches allow you to write individual well images as they are acquired 
 
 ```python
 from ngff_zarr.v04.zarr_metadata import (
-    Plate, PlateColumn, PlateRow, PlateWell,
-    Well, WellImage, PlateAcquisition
+    Plate,
+    PlateColumn,
+    PlateRow,
+    PlateWell,
+    Well,
+    WellImage,
+    PlateAcquisition,
 )
 
 # Define plate structure
@@ -811,7 +827,7 @@ plate_metadata = Plate(
     columns=columns,
     rows=rows,
     wells=wells,
-    field_count=2  # Number of fields per well
+    field_count=2,  # Number of fields per well
 )
 ```
 
@@ -961,14 +977,14 @@ memory usage:
 import ngff_zarr as nz
 
 # Configure cache sizes globally
-nz.config.hcs_well_cache_size = 100   # Max wells to cache per plate
-nz.config.hcs_image_cache_size = 50   # Max images to cache per well
+nz.config.hcs_well_cache_size = 100  # Max wells to cache per plate
+nz.config.hcs_image_cache_size = 50  # Max images to cache per well
 
 # Or configure per operation
 plate = nz.from_hcs_zarr(
     "plate.zarr",
-    well_cache_size=50,    # Custom well cache size
-    image_cache_size=25    # Custom image cache size
+    well_cache_size=50,  # Custom well cache size
+    image_cache_size=25,  # Custom image cache size
 )
 ```
 

@@ -45,7 +45,7 @@ agent:
 The `ngff-zarr-mcp` Model Context Protocol (MCP) server converts datasets to the
 OME-Zarr scientific imaging data format, optimizes the compression codec,
 ensures a limited number of files are generated, and creates a Python script for
-re-use.
+reuse.
 
 <script src="https://asciinema.org/a/726628.js" id="asciicast-726628" async="true"></script>
 

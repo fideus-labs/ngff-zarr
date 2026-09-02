@@ -257,3 +257,257 @@ def test_remote_hcs_plate_read(tmp_path):
         assert isinstance(image.images[0].data, dask.array.Array)
         # Pixel data resolves through the shared obstore client.
         np.asarray(image.images[0].data)
+
+
+def test_open_array_reads_regions_from_a_remote_store(tmp_path):
+    """``open_array`` serves a remote node the way it serves a local one.
+
+    The handle is what a consumer reads regions through, and it was local-only:
+    a caller holding a URL had to fall back to another Zarr library for the one
+    thing this package could otherwise do end to end.
+    """
+    from ngff_zarr import from_ome_zarr, open_array
+
+    data = _write_ramp_store(tmp_path / "image.zarr", "0.5")
+
+    open_group_patch, from_zarr_patch = _forbid_zarr_python()
+    with _serve(tmp_path) as base_url, open_group_patch, from_zarr_patch:
+        store = f"{base_url}/image.zarr"
+        path = from_ome_zarr(store).metadata.datasets[0].path
+        array = open_array(store, path)
+
+        assert array.shape == data.shape
+        assert array.dtype == data.dtype
+        assert array.chunks == (8, 8)
+        # A window, and the whole array: the same values the store holds.
+        assert np.array_equal(np.asarray(array[4:12, 2:6]), data[4:12, 2:6])
+        assert np.array_equal(np.asarray(array[...]), data)
+
+
+def test_a_remote_array_refuses_a_region_write(tmp_path):
+    """Read-only, and said so: the write path needs a local directory store,
+    and a silent no-op would leave a producer believing its region landed."""
+    from ngff_zarr import from_ome_zarr, open_array
+
+    _write_ramp_store(tmp_path / "image.zarr", "0.5")
+    with _serve(tmp_path) as base_url:
+        store = f"{base_url}/image.zarr"
+        array = open_array(store, from_ome_zarr(store).metadata.datasets[0].path)
+        with pytest.raises(TypeError, match="read-only"):
+            array[0:2, 0:2] = np.zeros((2, 2), dtype="uint16")
+
+
+def test_open_array_on_a_remote_group_is_refused(tmp_path):
+    from ngff_zarr import open_array
+
+    _write_ramp_store(tmp_path / "image.zarr", "0.5")
+    with _serve(tmp_path) as base_url:
+        with pytest.raises(ValueError, match="is a group, not an array"):
+            open_array(f"{base_url}/image.zarr")
+
+
+def test_a_store_object_is_not_opened_as_a_url():
+    """A wrapper around a URL is remote, but it is not a URL.
+
+    ``_is_remote_store`` calls a zarr-python ``FsspecStore`` remote by its
+    filesystem protocol, while its ``str()`` is a repr rather than the URL
+    obstore would be handed. ``from_ome_zarr`` does not route one through the
+    remote engine either, so neither does this: it keeps the path it has today.
+    """
+    from ngff_zarr._zarrista_utils import _remote_handle
+    from ngff_zarr.from_ngff_zarr import _is_remote_store
+
+    class _FsspecStoreLike:
+        class fs:
+            protocol = "s3"
+
+        path = "bucket/image.zarr"
+
+    store = _FsspecStoreLike()
+    assert _is_remote_store(store)
+    assert _remote_handle(store, None) is None
+
+
+def test_a_url_without_the_remote_extra_names_the_extra(monkeypatch):
+    """The install hint ``from_ome_zarr`` gives, given here too: reaching
+    obstore's own constructor instead raises a bare ModuleNotFoundError."""
+    import ngff_zarr._remote_reader as remote_reader
+    from ngff_zarr._zarrista_utils import _remote_handle
+
+    monkeypatch.setattr(remote_reader, "remote_read_available", lambda: False)
+    with pytest.raises(ImportError, match=r"ngff-zarr\[remote\]"):
+        _remote_handle("https://example.org/image.zarr", None)
+
+
+def test_open_array_reads_a_real_s3_store():
+    """A windowed read from S3 itself, not from the localhost stand-in.
+
+    The harness above serves HTTP; the S3 path differs in the store obstore
+    builds and in what signature and region settings reach. The bucket is
+    public, so no credentials are involved: opt in with
+    ``NGFF_ZARR_NETWORK_TESTS=1``.
+    """
+    import obstore.exceptions as obstore_exceptions
+    from ngff_zarr import open_array
+
+    if not os.environ.get("NGFF_ZARR_NETWORK_TESTS"):
+        pytest.skip("live remote read is opt-in; set NGFF_ZARR_NETWORK_TESTS=1 to run")
+
+    url = (
+        "s3://aind-open-data/exaSPIM_773889_2026-04-10_15-04-57_processed"
+        "_2026-07-08_23-41-18/fusion2halves/SPIM.ome.zarr/3"
+    )
+    # obstore reaches us-east-1 without a region, and S3 answers for a bucket
+    # held elsewhere with a redirect it does not follow.
+    options = {"anon": True, "region": "us-west-2"}
+    # The bucket going away, changing its policy or the network failing is not
+    # a regression here; a decoding or indexing error is one, and raises.
+    unavailable = (
+        OSError,
+        obstore_exceptions.GenericError,
+        obstore_exceptions.NotFoundError,
+        obstore_exceptions.PermissionDeniedError,
+        obstore_exceptions.UnauthenticatedError,
+    )
+    try:
+        array = open_array(url, storage_options=options)
+        window = np.asarray(array[:, :, :4, :8, :8])
+    except unavailable as exc:
+        pytest.skip(f"remote store unavailable: {exc!r}")
+
+    assert array.dtype == np.dtype("uint16")
+    assert array.chunks == (1, 1, 256, 256, 256)
+    assert window.shape == (1, 1, 4, 8, 8)
+    assert window.any()
+
+
+@pytest.fixture
+def forget_bucket_regions():
+    from ngff_zarr._remote_reader import _BUCKET_REGIONS
+
+    _BUCKET_REGIONS.clear()
+    yield
+    _BUCKET_REGIONS.clear()
+
+
+def _record_head_requests(monkeypatch, region="us-west-2"):
+    """Answer the region probe without leaving the machine; log what it asked."""
+    import urllib.request
+
+    asked = []
+
+    class _Response:
+        def __init__(self):
+            self.headers = {"x-amz-bucket-region": region}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def _urlopen(request, timeout=None):
+        asked.append(request.full_url)
+        return _Response()
+
+    monkeypatch.setattr(urllib.request, "urlopen", _urlopen)
+    return asked
+
+
+def test_a_bucket_region_is_resolved_when_nothing_supplies_one(
+    monkeypatch, forget_bucket_regions
+):
+    """obstore reaches us-east-1 without a region, and S3 answers for a bucket
+    held elsewhere with a redirect carrying no Location, which it does not
+    follow. AWS names the region on the bucket, unsigned, so ask it."""
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    asked = _record_head_requests(monkeypatch)
+
+    handle = RemoteZarrStore("s3://bucket/data.zarr", storage_options={"anon": True})
+
+    assert dict(handle._store.config)["region"] == "us-west-2"
+    assert asked == ["https://bucket.s3.amazonaws.com/"]
+
+
+def test_a_resolved_region_is_asked_for_once(monkeypatch, forget_bucket_regions):
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    asked = _record_head_requests(monkeypatch)
+
+    RemoteZarrStore("s3://bucket/first.zarr", storage_options={"anon": True})
+    RemoteZarrStore("s3://bucket/second.zarr", storage_options={"anon": True})
+
+    assert len(asked) == 1
+
+
+@pytest.mark.parametrize(
+    ("storage_options", "environment"),
+    [
+        ({"anon": True, "client_kwargs": {"region_name": "eu-west-1"}}, {}),
+        ({"anon": True, "region": "eu-west-1"}, {}),
+        ({"anon": True, "endpoint_url": "https://minio.example.com"}, {}),
+        ({"anon": True}, {"AWS_REGION": "eu-west-1"}),
+        ({"anon": True}, {"AWS_DEFAULT_REGION": "eu-west-1"}),
+    ],
+    ids=["client_kwargs", "region", "endpoint", "AWS_REGION", "AWS_DEFAULT_REGION"],
+)
+def test_the_region_is_not_asked_for_when_something_supplies_one(
+    monkeypatch, forget_bucket_regions, storage_options, environment
+):
+    """A region already given, or an endpoint naming a service that is not AWS,
+    leaves nothing to resolve."""
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    asked = _record_head_requests(monkeypatch)
+
+    RemoteZarrStore("s3://bucket/data.zarr", storage_options=storage_options)
+
+    assert asked == []
+
+
+def test_a_bucket_that_names_no_region_is_left_alone(
+    monkeypatch, forget_bucket_regions
+):
+    """Nothing to add, and the store is built as before: obstore's own error is
+    what the caller sees, rather than one invented here."""
+    import urllib.request
+
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+
+    def _urlopen(request, timeout=None):
+        raise OSError("no route to host")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _urlopen)
+
+    handle = RemoteZarrStore("s3://bucket/data.zarr", storage_options={"anon": True})
+
+    assert "region" not in dict(handle._store.config)
+
+
+def test_a_real_s3_store_reads_without_a_region():
+    """The failure this resolves, end to end: a public bucket in us-west-2,
+    read with the options a caller would pass. Opt in with
+    ``NGFF_ZARR_NETWORK_TESTS=1``."""
+    from ngff_zarr import from_ome_zarr
+
+    if not os.environ.get("NGFF_ZARR_NETWORK_TESTS"):
+        pytest.skip("live remote read is opt-in; set NGFF_ZARR_NETWORK_TESTS=1 to run")
+
+    url = (
+        "s3://aind-open-data/exaSPIM_773889_2026-04-10_15-04-57_processed"
+        "_2026-07-08_23-41-18/fusion2halves/SPIM.ome.zarr"
+    )
+    try:
+        multiscales = from_ome_zarr(url, storage_options={"anon": True})
+    except OSError as exc:
+        pytest.skip(f"remote store unavailable: {exc!r}")
+    except Exception as exc:
+        if type(exc).__module__.startswith(("zarrista", "obstore")):
+            pytest.skip(f"remote store unavailable: {exc!r}")
+        raise
+
+    assert multiscales.images[0].data.shape[-1] > 0

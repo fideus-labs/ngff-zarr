@@ -10,6 +10,7 @@ from ngff_zarr import (
     from_ngff_zarr,
     from_ome_zarr,
     to_multiscales,
+    to_ngff_image,
     to_ngff_zarr,
     to_ome_zarr,
     validate,
@@ -400,3 +401,122 @@ def test_read_path_rejects_a_forged_version_string(tmp_path):
 
     with pytest.raises(ValueError, match="No JSON Schema is bundled"):
         from_ngff_zarr(store, validate=True, version="0.6")
+
+
+@pytest.mark.parametrize("values", [[2.0, 2.0], [2.0, 2.0, 2.0, 2.0]])
+def test_a_transform_that_does_not_span_its_axes_is_refused(tmp_path, values):
+    # The 0.4 and 0.5 models validate nothing of their own and the bundled
+    # schemas constrain what these vectors hold, not how many: a scale of two
+    # values over three axes was written, read back, and passed validate(),
+    # while no consumer could apply it. Short and long both.
+    import dataclasses
+
+    from ngff_zarr.v04.zarr_metadata import Scale as ScaleV04
+
+    array = np.random.random((4, 8, 8)).astype("float32")
+    multiscales = to_multiscales(array, [])
+    metadata = multiscales.metadata.to_version("0.4")
+    metadata.coordinateTransformations = [ScaleV04(scale=list(values))]
+
+    with pytest.raises(
+        ValueError, match="does not span its axes|values for the 3 axes"
+    ):
+        to_ome_zarr(
+            tmp_path / "refused.ome.zarr",
+            dataclasses.replace(multiscales, metadata=metadata),
+            version="0.4",
+        )
+
+
+def test_a_dataset_level_transform_is_checked_too(tmp_path):
+    # The mainstream path: every store carries dataset-level transforms, and
+    # they went unchecked at the same versions.
+    import dataclasses
+
+    from ngff_zarr.v04.zarr_metadata import Scale as ScaleV04
+
+    array = np.random.random((4, 8, 8)).astype("float32")
+    multiscales = to_multiscales(array, [])
+    metadata = multiscales.metadata.to_version("0.4")
+    metadata.datasets[0].coordinateTransformations = [ScaleV04(scale=[2.0, 2.0])]
+
+    with pytest.raises(ValueError, match="dataset"):
+        to_ome_zarr(
+            tmp_path / "refused.ome.zarr",
+            dataclasses.replace(multiscales, metadata=metadata),
+            version="0.4",
+        )
+
+
+@requires_zarr_v3
+def test_a_scale_nested_in_a_sequence_is_checked(tmp_path):
+    # The mainstream 0.6 representation: a dataset's scale and translation sit
+    # inside one TransformSequence, whose own attributes hold no vector. A gate
+    # that reads only the outer transform checks nothing at the version where
+    # every store is written this way.
+    import dataclasses
+
+    array = np.random.random((4, 8, 8)).astype("float32")
+    multiscales = to_multiscales(array, [])
+    metadata = multiscales.metadata.to_version("0.6")
+    metadata.datasets[0].coordinateTransformations[0].transformations[0].scale = [
+        2.0,
+        2.0,
+    ]
+
+    with pytest.raises(ValueError, match="transformations\\[0\\]"):
+        to_ome_zarr(
+            tmp_path / "refused.ome.zarr",
+            dataclasses.replace(multiscales, metadata=metadata),
+            version="0.6",
+        )
+
+
+@requires_zarr_v3
+def test_a_transform_spans_the_systems_it_names(tmp_path):
+    # From 0.6 a transform maps between the coordinate systems it names, whose
+    # arity need not be the intrinsic one: here a spatial system beside a
+    # channel axis, which is what a field transform declares. Measured against
+    # the intrinsic axes the scale is short by one and the store is refused.
+    import dataclasses
+
+    from ngff_zarr.v06.zarr_metadata import (
+        Axis,
+        CoordinateSystem,
+        CoordinateSystemIdentifier,
+        Scale,
+    )
+
+    image = to_ngff_image(
+        np.zeros((2, 4, 5, 6), dtype=np.float32),
+        dims=["c", "z", "y", "x"],
+        scale={"c": 1.0, "z": 2.0, "y": 1.5, "x": 1.0},
+        translation={"c": 0.0, "z": 5.0, "y": -3.0, "x": 7.0},
+    )
+    multiscales = to_multiscales(image, scale_factors=[], cache=False)
+    metadata = multiscales.metadata.to_version("0.6")
+    spatial = [Axis(name=name, type="space", unit=None) for name in ("z", "y", "x")]
+    metadata = dataclasses.replace(
+        metadata,
+        coordinateSystems=[
+            *metadata.coordinateSystems,
+            CoordinateSystem(name="phys", axes=spatial),
+        ],
+        coordinateTransformations=[
+            Scale(
+                input=CoordinateSystemIdentifier(name="phys"),
+                output=CoordinateSystemIdentifier(name="phys"),
+                scale=[2.0, 2.0, 2.0],
+            )
+        ],
+    )
+
+    store = tmp_path / "named.ome.zarr"
+    to_ome_zarr(
+        store, dataclasses.replace(multiscales, metadata=metadata), version="0.6"
+    )
+
+    back = from_ome_zarr(store)
+    entry = back.metadata.coordinateTransformations[0]
+    assert entry.scale == [2.0, 2.0, 2.0]
+    assert (entry.input.name, entry.output.name) == ("phys", "phys")

@@ -145,6 +145,7 @@ store wraps instead:
 ```python
 # Before
 from zarr.storage import LocalStore
+
 multiscales = from_ngff_zarr(LocalStore("image.ome.zarr"))
 
 # After

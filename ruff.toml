@@ -1,0 +1,5 @@
+# Ruff configuration for Python files outside of py/ and mcp/ (for example
+# .commitizen/ and docs/conf.py). Those directories carry their own
+# [tool.ruff] settings; without this file, ruff falls back to its built-in
+# defaults, which select a much broader rule set than the project uses.
+extend = "py/pyproject.toml"

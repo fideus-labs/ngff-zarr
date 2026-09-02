@@ -160,10 +160,7 @@ with LifFile("tile_scan.lif") as lif:
     # Check if image has mosaic dimension
     if has_mosaic_dimension(lif_image):
         # Convert to HCS plate structure
-        plate_metadata, well_images = lif_to_hcs_plate(
-            lif_image,
-            plate_name="TileScan"
-        )
+        plate_metadata, well_images = lif_to_hcs_plate(lif_image, plate_name="TileScan")
 
         # Write as HCS plate
         with HCSPlateWriter("tile_scan.ome.zarr", plate_metadata) as writer:
