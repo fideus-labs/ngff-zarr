@@ -70,8 +70,12 @@ class Axis:
 
 @dataclass
 class CoordinateSystem:
+    #: RFC-5 names the system; RFC-8 (OME-Zarr 0.9.dev3) additionally gives it
+    #: a required ``id`` matching ``[a-zA-Z0-9-_.]+``, referenced by
+    #: transformations in place of the name. ``None`` below 0.9.dev3.
     name: str
     axes: list[Axis]
+    id: str | None = None
 
 
 @dataclass
@@ -80,26 +84,35 @@ class CoordinateSystemIdentifier:
     CoordinateSystemIdentifier field used in transformations metadata.
 
     There, the input/output fields of transformations must be an object with
-    'path' and 'name' fields.
+    'path' and 'name' fields. RFC-8 (OME-Zarr 0.9.dev3) references coordinate
+    systems by ``id`` instead of by name; an identifier read from a 0.9.dev3
+    document carries the ``id``, and may carry a ``name`` purely as a label.
     """
 
     path: str | None = None
     name: str | None = None
+    id: str | None = None
 
     def axis_count(
         self, coordinateSystems: list[CoordinateSystem] | None
     ) -> int | None:
         """Number of axes of the referenced coordinate system, when resolvable.
 
-        Returns ``None`` when this identifier names no system in
+        An ``id`` resolves first (RFC-8), then a ``name`` (RFC-5). Returns
+        ``None`` when this identifier references no system in
         ``coordinateSystems``, as for the wrapped transforms that omit
         ``input`` and ``output``.
         """
-        if self.name is None or not coordinateSystems:
+        if not coordinateSystems:
             return None
-        for coordinate_system in coordinateSystems:
-            if coordinate_system.name == self.name:
-                return len(coordinate_system.axes)
+        if self.id is not None:
+            for coordinate_system in coordinateSystems:
+                if coordinate_system.id == self.id:
+                    return len(coordinate_system.axes)
+        if self.name is not None:
+            for coordinate_system in coordinateSystems:
+                if coordinate_system.name == self.name:
+                    return len(coordinate_system.axes)
         return None
 
 
@@ -900,7 +913,9 @@ class Metadata:
         for cs in root_attrs.get("coordinateSystems", []):
             axes = [Axis(**axis) for axis in cs["axes"]]
 
-            coordinate_systems.append(CoordinateSystem(name=cs["name"], axes=axes))
+            coordinate_systems.append(
+                CoordinateSystem(name=cs["name"], axes=axes, id=cs.get("id"))
+            )
 
         if not coordinate_systems:
             raise ValueError(
@@ -1075,6 +1090,8 @@ class Metadata:
                     input.name = tf_input["name"]
                 if "path" in tf_input:
                     input.path = tf_input["path"]
+                if isinstance(tf_input.get("id"), str):
+                    input.id = tf_input["id"]
 
             if isinstance(tf_output, dict):
                 output = CoordinateSystemIdentifier()
@@ -1082,6 +1099,8 @@ class Metadata:
                     output.name = tf_output["name"]
                 if "path" in tf_output:
                     output.path = tf_output["path"]
+                if isinstance(tf_output.get("id"), str):
+                    output.id = tf_output["id"]
 
             transformation.input = input
             transformation.output = output

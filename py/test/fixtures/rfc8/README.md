@@ -13,7 +13,10 @@ is set to `"group"` (the source carries `"zarr"`, which Zarr v3 does not
 define). Everything else is byte-identical to upstream, including the
 extension attributes (`ngio:source`, `webknossos:*`, `mobie:*`) and the
 `mobie_image_labels_table.json` extension path type (`google-sheet`, an
-unprefixed extension identifier that fails `path-type-known` on purpose).
+unprefixed extension identifier that fails `path-type-known` on purpose) and
+the `webknossos_inline_multiscale.json` transformation references, which use
+a draft-era `{"type", "$ref"}` shape instead of the v1 Reference interface
+and fail `reference-id-required` on purpose.
 
 `webknossos_inline_multiscale.json` is a full `zarr.json` document (the
 Zarr-group storage medium); the others are standalone JSON documents with a

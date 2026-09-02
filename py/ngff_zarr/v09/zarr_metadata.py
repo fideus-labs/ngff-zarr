@@ -110,10 +110,16 @@ class Axis:
 
 @dataclass
 class CoordinateSystem:
-    """A named set of RFC-3 axes."""
+    """A named set of RFC-3 axes.
+
+    RFC-8 (OME-Zarr 0.9.dev3) additionally gives the system a required ``id``
+    matching ``[a-zA-Z0-9-_.]+``, referenced by transformations in place of
+    the name. ``None`` below 0.9.dev3.
+    """
 
     name: str
     axes: list[Axis]
+    id: str | None = None
 
 
 @functools.lru_cache(maxsize=1)
@@ -292,6 +298,7 @@ class Metadata:
         coordinate_systems = [
             CoordinateSystem_v06(
                 name=cs.name,
+                id=cs.id,
                 axes=[
                     Axis_v06(
                         name=ax.name,
@@ -329,7 +336,9 @@ class Metadata:
         equality, which dataclasses compare class-exact.
         """
         coordinate_systems = [
-            CoordinateSystem(name=cs.name, axes=[_axis_from(ax) for ax in cs.axes])
+            CoordinateSystem(
+                name=cs.name, axes=[_axis_from(ax) for ax in cs.axes], id=cs.id
+            )
             for cs in metadata_v06.coordinateSystems
         ]
 

@@ -49,6 +49,9 @@ def test_every_rule_is_exercised_by_the_shared_cases():
         "node-id-unique",
         "node-nodes-xor-path",
         "path-type-known",
+        "coordinate-system-id-required",
+        "reference-id-required",
+        "reference-path-required",
     }
 
 
@@ -118,7 +121,20 @@ def test_remaining_fixture_documents_validate():
     ):
         document = json.loads((fixtures / name).read_text())
         validate_collection(document["ome"], version="0.9.dev3")
+
+
+def test_webknossos_fixture_fails_on_its_draft_reference_shape():
+    # The upstream example predates the RFC's v1 Reference interface: its
+    # transformation inputs and outputs use a {"type", "$ref"} shape instead
+    # of an id reference, which the rule reports (see fixtures/rfc8/README.md).
     webknossos = json.loads(
-        (fixtures / "webknossos_inline_multiscale.json").read_text()
+        (
+            Path(__file__).parent
+            / "fixtures"
+            / "rfc8"
+            / "webknossos_inline_multiscale.json"
+        ).read_text()
     )
-    validate_collection(webknossos["attributes"]["ome"], version="0.9.dev3")
+    with pytest.raises(ValidationError) as exc_info:
+        validate_collection(webknossos["attributes"]["ome"], version="0.9.dev3")
+    assert exc_info.value.rule.value == "reference-id-required"
