@@ -128,3 +128,34 @@ Deno.test("label rules fire", () => {
   );
   assertEquals(error.rule, "reference-path-required");
 });
+
+Deno.test("a null labels value is rejected", () => {
+  const node: OmeNode = {
+    type: "multiscale",
+    name: "nuclei",
+    nodes: [],
+    attributes: { labels: null },
+  };
+  assertEquals(isLabelMap(node), true);
+  assertThrows(() => labels(node), Error, "must be an object");
+});
+
+Deno.test("extra keys do not override typed fields", () => {
+  const node: OmeNode = { type: "multiscale", name: "nuclei", nodes: [] };
+  setLabels(node, {
+    labelAttributes: [
+      {
+        labelValue: 1,
+        color: [255, 0, 0, 255],
+        extra: { labelValue: 99, "myorg:note": "kept" },
+      },
+    ],
+  });
+  const serialized = (
+    (node.attributes?.labels as Record<string, unknown>)
+      .labelAttributes as Record<string, unknown>[]
+  )[0];
+  assertEquals(serialized.labelValue, 1);
+  assertEquals(serialized.color, [255, 0, 0, 255]);
+  assertEquals(serialized["myorg:note"], "kept");
+});

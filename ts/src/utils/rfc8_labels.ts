@@ -50,10 +50,11 @@ export function isLabelMap(node: OmeNode): boolean {
  * from an absent attribute.
  */
 export function labels(node: OmeNode): Labels | undefined {
-  const raw = node.attributes?.[LABELS_KEY];
-  if (raw === undefined || raw === null) {
+  const attributes = node.attributes ?? {};
+  if (!(LABELS_KEY in attributes)) {
     return undefined;
   }
+  const raw = attributes[LABELS_KEY];
   if (!isRecord(raw)) {
     throw new Error(
       `A 'labels' attribute must be an object; got ${JSON.stringify(raw)}.`,
@@ -99,10 +100,12 @@ export function setLabels(node: OmeNode, value: Labels | undefined): void {
   }
   const serialized: Record<string, unknown> = {};
   if (value.labelAttributes !== undefined) {
+    // Extra keys first: the typed fields stay authoritative when an extra
+    // entry collides with one of them.
     serialized.labelAttributes = value.labelAttributes.map((entry) => ({
+      ...structuredClone(entry.extra ?? {}),
       labelValue: entry.labelValue,
       ...(entry.color !== undefined && { color: [...entry.color] }),
-      ...structuredClone(entry.extra ?? {}),
     }));
   }
   if (value.source !== undefined) {

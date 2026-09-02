@@ -133,7 +133,7 @@ function* iterTransformReferenceSites(
 
 function* iterLabelEntries(
   document: Record<string, unknown>,
-): Generator<[string, Record<string, unknown>]> {
+): Generator<[string, unknown]> {
   for (const [location, node] of iterNodes(document, "ome")) {
     const attributes = node.attributes;
     if (!isRecord(attributes)) {
@@ -147,13 +147,13 @@ function* iterLabelEntries(
     if (!Array.isArray(entries)) {
       continue;
     }
+    // Non-object entries are yielded too: the value rule rejects them, so
+    // a `null` or string entry cannot slip past validation.
     for (const [index, entry] of entries.entries()) {
-      if (isRecord(entry)) {
-        yield [
-          `${location}.attributes.labels.labelAttributes[${index}]`,
-          entry,
-        ];
-      }
+      yield [
+        `${location}.attributes.labels.labelAttributes[${index}]`,
+        entry,
+      ];
     }
   }
 }
@@ -199,7 +199,7 @@ function* iterPathSites(
   for (const [location, node] of iterNodes(document, "ome")) {
     yield [`${location}.path`, node.path];
   }
-  for (const [location, reference] of iterTransformReferenceSites(document)) {
+  for (const [location, reference] of iterReferenceSites(document)) {
     if (isRecord(reference)) {
       yield [`${location}.path`, reference.path];
     }
@@ -232,6 +232,17 @@ function* iterIdSites(
       yield [`${location}.id`, reference.id, false];
     }
   }
+}
+
+/** The node ids declared in the document. */
+function declaredNodeIds(document: Record<string, unknown>): Set<string> {
+  const declared = new Set<string>();
+  for (const [, node] of iterNodes(document, "ome")) {
+    if (typeof node.id === "string") {
+      declared.add(node.id);
+    }
+  }
+  return declared;
 }
 
 function declaredIds(document: Record<string, unknown>): Set<string> {
@@ -480,30 +491,37 @@ export function validateReferenceIdRequired(
 
 /**
  * Unresolved references carry a `path` (`reference-path-required`). A
- * reference whose `id` is declared in this document (as a node id or a
- * coordinate-system id) is internal; any other reference is external, and
- * RFC-8 requires external references to locate their document with a
- * `path`. What the path points at is not resolved here.
+ * reference whose `id` is declared in this document is internal; any other
+ * reference is external, and RFC-8 requires external references to locate
+ * their document with a `path`. What the path points at is not resolved
+ * here. A transformation reference resolves against node and
+ * coordinate-system ids; a labels `source` reference designates an
+ * annotated image, so only a node id satisfies it.
  */
 export function validateReferencePathRequired(
   document: Record<string, unknown>,
 ): void {
-  const declared = declaredIds(document);
-  for (const [location, reference] of iterReferenceSites(document)) {
-    if (!isRecord(reference)) {
-      continue;
-    }
-    const value = reference.id;
-    if (typeof value !== "string" || declared.has(value)) {
-      continue;
-    }
-    if (reference.path === undefined || reference.path === null) {
-      throw new ValidationError(
-        SpecRule.ReferencePathRequired,
-        `Reference id ${pyRepr(value)} is not declared in this document, ` +
-          `so the reference must carry a 'path'.`,
-        location,
-      );
+  const siteGroups: Array<[Generator<[string, unknown]>, Set<string>]> = [
+    [iterTransformReferenceSites(document), declaredIds(document)],
+    [iterLabelSourceSites(document), declaredNodeIds(document)],
+  ];
+  for (const [sites, resolvable] of siteGroups) {
+    for (const [location, reference] of sites) {
+      if (!isRecord(reference)) {
+        continue;
+      }
+      const value = reference.id;
+      if (typeof value !== "string" || resolvable.has(value)) {
+        continue;
+      }
+      if (reference.path === undefined || reference.path === null) {
+        throw new ValidationError(
+          SpecRule.ReferencePathRequired,
+          `Reference id ${pyRepr(value)} is not declared in this document, ` +
+            `so the reference must carry a 'path'.`,
+          location,
+        );
+      }
     }
   }
 }
@@ -516,7 +534,7 @@ export function validateLabelValueRequired(
   document: Record<string, unknown>,
 ): void {
   for (const [location, entry] of iterLabelEntries(document)) {
-    const value = entry.labelValue;
+    const value = isRecord(entry) ? entry.labelValue : undefined;
     if (typeof value !== "number") {
       throw new ValidationError(
         SpecRule.LabelValueRequired,
@@ -536,7 +554,7 @@ export function validateLabelColorFormat(
   document: Record<string, unknown>,
 ): void {
   for (const [location, entry] of iterLabelEntries(document)) {
-    const color = entry.color;
+    const color = isRecord(entry) ? entry.color : undefined;
     if (color === undefined || color === null) {
       continue;
     }

@@ -73,9 +73,10 @@ def labels(node: Node) -> Labels | None:
     ``None``; use :func:`is_label_map` to tell it apart from an absent
     attribute.
     """
-    raw = (node.attributes or {}).get(LABELS_KEY)
-    if raw is None:
+    attributes = node.attributes or {}
+    if LABELS_KEY not in attributes:
         return None
+    raw = attributes[LABELS_KEY]
     if not isinstance(raw, Mapping):
         raise ValueError(f"A 'labels' attribute must be an object; got {raw!r}.")
     label_attributes = None
@@ -110,10 +111,12 @@ def set_labels(node: Node, value: Labels | None) -> None:
     serialized: dict[str, Any] = {}
     if value.labelAttributes is not None:
         serialized["labelAttributes"] = [
+            # Extra keys first: the typed fields stay authoritative when an
+            # extra entry collides with one of them.
             {
+                **copy.deepcopy(entry.extra),
                 "labelValue": entry.labelValue,
                 **({"color": list(entry.color)} if entry.color is not None else {}),
-                **copy.deepcopy(entry.extra),
             }
             for entry in value.labelAttributes
         ]
