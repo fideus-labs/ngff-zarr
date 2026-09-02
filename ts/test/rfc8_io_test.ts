@@ -131,18 +131,15 @@ Deno.test("fromCollectionZarr names the image reader on an image store", async (
   assertStringIncludes(String(error), "fromOmeZarr");
 });
 
-Deno.test("buildRootAttributes refuses 0.9.dev3 with guidance", async () => {
+Deno.test("buildRootAttributes writes 0.9.dev3 multiscale nodes", async () => {
   const multiscales = await imageMultiscales();
-  let message = "";
-  try {
-    buildRootAttributes(
-      multiscales.metadata,
-      "0.9.dev3" as unknown as ImageVersion,
-    );
-  } catch (error) {
-    message = String(error);
-  }
-  assertStringIncludes(message, "toCollectionZarr");
+  const attrs = buildRootAttributes(
+    multiscales.metadata,
+    "0.9.dev3" as ImageVersion,
+  ) as { ome: Record<string, unknown> };
+  assertEquals(attrs.ome.version, "0.9.dev3");
+  assertEquals(attrs.ome.type, "multiscale");
+  assertEquals("multiscales" in attrs.ome, false);
 });
 
 Deno.test("load resolves nodes across a temporary directory layout", async () => {
