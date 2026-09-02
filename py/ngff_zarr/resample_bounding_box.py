@@ -538,22 +538,39 @@ def _box_inside_field_domain(entry, dimension: int, grid_box) -> bool:
     return True
 
 
-def _folded_interval(interval, outer_entries, dimension: int):
-    """``interval`` carried through the stages applied after its own.
+def _accumulated_interval(entries, intervals, dimension: int, contained: bool):
+    """The range the displacement stages of ``entries`` can add, or ``None``.
 
-    ITK applies the last entry of a list first, so the stages applied after
-    entry ``i`` are the entries before it. An affine stage maps the interval
-    through the signs of its matrix; an orthonormal stage bounds every output
-    component by the Euclidean reach of the input; anything else returns
+    ITK applies the last entry of a list first, so the walk runs from the
+    last entry outward, carrying what the stages seen so far can add. A
+    displacement stage adds its own range, since the linear list this widens
+    replaced that stage by the identity; an affine stage maps the range
+    through the signs of its matrix; an orthonormal stage bounds every
+    component by the range's Euclidean reach. Any other stage returns
     ``None``, and the caller keeps the boundary walk.
+
+    Accumulating outward rather than folding each stage separately is what
+    lets a displacement stage sit outside another one: the range reaching it
+    is carried through, and its own range joins on top.
+
+    :param intervals: One :func:`_stage_interval` per entry, so a field's
+        parameters are scanned once for the whole list.
     """
     from .itk_transform_to_ngff_transform import (
         _matrix_offset_from_itkwasm,
         _parameterization_name,
     )
 
-    low, high = interval
-    for entry in reversed(outer_entries):
+    low = np.zeros(dimension)
+    high = np.zeros(dimension)
+    for entry, interval in zip(reversed(entries), reversed(intervals)):
+        if interval is not None:
+            if not contained:
+                # ITK displaces a point beyond a stage's domain by nothing.
+                interval = (np.minimum(interval[0], 0.0), np.maximum(interval[1], 0.0))
+            low = low + interval[0]
+            high = high + interval[1]
+            continue
         name = _parameterization_name(entry.transformType)
         matrix = None
         try:
@@ -583,39 +600,31 @@ def _nonlinear_interval(entries, dimension: int, grid_box=None):
         lattice contains the box keeps the values' own range; in every other
         case zero joins the range, since ITK displaces a point beyond a
         stage's domain by nothing.
-    :return: ``(affine_entries, (low, high))`` when every displacement stage
-        could be bounded and folded: the entries with those stages replaced by
-        the identity, whose boundary walk the pipeline reports exactly, and
-        the range to widen its region by. ``(entries, None)`` otherwise, and
-        the caller's boundary walk stands, with the miss its docstring names.
+    :return: ``(affine_entries, (low, high))`` when every stage could be
+        carried: the entries with the displacement stages replaced by the
+        identity, whose boundary walk the pipeline reports exactly, and the
+        range to widen its region by. ``(entries, None)`` otherwise, and the
+        caller's boundary walk stands, with the miss its docstring names.
     """
-    intervals = [
-        (index, interval)
-        for index, entry in enumerate(entries)
-        if (interval := _stage_interval(entry, dimension)) is not None
+    intervals = [_stage_interval(entry, dimension) for entry in entries]
+    indices = [
+        index for index, interval in enumerate(intervals) if interval is not None
     ]
-    if not intervals:
+    if not indices:
         return entries, None
     contained = (
         len(entries) == 1
         and grid_box is not None
         and _box_inside_field_domain(entries[0], dimension, grid_box)
     )
-    low = np.zeros(dimension)
-    high = np.zeros(dimension)
-    for index, interval in intervals:
-        if not contained:
-            interval = (np.minimum(interval[0], 0.0), np.maximum(interval[1], 0.0))
-        folded = _folded_interval(interval, entries[:index], dimension)
-        if folded is None:
-            return entries, None
-        low = low + folded[0]
-        high = high + folded[1]
+    accumulated = _accumulated_interval(entries, intervals, dimension, contained)
+    if accumulated is None:
+        return entries, None
     replaced = list(entries)
     identity = _identity_transform_list(("z", "y", "x")[-dimension:])[0]
-    for index, _interval in intervals:
+    for index in indices:
         replaced[index] = identity
-    return replaced, (low, high)
+    return replaced, accumulated
 
 
 def _grid_physical_box(grid: NgffImage, itk_dims):
@@ -827,9 +836,10 @@ def resample_bounding_box(
     so such a stage is bounded the way a field is: the walk measures the list
     with those stages replaced by the identity, and the range their values
     can add, carried through the stages applied after them, widens the
-    result. Other non-linear parameterizations, the velocity fields among
-    them, still rely on the walk alone and can under-report a strictly
-    interior excursion.
+    result. A stage sitting outside another one carries the range reaching
+    it and adds its own on top, so several of them compose. Other non-linear
+    parameterizations, the velocity fields among them, still rely on the
+    walk alone and can under-report a strictly interior excursion.
 
     In both cases the transform maps *fixed* points into *moving* space.
 
