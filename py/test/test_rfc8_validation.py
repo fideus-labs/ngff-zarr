@@ -186,4 +186,6 @@ def test_a_stamped_enum_version_renders_as_its_value():
     }
     with pytest.raises(ValidationError) as exc_info:
         validate_collection(document, version=NgffVersion.V09dev3)
-    assert "'0.9.dev3'" in str(exc_info.value)
+    message = str(exc_info.value)
+    assert "the root declares '0.9.dev3'" in message
+    assert "NgffVersion" not in message
