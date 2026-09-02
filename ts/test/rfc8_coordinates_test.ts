@@ -68,7 +68,6 @@ Deno.test("a nameless coordinate system round-trips", () => {
   const node: OmeNode = { type: "multiscale", name: "img" };
   setCoordinateSystems(node, [
     {
-      name: "",
       id: "physical",
       axes: [{ name: "x", type: "space", unit: undefined }],
     },
@@ -80,7 +79,8 @@ Deno.test("a nameless coordinate system round-trips", () => {
   assertEquals("name" in serialized, false);
   const systems = coordinateSystems(node);
   assertEquals(systems[0].id, "physical");
-  assertEquals(systems[0].name, "");
+  assertEquals(systems[0].name, undefined);
+  assertEquals("name" in systems[0], false);
 });
 
 Deno.test("sequence transformations parse from attributes", () => {
@@ -116,4 +116,68 @@ Deno.test("sequence transformations parse from attributes", () => {
   assertEquals(transforms[0].type, "sequence");
   assertEquals(transforms[0].input?.id, "s0");
   assertEquals(transforms[0].output?.id, "physical");
+});
+
+Deno.test("external reference typed paths round-trip", () => {
+  const node: OmeNode = { type: "multiscale", name: "img", id: "img" };
+  const typedPath = { type: "zarr", path: "./tile_0.zarr" };
+  setCoordinateSystems(node, [
+    {
+      name: "physical",
+      id: "physical",
+      axes: [{ name: "x", type: "space", unit: undefined }],
+    },
+  ]);
+  setCoordinateTransformations(node, [
+    {
+      type: "scale",
+      scale: [2.0],
+      input: { id: "physical" },
+      output: { id: "elsewhere", path: typedPath },
+    },
+  ]);
+  const parsed = coordinateTransformations(node);
+  assertEquals((parsed[0] as Scale).output?.path, typedPath);
+  const serialized = (node.attributes?.coordinateTransformations as Record<
+    string,
+    unknown
+  >[])[0];
+  assertEquals(
+    (serialized.output as Record<string, unknown>).path,
+    typedPath,
+  );
+});
+
+Deno.test("reference paths pass through path-type-known", async () => {
+  const { validateCollection } = await import(
+    "../src/utils/rfc8_validation.ts"
+  );
+  const document = {
+    type: "multiscale",
+    name: "img",
+    id: "img",
+    attributes: {
+      coordinateSystems: [
+        { id: "physical", axes: [{ name: "x", type: "space" }] },
+      ],
+      coordinateTransformations: [
+        {
+          type: "scale",
+          scale: [1.0],
+          input: { id: "physical" },
+          output: {
+            id: "elsewhere",
+            path: { type: "google-sheet", path: "./sheet" },
+          },
+        },
+      ],
+    },
+  };
+  let rule = "";
+  try {
+    validateCollection(document, "0.9.dev3");
+  } catch (error) {
+    rule = (error as { rule?: string }).rule ?? "";
+  }
+  assertEquals(rule, "path-type-known");
 });

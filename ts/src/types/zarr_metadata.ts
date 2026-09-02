@@ -40,9 +40,13 @@ export interface Axis {
  * carries the `id`, and may carry a `name` purely as a label.
  */
 export interface CoordinateSystemIdentifier {
-  path?: string;
-  name?: string;
-  id?: string;
+  /**
+   * A dataset path string (the v0.6 shape), or an RFC-8 typed path object
+   * `{ type, path }` on an external reference.
+   */
+  path?: string | { type: string; path: string } | undefined;
+  name?: string | undefined;
+  id?: string | undefined;
 }
 
 /**
@@ -53,7 +57,8 @@ export interface CoordinateSystemIdentifier {
  * generated for the multiscale image.
  */
 export interface CoordinateSystem {
-  name: string;
+  /** Optional at RFC-8 (0.9.dev3), where the `id` is the reference key. */
+  name?: string | undefined;
   axes: Axis[];
   id?: string;
 }

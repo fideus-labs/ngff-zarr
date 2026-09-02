@@ -7,7 +7,9 @@ import { AxisSchema } from "./rfc4.ts";
 
 // Coordinate System schema
 export const CoordinateSystemSchema = z.object({
-  name: z.string().min(1), // MUST be non-empty and unique
+  // Non-empty and unique when present; RFC-8 (0.9.dev3) systems may carry
+  // only an id.
+  name: z.string().min(1).optional(),
   axes: z.array(AxisSchema), // Array of axes that define the coordinate system
   // RFC-8 (OME-Zarr 0.9.dev3) references systems by this id instead of name.
   id: z.string().regex(/^[a-zA-Z0-9\-_.]+$/).optional(),

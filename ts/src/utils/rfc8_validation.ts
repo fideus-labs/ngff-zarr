@@ -129,6 +129,24 @@ function* iterTransformReferenceSites(
 }
 
 /**
+ * Every typed path in the document: each node's own `path` and the `path`
+ * of every reference site, so an extension path type is judged the same
+ * wherever it appears.
+ */
+function* iterPathSites(
+  document: Record<string, unknown>,
+): Generator<[string, unknown]> {
+  for (const [location, node] of iterNodes(document, "ome")) {
+    yield [`${location}.path`, node.path];
+  }
+  for (const [location, reference] of iterTransformReferenceSites(document)) {
+    if (isRecord(reference)) {
+      yield [`${location}.path`, reference.path];
+    }
+  }
+}
+
+/**
  * Every id in the document: declared sites (node ids and coordinate-system
  * ids, which share the document-wide uniqueness namespace) and reference
  * sites (which reuse a declared id and are checked for format only).
@@ -319,8 +337,7 @@ export function validateNodeNodesXorPath(
 export function validatePathTypeKnown(
   document: Record<string, unknown>,
 ): void {
-  for (const [location, node] of iterNodes(document, "ome")) {
-    const path = node.path;
+  for (const [location, path] of iterPathSites(document)) {
     if (!isRecord(path)) {
       continue;
     }
@@ -330,7 +347,7 @@ export function validatePathTypeKnown(
         SpecRule.PathTypeKnown,
         `Path must declare a non-empty string 'type'; got ` +
           `${pyReprValue(value)}.`,
-        `${location}.path.type`,
+        `${location}.type`,
       );
     }
     if (CORE_PATH_TYPES.has(value) || isPrefixedIdentifier(value)) {
@@ -340,7 +357,7 @@ export function validatePathTypeKnown(
       SpecRule.PathTypeKnown,
       `Path type ${pyRepr(value)} is not 'zarr', 'json', or a prefixed ` +
         `extension type.`,
-      `${location}.path.type`,
+      `${location}.type`,
     );
   }
 }

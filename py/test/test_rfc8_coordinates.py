@@ -164,3 +164,55 @@ def test_collection_with_coordinate_attributes_validates():
     node = Node(type="singlescale", name="s0", id="s0")
     collection.nodes.append(node)
     validate_collection(collection, version="0.9.dev3")
+
+
+def test_external_reference_typed_paths_round_trip():
+    node = Node(type="multiscale", name="img", id="img")
+    typed_path = {"type": "zarr", "path": "./tile_0.zarr"}
+    set_coordinate_systems(
+        node,
+        [
+            CoordinateSystem(
+                name="physical",
+                id="physical",
+                axes=[Axis(name="x", type="space")],
+            )
+        ],
+    )
+    set_coordinate_transformations(
+        node,
+        [
+            Scale(
+                scale=[2.0],
+                input=CoordinateSystemIdentifier(id="physical"),
+                output=CoordinateSystemIdentifier(id="elsewhere", path=typed_path),
+            )
+        ],
+    )
+    parsed = coordinate_transformations(node)
+    assert parsed[0].output.path == typed_path
+    serialized = node.attributes["coordinateTransformations"][0]
+    assert serialized["output"]["path"] == typed_path
+
+
+def test_reference_paths_pass_through_path_type_known():
+    node = Node(type="multiscale", name="img", id="img")
+    node.attributes = {
+        "coordinateSystems": [
+            {"id": "physical", "axes": [{"name": "x", "type": "space"}]}
+        ],
+        "coordinateTransformations": [
+            {
+                "type": "scale",
+                "scale": [1.0],
+                "input": {"id": "physical"},
+                "output": {
+                    "id": "elsewhere",
+                    "path": {"type": "google-sheet", "path": "./sheet"},
+                },
+            }
+        ],
+    }
+    with pytest.raises(ValidationError) as exc_info:
+        validate_collection(node, version="0.9.dev3")
+    assert exc_info.value.rule.value == "path-type-known"

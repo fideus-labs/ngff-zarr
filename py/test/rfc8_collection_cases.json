@@ -600,6 +600,96 @@
       "rule": "node-name-unique",
       "message": "Spec rule [node-name-unique] violated: Node name 'img' is repeated; node names must be unique within the enclosing collection.",
       "location": "ome.nodes[1]"
+    },
+    {
+      "name": "a prefixed extension path type on a transform reference passes",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "multiscale",
+        "name": "img",
+        "id": "img",
+        "attributes": {
+          "coordinateSystems": [
+            {
+              "id": "physical",
+              "name": "physical",
+              "axes": [
+                {
+                  "name": "x",
+                  "type": "space"
+                }
+              ]
+            }
+          ],
+          "coordinateTransformations": [
+            {
+              "type": "scale",
+              "scale": [
+                1.0
+              ],
+              "input": {
+                "id": "physical"
+              },
+              "output": {
+                "id": "elsewhere",
+                "path": {
+                  "type": "myorg:zip",
+                  "path": "./other.zarr"
+                }
+              }
+            }
+          ]
+        },
+        "nodes": []
+      },
+      "version": "0.9.dev3",
+      "ok": true
+    },
+    {
+      "name": "an unprefixed extension path type on a transform reference",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "multiscale",
+        "name": "img",
+        "id": "img",
+        "attributes": {
+          "coordinateSystems": [
+            {
+              "id": "physical",
+              "name": "physical",
+              "axes": [
+                {
+                  "name": "x",
+                  "type": "space"
+                }
+              ]
+            }
+          ],
+          "coordinateTransformations": [
+            {
+              "type": "scale",
+              "scale": [
+                1.0
+              ],
+              "input": {
+                "id": "physical"
+              },
+              "output": {
+                "id": "elsewhere",
+                "path": {
+                  "type": "google-sheet",
+                  "path": "./other.zarr"
+                }
+              }
+            }
+          ]
+        },
+        "nodes": []
+      },
+      "version": "0.9.dev3",
+      "rule": "path-type-known",
+      "message": "Spec rule [path-type-known] violated: Path type 'google-sheet' is not 'zarr', 'json', or a prefixed extension type.",
+      "location": "ome.attributes.coordinateTransformations[0].output.path.type"
     }
   ]
 }

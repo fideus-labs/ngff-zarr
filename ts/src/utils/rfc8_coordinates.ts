@@ -42,7 +42,7 @@ export function coordinateSystems(node: OmeNode): CoordinateSystem[] {
     return [];
   }
   return raw.filter(isRecord).map((entry) => ({
-    name: typeof entry.name === "string" ? entry.name : "",
+    ...(typeof entry.name === "string" && { name: entry.name }),
     axes: (Array.isArray(entry.axes) ? entry.axes : []) as Axis[],
     ...(typeof entry.id === "string" && { id: entry.id }),
   }));
@@ -55,7 +55,7 @@ export function setCoordinateSystems(
 ): void {
   const serialized = systems.map((system) => ({
     ...(system.id !== undefined && { id: system.id }),
-    ...(system.name !== "" && { name: system.name }),
+    ...(system.name !== undefined && { name: system.name }),
     axes: system.axes.map((axis) => ({
       name: axis.name,
       ...(axis.type !== undefined && { type: axis.type }),
@@ -89,7 +89,9 @@ export function coordinateTransformations(
   const resolved = systems ?? coordinateSystems(node);
   return parseV06Transforms(
     raw,
-    resolved.map((cs) => cs.name),
+    resolved.map((cs) => cs.name).filter((name): name is string =>
+      name !== undefined
+    ),
     resolved,
     version,
   );

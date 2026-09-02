@@ -106,6 +106,11 @@ set_coordinate_systems(
     node,
     [
         CoordinateSystem(
+            name="pixels",
+            id="s0",
+            axes=[Axis(name="y", type="space"), Axis(name="x", type="space")],
+        ),
+        CoordinateSystem(
             name="physical",
             id="physical",
             axes=[Axis(name="y", type="space"), Axis(name="x", type="space")],

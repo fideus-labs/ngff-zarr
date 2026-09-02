@@ -94,6 +94,21 @@ def _iter_transform_reference_sites(
                 yield f"{base}.{field}", transformation.get(field)
 
 
+def _iter_path_sites(
+    document: Mapping[str, Any],
+) -> Iterator[tuple[str, Any]]:
+    """Yield ``(location, value)`` for every typed path in the document.
+
+    Covers each node's own ``path`` and the ``path`` of every reference
+    site, so an extension path type is judged the same wherever it appears.
+    """
+    for location, node in _iter_nodes(document, "ome"):
+        yield f"{location}.path", node.get("path")
+    for location, reference in _iter_transform_reference_sites(document):
+        if isinstance(reference, Mapping):
+            yield f"{location}.path", reference.get("path")
+
+
 def _iter_id_sites(
     document: Mapping[str, Any],
 ) -> Iterator[tuple[str, Any, bool]]:
@@ -296,8 +311,7 @@ def validate_path_type_known(document: Mapping[str, Any]) -> None:
         string, or an unprefixed identifier outside the core set; location
         e.g. ``ome.nodes[1].path.type``.
     """
-    for location, node in _iter_nodes(document, "ome"):
-        path = node.get("path")
+    for location, path in _iter_path_sites(document):
         if not isinstance(path, Mapping):
             continue
         value = path.get("type")
@@ -305,14 +319,14 @@ def validate_path_type_known(document: Mapping[str, Any]) -> None:
             raise ValidationError(
                 SpecRule.PATH_TYPE_KNOWN,
                 f"Path must declare a non-empty string 'type'; got {value!r}.",
-                f"{location}.path.type",
+                f"{location}.type",
             )
         if value in CORE_PATH_TYPES or is_prefixed_identifier(value):
             continue
         raise ValidationError(
             SpecRule.PATH_TYPE_KNOWN,
             f"Path type {value!r} is not 'zarr', 'json', or a prefixed extension type.",
-            f"{location}.path.type",
+            f"{location}.type",
         )
 
 

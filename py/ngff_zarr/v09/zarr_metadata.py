@@ -117,7 +117,7 @@ class CoordinateSystem:
     the name. ``None`` below 0.9.dev3.
     """
 
-    name: str
+    name: str | None
     axes: list[Axis]
     id: str | None = None
 

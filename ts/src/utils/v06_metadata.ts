@@ -40,10 +40,12 @@ export function buildV06MultiscalesEntry(
 
   // The first (intrinsic) coordinate system uses the RFC-processed axes; any
   // additional systems (e.g. a user-supplied output space) are serialized
-  // verbatim.
+  // verbatim. The RFC-8 `id` rides along whenever the model carries one,
+  // matching the Python serializer, so id-based references stay resolvable.
   const serializedCoordinateSystems = coordinateSystems.map((cs, index) => ({
-    name: cs.name,
+    ...(cs.name !== undefined && { name: cs.name }),
     axes: index === 0 ? processedAxes : cs.axes,
+    ...(cs.id !== undefined && { id: cs.id }),
   }));
 
   const datasets = metadata.datasets.map((ds, index) => {
@@ -222,7 +224,7 @@ export function serializeV06Transform(
  */
 export function parseV06Transforms(
   raw: Array<Record<string, unknown>>,
-  coordinateSystemNames: string[],
+  coordinateSystemNames: (string | undefined)[],
   coordinateSystems?: CoordinateSystem[],
   version?: string,
 ): V06Transform[] {
@@ -233,7 +235,7 @@ export function parseV06Transforms(
 
 function parseV06Transform(
   entry: Record<string, unknown>,
-  coordinateSystemNames: string[],
+  coordinateSystemNames: (string | undefined)[],
   coordinateSystems?: CoordinateSystem[],
   version?: string,
 ): V06Transform {
@@ -799,7 +801,7 @@ function identifierToDict(
 
 function dictToIdentifier(
   value: unknown,
-  coordinateSystemNames: string[],
+  coordinateSystemNames: (string | undefined)[],
 ): CoordinateSystemIdentifier | undefined {
   if (value === null || typeof value !== "object") {
     return undefined;
@@ -813,6 +815,9 @@ function dictToIdentifier(
   }
   if (typeof dict.path === "string") {
     id.path = dict.path;
+  } else if (dict.path !== null && typeof dict.path === "object") {
+    // An RFC-8 external reference carries a typed path object.
+    id.path = dict.path as { type: string; path: string };
   }
   if (typeof dict.id === "string") {
     id.id = dict.id;

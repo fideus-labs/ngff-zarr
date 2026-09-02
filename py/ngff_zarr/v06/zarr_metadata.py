@@ -73,7 +73,7 @@ class CoordinateSystem:
     #: RFC-5 names the system; RFC-8 (OME-Zarr 0.9.dev3) additionally gives it
     #: a required ``id`` matching ``[a-zA-Z0-9-_.]+``, referenced by
     #: transformations in place of the name. ``None`` below 0.9.dev3.
-    name: str
+    name: str | None
     axes: list[Axis]
     id: str | None = None
 
@@ -87,9 +87,12 @@ class CoordinateSystemIdentifier:
     'path' and 'name' fields. RFC-8 (OME-Zarr 0.9.dev3) references coordinate
     systems by ``id`` instead of by name; an identifier read from a 0.9.dev3
     document carries the ``id``, and may carry a ``name`` purely as a label.
+    ``path`` is a dataset path string in the v0.6 shape; an RFC-8 external
+    reference carries a typed path mapping ``{"type", "path"}`` instead, and
+    it round-trips through here unchanged.
     """
 
-    path: str | None = None
+    path: str | dict | None = None
     name: str | None = None
     id: str | None = None
 
