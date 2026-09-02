@@ -1100,7 +1100,8 @@ def validate_collection(
     document = node_to_ome_dict(root) if isinstance(root, Node) else root
     if document.get("version") is None and isinstance(version, str):
         # A parsed node tree carries its version separately; stamp it so the
-        # version-consistency rule judges the tree like its document.
-        document = {**document, "version": version}
+        # version-consistency rule judges the tree like its document. str()
+        # keeps an NgffVersion member out of the rule's message bytes.
+        document = {**document, "version": str(version)}
     for rule in _COLLECTION_RULES:
         rule(document)
