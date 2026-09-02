@@ -4,8 +4,9 @@
  * Tests for the RFC-3 write gate in `buildRootAttributes`, the single function
  * behind every TypeScript writer.
  *
- * An RFC-3 axis model can only be serialized at OME-Zarr 0.9.dev1; targeting
- * 0.4, 0.5 or 0.6 throws. Mirrors `py/test/test_rfc3_axes.py`.
+ * An RFC-3 axis model can only be serialized at the OME-Zarr 0.9
+ * development series; targeting 0.4, 0.5 or 0.6 throws. Mirrors
+ * `py/test/test_rfc3_axes.py`.
  */
 
 import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
@@ -16,7 +17,7 @@ import {
   type MetadataInterface,
 } from "../src/types/zarr_metadata.ts";
 
-type TargetVersion = "0.4" | "0.5" | "0.6" | "0.9.dev1";
+type TargetVersion = "0.4" | "0.5" | "0.6" | "0.9.dev1" | "0.9.dev3";
 
 const PRE_RFC3: TargetVersion[] = ["0.4", "0.5", "0.6"];
 
@@ -76,9 +77,21 @@ Deno.test("write gate - accepts RFC-3 axis models at 0.9.dev1", () => {
   }
 });
 
+Deno.test("write gate - accepts RFC-3 axis models at 0.9.dev3", () => {
+  for (const [, axes] of RFC3_SHAPES) {
+    const attrs = buildRootAttributes(buildMetadata(axes), "0.9.dev3") as {
+      ome: { version: string; type: string };
+    };
+    assertEquals(attrs.ome.version, "0.9.dev3");
+    assertEquals(attrs.ome.type, "multiscale");
+  }
+});
+
 Deno.test("write gate - conventional axes still write at every version", () => {
   const axes = ["z", "y", "x"].map(space);
-  for (const version of [...PRE_RFC3, "0.9.dev1"] as TargetVersion[]) {
+  for (
+    const version of [...PRE_RFC3, "0.9.dev1", "0.9.dev3"] as TargetVersion[]
+  ) {
     buildRootAttributes(buildMetadata(axes), version);
   }
 });
@@ -107,7 +120,9 @@ Deno.test("write gate - repeated axis names are refused at every version", () =>
   // RFC-3 *adds* the unique-name rule rather than lifting one, so 0.9.dev1
   // is not a way out of this one.
   const axes = [space("y"), space("y"), space("x")];
-  for (const version of [...PRE_RFC3, "0.9.dev1"] as TargetVersion[]) {
+  for (
+    const version of [...PRE_RFC3, "0.9.dev1", "0.9.dev3"] as TargetVersion[]
+  ) {
     const error = assertThrows(
       () => buildRootAttributes(buildMetadata(axes), version),
       Error,
@@ -179,8 +194,9 @@ const CANONICAL_GATE_MESSAGE_AXIS_COUNT =
   "2 and 5 axes, inclusive; found 6. Axes at multiscales[0].axes: " +
   "['a'(type='space'), 'b'(type='space'), 'c'(type='space'), " +
   "'d'(type='space'), 'e'(type='space'), 'f'(type='space')]. Pass " +
-  'version="0.9.dev1" to write it: 0.9.dev1 is the only OME-Zarr version ' +
-  "that adopts RFC-3 (arbitrary axis count, names, types and ordering).";
+  'version="0.9.dev1" or version="0.9.dev3" to write it: the OME-Zarr 0.9 ' +
+  "development series adopts RFC-3 (arbitrary axis count, names, types and " +
+  "ordering).";
 
 Deno.test("write gate - message bytes match the Python port", () => {
   const repeated = assertThrows(

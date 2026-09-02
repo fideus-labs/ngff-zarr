@@ -93,7 +93,7 @@ export const SpecRule = {
   NodeIdFormat: "node-id-format",
   /** RFC-8 ids are unique within the JSON document; from 0.9.dev3. */
   NodeIdUnique: "node-id-unique",
-  /** A collection carries exactly one of nodes or path; from 0.9.dev3. */
+  /** A collection/multiscale carries exactly one of nodes or path. */
   NodeNodesXorPath: "node-nodes-xor-path",
   /** An RFC-8 path type is zarr, json, or prefixed; from 0.9.dev3. */
   PathTypeKnown: "path-type-known",
