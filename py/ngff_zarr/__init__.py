@@ -3,6 +3,10 @@
 #
 # SPDX-License-Identifier: MIT
 
+# The version-scoped metadata models are public under their own path. RFC-5's
+# CoordinateSystem exists in both v06 and v09 with different fields, so there is no
+# unambiguous top-level export: import from the version you target.
+from . import v04, v06, v09
 from .__about__ import __version__
 from ._supported_versions import (
     SUPPORTED_VERSIONS,
@@ -128,6 +132,9 @@ from .v04.zarr_metadata import (
 from .validate import validate
 
 __all__ = [
+    "v04",
+    "v06",
+    "v09",
     "__version__",
     "SUPPORTED_VERSIONS",
     "V06_ONDISK_VERSION",

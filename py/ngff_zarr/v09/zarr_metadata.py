@@ -397,3 +397,13 @@ class Metadata:
             patched, store, validate=False, subpath=subpath
         )
         return cls._from_v06(metadata_v06), images
+
+
+#: The public, version-scoped API of this module. Axis/CoordinateSystem/Metadata are 0.9's own; the field transforms are reused from v06.
+__all__ = [
+    "Axis",
+    "CoordinateSystem",
+    "Coordinates",
+    "Displacements",
+    "Metadata",
+]
