@@ -1070,14 +1070,50 @@ def open_local_node(store, node_path=None, *, zarr_format: int):
     return LocalZarrGroup(root, path, zarr_format, doc)
 
 
-def open_array(store, path: str | None = None) -> LocalZarrArray:
-    """Open the array at ``path`` within the local directory store ``store``.
+def _remote_handle(store, storage_options: dict | None):
+    """A handle on ``store``'s remote backend, or ``None`` when it has none.
+
+    The reader's own rule (``from_ome_zarr``): a URL string, or a handle
+    already built around one. A zarr-python ``FsspecStore`` wrapping a URL is
+    neither -- its ``str()`` is a repr rather than the URL obstore would be
+    given -- and the reader does not route one here either, so it keeps the
+    local path it has today.
+    """
+    from ._remote_reader import RemoteZarrStore, remote_read_available
+    from .from_ngff_zarr import REMOTE_URL_SCHEMES, _remote_backend_import_error
+
+    if isinstance(store, RemoteZarrStore):
+        return store
+    if isinstance(store, str) and store.startswith(REMOTE_URL_SCHEMES):
+        if not remote_read_available():
+            raise _remote_backend_import_error(store, None)
+        return RemoteZarrStore(store, storage_options=storage_options)
+    return None
+
+
+def open_array(store, path: str | None = None, storage_options: dict | None = None):
+    """Open the array at ``path`` within ``store``.
 
     The handle reads and writes regions through zarrista and needs no other
     Zarr library: ``to_ome_zarr(..., metadata_only=True)`` creates the arrays
     of a store, and this opens one of them for a producer to fill. The node
     is looked up as zarr format 3 first, then format 2.
+
+    A URL (http(s), S3, GCS, Azure) is opened through the same async engine
+    ``from_ome_zarr`` reads it with, and comes back read-only: writing a region
+    needs a local directory store. ``storage_options`` is passed to that
+    engine, fsspec-style names included.
     """
+    remote = _remote_handle(store, storage_options)
+    if remote is not None:
+        from ._remote_reader import RemoteZarrArray, open_remote_node
+
+        node = open_remote_node(remote, path)
+        if node is None:
+            raise FileNotFoundError(f"No array at '{path}' in '{remote}'.")
+        if not isinstance(node, RemoteZarrArray):
+            raise ValueError(f"'{path}' in '{remote}' is a group, not an array.")
+        return node
     for zarr_format in (3, 2):
         node = open_local_node(store, path, zarr_format=zarr_format)
         if node is None:

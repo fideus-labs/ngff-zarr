@@ -443,6 +443,17 @@ the fill stays safe across processes and cluster ranks. The handle from
 writer can fill the arrays as well; `to_ome_zarr` is not involved. Chunks that
 are never written read back as the fill value.
 
+`open_array` also opens an array in a remote store (http(s), S3, GCS, Azure),
+through the same engine `from_ome_zarr` reads one with, and takes the same
+`storage_options`. A remote handle is read-only -- filling a store region by
+region needs a local directory -- but it reports the same `shape`, `dtype` and
+`chunks`, and serves the same windowed reads:
+
+```python
+level0 = nz.open_array("s3://bucket/volume.ome.zarr", "scale0/image")
+window = level0[0:1, 0:64, :, :]
+```
+
 ### Append coarser levels to an existing store
 
 Once the finest level is on disk, `start_level` derives the next levels from
