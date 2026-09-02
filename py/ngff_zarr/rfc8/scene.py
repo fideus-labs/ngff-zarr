@@ -88,25 +88,52 @@ def _parse_scene(raw: Mapping[str, Any], version: str | None) -> Scene:
     return Scene(coordinateTransformations=transforms, coordinateSystems=systems)
 
 
-def _serialize_scene(value: Scene) -> dict[str, Any]:
+def _serialize_scene(value: Scene, version: str = "0.9.dev3") -> dict[str, Any]:
+    """Serialize ``value`` for the storage shape ``version`` selects.
+
+    The RFC-8 shape (``"0.9.dev3"``) keeps ids on systems and references.
+    The 0.6-family shape identifies coordinate systems by name, so a system
+    or reference that carries no name cannot be expressed there and raises.
+    """
     from dataclasses import asdict
 
+    id_based = version == "0.9.dev3"
     serialized: dict[str, Any] = {}
     if value.coordinateSystems is not None:
         systems = []
         for system in value.coordinateSystems:
             entry: dict[str, Any] = {}
-            if system.id is not None:
+            if id_based and system.id is not None:
                 entry["id"] = system.id
             if system.name is not None:
                 entry["name"] = system.name
+            elif not id_based:
+                raise ValueError(
+                    "A 0.6-family scene names its coordinate systems, but a "
+                    "declared system carries no name. Give it a name, or "
+                    'write the scene at version "0.9.dev3".'
+                )
             entry["axes"] = [_without_none(asdict(axis)) for axis in system.axes]
             systems.append(entry)
         serialized[COORDINATE_SYSTEMS_KEY] = systems
-    serialized["coordinateTransformations"] = [
-        _without_none(transform.to_dict())
-        for transform in value.coordinateTransformations
-    ]
+    transforms = []
+    for transform in value.coordinateTransformations:
+        entry = _without_none(transform.to_dict())
+        if not id_based:
+            for side in ("input", "output"):
+                reference = entry.get(side)
+                if not isinstance(reference, dict):
+                    continue
+                if reference.get("name") is None:
+                    raise ValueError(
+                        f"A 0.6-family scene names its {side} coordinate "
+                        "systems, but a transformation reference carries no "
+                        "name. Give it a name, or write the scene at version "
+                        '"0.9.dev3".'
+                    )
+                reference.pop("id", None)
+        transforms.append(entry)
+    serialized["coordinateTransformations"] = transforms
     return serialized
 
 
@@ -155,15 +182,18 @@ def read_scene(store: StoreLike, version: str | None = None) -> Scene | None:
     return _parse_scene(raw, declared or version)
 
 
-def write_scene(store: StoreLike, value: Scene, version: str = "0.6") -> None:
+def write_scene(store: StoreLike, value: Scene, version: str | None = None) -> None:
     """Write ``value`` as the scene metadata of a store's root group.
 
-    For the 0.6 family the scene lands at ``ome.scene`` beside any existing
-    OME metadata, tagging a fresh group with the version's on-disk string.
-    For ``"0.9.dev3"`` the root must already be an RFC-8 node document (a
-    collection written with :func:`ngff_zarr.to_collection_zarr`), and the
-    scene lands in its ``attributes``. Only the root metadata document is
-    rewritten; nothing beneath the root is touched.
+    ``version`` selects the storage shape; when omitted it follows the
+    version the root's existing ``ome`` metadata declares, and defaults to
+    ``"0.6"`` for a fresh group. For the 0.6 family the scene lands at
+    ``ome.scene`` beside any existing OME metadata, tagging a fresh group
+    with the version's on-disk string. For ``"0.9.dev3"`` the root must
+    already be an RFC-8 collection document (written with
+    :func:`ngff_zarr.to_collection_zarr`), and the scene lands in its
+    ``attributes``. Only the root metadata document is rewritten; nothing
+    beneath the root is touched.
     """
     import copy
 
@@ -180,7 +210,23 @@ def write_scene(store: StoreLike, value: Scene, version: str = "0.6") -> None:
         read_group_attributes,
     )
 
+    store_path_probe = normalize_store(store)
+    existing = read_group_attributes(store_path_probe, zarr_format=3) or {}
+    existing_ome = existing.get("ome")
+    declared = None
+    if isinstance(existing_ome, Mapping) and isinstance(
+        existing_ome.get("version"), str
+    ):
+        declared = existing_ome["version"]
+    if version is None:
+        version = declared or "0.6"
     version = NgffVersion(version).value
+    if declared == NgffVersion.V09dev3.value and version != declared:
+        raise ValueError(
+            "The store's root is an RFC-8 node document (0.9.dev3); writing "
+            f"a {version!r} scene onto it would corrupt the document. Pass "
+            'version="0.9.dev3" or omit the version.'
+        )
     if version == "0.6":
         ondisk = V06_ONDISK_VERSION.value
     elif is_v06_version(version) or version in ("0.9.dev1", "0.9.dev3"):
@@ -192,17 +238,16 @@ def write_scene(store: StoreLike, value: Scene, version: str = "0.6") -> None:
             "series."
         )
 
-    store_path = normalize_store(store)
-    existing = read_group_attributes(store_path, zarr_format=3) or {}
+    store_path = store_path_probe
     ome = copy.deepcopy(existing.get("ome")) if existing.get("ome") else {}
     if not isinstance(ome, Mapping):
         raise ValueError(f"The existing 'ome' entry is not an object: {ome!r}.")
     ome = dict(ome)
-    serialized = _serialize_scene(value)
+    serialized = _serialize_scene(value, version)
     if version == NgffVersion.V09dev3.value:
-        if ome.get("type") is None:
+        if ome.get("type") != "collection":
             raise ValueError(
-                "A 0.9.dev3 scene lives in the attributes of an RFC-8 node "
+                "A 0.9.dev3 scene is an attribute of an RFC-8 collection "
                 "document, but the store's root carries none. Write the "
                 "collection first with to_collection_zarr()."
             )

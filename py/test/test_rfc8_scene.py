@@ -46,13 +46,13 @@ def _tiles_scene() -> Scene:
         coordinateTransformations=[
             Translation(
                 translation=[0.0, 100.0],
-                input=Identifier(id="physical", path="./tile_0.zarr"),
-                output=Identifier(id="world"),
+                input=Identifier(name="physical", id="physical", path="./tile_0.zarr"),
+                output=Identifier(name="world", id="world"),
             ),
             Translation(
                 translation=[100.0, 0.0],
-                input=Identifier(id="physical", path="./tile_1.zarr"),
-                output=Identifier(id="world"),
+                input=Identifier(name="physical", id="physical", path="./tile_1.zarr"),
+                output=Identifier(name="world", id="world"),
             ),
         ],
     )
@@ -65,6 +65,7 @@ def test_scene_attribute_round_trips():
     assert serialized["coordinateSystems"][0]["id"] == "world"
     assert serialized["coordinateTransformations"][0]["input"] == {
         "path": "./tile_0.zarr",
+        "name": "physical",
         "id": "physical",
     }
 
@@ -194,3 +195,33 @@ def test_bijection_scene_transform_round_trips():
     parsed = scene(collection)
     assert parsed.coordinateTransformations[0].input.path == "JRC2018F"
     assert parsed.coordinateTransformations[0].forward.type == "affine"
+
+
+def test_id_only_references_refuse_the_0_6_shape(tmp_path):
+    tiles = Scene(
+        coordinateTransformations=[
+            Translation(
+                translation=[0.0, 100.0],
+                input=Identifier(id="physical", path="./tile_0.zarr"),
+                output=Identifier(id="world"),
+            )
+        ]
+    )
+    with pytest.raises(ValueError, match='version "0.9.dev3"'):
+        write_scene(tmp_path / "scene.ome.zarr", tiles, version="0.6")
+
+
+def test_write_scene_follows_the_declared_root_version(tmp_path):
+    store = tmp_path / "tiles.ome.zarr"
+    to_collection_zarr(store, Collection("tiles", nodes=[]))
+
+    # The default follows the root's declared version instead of writing an
+    # ome.scene entry into the RFC-8 node document.
+    write_scene(store, _tiles_scene())
+    ome = json.loads((store / "zarr.json").read_text())["attributes"]["ome"]
+    assert "scene" not in ome
+    assert "scene" in ome["attributes"]
+
+    # An explicit mismatching shape is refused rather than corrupting it.
+    with pytest.raises(ValueError, match="corrupt"):
+        write_scene(store, _tiles_scene(), version="0.6")
