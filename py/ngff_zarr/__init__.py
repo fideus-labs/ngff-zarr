@@ -10,6 +10,7 @@ from ._supported_versions import (
     NgffVersion,
 )
 from ._zarrista_utils import open_array
+from .axis_type import AxisType
 from .cli_input_to_ngff_image import cli_input_to_ngff_image
 from .codecs import codec_from_name, get_available_codecs
 from .compute_omero import (
@@ -18,7 +19,7 @@ from .compute_omero import (
     compute_omero_from_ngff_image,
 )
 from .config import config
-from .declare_field_transform import declare_field_transform
+from .declare_field_transform import FieldTransformType, declare_field_transform
 from .detect_cli_io_backend import ConversionBackend, detect_cli_io_backend
 from .displacement_field_transform import (
     itk_displacement_field_to_ngff_transform,
@@ -158,6 +159,8 @@ __all__ = [
     "itk_transform_to_ngff_transform",
     "itk_displacement_field_to_ngff_transform",
     "ngff_displacement_field_to_itk_transform",
+    "AxisType",
+    "FieldTransformType",
     "declare_field_transform",
     "CoordinateSystem",
     "CoordinateSystemIdentifier",

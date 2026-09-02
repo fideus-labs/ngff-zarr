@@ -24,8 +24,9 @@ ITK transform from it with no other information.
 """
 
 from dataclasses import replace
-from typing import Literal
+from enum import StrEnum
 
+from .axis_type import AxisType
 from .multiscales import NgffMultiscales
 from .ngff_image import _DEFAULT_AXIS_TYPES
 from .v06.zarr_metadata import (
@@ -37,13 +38,31 @@ from .v06.zarr_metadata import (
     validate_transform,
 )
 
-_COMPONENT_TYPES = {"displacements": "displacement", "coordinates": "coordinate"}
+
+class FieldTransformType(StrEnum):
+    """Which RFC-5 field transformation a field image declares.
+
+    ``Displacements`` holds offsets from each point, ``Coordinates`` the
+    output positions themselves. The members are the values, so
+    ``FieldTransformType.Displacements == "displacements"`` and a plain
+    string still passes.
+    """
+
+    Displacements = "displacements"
+    Coordinates = "coordinates"
+
+
+#: The component axis type each transformation requires of the field.
+_COMPONENT_TYPES = {
+    FieldTransformType.Displacements: AxisType.Displacement,
+    FieldTransformType.Coordinates: AxisType.Coordinate,
+}
 
 
 def declare_field_transform(
     multiscales: NgffMultiscales,
     *,
-    transform_type: Literal["displacements", "coordinates"] = "displacements",
+    transform_type: FieldTransformType | str = FieldTransformType.Displacements,
     path: str | None = None,
     input_system: str | None = None,
     output_system: str | None = None,
@@ -62,31 +81,42 @@ def declare_field_transform(
         itself (standalone, the default), or the image the field displaces
         (with ``path`` naming the field's array).
     :type  multiscales: NgffMultiscales
-    :param transform_type: ``displacements`` (the field holds offsets) or
-        ``coordinates`` (the field holds absolute output positions).
-    :type  transform_type: str, optional
+
+    :param transform_type: Which field transformation the declaration is,
+        as a :class:`FieldTransformType` member or its string value:
+        ``Displacements`` (the field holds offsets from each point) or
+        ``Coordinates`` (it holds the output positions themselves). The
+        choice fixes the component axis type the field must carry.
+    :type  transform_type: FieldTransformType | str, optional
+
     :param path: The zarr path of the field's array. Default: the multiscales'
         own finest dataset -- the standalone store. When given, the field is
         elsewhere and its shape cannot be checked here; the references still
         are.
     :type  path: str, optional
+
     :param input_system: Name of the declared coordinate system the transform
         maps from. Pass both ``input_system`` and ``output_system``, or
         neither: with neither, a spatial system named ``coordinate_system`` is
         declared from the field's own axes and the transform maps it onto
         itself, which is the standalone total field.
     :type  input_system: str, optional
+
     :param output_system: Name of the declared coordinate system the transform
         maps onto. See ``input_system``.
     :type  output_system: str, optional
+
     :param coordinate_system: Name of the spatial coordinate system to declare
         when ``input_system``/``output_system`` are not given.
     :type  coordinate_system: str, optional
+
     :param interpolation: How a reader interpolates the field between grid
         points.
     :type  interpolation: str, optional
+
     :return: A new multiscales carrying the declaration.
     :rtype: NgffMultiscales
+
     :raises ValueError: If the field's axes are not one component axis of the
         type the transform calls for followed by the spatial axes, if it holds
         a number of components other than the number of spatial axes, if a
@@ -95,7 +125,7 @@ def declare_field_transform(
     """
     if transform_type not in _COMPONENT_TYPES:
         msg = (
-            f"transform_type must be one of {sorted(_COMPONENT_TYPES)}, "
+            f"transform_type must be one of {sorted(map(str, _COMPONENT_TYPES))}, "
             f"got '{transform_type}'"
         )
         raise ValueError(msg)
@@ -136,7 +166,11 @@ def declare_field_transform(
             )
             raise ValueError(msg)
 
-    entry_class = Displacements if transform_type == "displacements" else Coordinates
+    entry_class = (
+        Displacements
+        if transform_type == FieldTransformType.Displacements
+        else Coordinates
+    )
     entry = entry_class(
         input=CoordinateSystemIdentifier(name=input_system),
         output=CoordinateSystemIdentifier(name=output_system),

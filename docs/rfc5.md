@@ -128,7 +128,8 @@ vector-component axis, in the channel position, carries `type="displacement"`
 (or `type="coordinate"`) instead of `type="channel"`. Like a channel/component
 axis it is `discrete` — it indexes vector components rather than a continuous
 coordinate. Set the type with the `axes_types` argument of `NgffImage`, mapping
-a dimension name to its axis type:
+a dimension name to its axis type. `AxisType` names the types the specification
+defines; RFC-3 permits any string, so a plain one is accepted just as well:
 
 ```python
 import dask.array as da
@@ -143,7 +144,7 @@ field = nz.NgffImage(
     dims=("c", "y", "x"),
     scale={"c": 1.0, "y": 1.0, "x": 1.0},
     translation={"c": 0.0, "y": 0.0, "x": 0.0},
-    axes_types={"c": "displacement"},
+    axes_types={"c": nz.AxisType.Displacement},
 )
 
 multiscales = nz.to_multiscales(field, scale_factors=[])
@@ -151,8 +152,12 @@ nz.to_ome_zarr("displacement.ome.zarr", multiscales, version="0.6")
 ```
 
 The axis type round-trips through reading and writing. It can also be set after
-the fact by editing the metadata directly, for example
-`multiscales.metadata.intrinsic_coordinate_system.axes[0].type = "displacement"`.
+the fact by editing the metadata directly:
+
+```python
+system = multiscales.metadata.intrinsic_coordinate_system
+system.axes[0].type = nz.AxisType.Displacement
+```
 
 ## A standalone field store, written region by region
 
@@ -172,7 +177,7 @@ field = nz.to_ngff_image(
     scale={"c": 1.0, "z": 2.0, "y": 1.0, "x": 1.0},
     translation={"c": 0.0, "z": 0.0, "y": 0.0, "x": 0.0},
 )
-field.axes_types = {"c": "displacement"}
+field.axes_types = {"c": nz.AxisType.Displacement}
 multiscales = nz.to_multiscales(field, scale_factors=[])
 multiscales = nz.declare_field_transform(multiscales)
 
@@ -227,7 +232,7 @@ field = nz.NgffImage(
     dims=("c", "y", "x"),
     scale={"c": 1.0, "y": 1.0, "x": 1.0},
     translation={"c": 0.0, "y": 0.0, "x": 0.0},
-    axes_types={"c": "displacement"},
+    axes_types={"c": nz.AxisType.Displacement},
 )
 field_multiscales = nz.to_multiscales(field, scale_factors=[])
 
@@ -258,12 +263,16 @@ assert transform.path == field_path
 
 field = nz.from_ome_zarr(f"{store}/{transform.path}")
 axes = field.metadata.intrinsic_coordinate_system.axes
-assert [a.type for a in axes] == ["displacement", "space", "space"]
+assert [a.type for a in axes] == [
+    nz.AxisType.Displacement,
+    nz.AxisType.Space,
+    nz.AxisType.Space,
+]
 ```
 
-Use `Coordinates` instead of `Displacements` (and `axes_types={"c":
-"coordinate"}` on the field) for an absolute coordinate field; the store layout
-is identical.
+Use `Coordinates` instead of `Displacements` (and
+`axes_types={"c": nz.AxisType.Coordinate}` on the field) for an absolute
+coordinate field; the store layout is identical.
 
 ### Interoperating with ITK
 

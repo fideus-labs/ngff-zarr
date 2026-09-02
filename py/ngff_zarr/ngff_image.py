@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 
 from dask.array.core import Array as DaskArray
 
+from .axis_type import AxisType
 from .rfc4 import AnatomicalOrientation
 from .v04.zarr_metadata import AxisUnit
 
@@ -20,7 +21,7 @@ class NgffImage:
     name: str = "image"
     axes_units: Mapping[str, AxisUnit] | None = None
     axes_orientations: Mapping[str, AnatomicalOrientation] | None = None
-    axes_types: Mapping[str, str] | None = None
+    axes_types: Mapping[str, AxisType | str] | None = None
     channel_names: list[str] | None = None
     channel_colors: list[str] | None = None
     computed_callbacks: list[ComputedCallback] = field(default_factory=list)
@@ -28,15 +29,15 @@ class NgffImage:
 
 #: The axis type to_multiscales gives a dimension when the image carries none.
 _DEFAULT_AXIS_TYPES = {
-    "x": "space",
-    "y": "space",
-    "z": "space",
-    "c": "channel",
-    "t": "time",
+    "x": AxisType.Space,
+    "y": AxisType.Space,
+    "z": AxisType.Space,
+    "c": AxisType.Channel,
+    "t": AxisType.Time,
 }
 
 
-def non_default_axes_types(axes) -> dict[str, str] | None:
+def non_default_axes_types(axes) -> dict[str, AxisType | str] | None:
     """Axis types that a multiscales rebuilt from the dims alone would lose.
 
     Readers pass these on as ``NgffImage.axes_types`` so a displacement or
