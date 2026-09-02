@@ -83,9 +83,11 @@ The canonical `SpecRule` set, in evaluation order:
 23. `coordinate-system-id-required`
 24. `reference-id-required`
 25. `reference-path-required`
+26. `label-value-required`
+27. `label-color-format`
 
 Entries 12–13 are the v0.5 namespacing rules; they fire only for v0.5 metadata
-and are inert for v0.4. Entries 16–25 are the RFC-8 node/collection rules,
+and are inert for v0.4. Entries 16–27 are the RFC-8 node/collection rules,
 dispatched by the separate `validate_collection` orchestrator. Each suite pins this list as a `CANONICAL_SPEC_RULE_IDS`
 literal — byte-identical between the two languages so the tests are
 line-for-line comparable.
@@ -160,12 +162,12 @@ Each suite independently locks:
   is given) and inert at every other supported version, asserted through
   `validate_collection` / `validateCollection`.
 
-Fourteen of the twenty-five rules never appear in `EXPECTED_EVALUATION_ORDER`,
+Sixteen of the twenty-seven rules never appear in `EXPECTED_EVALUATION_ORDER`,
 each for its own reason. The two v0.5 namespacing rules (`zarr-format`,
 `ome-namespace`) run last in the image orchestrator but are inert for the v0.4
 metadata the order test exercises. The two HCS rules
-(`plate-row-index-consistency`, `well-acquisition-missing`) and the ten
-RFC-8 rules (`node-type-required` through `reference-path-required`) are
+(`plate-row-index-consistency`, `well-acquisition-missing`) and the twelve
+RFC-8 rules (`node-type-required` through `label-color-format`) are
 deliberately absent; they are dispatched by the separate plate/well and
 collection orchestrators (see [[rule-reference]]), and the RFC-8 rules' own
 fail-fast order is pinned by the shared `rfc8_collection_cases.json` fixture

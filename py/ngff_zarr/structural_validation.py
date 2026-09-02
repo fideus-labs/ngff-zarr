@@ -111,6 +111,12 @@ violation, in canonical spec-MUST order.
 #   reference-path-required
 #       a reference that resolves to nothing in-document carries a path
 #       e.g. ome.nodes[0].attributes.coordinateTransformations[0].output
+#   label-value-required
+#       every RFC-8 label attributes entry declares a numeric labelValue
+#       e.g. ome.nodes[1].attributes.labels.labelAttributes[0]
+#   label-color-format
+#       an RFC-8 label color is four integers between 0 and 255
+#       e.g. ome.nodes[1].attributes.labels.labelAttributes[0].color
 
 from __future__ import annotations
 
@@ -158,6 +164,8 @@ class SpecRule(StrEnum):
     COORDINATE_SYSTEM_ID_REQUIRED = "coordinate-system-id-required"
     REFERENCE_ID_REQUIRED = "reference-id-required"
     REFERENCE_PATH_REQUIRED = "reference-path-required"
+    LABEL_VALUE_REQUIRED = "label-value-required"
+    LABEL_COLOR_FORMAT = "label-color-format"
 
 
 class ValidationLevel(StrEnum):
