@@ -125,6 +125,15 @@ export {
   multiscalesEntryFromOme,
 } from "./utils/rfc8_multiscale.ts";
 export {
+  readSceneFromAttrs,
+  type Scene,
+  scene,
+  SCENE_KEY,
+  sceneFromOmeValue,
+  sceneToOmeValue,
+  setScene,
+} from "./utils/rfc8_scene.ts";
+export {
   CORE_PATH_TYPES,
   validateCollection,
   validateCoordinateSystemIdRequired,
@@ -139,6 +148,7 @@ export {
   validatePathTypeKnown,
   validateReferenceIdRequired,
   validateReferencePathRequired,
+  validateSceneTransformationsRequired,
   XOR_NODE_TYPES,
 } from "./utils/rfc8_validation.ts";
 export {
