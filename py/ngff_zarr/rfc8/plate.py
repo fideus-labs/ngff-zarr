@@ -118,12 +118,16 @@ def plate(node: Node) -> PlateAttribute | None:
         return None
     if not isinstance(raw, Mapping):
         raise ValueError(f"A 'plate' attribute must be an object; got {raw!r}.")
+    for field in ("columns", "rows", "acquisitions"):
+        value = raw.get(field)
+        if value is not None and not isinstance(value, list):
+            raise ValueError(f"A plate {field!r} must be an array; got {value!r}.")
     acquisitions = None
     if raw.get("acquisitions") is not None:
         acquisitions = [_entry_from(entry) for entry in raw["acquisitions"]]
     return PlateAttribute(
-        columns=[_entry_from(entry) for entry in raw.get("columns", [])],
-        rows=[_entry_from(entry) for entry in raw.get("rows", [])],
+        columns=[_entry_from(entry) for entry in raw.get("columns") or []],
+        rows=[_entry_from(entry) for entry in raw.get("rows") or []],
         acquisitions=acquisitions,
     )
 

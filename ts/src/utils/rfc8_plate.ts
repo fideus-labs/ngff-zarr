@@ -137,9 +137,17 @@ export function plate(node: OmeNode): PlateAttribute | undefined {
       `A 'plate' attribute must be an object; got ${JSON.stringify(raw)}.`,
     );
   }
+  for (const field of ["columns", "rows", "acquisitions"]) {
+    const value = raw[field];
+    if (value !== undefined && value !== null && !Array.isArray(value)) {
+      throw new Error(
+        `A plate '${field}' must be an array; got ${JSON.stringify(value)}.`,
+      );
+    }
+  }
   return {
-    columns: (Array.isArray(raw.columns) ? raw.columns : []).map(entryFrom),
-    rows: (Array.isArray(raw.rows) ? raw.rows : []).map(entryFrom),
+    columns: ((raw.columns ?? []) as unknown[]).map(entryFrom),
+    rows: ((raw.rows ?? []) as unknown[]).map(entryFrom),
     ...(Array.isArray(raw.acquisitions) && {
       acquisitions: raw.acquisitions.map(entryFrom),
     }),

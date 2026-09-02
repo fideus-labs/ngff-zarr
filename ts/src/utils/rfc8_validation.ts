@@ -213,10 +213,14 @@ function* iterPlateAttributes(
   }
 }
 
-/** The acquisition, column and row entries of every plate. */
+/**
+ * The acquisition, column and row entries of every plate. Non-object
+ * entries are yielded too, so a `null` entry reaches the id rules instead
+ * of escaping validation.
+ */
 function* iterPlateEntries(
   document: Record<string, unknown>,
-): Generator<[string, Record<string, unknown>]> {
+): Generator<[string, unknown]> {
   for (const [base, plate] of iterPlateAttributes(document)) {
     for (const field of ["acquisitions", "columns", "rows"]) {
       const entries = plate[field];
@@ -224,9 +228,7 @@ function* iterPlateEntries(
         continue;
       }
       for (const [index, entry] of entries.entries()) {
-        if (isRecord(entry)) {
-          yield [`${base}.${field}[${index}]`, entry];
-        }
+        yield [`${base}.${field}[${index}]`, entry];
       }
     }
   }
@@ -350,7 +352,7 @@ function* iterIdSites(
   // on each acquisition, column and row, so a missing one must fail the
   // format rule rather than escape the walk.
   for (const [location, entry] of iterPlateEntries(document)) {
-    yield [`${location}.id`, entry.id, true];
+    yield [`${location}.id`, isRecord(entry) ? entry.id : undefined, true];
   }
   for (const [location, reference] of iterReferenceSites(document)) {
     if (
@@ -758,16 +760,41 @@ export function validateSceneTransformationsRequired(
 export function validatePlateColumnsRowsRequired(
   document: Record<string, unknown>,
 ): void {
-  for (const [location, plate] of iterPlateAttributes(document)) {
+  for (const [location, node] of iterNodes(document, "ome")) {
+    const attributes = node.attributes;
+    if (!isRecord(attributes) || !("plate" in attributes)) {
+      continue;
+    }
+    const plate = attributes.plate;
+    const site = `${location}.attributes.plate`;
+    if (!isRecord(plate)) {
+      throw new ValidationError(
+        SpecRule.PlateColumnsRowsRequired,
+        `A 'plate' attribute must be an object; got ${pyReprValue(plate)}.`,
+        site,
+      );
+    }
     for (const field of ["columns", "rows"]) {
       const entries = plate[field];
       if (!Array.isArray(entries) || entries.length === 0) {
         throw new ValidationError(
           SpecRule.PlateColumnsRowsRequired,
           `Plate must declare a non-empty ${pyRepr(field)} array.`,
-          location,
+          site,
         );
       }
+    }
+    const acquisitions = plate.acquisitions;
+    if (
+      acquisitions !== undefined && acquisitions !== null &&
+      !Array.isArray(acquisitions)
+    ) {
+      throw new ValidationError(
+        SpecRule.PlateColumnsRowsRequired,
+        `Plate 'acquisitions' must be an array; got ` +
+          `${pyReprValue(acquisitions)}.`,
+        site,
+      );
     }
   }
 }
@@ -781,12 +808,16 @@ export function validateWellReferenceResolves(
 ): void {
   for (const [location, node, plate] of iterNodesWithPlate(document)) {
     const attributes = node.attributes;
-    if (!isRecord(attributes)) {
+    if (!isRecord(attributes) || !("well" in attributes)) {
       continue;
     }
     const well = attributes.well;
     if (!isRecord(well)) {
-      continue;
+      throw new ValidationError(
+        SpecRule.WellReferenceResolves,
+        `A 'well' attribute must be an object; got ${pyReprValue(well)}.`,
+        `${location}.attributes.well`,
+      );
     }
     for (
       const [field, plural] of [

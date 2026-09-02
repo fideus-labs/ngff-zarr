@@ -1832,6 +1832,111 @@
       "rule": "acquisition-reference-resolves",
       "message": "Spec rule [acquisition-reference-resolves] violated: Acquisition references 'acq0', but no enclosing collection declares a 'plate'.",
       "location": "ome.attributes.acquisition"
+    },
+    {
+      "name": "a plate attribute that is not an object",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "collection",
+        "name": "plate",
+        "nodes": [],
+        "attributes": {
+          "plate": "grid"
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "plate-columns-rows-required",
+      "message": "Spec rule [plate-columns-rows-required] violated: A 'plate' attribute must be an object; got 'grid'.",
+      "location": "ome.attributes.plate"
+    },
+    {
+      "name": "plate acquisitions that are not an array",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "collection",
+        "name": "plate",
+        "nodes": [],
+        "attributes": {
+          "plate": {
+            "columns": [
+              {
+                "id": "1"
+              }
+            ],
+            "rows": [
+              {
+                "id": "A"
+              }
+            ],
+            "acquisitions": "none"
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "plate-columns-rows-required",
+      "message": "Spec rule [plate-columns-rows-required] violated: Plate 'acquisitions' must be an array; got 'none'.",
+      "location": "ome.attributes.plate"
+    },
+    {
+      "name": "a null plate column entry",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "collection",
+        "name": "plate",
+        "nodes": [],
+        "attributes": {
+          "plate": {
+            "columns": [
+              null
+            ],
+            "rows": [
+              {
+                "id": "A"
+              }
+            ]
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "node-id-format",
+      "message": "Spec rule [node-id-format] violated: Id None does not match [a-zA-Z0-9-_.]+.",
+      "location": "ome.attributes.plate.columns[0].id"
+    },
+    {
+      "name": "a well attribute that is not an object",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "collection",
+        "name": "plate",
+        "attributes": {
+          "plate": {
+            "columns": [
+              {
+                "id": "1"
+              }
+            ],
+            "rows": [
+              {
+                "id": "A"
+              }
+            ]
+          }
+        },
+        "nodes": [
+          {
+            "type": "collection",
+            "name": "A1",
+            "nodes": [],
+            "attributes": {
+              "well": "invalid"
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "well-reference-resolves",
+      "message": "Spec rule [well-reference-resolves] violated: A 'well' attribute must be an object; got 'invalid'.",
+      "location": "ome.nodes[0].attributes.well"
     }
   ]
 }

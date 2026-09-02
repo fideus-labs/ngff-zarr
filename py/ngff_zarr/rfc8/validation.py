@@ -170,16 +170,19 @@ def _iter_plate_attributes(
 
 def _iter_plate_entries(
     document: Mapping[str, Any],
-) -> Iterator[tuple[str, Mapping[str, Any]]]:
-    """Yield the acquisition, column and row entries of every plate."""
+) -> Iterator[tuple[str, Any]]:
+    """Yield the acquisition, column and row entries of every plate.
+
+    Non-object entries are yielded too, so a ``null`` entry reaches the id
+    rules instead of escaping validation.
+    """
     for base, plate in _iter_plate_attributes(document):
         for field in ("acquisitions", "columns", "rows"):
             entries = plate.get(field)
             if not isinstance(entries, list):
                 continue
             for index, entry in enumerate(entries):
-                if isinstance(entry, Mapping):
-                    yield f"{base}.{field}[{index}]", entry
+                yield f"{base}.{field}[{index}]", entry
 
 
 def _iter_hcs_reference_sites(
@@ -282,7 +285,8 @@ def _iter_id_sites(
     # on each acquisition, column and row, so a missing one must fail the
     # format rule rather than escape the walk.
     for location, entry in _iter_plate_entries(document):
-        yield f"{location}.id", entry.get("id"), True
+        entry_id = entry.get("id") if isinstance(entry, Mapping) else None
+        yield f"{location}.id", entry_id, True
     for location, reference in _iter_reference_sites(document):
         if isinstance(reference, Mapping) and reference.get("id") is not None:
             yield f"{location}.id", reference.get("id"), False
@@ -706,19 +710,38 @@ def validate_plate_columns_rows_required(
     ------
     ValidationError
         With :attr:`SpecRule.PLATE_COLUMNS_ROWS_REQUIRED` for the first
-        ``plate`` attribute, in depth-first order, whose ``columns`` or
-        ``rows`` is not a non-empty array; location e.g.
+        ``plate`` attribute, in depth-first order, that is not an object,
+        whose ``columns`` or ``rows`` is not a non-empty array, or whose
+        present ``acquisitions`` is not an array; location e.g.
         ``ome.attributes.plate``.
     """
-    for location, plate in _iter_plate_attributes(document):
+    for location, node in _iter_nodes(document, "ome"):
+        attributes = node.get("attributes")
+        if not isinstance(attributes, Mapping) or "plate" not in attributes:
+            continue
+        plate = attributes["plate"]
+        site = f"{location}.attributes.plate"
+        if not isinstance(plate, Mapping):
+            raise ValidationError(
+                SpecRule.PLATE_COLUMNS_ROWS_REQUIRED,
+                f"A 'plate' attribute must be an object; got {plate!r}.",
+                site,
+            )
         for field in ("columns", "rows"):
             entries = plate.get(field)
             if not isinstance(entries, list) or not entries:
                 raise ValidationError(
                     SpecRule.PLATE_COLUMNS_ROWS_REQUIRED,
                     f"Plate must declare a non-empty {field!r} array.",
-                    location,
+                    site,
                 )
+        acquisitions = plate.get("acquisitions")
+        if acquisitions is not None and not isinstance(acquisitions, list):
+            raise ValidationError(
+                SpecRule.PLATE_COLUMNS_ROWS_REQUIRED,
+                f"Plate 'acquisitions' must be an array; got {acquisitions!r}.",
+                site,
+            )
 
 
 def validate_well_reference_resolves(document: Mapping[str, Any]) -> None:
@@ -735,11 +758,15 @@ def validate_well_reference_resolves(document: Mapping[str, Any]) -> None:
     """
     for location, node, plate in _iter_nodes_with_plate(document):
         attributes = node.get("attributes")
-        if not isinstance(attributes, Mapping):
+        if not isinstance(attributes, Mapping) or "well" not in attributes:
             continue
-        well = attributes.get("well")
+        well = attributes["well"]
         if not isinstance(well, Mapping):
-            continue
+            raise ValidationError(
+                SpecRule.WELL_REFERENCE_RESOLVES,
+                f"A 'well' attribute must be an object; got {well!r}.",
+                f"{location}.attributes.well",
+            )
         for field, plural in (("column", "columns"), ("row", "rows")):
             reference = well.get(field)
             site = f"{location}.attributes.well.{field}"
