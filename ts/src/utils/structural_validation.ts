@@ -115,6 +115,12 @@ export const SpecRule = {
   WellReferenceResolves: "well-reference-resolves",
   /** An acquisition reference names one the enclosing plate declares. */
   AcquisitionReferenceResolves: "acquisition-reference-resolves",
+  /** A non-root node's version equals the root's declared version. */
+  NodeVersionConsistent: "node-version-consistent",
+  /** Singlescale transformations are one scale, or scale then translation. */
+  SinglescaleTransformShape: "singlescale-transform-shape",
+  /** Every singlescale output references the multiscale's one system. */
+  MultiscaleOutputConsistent: "multiscale-output-consistent",
 } as const;
 
 /** Union of the {@link SpecRule} string values. */

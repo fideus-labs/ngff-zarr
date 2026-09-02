@@ -55,7 +55,7 @@ import {
 // image/multiscales rules dispatched by validateStructural -- the first eleven
 // are the v0.4 rules and the next two (zarr-format, ome-namespace) are the v0.5
 // namespacing rules, inert for v0.4; the next two are the HCS plate/well rules
-// dispatched by validatePlate / validateWell; the final sixteen are the
+// dispatched by validatePlate / validateWell; the final nineteen are the
 // RFC-8 node/collection rules dispatched by validateCollection.
 const CANONICAL_SPEC_RULE_IDS: string[] = [
   "axis-count",
@@ -89,6 +89,9 @@ const CANONICAL_SPEC_RULE_IDS: string[] = [
   "plate-columns-rows-required",
   "well-reference-resolves",
   "acquisition-reference-resolves",
+  "node-version-consistent",
+  "singlescale-transform-shape",
+  "multiscale-output-consistent",
 ];
 
 // The locked RFC-3 version manifest: the versions whose axis model is
