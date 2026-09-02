@@ -126,3 +126,31 @@ def test_label_rules_fire():
     with pytest.raises(ValidationError) as exc_info:
         validate_collection(node, version="0.9.dev3")
     assert exc_info.value.rule.value == "reference-path-required"
+
+
+def test_a_null_labels_value_is_rejected():
+    node = Node(type="multiscale", name="nuclei", nodes=[])
+    node.attributes = {"labels": None}
+    assert is_label_map(node)
+    with pytest.raises(ValueError, match="must be an object"):
+        labels(node)
+
+
+def test_extra_keys_do_not_override_typed_fields():
+    node = Node(type="multiscale", name="nuclei", nodes=[])
+    set_labels(
+        node,
+        Labels(
+            labelAttributes=[
+                LabelAttributes(
+                    labelValue=1,
+                    color=[255, 0, 0, 255],
+                    extra={"labelValue": 99, "myorg:note": "kept"},
+                )
+            ]
+        ),
+    )
+    serialized = node.attributes["labels"]["labelAttributes"][0]
+    assert serialized["labelValue"] == 1
+    assert serialized["color"] == [255, 0, 0, 255]
+    assert serialized["myorg:note"] == "kept"

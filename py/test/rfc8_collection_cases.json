@@ -997,6 +997,113 @@
       "rule": "path-type-known",
       "message": "Spec rule [path-type-known] violated: Path type 'google-sheet' is not 'zarr', 'json', or a prefixed extension type.",
       "location": "ome.attributes.coordinateTransformations[0].output.path.type"
+    },
+    {
+      "name": "a pathless label source naming a coordinate-system id",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "multiscale",
+        "name": "nuclei",
+        "id": "nuclei",
+        "nodes": [],
+        "attributes": {
+          "coordinateSystems": [
+            {
+              "id": "physical",
+              "name": "physical",
+              "axes": [
+                {
+                  "name": "x",
+                  "type": "space"
+                }
+              ]
+            }
+          ],
+          "labels": {
+            "source": [
+              {
+                "id": "physical"
+              }
+            ]
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "reference-path-required",
+      "message": "Spec rule [reference-path-required] violated: Reference id 'physical' is not declared in this document, so the reference must carry a 'path'.",
+      "location": "ome.attributes.labels.source[0]"
+    },
+    {
+      "name": "a null label attributes entry",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "multiscale",
+        "name": "nuclei",
+        "id": "nuclei",
+        "nodes": [],
+        "attributes": {
+          "coordinateSystems": [
+            {
+              "id": "physical",
+              "name": "physical",
+              "axes": [
+                {
+                  "name": "x",
+                  "type": "space"
+                }
+              ]
+            }
+          ],
+          "labels": {
+            "labelAttributes": [
+              null
+            ]
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "label-value-required",
+      "message": "Spec rule [label-value-required] violated: Label attributes must declare a numeric 'labelValue'; got None.",
+      "location": "ome.attributes.labels.labelAttributes[0]"
+    },
+    {
+      "name": "an unprefixed extension path type on a label source",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "multiscale",
+        "name": "nuclei",
+        "id": "nuclei",
+        "nodes": [],
+        "attributes": {
+          "coordinateSystems": [
+            {
+              "id": "physical",
+              "name": "physical",
+              "axes": [
+                {
+                  "name": "x",
+                  "type": "space"
+                }
+              ]
+            }
+          ],
+          "labels": {
+            "source": [
+              {
+                "id": "elsewhere",
+                "path": {
+                  "type": "google-sheet",
+                  "path": "./sheet"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "path-type-known",
+      "message": "Spec rule [path-type-known] violated: Path type 'google-sheet' is not 'zarr', 'json', or a prefixed extension type.",
+      "location": "ome.attributes.labels.source[0].path.type"
     }
   ]
 }

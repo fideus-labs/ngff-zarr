@@ -162,9 +162,10 @@ labels(nuclei).source  # -> [Reference(id="raw")]
 ```
 
 An empty `labels` object (`Labels()`) denotes a label map without saying
-more. `labelValue` presence and the four-integer `color` format are checked
-by the `label-value-required` and `label-color-format` rules, and `source`
-entries join the reference rules.
+more. Numeric `labelValue` values and the four-integer `color` format are
+checked by the `label-value-required` and `label-color-format` rules, and
+`source` entries join the reference rules; a pathless `source` reference
+must name a node id declared in the document.
 
 ### Validation
 
