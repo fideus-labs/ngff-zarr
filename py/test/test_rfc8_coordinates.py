@@ -238,4 +238,9 @@ def test_id_only_serialized_systems_parse(tmp_path):
 
     parsed = from_ome_zarr(store)
     assert parsed.metadata.coordinateSystems[0].name is None
-    assert parsed.metadata.coordinateSystems[0].id is not None
+    system_id = parsed.metadata.coordinateSystems[0].id
+    assert system_id is not None
+    sequence = parsed.metadata.datasets[0].coordinateTransformations[0]
+    assert sequence.output.id == system_id
+    assert sequence.transformations[0].scale == [1.0, 1.0]
+    assert parsed.images[0].scale == {"y": 1.0, "x": 1.0}
