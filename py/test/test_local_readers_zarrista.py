@@ -357,3 +357,13 @@ def test_lazy_array_serves_stepped_and_negative_step_slices(tmp_path):
     ]
     for selection in selections:
         np.testing.assert_array_equal(np.asarray(arr[selection]), data[selection])
+
+
+def test_writing_through_an_empty_stepped_slice_is_refused(tmp_path):
+    """An empty stepped pick is still a stepped slice: a write through it must be refused,
+    not silently permitted as a unit-step write of nothing."""
+
+    from ngff_zarr._zarrista_utils import _normalize_selection
+
+    _, _, residual = _normalize_selection((10,), (slice(5, 5, 2),))
+    assert residual is not None, "an empty stepped slice must still report striding"

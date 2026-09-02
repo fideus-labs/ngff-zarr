@@ -140,8 +140,11 @@ def _normalize_selection(
             start, stop, step = index.indices(shape[axis])
             picked = range(start, stop, step)
             if not picked:
+                # An empty stepped pick is still a stepped slice: mark it strided so a write
+                # through it is refused rather than silently permitted as unit-step.
                 normalized.append(slice(0, 0))
                 residual.append(slice(None))
+                strided = True
                 continue
             low, high = (picked[-1], picked[0]) if step < 0 else (picked[0], picked[-1])
             normalized.append(slice(low, high + 1))
