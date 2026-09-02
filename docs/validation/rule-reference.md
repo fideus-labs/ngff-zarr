@@ -28,7 +28,7 @@ OME-Zarr 0.9.dev1, which incorporates RFC-4 through `ome/ngff-spec#190` (and
 from 0.9.dev3, which extends it): they are inert when the caller declares 0.4,
 0.5 or 0.6, where RFC 4 has no normative status, and stay on when no version
 is declared — a strictness choice, like `axis-names-unique` below 0.9.dev1.
-The sixteen RFC 8 node/collection rules (16–31) are normative from OME-Zarr
+The nineteen RFC 8 node/collection rules (16–34) are normative from OME-Zarr
 0.9.dev3, the version that stores the RFC-8 node model. For the conceptual background and the two
 validation levels, see [[overview]]; for invocation, see [[api]].
 
@@ -73,6 +73,9 @@ the `SpecRule` enum declares them and the orchestrators evaluate them.
 | 29| `plate-columns-rows-required` | RFC-8 HCS | A declared `plate` attribute carries non-empty `columns` and `rows` arrays; every entry id joins the id walks of rules 19 and 20, so a missing entry id fails rule 19. Same gating as rule 16. | RFC-8: plate `columns` and `rows` are required, each entry with a unique string id. | `ome.attributes.plate` |
 | 30| `well-reference-resolves` | RFC-8 HCS | A `well` attribute's `column` and `row` are id references naming entries the nearest strictly enclosing plate declares; a node's own `plate` does not count. Same gating as rule 16. | RFC-8: a well references one of the columns/rows listed on the enclosing plate-level collection. | `ome.nodes[0].attributes.well.column` |
 | 31| `acquisition-reference-resolves` | RFC-8 HCS | An `acquisition` attribute is an id reference naming one of the acquisitions the nearest strictly enclosing plate declares; a node's own `plate` does not count. Same gating as rule 16. | RFC-8: the acquisition attribute references one of the acquisitions. | `ome.nodes[0].nodes[1].attributes.acquisition` |
+| 32| `node-version-consistent` | RFC-8 nodes | A non-root node's `version`, when declared, equals the root's; a no-op when the root declares none. Same gating as rule 16. | RFC-8: non-root nodes MUST NOT have a different version value than the root. | `ome.nodes[2].version` |
+| 33| `singlescale-transform-shape` | RFC-8 singlescales | Declared singlescale transformations are a single `scale`, or a `sequence` of a `scale` followed by a `translation`, and the `input` references the node's own id; inlined entries without attributes (the distributed layout) are exempt. Same gating as rule 16. | RFC-8: singlescale coordinateTransformations contain a single scale, or scale then translation, with input referencing the singlescale itself. | `ome.nodes[0].attributes.coordinateTransformations` |
+| 34| `multiscale-output-consistent` | RFC-8 multiscales | Every inline singlescale transformation output references one and the same coordinate system, declared under the multiscale's `coordinateSystems`. Same gating as rule 16. | RFC-8: the output fields of all transformations reference the same coordinate system via the id field. | `ome.nodes[1].attributes.coordinateTransformations[0].output` |
 
 ## Evaluation order and orchestrators
 
@@ -97,14 +100,14 @@ rules:
   (`plate-row-index-consistency`).
 - **`validate_well` / `validateWell`** evaluates rule **15**
   (`well-acquisition-missing`), in the context of its parent plate.
-- **`validate_collection` / `validateCollection`** evaluates rules **16–31**
+- **`validate_collection` / `validateCollection`** evaluates rules **16–34**
   (the RFC-8 node/collection rules) against the raw `ome` document of an
   OME-Zarr 0.9.dev3 store or standalone JSON file, walking the node tree
   depth-first once per rule. The rules are enforced when the document
   declares 0.9.dev3 or no version, and inert when an earlier version is
   declared (RFC-8 lands at 0.9.dev3; see `is_rfc8_node_model`).
 
-The HCS rules (14 and 15) and the RFC-8 rules (16–31) are deliberately absent
+The HCS rules (14 and 15) and the RFC-8 rules (16–34) are deliberately absent
 from the image orchestrator's order; they operate on separate metadata
 objects. The exact fail-fast sequence is locked by the parity tests described
 in [[parity]].
@@ -139,4 +142,6 @@ TypeScript by checking the target version in `axisViews`.
   `reference-id-required`, `reference-path-required`,
   `label-value-required`, `label-color-format`,
   `scene-transformations-required`, `plate-columns-rows-required`,
-  `well-reference-resolves`, `acquisition-reference-resolves`.
+  `well-reference-resolves`, `acquisition-reference-resolves`,
+  `node-version-consistent`, `singlescale-transform-shape`,
+  `multiscale-output-consistent`.

@@ -839,6 +839,194 @@ def validate_acquisition_reference_resolves(
             )
 
 
+def validate_node_version_consistent(document: Mapping[str, Any]) -> None:
+    """Validate that non-root nodes do not contradict the root's version.
+
+    RFC-8 puts ``version`` on the root node only; a non-root node SHOULD NOT
+    carry one and MUST NOT carry a different value. The rule compares
+    against the root's declared version and is a no-op when the root
+    declares none: there is then nothing to differ from, and a parsed node
+    tree (whose root version the parser returns separately) is judged the
+    same as its document.
+
+    Raises
+    ------
+    ValidationError
+        With :attr:`SpecRule.NODE_VERSION_CONSISTENT` for the first
+        non-root node, in depth-first order, whose ``version`` differs from
+        the root's; location e.g. ``ome.nodes[2].version``.
+    """
+    root_version = document.get("version")
+    if not isinstance(root_version, str):
+        return
+    for location, node in _iter_nodes(document, "ome"):
+        if location == "ome":
+            continue
+        value = node.get("version")
+        if value is None or value == root_version:
+            continue
+        raise ValidationError(
+            SpecRule.NODE_VERSION_CONSISTENT,
+            f"Node declares version {value!r}, but the root declares "
+            f"{root_version!r}; a non-root node must not differ.",
+            f"{location}.version",
+        )
+
+
+def _is_scale_then_translation(entries: list) -> bool:
+    """Whether ``entries`` is ``[scale]`` or ``[scale, translation]``."""
+    types = [
+        entry.get("type") if isinstance(entry, Mapping) else None for entry in entries
+    ]
+    return types == ["scale"] or types == ["scale", "translation"]
+
+
+def validate_singlescale_transform_shape(
+    document: Mapping[str, Any],
+) -> None:
+    """Validate the transformations a singlescale node declares.
+
+    RFC-8 allows exactly one ``scale``, or a ``sequence`` of a ``scale``
+    followed by a ``translation``; the transformation's ``input`` references
+    the singlescale's own id. A singlescale entry inlined in a multiscale
+    document may omit its attributes entirely (the distributed layout keeps
+    them in the level's own document), so only declared transformations are
+    checked.
+
+    Raises
+    ------
+    ValidationError
+        With :attr:`SpecRule.SINGLESCALE_TRANSFORM_SHAPE` for the first
+        singlescale node, in depth-first order, whose declared
+        transformations are not that shape, or whose transformation
+        ``input`` id is not the node's own id; location e.g.
+        ``ome.nodes[0].attributes.coordinateTransformations``.
+    """
+    for location, node in _iter_nodes(document, "ome"):
+        if node.get("type") != "singlescale":
+            continue
+        attributes = node.get("attributes")
+        if not isinstance(attributes, Mapping):
+            continue
+        transformations = attributes.get("coordinateTransformations")
+        if transformations is None:
+            continue
+        site = f"{location}.attributes.coordinateTransformations"
+        shaped = isinstance(transformations, list) and len(transformations) == 1
+        entry = transformations[0] if shaped else None
+        if shaped and isinstance(entry, Mapping):
+            if entry.get("type") == "scale":
+                pass
+            elif entry.get("type") == "sequence" and _is_scale_then_translation(
+                entry.get("transformations") or []
+            ):
+                pass
+            else:
+                shaped = False
+        else:
+            shaped = False
+        if not shaped:
+            raise ValidationError(
+                SpecRule.SINGLESCALE_TRANSFORM_SHAPE,
+                "Singlescale transformations must be a single scale, or a "
+                "sequence of a scale followed by a translation.",
+                site,
+            )
+        node_id = node.get("id")
+        reference = entry.get("input")
+        input_id = reference.get("id") if isinstance(reference, Mapping) else None
+        if (
+            isinstance(node_id, str)
+            and isinstance(input_id, str)
+            and input_id != node_id
+        ):
+            raise ValidationError(
+                SpecRule.SINGLESCALE_TRANSFORM_SHAPE,
+                f"Singlescale transformation input references {input_id!r}, "
+                f"but the node's own id is {node_id!r}.",
+                f"{site}[0].input",
+            )
+
+
+def validate_multiscale_output_consistent(
+    document: Mapping[str, Any],
+) -> None:
+    """Validate that a multiscale's singlescale outputs agree.
+
+    RFC-8 requires the output of every singlescale transformation of a
+    multiscale node to reference the same coordinate system by id, one the
+    multiscale declares under its ``coordinateSystems``.
+
+    Raises
+    ------
+    ValidationError
+        With :attr:`SpecRule.MULTISCALE_OUTPUT_CONSISTENT` for the first
+        inline singlescale transformation, in depth-first order, whose
+        output id differs from its siblings' or is not a declared
+        coordinate system of the multiscale; location e.g.
+        ``ome.nodes[1].attributes.coordinateTransformations[0].output``.
+    """
+    for location, node in _iter_nodes(document, "ome"):
+        if node.get("type") != "multiscale":
+            continue
+        attributes = node.get("attributes")
+        declared: set[str] | None = None
+        if isinstance(attributes, Mapping) and isinstance(
+            attributes.get("coordinateSystems"), list
+        ):
+            declared = {
+                system["id"]
+                for system in attributes["coordinateSystems"]
+                if isinstance(system, Mapping) and isinstance(system.get("id"), str)
+            }
+        children = node.get("nodes")
+        if not isinstance(children, list):
+            continue
+        seen: tuple[str, str] | None = None
+        for index, child in enumerate(children):
+            if not isinstance(child, Mapping):
+                continue
+            if child.get("type") != "singlescale":
+                continue
+            child_attributes = child.get("attributes")
+            if not isinstance(child_attributes, Mapping):
+                continue
+            transformations = child_attributes.get("coordinateTransformations")
+            if not isinstance(transformations, list):
+                continue
+            for entry_index, entry in enumerate(transformations):
+                if not isinstance(entry, Mapping):
+                    continue
+                reference = entry.get("output")
+                output_id = (
+                    reference.get("id") if isinstance(reference, Mapping) else None
+                )
+                if not isinstance(output_id, str):
+                    continue
+                site = (
+                    f"{location}.nodes[{index}].attributes"
+                    f".coordinateTransformations[{entry_index}].output"
+                )
+                if declared is not None and output_id not in declared:
+                    raise ValidationError(
+                        SpecRule.MULTISCALE_OUTPUT_CONSISTENT,
+                        f"Singlescale output references {output_id!r}, "
+                        f"which the multiscale's 'coordinateSystems' do "
+                        f"not declare.",
+                        site,
+                    )
+                if seen is None:
+                    seen = (output_id, site)
+                elif output_id != seen[0]:
+                    raise ValidationError(
+                        SpecRule.MULTISCALE_OUTPUT_CONSISTENT,
+                        f"Singlescale outputs must all reference the same "
+                        f"coordinate system; got {seen[0]!r} and "
+                        f"{output_id!r}.",
+                        site,
+                    )
+
+
 #: The RFC-8 rules in canonical evaluation order (the SpecRule declaration
 #: order), dispatched fail-fast by :func:`validate_collection`.
 _COLLECTION_RULES = (
@@ -858,6 +1046,9 @@ _COLLECTION_RULES = (
     validate_plate_columns_rows_required,
     validate_well_reference_resolves,
     validate_acquisition_reference_resolves,
+    validate_node_version_consistent,
+    validate_singlescale_transform_shape,
+    validate_multiscale_output_consistent,
 )
 
 

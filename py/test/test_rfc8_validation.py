@@ -58,6 +58,9 @@ def test_every_rule_is_exercised_by_the_shared_cases():
         "plate-columns-rows-required",
         "well-reference-resolves",
         "acquisition-reference-resolves",
+        "node-version-consistent",
+        "singlescale-transform-shape",
+        "multiscale-output-consistent",
     }
 
 
