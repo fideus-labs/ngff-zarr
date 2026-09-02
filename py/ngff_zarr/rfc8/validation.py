@@ -211,8 +211,10 @@ def _iter_nodes_with_plate(
 ) -> Iterator[tuple[str, Mapping[str, Any], Mapping[str, Any] | None]]:
     """Yield ``(location, node, plate)``, with the nearest enclosing plate.
 
-    A node carrying the ``plate`` attribute is its own nearest plate, so an
-    acquisition reference on the plate collection itself resolves too.
+    The plate is the nearest strictly enclosing one: RFC-8 resolves well and
+    acquisition references against the plate attribute on the enclosing
+    plate-level collection, so a node's own ``plate`` never answers for its
+    own references.
     """
 
     def _walk(
@@ -220,12 +222,12 @@ def _iter_nodes_with_plate(
         location: str,
         plate: Mapping[str, Any] | None,
     ) -> Iterator[tuple[str, Mapping[str, Any], Mapping[str, Any] | None]]:
+        yield location, node, plate
         attributes = node.get("attributes")
         if isinstance(attributes, Mapping) and isinstance(
             attributes.get("plate"), Mapping
         ):
             plate = attributes["plate"]
-        yield location, node, plate
         children = node.get("nodes")
         if isinstance(children, list):
             for index, child in enumerate(children):
@@ -276,9 +278,11 @@ def _iter_id_sites(
     for location, system in _iter_coordinate_systems(document):
         if system.get("id") is not None:
             yield f"{location}.id", system.get("id"), True
+    # Every plate entry is yielded, id present or not: RFC-8 requires an id
+    # on each acquisition, column and row, so a missing one must fail the
+    # format rule rather than escape the walk.
     for location, entry in _iter_plate_entries(document):
-        if entry.get("id") is not None:
-            yield f"{location}.id", entry.get("id"), True
+        yield f"{location}.id", entry.get("id"), True
     for location, reference in _iter_reference_sites(document):
         if isinstance(reference, Mapping) and reference.get("id") is not None:
             yield f"{location}.id", reference.get("id"), False

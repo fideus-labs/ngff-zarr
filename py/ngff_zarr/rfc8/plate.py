@@ -177,9 +177,11 @@ def plate_collection_from_hcs(hcs_plate: Any) -> Node:
     Produces the "wide" layout of the RFC: one child collection per well,
     whose multiscale nodes reference the image groups by their paths within
     the plate store and carry an ``acquisition`` reference when the source
-    declares one. The 0.4/0.5 numeric acquisition ids become their decimal
-    strings; column and row names, already strings, become the ids. Written
-    beside the existing plate metadata (with
+    declares one. RFC-8 ids share one namespace per document and 0.4/0.5
+    row, column and acquisition labels do not (a column ``"1"`` and an
+    acquisition ``1`` are routine), so the ids are prefixed by kind --
+    ``row.A``, ``col.1``, ``acq.0`` -- and the labels stay on ``name``.
+    Written beside the existing plate metadata (with
     :func:`ngff_zarr.to_collection_zarr` on the plate root), the collection
     is the RFC-8 view of the same store.
     """
@@ -187,12 +189,15 @@ def plate_collection_from_hcs(hcs_plate: Any) -> Node:
     acquisitions = None
     if metadata.acquisitions:
         acquisitions = [
-            PlateEntry(id=str(entry.id), name=entry.name)
+            PlateEntry(id=f"acq.{entry.id}", name=entry.name or str(entry.id))
             for entry in metadata.acquisitions
         ]
     plate_attribute = PlateAttribute(
-        columns=[PlateEntry(id=column.name) for column in metadata.columns],
-        rows=[PlateEntry(id=row.name) for row in metadata.rows],
+        columns=[
+            PlateEntry(id=f"col.{column.name}", name=column.name)
+            for column in metadata.columns
+        ],
+        rows=[PlateEntry(id=f"row.{row.name}", name=row.name) for row in metadata.rows],
         acquisitions=acquisitions,
     )
 
@@ -204,7 +209,10 @@ def plate_collection_from_hcs(hcs_plate: Any) -> Node:
         well_node = Collection(f"well {well_meta.path}", nodes=[])
         set_well(
             well_node,
-            WellAttribute(column=Reference(column_name), row=Reference(row_name)),
+            WellAttribute(
+                column=Reference(f"col.{column_name}"),
+                row=Reference(f"row.{row_name}"),
+            ),
         )
         hcs_well = hcs_plate.get_well(row_name, column_name)
         for image in (hcs_well.metadata.images if hcs_well else []) or []:
@@ -214,7 +222,7 @@ def plate_collection_from_hcs(hcs_plate: Any) -> Node:
                 path=OmePath("zarr", f"./{well_meta.path}/{image.path}"),
             )
             if image.acquisition is not None:
-                set_acquisition(image_node, Reference(str(image.acquisition)))
+                set_acquisition(image_node, Reference(f"acq.{image.acquisition}"))
             well_node.nodes.append(image_node)
         wells.append(well_node)
 

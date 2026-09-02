@@ -149,7 +149,12 @@ def test_plate_collection_from_hcs(tmp_path):
     root = plate_collection_from_hcs(hcs_plate)
 
     parsed = plate(root)
+    # The ids are prefixed by kind (one namespace per document); the source
+    # labels stay on name.
     assert {entry.id for entry in parsed.rows} == {
+        f"row.{row.name}" for row in hcs_plate.metadata.rows
+    }
+    assert {entry.name for entry in parsed.rows} == {
         row.name for row in hcs_plate.metadata.rows
     }
     assert len(root.nodes) == len(hcs_plate.metadata.wells)
@@ -168,3 +173,24 @@ def test_plate_collection_from_hcs(tmp_path):
     loaded = collection.load(image_node)
     assert isinstance(loaded, NgffMultiscales)
     assert loaded.images[0].data.size > 0
+
+
+def test_bridge_ids_survive_colliding_source_labels(tmp_path):
+    if not HCS_STORE.exists():
+        pytest.skip("HCS test data not downloaded")
+    from ngff_zarr import from_hcs_zarr
+
+    hcs_plate = from_hcs_zarr(str(HCS_STORE))
+    # An acquisition whose decimal id repeats a column label is routine in
+    # 0.4/0.5 plates; the kind prefixes keep the shared id namespace unique.
+    from ngff_zarr.v04.zarr_metadata import PlateAcquisition
+
+    collision = hcs_plate.metadata.columns[0].name
+    hcs_plate.metadata.acquisitions = [
+        PlateAcquisition(id=0, name=None),
+        PlateAcquisition(id=int(collision), name=None),
+    ]
+    root = plate_collection_from_hcs(hcs_plate)
+    validate_collection(root, version="0.9.dev3")
+    parsed = plate(root)
+    assert {entry.id for entry in parsed.acquisitions} == {"acq.0", f"acq.{collision}"}

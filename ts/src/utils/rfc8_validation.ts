@@ -259,9 +259,11 @@ function* iterHcsReferenceSites(
 }
 
 /**
- * Every node with the nearest enclosing plate attribute. A node carrying
- * the `plate` attribute is its own nearest plate, so an acquisition
- * reference on the plate collection itself resolves too.
+ * Every node with the nearest enclosing plate attribute. The plate is the
+ * nearest strictly enclosing one: RFC-8 resolves well and acquisition
+ * references against the plate attribute on the enclosing plate-level
+ * collection, so a node's own `plate` never answers for its own
+ * references.
  */
 function* iterNodesWithPlate(
   document: Record<string, unknown>,
@@ -275,11 +277,11 @@ function* iterNodesWithPlate(
   ): Generator<
     [string, Record<string, unknown>, Record<string, unknown> | undefined]
   > {
+    yield [location, node, plate];
     const attributes = node.attributes;
     if (isRecord(attributes) && isRecord(attributes.plate)) {
       plate = attributes.plate;
     }
-    yield [location, node, plate];
     const children = node.nodes;
     if (Array.isArray(children)) {
       for (const [index, child] of children.entries()) {
@@ -344,10 +346,11 @@ function* iterIdSites(
       yield [`${location}.id`, system.id, true];
     }
   }
+  // Every plate entry is yielded, id present or not: RFC-8 requires an id
+  // on each acquisition, column and row, so a missing one must fail the
+  // format rule rather than escape the walk.
   for (const [location, entry] of iterPlateEntries(document)) {
-    if (entry.id !== undefined && entry.id !== null) {
-      yield [`${location}.id`, entry.id, true];
-    }
+    yield [`${location}.id`, entry.id, true];
   }
   for (const [location, reference] of iterReferenceSites(document)) {
     if (

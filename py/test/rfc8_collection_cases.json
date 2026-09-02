@@ -1732,6 +1732,106 @@
       "rule": "node-id-unique",
       "message": "Spec rule [node-id-unique] violated: Id 'A' is already used in this document; ids must be unique within the JSON document.",
       "location": "ome.attributes.plate.rows[0].id"
+    },
+    {
+      "name": "a plate column without an id",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "collection",
+        "name": "plate",
+        "nodes": [],
+        "attributes": {
+          "plate": {
+            "columns": [
+              {}
+            ],
+            "rows": [
+              {
+                "id": "A"
+              }
+            ]
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "node-id-format",
+      "message": "Spec rule [node-id-format] violated: Id None does not match [a-zA-Z0-9-_.]+.",
+      "location": "ome.attributes.plate.columns[0].id"
+    },
+    {
+      "name": "a well attribute on the plate collection itself",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "collection",
+        "name": "plate",
+        "nodes": [],
+        "attributes": {
+          "plate": {
+            "columns": [
+              {
+                "id": "1"
+              }
+            ],
+            "rows": [
+              {
+                "id": "A"
+              }
+            ],
+            "acquisitions": [
+              {
+                "id": "acq0"
+              }
+            ]
+          },
+          "well": {
+            "column": {
+              "id": "1"
+            },
+            "row": {
+              "id": "A"
+            }
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "well-reference-resolves",
+      "message": "Spec rule [well-reference-resolves] violated: Well 'column' references '1', but no enclosing collection declares a 'plate'.",
+      "location": "ome.attributes.well.column"
+    },
+    {
+      "name": "an acquisition reference on the plate collection itself",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "collection",
+        "name": "plate",
+        "nodes": [],
+        "attributes": {
+          "plate": {
+            "columns": [
+              {
+                "id": "1"
+              }
+            ],
+            "rows": [
+              {
+                "id": "A"
+              }
+            ],
+            "acquisitions": [
+              {
+                "id": "acq0"
+              }
+            ]
+          },
+          "acquisition": {
+            "id": "acq0"
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "acquisition-reference-resolves",
+      "message": "Spec rule [acquisition-reference-resolves] violated: Acquisition references 'acq0', but no enclosing collection declares a 'plate'.",
+      "location": "ome.attributes.acquisition"
     }
   ]
 }
