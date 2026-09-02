@@ -30,7 +30,7 @@ from ..rfc4 import AnatomicalOrientation
 # TransformSequence)``, so copies would fall through those branches and emit
 # default scale/translation transforms instead.
 from ..v04.zarr_metadata import AxisUnit, SupportedDims
-from ..v06.zarr_metadata import (  # noqa: F401
+from ..v06.zarr_metadata import (
     Affine,
     BaseTransform,
     Coordinates,
@@ -399,11 +399,24 @@ class Metadata:
         return cls._from_v06(metadata_v06), images
 
 
-#: The public, version-scoped API of this module. Axis/CoordinateSystem/Metadata are 0.9's own; the field transforms are reused from v06.
+#: The public, version-scoped API of this module: 0.9's own Axis/CoordinateSystem/Metadata,
+#: plus the field transforms and shared types it reuses from v06.
 __all__ = [
+    "Affine",
     "Axis",
+    "BaseTransform",
     "CoordinateSystem",
+    "CoordinateSystemIdentifier",
     "Coordinates",
+    "Dataset",
     "Displacements",
+    "Identity",
     "Metadata",
+    "MethodMetadata",
+    "Omero",
+    "Rotation",
+    "Scale",
+    "Transform",
+    "TransformSequence",
+    "Translation",
 ]

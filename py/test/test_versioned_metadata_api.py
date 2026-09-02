@@ -14,8 +14,19 @@ from ngff_zarr.v09 import zarr_metadata as v09
 
 
 def test_version_subpackages_are_reachable_from_the_package():
+    from ngff_zarr.v04 import zarr_metadata as v04
+
+    assert {"v04", "v06", "v09"} <= set(ngff_zarr.__all__)
+    assert ngff_zarr.v04.zarr_metadata.Axis is v04.Axis
     assert ngff_zarr.v06.zarr_metadata.CoordinateSystem is v06.CoordinateSystem
     assert ngff_zarr.v09.zarr_metadata.CoordinateSystem is v09.CoordinateSystem
+
+
+def test_required_version_specific_names_stay_public():
+    # A required export removed from a module must fail here, not only its own __all__ check.
+    assert "CoordinateSystemIdentifier" in v06.__all__
+    for name in ("Coordinates", "Displacements", "Dataset", "TransformSequence"):
+        assert name in v09.__all__, f"v09 dropped {name} from its public surface"
 
 
 def test_each_module_declares_its_public_surface():
