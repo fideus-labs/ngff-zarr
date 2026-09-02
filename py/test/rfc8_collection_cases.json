@@ -1175,6 +1175,182 @@
       "rule": "reference-path-required",
       "message": "Spec rule [reference-path-required] violated: Reference id 'study' is not declared in this document, so the reference must carry a 'path'.",
       "location": "ome.nodes[0].attributes.labels.source[0]"
+    },
+    {
+      "name": "a collection scene with id references and paths",
+      "ome": {
+        "type": "collection",
+        "name": "tiles",
+        "id": "tiles",
+        "nodes": [],
+        "attributes": {
+          "scene": {
+            "coordinateSystems": [
+              {
+                "id": "world",
+                "axes": [
+                  {
+                    "name": "y",
+                    "type": "space"
+                  },
+                  {
+                    "name": "x",
+                    "type": "space"
+                  }
+                ]
+              }
+            ],
+            "coordinateTransformations": [
+              {
+                "type": "translation",
+                "translation": [
+                  0.0,
+                  100.0
+                ],
+                "input": {
+                  "id": "physical",
+                  "path": {
+                    "type": "zarr",
+                    "path": "./tile_0.zarr"
+                  }
+                },
+                "output": {
+                  "id": "world"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "ok": true
+    },
+    {
+      "name": "a scene without transformations",
+      "ome": {
+        "type": "collection",
+        "name": "tiles",
+        "nodes": [],
+        "attributes": {
+          "scene": {
+            "coordinateSystems": []
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "scene-transformations-required",
+      "message": "Spec rule [scene-transformations-required] violated: Scene must declare a non-empty 'coordinateTransformations' array.",
+      "location": "ome.attributes.scene"
+    },
+    {
+      "name": "an empty scene transformations array",
+      "ome": {
+        "type": "collection",
+        "name": "tiles",
+        "nodes": [],
+        "attributes": {
+          "scene": {
+            "coordinateTransformations": []
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "scene-transformations-required",
+      "message": "Spec rule [scene-transformations-required] violated: Scene must declare a non-empty 'coordinateTransformations' array.",
+      "location": "ome.attributes.scene"
+    },
+    {
+      "name": "a name-based scene reference",
+      "ome": {
+        "type": "collection",
+        "name": "tiles",
+        "nodes": [],
+        "attributes": {
+          "scene": {
+            "coordinateTransformations": [
+              {
+                "type": "identity",
+                "input": {
+                  "name": "physical"
+                },
+                "output": {
+                  "id": "world"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "reference-id-required",
+      "message": "Spec rule [reference-id-required] violated: Transformation reference must be an object with an 'id'.",
+      "location": "ome.attributes.scene.coordinateTransformations[0].input"
+    },
+    {
+      "name": "an unresolved scene reference without a path",
+      "ome": {
+        "type": "collection",
+        "name": "tiles",
+        "nodes": [],
+        "attributes": {
+          "scene": {
+            "coordinateTransformations": [
+              {
+                "type": "identity",
+                "input": {
+                  "id": "physical"
+                },
+                "output": {
+                  "id": "world"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "reference-path-required",
+      "message": "Spec rule [reference-path-required] violated: Reference id 'physical' is not declared in this document, so the reference must carry a 'path'.",
+      "location": "ome.attributes.scene.coordinateTransformations[0].input"
+    },
+    {
+      "name": "a scene coordinate-system id repeating a node id",
+      "ome": {
+        "type": "collection",
+        "name": "tiles",
+        "id": "world",
+        "nodes": [],
+        "attributes": {
+          "scene": {
+            "coordinateSystems": [
+              {
+                "id": "world",
+                "axes": [
+                  {
+                    "name": "x",
+                    "type": "space"
+                  }
+                ]
+              }
+            ],
+            "coordinateTransformations": [
+              {
+                "type": "identity",
+                "input": {
+                  "id": "world"
+                },
+                "output": {
+                  "id": "world"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "node-id-unique",
+      "message": "Spec rule [node-id-unique] violated: Id 'world' is already used in this document; ids must be unique within the JSON document.",
+      "location": "ome.attributes.scene.coordinateSystems[0].id"
     }
   ]
 }
