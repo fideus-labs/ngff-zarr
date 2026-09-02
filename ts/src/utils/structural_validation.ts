@@ -103,6 +103,10 @@ export const SpecRule = {
   ReferenceIdRequired: "reference-id-required",
   /** A reference that resolves to nothing in-document carries a path. */
   ReferencePathRequired: "reference-path-required",
+  /** Every RFC-8 label attributes entry declares a numeric labelValue. */
+  LabelValueRequired: "label-value-required",
+  /** An RFC-8 label color is four integers between 0 and 255. */
+  LabelColorFormat: "label-color-format",
 } as const;
 
 /** Union of the {@link SpecRule} string values. */
