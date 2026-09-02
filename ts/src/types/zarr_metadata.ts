@@ -35,20 +35,27 @@ export interface Axis {
  * `output` fields of a transformation. Mirrors the Python
  * `CoordinateSystemIdentifier` dataclass and the spec `inputOutput` object: a
  * transformation references either a coordinate system by `name` or a dataset
- * array by `path`.
+ * array by `path`. RFC-8 (OME-Zarr 0.9.dev3) references coordinate systems by
+ * `id` instead of by name; an identifier read from a 0.9.dev3 document
+ * carries the `id`, and may carry a `name` purely as a label.
  */
 export interface CoordinateSystemIdentifier {
   path?: string;
   name?: string;
+  id?: string;
 }
 
 /**
- * RFC 5 / OME-Zarr v0.6 coordinate system: a named set of axes. The implicit
- * "intrinsic" coordinate system is generated for the multiscale image.
+ * RFC 5 / OME-Zarr v0.6 coordinate system: a named set of axes. RFC-8
+ * (OME-Zarr 0.9.dev3) additionally gives the system a required `id` matching
+ * `[a-zA-Z0-9-_.]+`, referenced by transformations in place of the name;
+ * `undefined` below 0.9.dev3. The implicit "intrinsic" coordinate system is
+ * generated for the multiscale image.
  */
 export interface CoordinateSystem {
   name: string;
   axes: Axis[];
+  id?: string;
 }
 
 export interface Identity {
@@ -413,6 +420,7 @@ export function createBijection(
 export function createCoordinateSystem(
   name: string,
   axes: Axis[],
+  id?: string,
 ): CoordinateSystem {
-  return { name, axes: [...axes] };
+  return { name, axes: [...axes], ...(id !== undefined && { id }) };
 }

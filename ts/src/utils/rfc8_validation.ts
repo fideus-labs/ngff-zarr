@@ -81,6 +81,91 @@ function* iterNodes(
   }
 }
 
+function* iterCoordinateSystems(
+  document: Record<string, unknown>,
+): Generator<[string, Record<string, unknown>]> {
+  for (const [location, node] of iterNodes(document, "ome")) {
+    const attributes = node.attributes;
+    if (!isRecord(attributes)) {
+      continue;
+    }
+    const systems = attributes.coordinateSystems;
+    if (!Array.isArray(systems)) {
+      continue;
+    }
+    for (const [index, system] of systems.entries()) {
+      if (isRecord(system)) {
+        yield [
+          `${location}.attributes.coordinateSystems[${index}]`,
+          system,
+        ];
+      }
+    }
+  }
+}
+
+function* iterTransformReferenceSites(
+  document: Record<string, unknown>,
+): Generator<[string, unknown]> {
+  for (const [location, node] of iterNodes(document, "ome")) {
+    const attributes = node.attributes;
+    if (!isRecord(attributes)) {
+      continue;
+    }
+    const transformations = attributes.coordinateTransformations;
+    if (!Array.isArray(transformations)) {
+      continue;
+    }
+    for (const [index, transformation] of transformations.entries()) {
+      if (!isRecord(transformation)) {
+        continue;
+      }
+      const base = `${location}.attributes.coordinateTransformations[${index}]`;
+      for (const field of ["input", "output"]) {
+        yield [`${base}.${field}`, transformation[field]];
+      }
+    }
+  }
+}
+
+/**
+ * Every id in the document: declared sites (node ids and coordinate-system
+ * ids, which share the document-wide uniqueness namespace) and reference
+ * sites (which reuse a declared id and are checked for format only).
+ */
+function* iterIdSites(
+  document: Record<string, unknown>,
+): Generator<[string, unknown, boolean]> {
+  for (const [location, node] of iterNodes(document, "ome")) {
+    if (node.id !== undefined && node.id !== null) {
+      yield [`${location}.id`, node.id, true];
+    }
+  }
+  for (const [location, system] of iterCoordinateSystems(document)) {
+    if (system.id !== undefined && system.id !== null) {
+      yield [`${location}.id`, system.id, true];
+    }
+  }
+  for (const [location, reference] of iterTransformReferenceSites(document)) {
+    if (
+      isRecord(reference) && reference.id !== undefined &&
+      reference.id !== null
+    ) {
+      yield [`${location}.id`, reference.id, false];
+    }
+  }
+}
+
+function declaredIds(document: Record<string, unknown>): Set<string> {
+  const declared = new Set<string>();
+  for (const [, value, isDeclared] of iterIdSites(document)) {
+    if (isDeclared && typeof value === "string") {
+      declared.add(value);
+    }
+  }
+  return declared;
+}
+
 function requireNonemptyString(
   document: Record<string, unknown>,
   key: string,
@@ -148,36 +233,36 @@ export function validateNodeNameUnique(
 }
 
 /**
- * Every declared id matches `[a-zA-Z0-9-_.]+` (`node-id-format`). The id
- * production is shared with references, so later RFC-8 stages report
- * reference ids under this same rule.
+ * Every declared or referenced id matches `[a-zA-Z0-9-_.]+`
+ * (`node-id-format`). The id production is shared across the document: node
+ * ids, coordinate-system ids, and the reference ids of transformation
+ * inputs and outputs are all checked here.
  */
 export function validateNodeIdFormat(
   document: Record<string, unknown>,
 ): void {
-  for (const [location, node] of iterNodes(document, "ome")) {
-    const value = node.id;
-    if (value === undefined || value === null) {
-      continue;
-    }
+  for (const [location, value] of iterIdSites(document)) {
     if (typeof value !== "string" || !RFC8_ID_PATTERN.test(value)) {
       throw new ValidationError(
         SpecRule.NodeIdFormat,
         `Id ${pyReprValue(value)} does not match [a-zA-Z0-9-_.]+.`,
-        `${location}.id`,
+        location,
       );
     }
   }
 }
 
-/** Ids are unique within the JSON document (`node-id-unique`). */
+/**
+ * Declared ids are unique within the JSON document (`node-id-unique`). Node
+ * ids and coordinate-system ids share the namespace; the reference ids of
+ * transformation inputs and outputs reuse a declared id and are exempt.
+ */
 export function validateNodeIdUnique(
   document: Record<string, unknown>,
 ): void {
   const seen = new Set<string>();
-  for (const [location, node] of iterNodes(document, "ome")) {
-    const value = node.id;
-    if (typeof value !== "string") {
+  for (const [location, value, declared] of iterIdSites(document)) {
+    if (!declared || typeof value !== "string") {
       continue;
     }
     if (seen.has(value)) {
@@ -185,7 +270,7 @@ export function validateNodeIdUnique(
         SpecRule.NodeIdUnique,
         `Id ${pyRepr(value)} is already used in this document; ids must ` +
           `be unique within the JSON document.`,
-        `${location}.id`,
+        location,
       );
     }
     seen.add(value);
@@ -261,6 +346,80 @@ export function validatePathTypeKnown(
 }
 
 /**
+ * Every declared coordinate system carries an `id`
+ * (`coordinate-system-id-required`). RFC-8 references coordinate systems by
+ * id, so a system without one is unreachable; malformed ids are reported by
+ * {@link validateNodeIdFormat} instead.
+ */
+export function validateCoordinateSystemIdRequired(
+  document: Record<string, unknown>,
+): void {
+  for (const [location, system] of iterCoordinateSystems(document)) {
+    if (system.id === undefined || system.id === null) {
+      throw new ValidationError(
+        SpecRule.CoordinateSystemIdRequired,
+        "Coordinate system declares no 'id'; RFC-8 references coordinate " +
+          "systems by id.",
+        location,
+      );
+    }
+  }
+}
+
+/**
+ * Transformation inputs and outputs are id references
+ * (`reference-id-required`). RFC-8 replaces the name-based RFC-5
+ * identifiers: each top-level transformation's `input` and `output` must be
+ * an object carrying an `id`.
+ */
+export function validateReferenceIdRequired(
+  document: Record<string, unknown>,
+): void {
+  for (const [location, reference] of iterTransformReferenceSites(document)) {
+    if (
+      !isRecord(reference) || reference.id === undefined ||
+      reference.id === null
+    ) {
+      throw new ValidationError(
+        SpecRule.ReferenceIdRequired,
+        "Transformation reference must be an object with an 'id'.",
+        location,
+      );
+    }
+  }
+}
+
+/**
+ * Unresolved references carry a `path` (`reference-path-required`). A
+ * reference whose `id` is declared in this document (as a node id or a
+ * coordinate-system id) is internal; any other reference is external, and
+ * RFC-8 requires external references to locate their document with a
+ * `path`. What the path points at is not resolved here.
+ */
+export function validateReferencePathRequired(
+  document: Record<string, unknown>,
+): void {
+  const declared = declaredIds(document);
+  for (const [location, reference] of iterTransformReferenceSites(document)) {
+    if (!isRecord(reference)) {
+      continue;
+    }
+    const value = reference.id;
+    if (typeof value !== "string" || declared.has(value)) {
+      continue;
+    }
+    if (reference.path === undefined || reference.path === null) {
+      throw new ValidationError(
+        SpecRule.ReferencePathRequired,
+        `Reference id ${pyRepr(value)} is not declared in this document, ` +
+          `so the reference must carry a 'path'.`,
+        location,
+      );
+    }
+  }
+}
+
+/**
  * The RFC-8 rules in canonical evaluation order (the SpecRule declaration
  * order), dispatched fail-fast by {@link validateCollection}.
  */
@@ -272,6 +431,9 @@ const COLLECTION_RULES = [
   validateNodeIdUnique,
   validateNodeNodesXorPath,
   validatePathTypeKnown,
+  validateCoordinateSystemIdRequired,
+  validateReferenceIdRequired,
+  validateReferencePathRequired,
 ] as const;
 
 /**

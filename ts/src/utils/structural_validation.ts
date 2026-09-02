@@ -97,6 +97,12 @@ export const SpecRule = {
   NodeNodesXorPath: "node-nodes-xor-path",
   /** An RFC-8 path type is zarr, json, or prefixed; from 0.9.dev3. */
   PathTypeKnown: "path-type-known",
+  /** Every RFC-8 coordinate system declares an id; from 0.9.dev3. */
+  CoordinateSystemIdRequired: "coordinate-system-id-required",
+  /** Every RFC-8 transformation input/output is a reference with an id. */
+  ReferenceIdRequired: "reference-id-required",
+  /** A reference that resolves to nothing in-document carries a path. */
+  ReferencePathRequired: "reference-path-required",
 } as const;
 
 /** Union of the {@link SpecRule} string values. */
