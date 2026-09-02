@@ -117,6 +117,9 @@ def test_json_round_trip(tmp_path):
 def test_from_ome_zarr_names_the_collection_reader(tmp_path):
     store = tmp_path / "collection.ome.zarr"
     to_collection_zarr(store, _study_collection())
+    # A collection-rooted 0.9.dev3 store still points at the collection
+    # reader; a multiscale-rooted one reads directly since the RFC-8 image
+    # model landed.
     with pytest.raises(ValueError, match="from_collection_zarr"):
         from_ome_zarr(store)
 
@@ -128,18 +131,24 @@ def test_from_collection_zarr_names_the_image_reader(tmp_path):
         from_collection_zarr(store)
 
 
-def test_to_ome_zarr_refuses_dev3_with_guidance(tmp_path):
-    with pytest.raises(ValueError, match="to_collection_zarr"):
-        to_ome_zarr(
-            tmp_path / "image.ome.zarr", _image_multiscales(), version="0.9.dev3"
-        )
+def test_to_ome_zarr_writes_dev3_multiscale_nodes(tmp_path):
+    store = tmp_path / "image.ome.zarr"
+    to_ome_zarr(store, _image_multiscales(), version="0.9.dev3")
+    document = json.loads((store / "zarr.json").read_text())
+    ome = document["attributes"]["ome"]
+    assert ome["version"] == "0.9.dev3"
+    assert ome["type"] == "multiscale"
+    assert "multiscales" not in ome
+    read_back = from_ome_zarr(store, validate=True)
+    assert read_back.images[0].data.shape == (4, 4)
 
 
-def test_upgrade_does_not_offer_dev3(tmp_path):
+def test_upgrade_offers_dev3(tmp_path):
     store = tmp_path / "image.ome.zarr"
     to_ome_zarr(store, _image_multiscales(), version="0.5")
-    with pytest.raises(ValueError):
-        upgrade_ome_zarr(store, tmp_path / "out.ome.zarr", version="0.9.dev3")
+    upgrade_ome_zarr(store, tmp_path / "out.ome.zarr", version="0.9.dev3")
+    upgraded = from_ome_zarr(tmp_path / "out.ome.zarr")
+    assert upgraded.images[0].data.shape == (4, 4)
 
 
 def test_load_resolves_inline_and_referenced_nodes(tmp_path):

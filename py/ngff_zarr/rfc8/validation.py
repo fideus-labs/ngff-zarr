@@ -31,9 +31,9 @@ from .serialize import node_to_ome_dict
 
 #: The node types whose schema declares the ``nodes`` / ``path`` pair, and for
 #: which exactly one of the two must be present. Unknown and extension node
-#: types are exempt (open-world). Issue #714's multiscale stage adds
-#: ``"multiscale"`` here rather than introducing a new rule.
-XOR_NODE_TYPES = frozenset({"collection"})
+#: types are exempt (open-world), and so is ``singlescale``: its ``path`` is
+#: optional and it declares no ``nodes``.
+XOR_NODE_TYPES = frozenset({"collection", "multiscale"})
 
 #: The unprefixed path types the core specification defines.
 CORE_PATH_TYPES = frozenset({"zarr", "json"})

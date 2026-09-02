@@ -161,7 +161,7 @@ def test_validation_covers_coordinate_attributes():
     document = {
         "type": "multiscale",
         "name": "img",
-        "nodes": [],
+        "nodes": [],  # the multiscale nodes-xor-path rule wants one of the two
         "attributes": {
             "coordinateSystems": [
                 {"name": "physical", "axes": [{"name": "x", "type": "space"}]}
@@ -179,17 +179,16 @@ def test_validation_covers_coordinate_attributes():
 
 
 def test_collection_with_coordinate_attributes_validates():
-    collection = Collection("tiles", nodes=[_multiscale_node()])
+    multiscale = _multiscale_node()
+    multiscale.nodes = []
+    collection = Collection("tiles", nodes=[multiscale])
     # The transformation input references the singlescale id "s0", which is
     # not declared in this document, so a path is required.
     with pytest.raises(ValidationError) as exc_info:
         validate_collection(collection, version="0.9.dev3")
     assert exc_info.value.rule.value == "reference-path-required"
 
-    collection.nodes[0].nodes = None
-    collection.nodes[0].id = "img"
-    node = Node(type="singlescale", name="s0", id="s0")
-    collection.nodes.append(node)
+    multiscale.nodes = [Node(type="singlescale", name="s0", id="s0")]
     validate_collection(collection, version="0.9.dev3")
 
 

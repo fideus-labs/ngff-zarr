@@ -22,6 +22,10 @@ pytestmark = pytest.mark.skipif(
         ("0.5", "0.4"),
         ("0.5", "0.6"),
         ("0.6", "0.5"),
+        ("0.6", "0.9.dev3"),
+        ("0.9.dev3", "0.5"),
+        ("0.9.dev1", "0.9.dev3"),
+        ("0.9.dev3", "0.9.dev1"),
     ],
 )
 def test_conversion(input_version, output_version, tmp_path):

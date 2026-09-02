@@ -55,7 +55,11 @@
             "nodes": [
               {
                 "type": "multiscale",
-                "name": "img"
+                "name": "img",
+                "path": {
+                  "type": "zarr",
+                  "path": "./a/img"
+                }
               }
             ]
           },
@@ -65,7 +69,11 @@
             "nodes": [
               {
                 "type": "multiscale",
-                "name": "img"
+                "name": "img",
+                "path": {
+                  "type": "zarr",
+                  "path": "./b/img"
+                }
               }
             ]
           }
@@ -75,7 +83,22 @@
       "ok": true
     },
     {
-      "name": "a non-collection node may carry neither nodes nor path",
+      "name": "an exempt node type may carry neither nodes nor path",
+      "ome": {
+        "type": "collection",
+        "name": "c",
+        "nodes": [
+          {
+            "type": "singlescale",
+            "name": "s0"
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "ok": true
+    },
+    {
+      "name": "a multiscale node declaring neither nodes nor path",
       "ome": {
         "type": "collection",
         "name": "c",
@@ -87,7 +110,9 @@
         ]
       },
       "version": "0.9.dev3",
-      "ok": true
+      "rule": "node-nodes-xor-path",
+      "message": "Spec rule [node-nodes-xor-path] violated: Node declares neither 'nodes' nor 'path'; exactly one must be present.",
+      "location": "ome.nodes[0]"
     },
     {
       "name": "the rules are inert when an earlier version is declared",
@@ -184,11 +209,19 @@
         "nodes": [
           {
             "type": "multiscale",
-            "name": "img"
+            "name": "img",
+            "path": {
+              "type": "zarr",
+              "path": "./img"
+            }
           },
           {
             "type": "multiscale",
-            "name": "img"
+            "name": "img",
+            "path": {
+              "type": "zarr",
+              "path": "./img2"
+            }
           }
         ]
       },
@@ -219,7 +252,11 @@
           {
             "type": "multiscale",
             "name": "img",
-            "id": 7
+            "id": 7,
+            "path": {
+              "type": "zarr",
+              "path": "./img"
+            }
           }
         ]
       },
@@ -242,7 +279,11 @@
               {
                 "type": "multiscale",
                 "name": "img",
-                "id": "n1"
+                "id": "n1",
+                "path": {
+                  "type": "zarr",
+                  "path": "./img"
+                }
               }
             ]
           }
@@ -562,6 +603,7 @@
       "ome": {
         "type": "multiscale",
         "name": "img",
+        "nodes": [],
         "attributes": {
           "coordinateSystems": [
             {
@@ -588,11 +630,19 @@
           {
             "type": "multiscale",
             "name": "img",
-            "id": "bad id"
+            "id": "bad id",
+            "path": {
+              "type": "zarr",
+              "path": "./img"
+            }
           },
           {
             "type": "multiscale",
-            "name": "img"
+            "name": "img",
+            "path": {
+              "type": "zarr",
+              "path": "./img2"
+            }
           }
         ]
       },
