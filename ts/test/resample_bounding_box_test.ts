@@ -1447,3 +1447,122 @@ Deno.test("an oriented field is refused by the bounding box", async () => {
     "anatomical orientation",
   );
 });
+
+function displacementFieldEntry(
+  vectors: Float64Array,
+  size: number[],
+  spacing: number[],
+  // deno-lint-ignore no-explicit-any
+): any {
+  const dimension = size.length;
+  return {
+    transformType: {
+      transformParameterization: "DisplacementField",
+      parametersValueType: "float64",
+      inputDimension: dimension,
+      outputDimension: dimension,
+    },
+    name: "DisplacementFieldTransform",
+    inputSpaceName: "",
+    outputSpaceName: "",
+    numberOfFixedParameters: 3 * dimension + dimension * dimension,
+    numberOfParameters: vectors.length,
+    fixedParameters: new Float64Array([
+      ...size,
+      ...size.map(() => 0),
+      ...spacing,
+      ...Array.from(
+        { length: dimension * dimension },
+        (_, index) => index % (dimension + 1) === 0 ? 1 : 0,
+      ),
+    ]),
+    parameters: vectors,
+    metadata: new Map(),
+  };
+}
+
+Deno.test("the stage interval reads the layouts itk writes", async () => {
+  // A field interleaves components per point; a B-spline blocks them per
+  // component. Misreading the layout would produce plausible wrong bounds.
+  const { resampleBoundingBox } = await import(
+    "../src/io/resample_bounding_box.ts"
+  );
+  const vectors = new Float64Array(4 * 3 * 2);
+  vectors[(1 * 4 + 2) * 2] = 7.0;
+  vectors[(1 * 4 + 2) * 2 + 1] = -9.0;
+  const warp = displacementFieldEntry(vectors, [4, 3], [8, 8]);
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 4, x: 4 },
+    { y: 1, x: 1 },
+    {
+      y: 0,
+      x: 0,
+    },
+  );
+  const moving = await geometryImage(["y", "x"], { y: 64, x: 64 }, {
+    y: 1,
+    x: 1,
+  }, { y: 0, x: 0 });
+
+  const region = await resampleBoundingBox([warp], fixed, moving, {
+    padding: 0,
+  });
+
+  // The x range is [0, 7] and the y range [-9, 0], zero joined since the
+  // 4x4 grid leaves nothing to check against the field's own 32x24 reach:
+  // the grid is inside, so the values' range stands alone.
+  assertEquals(region.startIndex, { y: -9, x: 0 });
+  assertEquals(region.size, { y: 13, x: 11 });
+});
+
+Deno.test("an interior bump in an itk field widens the region", async () => {
+  const { resampleBoundingBox } = await import(
+    "../src/io/resample_bounding_box.ts"
+  );
+  const extent = 64;
+  const vectors = new Float64Array(extent * extent * 2);
+  const reach = { y: [0, 0], x: [0, 0] };
+  for (let y = 0; y < extent; y++) {
+    for (let x = 0; x < extent; x++) {
+      const distance = Math.hypot(y - extent / 2, x - extent / 2);
+      const profile = distance < 20
+        ? 0.5 * (1 + Math.cos(Math.PI * distance / 20))
+        : 0;
+      const index = (y * extent + x) * 2;
+      vectors[index] = -60 * profile;
+      vectors[index + 1] = 60 * profile;
+      reach.y = [
+        Math.min(reach.y[0], y + 60 * profile),
+        Math.max(reach.y[1], y + 60 * profile),
+      ];
+      reach.x = [
+        Math.min(reach.x[0], x - 60 * profile),
+        Math.max(reach.x[1], x - 60 * profile),
+      ];
+    }
+  }
+  const warp = displacementFieldEntry(vectors, [extent, extent], [1, 1]);
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: extent, x: extent },
+    { y: 1, x: 1 },
+    { y: 0, x: 0 },
+  );
+  const moving = await geometryImage(["y", "x"], { y: 256, x: 256 }, {
+    y: 1,
+    x: 1,
+  }, { y: 0, x: 0 });
+
+  const region = await resampleBoundingBox([warp], fixed, moving, {
+    padding: 1,
+  });
+
+  for (const dim of ["y", "x"] as const) {
+    assertEquals(region.startIndex[dim] <= reach[dim][0], true);
+    assertEquals(
+      region.startIndex[dim] + region.size[dim] >= reach[dim][1],
+      true,
+    );
+  }
+});
