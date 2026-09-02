@@ -40,6 +40,19 @@ export function buildV06MultiscalesEntry(
     metadata.coordinateSystems && metadata.coordinateSystems.length > 0
       ? metadata.coordinateSystems
       : [{ name: INTRINSIC_COORDINATE_SYSTEM_NAME, axes: metadata.axes }];
+  if (version !== NgffVersion.V09dev3) {
+    // From 0.6 through 0.9.dev1 coordinate systems are referenced by name;
+    // an RFC-8 id-only system is expressible only at 0.9.dev3.
+    for (const cs of coordinateSystems) {
+      if (cs.name === undefined) {
+        throw new Error(
+          "coordinateSystems entries must carry a name below OME-Zarr " +
+            "0.9.dev3: the 0.6 family references coordinate systems by " +
+            'name. Name the system, or write at version "0.9.dev3".',
+        );
+      }
+    }
+  }
   const intrinsicName = coordinateSystems[0].name;
 
   // The first (intrinsic) coordinate system uses the RFC-processed axes; any
@@ -119,7 +132,7 @@ export function buildV06MultiscalesEntry(
       // The reader's own check, against the systems that get serialized: the
       // intrinsic one built above when `metadata.coordinateSystems` is absent.
       try {
-        validateV06Transform(transform, coordinateSystems);
+        validateV06Transform(transform, coordinateSystems, version);
       } catch (invalid) {
         throw new Error(
           `multiscales coordinateTransformations[${index}] ` +
@@ -597,14 +610,14 @@ export function validateV06Transform(
     }
   } else if (transform.type === "sequence") {
     for (const nested of transform.transformations) {
-      validateV06Transform(nested, coordinateSystems);
+      validateV06Transform(nested, coordinateSystems, version);
     }
   } else if (transform.type === "byDimension") {
     const inputCount = axisCount(transform.input, coordinateSystems);
     const seenOutputAxes = new Set<number>();
     for (const item of transform.transformations) {
       // The reader validates each child as it parses it.
-      validateV06Transform(item.transformation, coordinateSystems);
+      validateV06Transform(item.transformation, coordinateSystems, version);
       const axes = [...item.inputAxes, ...item.outputAxes];
       if (!axes.every((axis) => Number.isInteger(axis))) {
         throw new Error(
@@ -664,8 +677,8 @@ export function validateV06Transform(
       }
     }
   } else if (transform.type === "bijection") {
-    validateV06Transform(transform.forward, coordinateSystems);
-    validateV06Transform(transform.inverse, coordinateSystems);
+    validateV06Transform(transform.forward, coordinateSystems, version);
+    validateV06Transform(transform.inverse, coordinateSystems, version);
     const inputCount = axisCount(transform.input, coordinateSystems);
     const outputCount = axisCount(transform.output, coordinateSystems);
     if (

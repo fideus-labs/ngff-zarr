@@ -621,7 +621,7 @@ def validate_transform(
     This also checks the ones that need the ``input`` and ``output``
     coordinate systems, when those resolve in ``coordinateSystems``.
     """
-    transformation.validate(coordinateSystems)
+    transformation.validate(coordinateSystems, version)
 
 
 @dataclass

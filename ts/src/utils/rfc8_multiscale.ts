@@ -307,19 +307,26 @@ export async function distributedSinglescaleTransforms(
       continue;
     }
     const path = rawPath.startsWith("./") ? rawPath.slice(2) : rawPath;
+    let child;
     try {
-      const child = await zarr.open(zarr.root(store).resolve(path));
-      const childOme = (child.attrs as Record<string, unknown>)?.ome as
-        | Record<string, unknown>
-        | undefined;
-      const transforms =
-        (childOme?.attributes as Record<string, unknown> | undefined)
-          ?.coordinateTransformations;
-      if (Array.isArray(transforms) && transforms.length > 0) {
-        collected.set(path, transforms);
+      child = await zarr.open(zarr.root(store).resolve(path));
+    } catch (error) {
+      // An absent child means this level has no distributed document; any
+      // other failure (a corrupt document, transport) must surface rather
+      // than silently dropping the level's transformations.
+      if (error instanceof zarr.NodeNotFoundError) {
+        continue;
       }
-    } catch {
-      continue;
+      throw error;
+    }
+    const childOme = (child.attrs as Record<string, unknown>)?.ome as
+      | Record<string, unknown>
+      | undefined;
+    const transforms =
+      (childOme?.attributes as Record<string, unknown> | undefined)
+        ?.coordinateTransformations;
+    if (Array.isArray(transforms) && transforms.length > 0) {
+      collected.set(path, transforms);
     }
   }
   return collected;

@@ -379,6 +379,23 @@ def _gate_spans(
         _gate_spans(member, f"{where}.transformations[{position}]", systems, spans)
 
 
+def _gate_named_systems(metadata, version: str) -> None:
+    """Refuse a nameless coordinate system the 0.6 family cannot express.
+
+    From 0.6 through 0.9.dev1 coordinate systems are referenced by name; an
+    RFC-8 id-only system is expressible only at 0.9.dev3.
+    """
+    if version not in ("0.6", NgffVersion.V09dev1.value):
+        return
+    for system in getattr(metadata, "coordinateSystems", None) or []:
+        if getattr(system, "name", None) is None:
+            raise ValueError(
+                f"coordinateSystems entries must carry a name at OME-Zarr "
+                f"{version}: the 0.6 family references coordinate systems by "
+                'name. Name the system, or write at version "0.9.dev3".'
+            )
+
+
 def _gate_top_level_transforms(source, metadata, version: str) -> None:
     """Refuse a multiscale-level transform the target version would drop or reject.
 
@@ -440,7 +457,7 @@ def _gate_top_level_transforms(source, metadata, version: str) -> None:
                 "to name both its input and its output coordinate system"
             )
         try:
-            validate_transform(transform, systems)
+            validate_transform(transform, systems, version)
         except ValueError as invalid:
             raise ValueError(
                 f"multiscales coordinateTransformations[{index}] "
@@ -1797,6 +1814,7 @@ def _to_ngff_zarr_impl(
     if overwrite:
         _guard_overwrite_of_source_store(multiscales, store_path)
     root_attributes = _check_root_attributes(multiscales.root_attributes)
+    _gate_named_systems(multiscales.metadata, version)
     metadata, dimension_names, _ = _prepare_metadata(multiscales, version)
     _gate_top_level_transforms(multiscales.metadata, metadata, version)
     _gate_transform_arity(metadata)
