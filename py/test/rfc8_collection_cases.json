@@ -1351,6 +1351,387 @@
       "rule": "node-id-unique",
       "message": "Spec rule [node-id-unique] violated: Id 'world' is already used in this document; ids must be unique within the JSON document.",
       "location": "ome.attributes.scene.coordinateSystems[0].id"
+    },
+    {
+      "name": "a wide-layout plate with wells and acquisitions",
+      "ome": {
+        "type": "collection",
+        "name": "hcs-plate-001",
+        "attributes": {
+          "plate": {
+            "acquisitions": [
+              {
+                "id": "acq_0",
+                "name": "Round 1"
+              }
+            ],
+            "columns": [
+              {
+                "id": "1",
+                "name": "1"
+              }
+            ],
+            "rows": [
+              {
+                "id": "A",
+                "name": "A"
+              }
+            ]
+          }
+        },
+        "nodes": [
+          {
+            "type": "collection",
+            "name": "well A01",
+            "attributes": {
+              "well": {
+                "column": {
+                  "id": "1"
+                },
+                "row": {
+                  "id": "A"
+                }
+              }
+            },
+            "nodes": [
+              {
+                "id": "A01_0",
+                "type": "multiscale",
+                "name": "A01_0",
+                "path": {
+                  "type": "zarr",
+                  "path": "./A/01/001.img"
+                },
+                "attributes": {
+                  "acquisition": {
+                    "id": "acq_0"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "ok": true
+    },
+    {
+      "name": "a tall-layout plate with acquisition sub-collections",
+      "ome": {
+        "type": "collection",
+        "name": "hcs-plate-001",
+        "attributes": {
+          "plate": {
+            "acquisitions": [
+              {
+                "id": "acq_0",
+                "name": "Round 1"
+              },
+              {
+                "id": "acq_1",
+                "name": "Round 2"
+              }
+            ],
+            "columns": [
+              {
+                "id": "1"
+              }
+            ],
+            "rows": [
+              {
+                "id": "A"
+              }
+            ]
+          }
+        },
+        "nodes": [
+          {
+            "type": "collection",
+            "name": "well A01",
+            "attributes": {
+              "well": {
+                "column": {
+                  "id": "1"
+                },
+                "row": {
+                  "id": "A"
+                }
+              }
+            },
+            "nodes": [
+              {
+                "type": "collection",
+                "name": "A01_acq0",
+                "attributes": {
+                  "acquisition": {
+                    "id": "acq_0"
+                  }
+                },
+                "nodes": [
+                  {
+                    "id": "A01_0",
+                    "type": "multiscale",
+                    "name": "A01_0",
+                    "path": {
+                      "type": "zarr",
+                      "path": "./A/01/001.img"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "ok": true
+    },
+    {
+      "name": "a plate without columns",
+      "ome": {
+        "type": "collection",
+        "name": "plate",
+        "nodes": [],
+        "attributes": {
+          "plate": {
+            "rows": [
+              {
+                "id": "A"
+              }
+            ]
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "plate-columns-rows-required",
+      "message": "Spec rule [plate-columns-rows-required] violated: Plate must declare a non-empty 'columns' array.",
+      "location": "ome.attributes.plate"
+    },
+    {
+      "name": "a plate with empty rows",
+      "ome": {
+        "type": "collection",
+        "name": "plate",
+        "nodes": [],
+        "attributes": {
+          "plate": {
+            "columns": [
+              {
+                "id": "1"
+              }
+            ],
+            "rows": []
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "plate-columns-rows-required",
+      "message": "Spec rule [plate-columns-rows-required] violated: Plate must declare a non-empty 'rows' array.",
+      "location": "ome.attributes.plate"
+    },
+    {
+      "name": "a well column that the plate does not declare",
+      "ome": {
+        "type": "collection",
+        "name": "plate",
+        "attributes": {
+          "plate": {
+            "columns": [
+              {
+                "id": "1"
+              }
+            ],
+            "rows": [
+              {
+                "id": "A"
+              }
+            ]
+          }
+        },
+        "nodes": [
+          {
+            "type": "collection",
+            "name": "well A02",
+            "nodes": [],
+            "attributes": {
+              "well": {
+                "column": {
+                  "id": "2"
+                },
+                "row": {
+                  "id": "A"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "well-reference-resolves",
+      "message": "Spec rule [well-reference-resolves] violated: Well 'column' references '2', which the enclosing plate's 'columns' do not declare.",
+      "location": "ome.nodes[0].attributes.well.column"
+    },
+    {
+      "name": "a well without an enclosing plate",
+      "ome": {
+        "type": "collection",
+        "name": "orphan",
+        "nodes": [],
+        "attributes": {
+          "well": {
+            "column": {
+              "id": "1"
+            },
+            "row": {
+              "id": "A"
+            }
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "well-reference-resolves",
+      "message": "Spec rule [well-reference-resolves] violated: Well 'column' references '1', but no enclosing collection declares a 'plate'.",
+      "location": "ome.attributes.well.column"
+    },
+    {
+      "name": "a well row without an id",
+      "ome": {
+        "type": "collection",
+        "name": "plate",
+        "attributes": {
+          "plate": {
+            "columns": [
+              {
+                "id": "1"
+              }
+            ],
+            "rows": [
+              {
+                "id": "A"
+              }
+            ]
+          }
+        },
+        "nodes": [
+          {
+            "type": "collection",
+            "name": "well A01",
+            "nodes": [],
+            "attributes": {
+              "well": {
+                "column": {
+                  "id": "1"
+                },
+                "row": {
+                  "name": "A"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "well-reference-resolves",
+      "message": "Spec rule [well-reference-resolves] violated: Well 'row' must be a reference with an 'id'.",
+      "location": "ome.nodes[0].attributes.well.row"
+    },
+    {
+      "name": "an acquisition that the plate does not declare",
+      "ome": {
+        "type": "collection",
+        "name": "plate",
+        "attributes": {
+          "plate": {
+            "acquisitions": [
+              {
+                "id": "acq_0"
+              }
+            ],
+            "columns": [
+              {
+                "id": "1"
+              }
+            ],
+            "rows": [
+              {
+                "id": "A"
+              }
+            ]
+          }
+        },
+        "nodes": [
+          {
+            "type": "multiscale",
+            "name": "A01_0",
+            "path": {
+              "type": "zarr",
+              "path": "./A/01/001.img"
+            },
+            "attributes": {
+              "acquisition": {
+                "id": "acq_9"
+              }
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "acquisition-reference-resolves",
+      "message": "Spec rule [acquisition-reference-resolves] violated: Acquisition references 'acq_9', which the enclosing plate's 'acquisitions' do not declare.",
+      "location": "ome.nodes[0].attributes.acquisition"
+    },
+    {
+      "name": "a malformed plate column id",
+      "ome": {
+        "type": "collection",
+        "name": "plate",
+        "nodes": [],
+        "attributes": {
+          "plate": {
+            "columns": [
+              {
+                "id": "a b"
+              }
+            ],
+            "rows": [
+              {
+                "id": "A"
+              }
+            ]
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "node-id-format",
+      "message": "Spec rule [node-id-format] violated: Id 'a b' does not match [a-zA-Z0-9-_.]+.",
+      "location": "ome.attributes.plate.columns[0].id"
+    },
+    {
+      "name": "a plate row id repeating a node id",
+      "ome": {
+        "type": "collection",
+        "name": "plate",
+        "id": "A",
+        "nodes": [],
+        "attributes": {
+          "plate": {
+            "columns": [
+              {
+                "id": "1"
+              }
+            ],
+            "rows": [
+              {
+                "id": "A"
+              }
+            ]
+          }
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "node-id-unique",
+      "message": "Spec rule [node-id-unique] violated: Id 'A' is already used in this document; ids must be unique within the JSON document.",
+      "location": "ome.attributes.plate.rows[0].id"
     }
   ]
 }

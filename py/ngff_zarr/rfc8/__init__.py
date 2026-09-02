@@ -34,6 +34,18 @@ from .model import (
     is_collection_node,
     is_prefixed_identifier,
 )
+from .plate import (
+    PlateAttribute,
+    PlateEntry,
+    WellAttribute,
+    acquisition,
+    plate,
+    plate_collection_from_hcs,
+    set_acquisition,
+    set_plate,
+    set_well,
+    well,
+)
 from .resolve import resolve_location, resolve_ome_document
 from .scene import (
     Scene,
@@ -44,6 +56,7 @@ from .scene import (
 )
 from .serialize import node_from_ome_dict, node_to_ome_dict
 from .validation import (
+    validate_acquisition_reference_resolves,
     validate_collection,
     validate_coordinate_system_id_required,
     validate_label_color_format,
@@ -55,9 +68,11 @@ from .validation import (
     validate_node_nodes_xor_path,
     validate_node_type_required,
     validate_path_type_known,
+    validate_plate_columns_rows_required,
     validate_reference_id_required,
     validate_reference_path_required,
     validate_scene_transformations_required,
+    validate_well_reference_resolves,
 )
 
 __all__ = [
@@ -76,7 +91,11 @@ __all__ = [
     "load_rfc8_node_schema",
     "LabelAttributes",
     "Labels",
+    "PlateAttribute",
+    "PlateEntry",
     "Scene",
+    "WellAttribute",
+    "acquisition",
     "coordinate_systems",
     "coordinate_transformations",
     "is_label_map",
@@ -84,16 +103,22 @@ __all__ = [
     "set_labels",
     "node_from_ome_dict",
     "node_to_ome_dict",
+    "plate",
+    "plate_collection_from_hcs",
     "read_scene",
     "scene",
     "set_scene",
     "write_scene",
+    "set_acquisition",
     "set_coordinate_systems",
     "set_coordinate_transformations",
+    "set_plate",
+    "set_well",
     "resolve_location",
     "resolve_ome_document",
     "to_collection_json",
     "to_collection_zarr",
+    "validate_acquisition_reference_resolves",
     "validate_collection",
     "validate_node_id_format",
     "validate_node_id_unique",
@@ -105,7 +130,10 @@ __all__ = [
     "validate_label_value_required",
     "validate_node_type_required",
     "validate_path_type_known",
+    "validate_plate_columns_rows_required",
     "validate_reference_id_required",
     "validate_reference_path_required",
     "validate_scene_transformations_required",
+    "validate_well_reference_resolves",
+    "well",
 ]

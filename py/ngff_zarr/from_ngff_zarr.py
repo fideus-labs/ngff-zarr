@@ -378,10 +378,27 @@ def from_ome_zarr(
         try:
             root = root[subpath]
         except KeyError:
-            raise ValueError(
-                f"Sub-path '{subpath}' not found in store. "
-                f"Ensure the path is correct (e.g., 'A/1/0' for well A1, field 0)."
-            )
+            # A mixed-format store cannot be navigated from its root: an
+            # RFC-8 collection document written at the root of a Zarr v2
+            # plate opens as a v3 group whose children are v2-only. The
+            # joined path is then its own store, and the datasets resolve
+            # against it rather than through the sub-path.
+            reopened = None
+            if isinstance(store, (str, Path)):
+                joined = Path(store) / subpath
+                try:
+                    reopened = _open_root_node(str(joined), version)
+                except (ValueError, TypeError):
+                    reopened = None
+                if reopened is not None:
+                    store = str(joined)
+                    subpath = None
+            if reopened is None:
+                raise ValueError(
+                    f"Sub-path '{subpath}' not found in store. "
+                    f"Ensure the path is correct (e.g., 'A/1/0' for well A1, field 0)."
+                )
+            root = reopened
     root_attrs = root.attrs.asdict()
 
     if not version:

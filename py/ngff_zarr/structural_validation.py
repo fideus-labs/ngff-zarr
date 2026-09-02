@@ -120,6 +120,15 @@ violation, in canonical spec-MUST order.
 #   scene-transformations-required
 #       a scene declares a non-empty coordinateTransformations array
 #       e.g. ome.attributes.scene
+#   plate-columns-rows-required
+#       an RFC-8 plate declares non-empty columns and rows arrays
+#       e.g. ome.attributes.plate
+#   well-reference-resolves
+#       a well's column/row reference an entry of the enclosing plate
+#       e.g. ome.nodes[0].attributes.well.column
+#   acquisition-reference-resolves
+#       an acquisition reference names one the enclosing plate declares
+#       e.g. ome.nodes[0].nodes[1].attributes.acquisition
 
 from __future__ import annotations
 
@@ -170,6 +179,9 @@ class SpecRule(StrEnum):
     LABEL_VALUE_REQUIRED = "label-value-required"
     LABEL_COLOR_FORMAT = "label-color-format"
     SCENE_TRANSFORMATIONS_REQUIRED = "scene-transformations-required"
+    PLATE_COLUMNS_ROWS_REQUIRED = "plate-columns-rows-required"
+    WELL_REFERENCE_RESOLVES = "well-reference-resolves"
+    ACQUISITION_REFERENCE_RESOLVES = "acquisition-reference-resolves"
 
 
 class ValidationLevel(StrEnum):
