@@ -337,13 +337,15 @@ def test_lazy_array_serves_stepped_and_negative_step_slices(tmp_path):
     longer has to re-derive span-and-restride itself.
     """
     import numpy as np
-
     from ngff_zarr import from_ngff_zarr, to_multiscales, to_ngff_image, to_ngff_zarr
 
     rng = np.random.default_rng(0)
     data = rng.random((9, 16, 17)).astype(np.float32)
     store = str(tmp_path / "img.ome.zarr")
-    to_ngff_zarr(store, to_multiscales(to_ngff_image(data, dims=("z", "y", "x")), scale_factors=[2]))
+    to_ngff_zarr(
+        store,
+        to_multiscales(to_ngff_image(data, dims=("z", "y", "x")), scale_factors=[2]),
+    )
     arr = from_ngff_zarr(store).images[0].data
 
     selections = [
