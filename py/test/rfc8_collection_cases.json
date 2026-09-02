@@ -2495,6 +2495,29 @@
       "rule": "multiscale-output-consistent",
       "message": "Spec rule [multiscale-output-consistent] violated: Singlescale output references 'physical', which the multiscale's 'coordinateSystems' do not declare.",
       "location": "ome.nodes[0].attributes.coordinateTransformations[0].output"
+    },
+    {
+      "name": "a null root version follows the caller's",
+      "ome": {
+        "version": null,
+        "type": "collection",
+        "name": "c",
+        "nodes": [
+          {
+            "type": "singlescale",
+            "name": "s0",
+            "version": "0.9.dev1",
+            "path": {
+              "type": "zarr",
+              "path": "./s0"
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "node-version-consistent",
+      "message": "Spec rule [node-version-consistent] violated: Node declares version '0.9.dev1', but the root declares '0.9.dev3'; a non-root node must not differ.",
+      "location": "ome.nodes[0].version"
     }
   ]
 }

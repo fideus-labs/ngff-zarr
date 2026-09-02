@@ -1155,7 +1155,10 @@ export function validateCollection(
   // the object directly yields the same verdicts, so both forms share one
   // path.
   let document = root as Record<string, unknown>;
-  if (document.version === undefined && version !== undefined) {
+  if (
+    (document.version === undefined || document.version === null) &&
+    version !== undefined
+  ) {
     // A parsed node tree carries its version separately; stamp it so the
     // version-consistency rule judges the tree like its document.
     document = { ...document, version };
