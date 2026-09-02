@@ -50,8 +50,12 @@ function identifierFrom(
   if (!isRecord(raw)) {
     return undefined;
   }
+  const path = typeof raw.path === "string" ||
+      (isRecord(raw.path) && typeof raw.path.path === "string")
+    ? raw.path as string | { type: string; path: string }
+    : undefined;
   return {
-    ...(typeof raw.path === "string" && { path: raw.path }),
+    ...(path !== undefined && { path }),
     ...(typeof raw.name === "string" && { name: raw.name }),
     ...(typeof raw.id === "string" && { id: raw.id }),
   };
@@ -65,7 +69,7 @@ export function sceneFromOmeValue(
   let systems: CoordinateSystem[] | undefined;
   if (Array.isArray(raw.coordinateSystems)) {
     systems = raw.coordinateSystems.filter(isRecord).map((entry) => ({
-      name: typeof entry.name === "string" ? entry.name : "",
+      ...(typeof entry.name === "string" && { name: entry.name }),
       axes: (Array.isArray(entry.axes) ? entry.axes : []) as Axis[],
       ...(typeof entry.id === "string" && { id: entry.id }),
     }));
@@ -104,18 +108,56 @@ export function sceneFromOmeValue(
   };
 }
 
-/** Serialize a {@link Scene} to its storage object. */
-export function sceneToOmeValue(value: Scene): Record<string, unknown> {
+/**
+ * Serialize a {@link Scene} to its storage object for the shape `version`
+ * selects. The RFC-8 shape (`"0.9.dev3"`, the default) keeps ids on systems
+ * and references; the 0.6-family shape identifies coordinate systems by
+ * name, so a system or reference without one cannot be expressed there and
+ * throws. Mirrors the Python `_serialize_scene`.
+ */
+export function sceneToOmeValue(
+  value: Scene,
+  version: string = "0.9.dev3",
+): Record<string, unknown> {
+  const idBased = version === "0.9.dev3";
   const serialized: Record<string, unknown> = {};
   if (value.coordinateSystems !== undefined) {
-    serialized.coordinateSystems = value.coordinateSystems.map((system) => ({
-      ...(system.id !== undefined && { id: system.id }),
-      ...(system.name !== "" && { name: system.name }),
-      axes: system.axes,
-    }));
+    serialized.coordinateSystems = value.coordinateSystems.map((system) => {
+      if (system.name === undefined && !idBased) {
+        throw new Error(
+          "A 0.6-family scene names its coordinate systems, but a declared " +
+            "system carries no name. Give it a name, or write the scene at " +
+            'version "0.9.dev3".',
+        );
+      }
+      return {
+        ...(idBased && system.id !== undefined && { id: system.id }),
+        ...(system.name !== undefined && { name: system.name }),
+        axes: system.axes,
+      };
+    });
   }
   serialized.coordinateTransformations = value.coordinateTransformations.map(
-    (transform) => serializeV06Transform(transform),
+    (transform) => {
+      const entry = serializeV06Transform(transform);
+      if (!idBased) {
+        for (const side of ["input", "output"]) {
+          const reference = entry[side];
+          if (!isRecord(reference)) {
+            continue;
+          }
+          if (reference.name === undefined) {
+            throw new Error(
+              `A 0.6-family scene names its ${side} coordinate systems, ` +
+                "but a transformation reference carries no name. Give it a " +
+                'name, or write the scene at version "0.9.dev3".',
+            );
+          }
+          delete reference.id;
+        }
+      }
+      return entry;
+    },
   );
   return serialized;
 }

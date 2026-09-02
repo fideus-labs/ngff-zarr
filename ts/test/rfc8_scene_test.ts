@@ -6,7 +6,7 @@
  * fixture documents.
  */
 
-import { assertEquals, assertThrows } from "@std/assert";
+import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import {
   type OmeNode,
   readSceneFromAttrs,
@@ -16,6 +16,7 @@ import {
   validateCollection,
   ValidationError,
 } from "../src/mod.ts";
+import { sceneFromOmeValue, sceneToOmeValue } from "../src/utils/rfc8_scene.ts";
 
 const FIXTURES = new URL(
   "../../py/test/fixtures/rfc8/scene/",
@@ -181,3 +182,52 @@ for (const fixture of ["scene_registration.json", "scene_stitching.json"]) {
     assertEquals(typeof first.input?.name, "string");
   });
 }
+
+Deno.test("typed reference paths survive scene parsing", () => {
+  const parsed = sceneFromOmeValue({
+    coordinateTransformations: [
+      {
+        type: "translation",
+        translation: [0.0, 100.0],
+        input: {
+          id: "physical",
+          path: { type: "zarr", path: "./tile_0.zarr" },
+        },
+        output: { id: "world" },
+      },
+    ],
+  }, "0.9.dev3");
+  assertEquals(parsed.coordinateTransformations[0].input?.path, {
+    type: "zarr",
+    path: "./tile_0.zarr",
+  });
+  const serialized = sceneToOmeValue(parsed);
+  const transforms = serialized.coordinateTransformations as Record<
+    string,
+    unknown
+  >[];
+  assertEquals((transforms[0].input as Record<string, unknown>).path, {
+    type: "zarr",
+    path: "./tile_0.zarr",
+  });
+});
+
+Deno.test("id-only references refuse the 0.6 scene shape", () => {
+  const tiles = sceneFromOmeValue({
+    coordinateTransformations: [
+      {
+        type: "translation",
+        translation: [0.0, 100.0],
+        input: { id: "physical", path: "./tile_0.zarr" },
+        output: { id: "world" },
+      },
+    ],
+  }, "0.9.dev3");
+  let message = "";
+  try {
+    sceneToOmeValue(tiles, "0.6");
+  } catch (error) {
+    message = String(error);
+  }
+  assertStringIncludes(message, '"0.9.dev3"');
+});

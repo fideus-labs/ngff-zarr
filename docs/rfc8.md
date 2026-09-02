@@ -195,8 +195,10 @@ tiles = Scene(
     coordinateTransformations=[
         Translation(
             translation=[0.0, 100.0],
-            input=CoordinateSystemIdentifier(id="physical", path="./tile_0.zarr"),
-            output=CoordinateSystemIdentifier(id="world"),
+            input=CoordinateSystemIdentifier(
+                name="physical", id="physical", path="./tile_0.zarr"
+            ),
+            output=CoordinateSystemIdentifier(name="world", id="world"),
         )
     ],
 )
