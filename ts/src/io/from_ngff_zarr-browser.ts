@@ -161,13 +161,15 @@ export async function fromOmeZarr(
       // reader and the v0.4/v0.5 path below; otherwise behavior diverges by
       // version and environment. The v0.6 family (`0.6` and its pre-release
       // tags) is treated as equivalent.
+      const effectiveVersion = isDev2Multiscale
+        ? NgffVersion.V09dev3
+        : onDiskVersion;
       const versionsMatch = version === undefined ||
-        version === onDiskVersion ||
-        (isDev2Multiscale && version === NgffVersion.V09dev3) ||
-        (isV06Version(onDiskVersion) && isV06Version(version));
+        version === effectiveVersion ||
+        (isV06Version(effectiveVersion) && isV06Version(version));
       if (validate && !versionsMatch) {
         throw new Error(
-          `Expected OME-Zarr version ${version}, but found ${onDiskVersion}`,
+          `Expected OME-Zarr version ${version}, but found ${effectiveVersion}`,
         );
       }
       const result = await fromZarrAttrsV06(

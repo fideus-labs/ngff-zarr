@@ -187,3 +187,84 @@ Deno.test("the distributed singlescale layout reads", async () => {
     source.metadata.axes.map((axis) => axis.name),
   );
 });
+
+Deno.test("a 0.9.dev3 store rejects a requested 0.9.dev1 in both readers", async () => {
+  const source = await sourceMultiscales();
+  const store: MemoryStore = new Map();
+  await toOmeZarr(store, source, { version: "0.9.dev3" });
+
+  const { fromOmeZarr: fromOmeZarrBrowser } = await import(
+    "../src/io/from_ngff_zarr-browser.ts"
+  );
+  for (
+    const read of [
+      () => fromOmeZarr(store, { version: "0.9.dev1", validate: true }),
+      () => fromOmeZarrBrowser(store, { version: "0.9.dev1", validate: true }),
+    ]
+  ) {
+    let message = "";
+    try {
+      await read();
+    } catch (error) {
+      message = String(error);
+    }
+    assertStringIncludes(message, "0.9.dev3");
+  }
+});
+
+Deno.test("supplied coordinate-system ids survive a 0.9.dev3 write", async () => {
+  const source = await sourceMultiscales();
+  source.metadata.coordinateSystems = [
+    {
+      name: "physical",
+      id: "physical-v1",
+      axes: source.metadata.axes,
+    },
+  ];
+  const store: MemoryStore = new Map();
+  await toOmeZarr(store, source, { version: "0.9.dev3" });
+
+  const ome = readOme(store);
+  const attributes = ome.attributes as Record<string, unknown>;
+  const systems = attributes.coordinateSystems as Record<string, unknown>[];
+  assertEquals(systems[0].id, "physical-v1");
+  const nodes = ome.nodes as Record<string, unknown>[];
+  const transforms = (nodes[0].attributes as Record<string, unknown>)
+    .coordinateTransformations as Record<string, unknown>[];
+  assertEquals(
+    (transforms[0].output as Record<string, unknown>).id,
+    "physical-v1",
+  );
+});
+
+Deno.test("id-only transform references write at 0.9.dev3 and refuse at 0.6", async () => {
+  const { buildRootAttributes } = await import(
+    "../src/io/to_ngff_zarr_ozx_common.ts"
+  );
+  const source = await sourceMultiscales();
+  const intrinsic = source.metadata.coordinateSystems?.[0]?.name ??
+    "intrinsic";
+  source.metadata.coordinateTransformations = [
+    {
+      type: "scale",
+      scale: source.metadata.axes.map(() => 1.0),
+      input: { id: intrinsic },
+      output: { id: intrinsic },
+    },
+  ];
+  let refused = "";
+  try {
+    buildRootAttributes(source.metadata, "0.6");
+  } catch (error) {
+    refused = String(error);
+  }
+  assertStringIncludes(refused, "names no input coordinate system");
+  const attrs = buildRootAttributes(source.metadata, "0.9.dev3");
+  const ome = attrs.ome as Record<string, unknown>;
+  const transforms = (ome.attributes as Record<string, unknown>)
+    .coordinateTransformations as Record<string, unknown>[];
+  assertEquals(
+    (transforms[0].input as Record<string, unknown>).id !== undefined,
+    true,
+  );
+});

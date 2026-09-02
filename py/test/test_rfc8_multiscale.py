@@ -216,7 +216,9 @@ def test_dev3_writes_rfc3_axis_models_the_gate_refuses_below(tmp_path):
     source = tmp_path / "src.ome.zarr"
     group = zarr.open_group(str(source), mode="w")
     shape = (2,) * 6
-    array = group.create_array("0", shape=shape, dtype="uint8", chunks=shape)
+    # zarr-python 2 spells this create_dataset; 3 spells it create_array.
+    create = getattr(group, "create_array", None) or group.create_dataset
+    array = create("0", shape=shape, dtype="uint8", chunks=shape)
     array[...] = np.zeros(shape, dtype="uint8")
     group.attrs["multiscales"] = [
         {
@@ -239,3 +241,48 @@ def test_dev3_writes_rfc3_axis_models_the_gate_refuses_below(tmp_path):
     to_ome_zarr(tmp_path / "img.ome.zarr", multiscales, version="0.9.dev3")
     read_back = from_ome_zarr(tmp_path / "img.ome.zarr")
     assert read_back.images[0].dims == ["a", "b", "c", "d", "e", "f"]
+
+
+def test_dev3_write_accepts_id_only_transform_references(tmp_path):
+    from ngff_zarr.v06.zarr_metadata import CoordinateSystemIdentifier, Scale
+
+    array = np.random.random((4, 8, 8)).astype("float32")
+    multiscales = to_multiscales(array, [2])
+    intrinsic = multiscales.metadata.intrinsic_coordinate_system.name
+    multiscales.metadata.coordinateTransformations = [
+        Scale(
+            scale=[2.0, 2.0, 2.0],
+            input=CoordinateSystemIdentifier(id=intrinsic),
+            output=CoordinateSystemIdentifier(id=intrinsic),
+        )
+    ]
+
+    # 0.6 still requires names on both references.
+    with pytest.raises(ValueError, match="names no input coordinate system"):
+        to_ome_zarr(tmp_path / "refused.ome.zarr", multiscales, version="0.6")
+
+    store = tmp_path / "img.ome.zarr"
+    to_ome_zarr(store, multiscales, version="0.9.dev3")
+    document = json.loads((store / "zarr.json").read_text())
+    transform = document["attributes"]["ome"]["attributes"][
+        "coordinateTransformations"
+    ][0]
+    assert transform["input"] == {"id": intrinsic}
+    from_ome_zarr(store, validate=True)
+
+
+def test_corrupt_distributed_singlescale_document_raises(tmp_path):
+    store = tmp_path / "img.ome.zarr"
+    to_ome_zarr(store, _multiscales(), version="0.9.dev3")
+    root_doc = json.loads((store / "zarr.json").read_text())
+    ome = root_doc["attributes"]["ome"]
+    level_path = None
+    for node in ome["nodes"]:
+        node.pop("attributes")
+        level_path = store / node["path"]["path"][2:]
+    (store / "zarr.json").write_text(json.dumps(root_doc))
+    (level_path / "zarr.json").write_text("{not json")
+
+    with pytest.raises(Exception) as exc_info:
+        from_ome_zarr(store)
+    assert not isinstance(exc_info.value, KeyError)

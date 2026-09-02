@@ -186,7 +186,11 @@ export function buildRootAttributes(
     // RFC-8: the root ome value is a multiscale node document; the datasets
     // become singlescale child nodes and omero rides in the node's
     // attributes.
-    const v09Entry = buildV06MultiscalesEntry(metadata, processedAxes);
+    const v09Entry = buildV06MultiscalesEntry(
+      metadata,
+      processedAxes,
+      NgffVersion.V09dev3,
+    );
     return {
       ome: multiscaleOmeDict(v09Entry, NgffVersion.V09dev3, metadata.omero),
     };
