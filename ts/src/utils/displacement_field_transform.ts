@@ -207,9 +207,11 @@ function fieldValueConverters(frame: FrameGeometry, absolute: boolean): {
   return {
     toIntrinsic: (vector: number[], point: number[]): number[] => {
       const rotated = matvec(inverseOut, vector);
-      if (!terms.shifts) return rotated;
+      if (!terms.shifts && !absolute) return rotated;
       const shift = matvec(terms.shiftMatrix, point);
-      return rotated.map((value, i) => value + shift[i] + terms.shiftVector[i]);
+      return rotated.map((value, i) =>
+        value + shift[i] + terms.shiftVector[i] + (absolute ? point[i] : 0)
+      );
     },
     toPhysical: (displacement: number[], point: number[]): number[] => {
       if (!terms.shifts && !absolute) {
@@ -574,6 +576,13 @@ export function convertFieldBlock(
       `the block holds ${shape[0]} components per point, but dims ${
         dims.join(", ")
       } name ${dimension} axes`,
+    );
+  }
+  const expected = shape.reduce((a, b) => a * b, 1);
+  if (values.length !== expected) {
+    throw new Error(
+      `a block of shape ${shape.join(", ")} holds ${expected} values; got ` +
+        `${values.length}`,
     );
   }
   for (const dim of dims) {

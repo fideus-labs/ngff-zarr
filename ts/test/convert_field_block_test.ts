@@ -248,6 +248,72 @@ Deno.test("forward then inverse is the identity", async () => {
   }
 });
 
+Deno.test("a coordinates block holds q + d and round-trips", () => {
+  // A `coordinates` field carries the absolute position `q + d(q)`, so the
+  // forward conversion adds the grid point on top of the displacement and the
+  // inverse takes it back off. Unframed, the positional term is the grid point
+  // alone, so `coordinates` minus `displacements` is exactly `q`.
+  const dims = CANONICAL[3];
+  const shape = [3, 4, 5, 6];
+  const spatial = shape.slice(1);
+  const voxels = spatial.reduce((a, b) => a * b, 1);
+  const translation = { z: 5.0, y: -3.0, x: 7.0 };
+  const scale = { z: 2.0, y: 1.5, x: 1.0 };
+  const next = noise(11);
+  const block = new Float64Array(shape.reduce((a, b) => a * b, 1));
+  for (let i = 0; i < block.length; i++) block[i] = next();
+
+  const displacements = convertFieldBlock(
+    block,
+    shape,
+    dims,
+    translation,
+    scale,
+  );
+  const coordinates = convertFieldBlock(
+    block,
+    shape,
+    dims,
+    translation,
+    scale,
+    {
+      transformType: "coordinates",
+    },
+  );
+  // At voxel 0 every spatial index is zero, so the grid point is the origin.
+  for (let axis = 0; axis < dims.length; axis++) {
+    const dim = dims[axis];
+    assertAlmostEquals(
+      coordinates[axis * voxels] - displacements[axis * voxels],
+      translation[dim as keyof typeof translation],
+      1e-12,
+    );
+  }
+
+  const back = convertFieldBlock(coordinates, shape, dims, translation, scale, {
+    transformType: "coordinates",
+    inverse: true,
+  });
+  for (let i = 0; i < block.length; i++) {
+    assertAlmostEquals(back[i], block[i], 1e-12);
+  }
+});
+
+Deno.test("a values buffer that does not match the shape is refused", () => {
+  assertThrows(
+    () =>
+      convertFieldBlock(
+        new Float64Array(11),
+        [3, 4, 5, 6],
+        CANONICAL[3],
+        { z: 0, y: 0, x: 0 },
+        { z: 1, y: 1, x: 1 },
+      ),
+    Error,
+    "holds 360 values; got 11",
+  );
+});
+
 Deno.test("a block shape that is not the grid is refused", () => {
   assertThrows(
     () =>
