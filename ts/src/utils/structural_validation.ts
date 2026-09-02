@@ -109,6 +109,12 @@ export const SpecRule = {
   LabelColorFormat: "label-color-format",
   /** A scene declares a non-empty coordinateTransformations array. */
   SceneTransformationsRequired: "scene-transformations-required",
+  /** An RFC-8 plate declares non-empty columns and rows arrays. */
+  PlateColumnsRowsRequired: "plate-columns-rows-required",
+  /** A well's column/row reference an entry of the enclosing plate. */
+  WellReferenceResolves: "well-reference-resolves",
+  /** An acquisition reference names one the enclosing plate declares. */
+  AcquisitionReferenceResolves: "acquisition-reference-resolves",
 } as const;
 
 /** Union of the {@link SpecRule} string values. */

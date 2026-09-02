@@ -184,6 +184,20 @@ export {
   multiscalesEntryFromOme,
 } from "./utils/rfc8_multiscale.ts";
 export {
+  acquisition,
+  ACQUISITION_KEY,
+  plate,
+  PLATE_KEY,
+  type PlateAttribute,
+  type PlateEntry,
+  setAcquisition,
+  setPlate,
+  setWell,
+  well,
+  WELL_KEY,
+  type WellAttribute,
+} from "./utils/rfc8_plate.ts";
+export {
   readSceneFromAttrs,
   type Scene,
   scene,
@@ -194,6 +208,7 @@ export {
 } from "./utils/rfc8_scene.ts";
 export {
   CORE_PATH_TYPES,
+  validateAcquisitionReferenceResolves,
   validateCollection,
   validateCoordinateSystemIdRequired,
   validateLabelColorFormat,
@@ -205,9 +220,11 @@ export {
   validateNodeNodesXorPath,
   validateNodeTypeRequired,
   validatePathTypeKnown,
+  validatePlateColumnsRowsRequired,
   validateReferenceIdRequired,
   validateReferencePathRequired,
   validateSceneTransformationsRequired,
+  validateWellReferenceResolves,
   XOR_NODE_TYPES,
 } from "./utils/rfc8_validation.ts";
 export {

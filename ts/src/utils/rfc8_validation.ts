@@ -198,6 +198,116 @@ function* iterReferenceSites(
   yield* iterLabelSourceSites(document);
 }
 
+function* iterPlateAttributes(
+  document: Record<string, unknown>,
+): Generator<[string, Record<string, unknown>]> {
+  for (const [location, node] of iterNodes(document, "ome")) {
+    const attributes = node.attributes;
+    if (!isRecord(attributes)) {
+      continue;
+    }
+    const plate = attributes.plate;
+    if (isRecord(plate)) {
+      yield [`${location}.attributes.plate`, plate];
+    }
+  }
+}
+
+/** The acquisition, column and row entries of every plate. */
+function* iterPlateEntries(
+  document: Record<string, unknown>,
+): Generator<[string, Record<string, unknown>]> {
+  for (const [base, plate] of iterPlateAttributes(document)) {
+    for (const field of ["acquisitions", "columns", "rows"]) {
+      const entries = plate[field];
+      if (!Array.isArray(entries)) {
+        continue;
+      }
+      for (const [index, entry] of entries.entries()) {
+        if (isRecord(entry)) {
+          yield [`${base}.${field}[${index}]`, entry];
+        }
+      }
+    }
+  }
+}
+
+/**
+ * The well column/row and acquisition references of every node. These
+ * resolve against the enclosing plate's entries, checked by their dedicated
+ * rules; they join the id-format walk but not the generic reference-path
+ * rule.
+ */
+function* iterHcsReferenceSites(
+  document: Record<string, unknown>,
+): Generator<[string, unknown]> {
+  for (const [location, node] of iterNodes(document, "ome")) {
+    const attributes = node.attributes;
+    if (!isRecord(attributes)) {
+      continue;
+    }
+    const well = attributes.well;
+    if (isRecord(well)) {
+      for (const field of ["column", "row"]) {
+        yield [`${location}.attributes.well.${field}`, well[field]];
+      }
+    }
+    if (attributes.acquisition !== undefined) {
+      yield [`${location}.attributes.acquisition`, attributes.acquisition];
+    }
+  }
+}
+
+/**
+ * Every node with the nearest enclosing plate attribute. A node carrying
+ * the `plate` attribute is its own nearest plate, so an acquisition
+ * reference on the plate collection itself resolves too.
+ */
+function* iterNodesWithPlate(
+  document: Record<string, unknown>,
+): Generator<
+  [string, Record<string, unknown>, Record<string, unknown> | undefined]
+> {
+  function* walk(
+    node: Record<string, unknown>,
+    location: string,
+    plate: Record<string, unknown> | undefined,
+  ): Generator<
+    [string, Record<string, unknown>, Record<string, unknown> | undefined]
+  > {
+    const attributes = node.attributes;
+    if (isRecord(attributes) && isRecord(attributes.plate)) {
+      plate = attributes.plate;
+    }
+    yield [location, node, plate];
+    const children = node.nodes;
+    if (Array.isArray(children)) {
+      for (const [index, child] of children.entries()) {
+        if (isRecord(child)) {
+          yield* walk(child, `${location}.nodes[${index}]`, plate);
+        }
+      }
+    }
+  }
+  yield* walk(document, "ome", undefined);
+}
+
+function plateEntryIds(
+  plate: Record<string, unknown>,
+  field: string,
+): Set<string> {
+  const ids = new Set<string>();
+  const entries = plate[field];
+  if (Array.isArray(entries)) {
+    for (const entry of entries) {
+      if (isRecord(entry) && typeof entry.id === "string") {
+        ids.add(entry.id);
+      }
+    }
+  }
+  return ids;
+}
+
 /**
  * Every typed path in the document: each node's own `path` and the `path`
  * of every reference site, so an extension path type is judged the same
@@ -234,7 +344,20 @@ function* iterIdSites(
       yield [`${location}.id`, system.id, true];
     }
   }
+  for (const [location, entry] of iterPlateEntries(document)) {
+    if (entry.id !== undefined && entry.id !== null) {
+      yield [`${location}.id`, entry.id, true];
+    }
+  }
   for (const [location, reference] of iterReferenceSites(document)) {
+    if (
+      isRecord(reference) && reference.id !== undefined &&
+      reference.id !== null
+    ) {
+      yield [`${location}.id`, reference.id, false];
+    }
+  }
+  for (const [location, reference] of iterHcsReferenceSites(document)) {
     if (
       isRecord(reference) && reference.id !== undefined &&
       reference.id !== null
@@ -626,6 +749,123 @@ export function validateSceneTransformationsRequired(
 }
 
 /**
+ * Every plate declares its columns and rows
+ * (`plate-columns-rows-required`).
+ */
+export function validatePlateColumnsRowsRequired(
+  document: Record<string, unknown>,
+): void {
+  for (const [location, plate] of iterPlateAttributes(document)) {
+    for (const field of ["columns", "rows"]) {
+      const entries = plate[field];
+      if (!Array.isArray(entries) || entries.length === 0) {
+        throw new ValidationError(
+          SpecRule.PlateColumnsRowsRequired,
+          `Plate must declare a non-empty ${pyRepr(field)} array.`,
+          location,
+        );
+      }
+    }
+  }
+}
+
+/**
+ * A well's column and row reference its plate's entries
+ * (`well-reference-resolves`).
+ */
+export function validateWellReferenceResolves(
+  document: Record<string, unknown>,
+): void {
+  for (const [location, node, plate] of iterNodesWithPlate(document)) {
+    const attributes = node.attributes;
+    if (!isRecord(attributes)) {
+      continue;
+    }
+    const well = attributes.well;
+    if (!isRecord(well)) {
+      continue;
+    }
+    for (
+      const [field, plural] of [
+        ["column", "columns"],
+        ["row", "rows"],
+      ] as const
+    ) {
+      const reference = well[field];
+      const site = `${location}.attributes.well.${field}`;
+      const value = isRecord(reference) ? reference.id : undefined;
+      if (typeof value !== "string") {
+        throw new ValidationError(
+          SpecRule.WellReferenceResolves,
+          `Well ${pyRepr(field)} must be a reference with an 'id'.`,
+          site,
+        );
+      }
+      if (plate === undefined) {
+        throw new ValidationError(
+          SpecRule.WellReferenceResolves,
+          `Well ${pyRepr(field)} references ${pyRepr(value)}, but no ` +
+            `enclosing collection declares a 'plate'.`,
+          site,
+        );
+      }
+      if (!plateEntryIds(plate, plural).has(value)) {
+        throw new ValidationError(
+          SpecRule.WellReferenceResolves,
+          `Well ${pyRepr(field)} references ${pyRepr(value)}, which the ` +
+            `enclosing plate's ${pyRepr(plural)} do not declare.`,
+          site,
+        );
+      }
+    }
+  }
+}
+
+/**
+ * An acquisition reference names a declared acquisition
+ * (`acquisition-reference-resolves`).
+ */
+export function validateAcquisitionReferenceResolves(
+  document: Record<string, unknown>,
+): void {
+  for (const [location, node, plate] of iterNodesWithPlate(document)) {
+    const attributes = node.attributes;
+    if (!isRecord(attributes)) {
+      continue;
+    }
+    const reference = attributes.acquisition;
+    if (reference === undefined || reference === null) {
+      continue;
+    }
+    const site = `${location}.attributes.acquisition`;
+    const value = isRecord(reference) ? reference.id : undefined;
+    if (typeof value !== "string") {
+      throw new ValidationError(
+        SpecRule.AcquisitionReferenceResolves,
+        "Acquisition must be a reference with an 'id'.",
+        site,
+      );
+    }
+    if (plate === undefined) {
+      throw new ValidationError(
+        SpecRule.AcquisitionReferenceResolves,
+        `Acquisition references ${pyRepr(value)}, but no enclosing ` +
+          `collection declares a 'plate'.`,
+        site,
+      );
+    }
+    if (!plateEntryIds(plate, "acquisitions").has(value)) {
+      throw new ValidationError(
+        SpecRule.AcquisitionReferenceResolves,
+        `Acquisition references ${pyRepr(value)}, which the enclosing ` +
+          `plate's 'acquisitions' do not declare.`,
+        site,
+      );
+    }
+  }
+}
+
+/**
  * The RFC-8 rules in canonical evaluation order (the SpecRule declaration
  * order), dispatched fail-fast by {@link validateCollection}.
  */
@@ -643,6 +883,9 @@ const COLLECTION_RULES = [
   validateLabelValueRequired,
   validateLabelColorFormat,
   validateSceneTransformationsRequired,
+  validatePlateColumnsRowsRequired,
+  validateWellReferenceResolves,
+  validateAcquisitionReferenceResolves,
 ] as const;
 
 /**
