@@ -1260,11 +1260,12 @@ def _upgrade_main(argv: list[str] | None = None) -> None:
         "--to",
         "--version",
         dest="version",
-        choices=["0.4", "0.5", "0.6", "0.9.dev1"],
+        choices=["0.4", "0.5", "0.6", "0.9.dev1", "0.9.dev3"],
         default="0.6",
-        help="Target OME-Zarr version (default: 0.6). 0.9.dev1 is the "
-        "development version that adopts RFC-3; it is opt-in and has no "
-        "published JSON Schema, so --validate cannot check it.",
+        help="Target OME-Zarr version (default: 0.6). 0.9.dev1 (RFC-3 axes) "
+        "and 0.9.dev3 (the RFC-8 node model) are the opt-in development "
+        "versions; the 0.9.dev1 schemas are bundled, and a 0.9.dev3 store "
+        "is checked by the RFC-8 structural rules.",
     )
     parser.add_argument(
         "--validate",

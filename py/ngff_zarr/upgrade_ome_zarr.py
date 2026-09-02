@@ -81,13 +81,13 @@ if TYPE_CHECKING:
 
 
 def _normalize_target_version(version: str | NgffVersion) -> str:
-    """Return the API version string (``"0.4"``/``"0.5"``/``"0.6"``/``"0.9.dev1"``).
+    """Return the API version string the metadata conversions accept.
 
     Both the API alias ``"0.6"`` and the on-disk pre-release strings of the
     0.6 family normalize to ``"0.6"`` so the value can be handed to
     ``Metadata.to_version`` (which only knows the three released versions).
-    ``"0.9.dev1"`` needs no such collapse: unlike v0.6 it is itself the
-    on-disk string.
+    The 0.9 development series needs no such collapse: unlike v0.6 its tags
+    are themselves the on-disk strings.
     """
     nv = NgffVersion(version)
     if nv in (NgffVersion.V06, NgffVersion.V06dev4, NgffVersion.V06rc0):
@@ -203,10 +203,10 @@ def _validate_target_version(target_version: str, requested: str | NgffVersion) 
     ``to_version`` chains only convert among 0.4/0.5/0.6 and 0.9.dev1. Fail
     early with an actionable message rather than deep in a conversion.
     """
-    if target_version not in ("0.4", "0.5", "0.6", "0.9.dev1"):
+    if target_version not in ("0.4", "0.5", "0.6", "0.9.dev1", "0.9.dev3"):
         raise ValueError(
             f"Unsupported target version {requested!r}. upgrade_ome_zarr() can "
-            "upgrade to OME-Zarr 0.4, 0.5, 0.6, or 0.9.dev1."
+            "upgrade to OME-Zarr 0.4, 0.5, 0.6, 0.9.dev1, or 0.9.dev3."
         )
 
 

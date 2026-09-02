@@ -696,7 +696,7 @@ class Metadata:
             return self._to_v05()
         if version == NgffVersion.V06:
             return self
-        if version == NgffVersion.V09dev1:
+        if version in (NgffVersion.V09dev1, NgffVersion.V09dev3):
             from ..v09.zarr_metadata import Metadata as Metadata_v09
 
             return Metadata_v09.from_version(self)
