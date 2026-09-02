@@ -231,3 +231,26 @@ Deno.test("id-only references refuse the 0.6 scene shape", () => {
   }
   assertStringIncludes(message, '"0.9.dev3"');
 });
+
+Deno.test("typed reference paths refuse the 0.6 scene shape", () => {
+  const tiles = sceneFromOmeValue({
+    coordinateTransformations: [
+      {
+        type: "translation",
+        translation: [0.0, 100.0],
+        input: {
+          name: "physical",
+          path: { type: "zarr", path: "./tile_0.zarr" },
+        },
+        output: { name: "world" },
+      },
+    ],
+  }, "0.9.dev3");
+  let message = "";
+  try {
+    sceneToOmeValue(tiles, "0.6");
+  } catch (error) {
+    message = String(error);
+  }
+  assertStringIncludes(message, "typed path object");
+});
