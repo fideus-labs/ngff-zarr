@@ -23,7 +23,8 @@ def test_each_module_declares_its_public_surface():
         assert hasattr(v06, name), f"v06.__all__ names {name}, which is absent"
     for name in v09.__all__:
         assert hasattr(v09, name), f"v09.__all__ names {name}, which is absent"
-    assert "CoordinateSystem" in v06.__all__ and "CoordinateSystem" in v09.__all__
+    assert "CoordinateSystem" in v06.__all__
+    assert "CoordinateSystem" in v09.__all__
 
 
 def test_coordinate_system_is_two_distinct_models():
