@@ -286,3 +286,15 @@ def test_corrupt_distributed_singlescale_document_raises(tmp_path):
     with pytest.raises(Exception) as exc_info:
         from_ome_zarr(store)
     assert not isinstance(exc_info.value, KeyError)
+
+
+def test_nameless_systems_refuse_name_based_writes(tmp_path):
+    from ngff_zarr.v06.zarr_metadata import CoordinateSystem
+
+    multiscales = _multiscales()
+    axes = multiscales.metadata.coordinateSystems[0].axes
+    multiscales.metadata.coordinateSystems = [
+        CoordinateSystem(name=None, axes=axes, id="pixel")
+    ]
+    with pytest.raises(ValueError, match="carry a name"):
+        to_ome_zarr(tmp_path / "img.ome.zarr", multiscales, version="0.9.dev1")
