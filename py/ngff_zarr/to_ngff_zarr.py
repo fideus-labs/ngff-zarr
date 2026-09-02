@@ -306,6 +306,78 @@ def _validate_ngff_parameters(
         )
 
 
+def _gate_transform_arity(metadata) -> None:
+    """Refuse a scale or translation whose vector does not span the axes it applies to.
+
+    A ``scale`` of two values over three axes is metadata no consumer can
+    apply, and nothing caught it: the 0.4 and 0.5 models carry no validation of
+    their own, from 0.6 ``Scale`` and ``Translation`` inherit a ``validate``
+    that checks nothing, and the bundled schemas constrain what these vectors
+    hold rather than how many. Such a store was written and read back as valid
+    at every version, at the multiscales level and the dataset level alike.
+
+    Which axes a vector spans is the transform's own question. From 0.6 a
+    transform maps between the coordinate systems it names, whose arity need
+    not be the intrinsic one: a spatial system beside a channel axis is what a
+    field transform declares. So the count comes from the systems a transform
+    references, when they resolve, and from the intrinsic axes otherwise --
+    which is every 0.4 and 0.5 transform, none of which names a system.
+    """
+    systems = {
+        system.name: len(system.axes)
+        for system in getattr(metadata, "coordinateSystems", None) or ()
+    }
+    intrinsic = len(getattr(metadata, "axes", None) or ())
+    if not intrinsic:
+        return
+    levels = [
+        ("the multiscales", getattr(metadata, "coordinateTransformations", None) or ())
+    ]
+    levels += [
+        (f"dataset '{dataset.path}'", dataset.coordinateTransformations or ())
+        for dataset in getattr(metadata, "datasets", None) or ()
+    ]
+    for where, transforms in levels:
+        for index, transform in enumerate(transforms):
+            _gate_spans(
+                transform,
+                f"{where} coordinateTransformations[{index}]",
+                systems,
+                {intrinsic},
+            )
+
+
+def _gate_spans(
+    transform, where: str, systems: dict[str, int], inherited: set[int]
+) -> None:
+    """``transform``'s own vectors, then those of its sequence members.
+
+    A member names no system of its own -- at 0.6 a dataset's scale and
+    translation sit inside one sequence -- so it spans what the sequence spans.
+    """
+    named = {
+        systems[reference.name]
+        for reference in (
+            getattr(transform, "input", None),
+            getattr(transform, "output", None),
+        )
+        if reference is not None and reference.name in systems
+    }
+    spans = named or inherited
+    for kind in ("scale", "translation"):
+        vector = getattr(transform, kind, None)
+        if vector is not None and len(vector) not in spans:
+            axes = " or ".join(str(count) for count in sorted(spans))
+            raise ValueError(
+                f"{where} ({transform.type}) gives {len(vector)} {kind} values "
+                f"for the {axes} axes it applies to; a transform that does not "
+                "span its axes cannot be applied by a reader."
+            )
+    members = getattr(transform, "transformations", None) or ()
+    for position, member in enumerate(members):
+        _gate_spans(member, f"{where}.transformations[{position}]", systems, spans)
+
+
 def _gate_top_level_transforms(metadata, version: str) -> None:
     """Refuse a multiscale-level transform the 0.6 schema cannot express.
 
@@ -1679,6 +1751,7 @@ def _to_ngff_zarr_impl(
     root_attributes = _check_root_attributes(multiscales.root_attributes)
     metadata, dimension_names, _ = _prepare_metadata(multiscales, version)
     _gate_top_level_transforms(metadata, version)
+    _gate_transform_arity(metadata)
     if start_level:
         _guard_rewrite_of_read_levels(
             multiscales, store_path, metadata.datasets, start_level
