@@ -38,8 +38,12 @@ jobs:
           python -m pip install -e "py/.[test,dask-image,itk,cli,validate]"
 
       - name: Test with pytest
+        # Bounded: the macos-26-intel / 3.14 cell twice starved its runner to death around the
+        # hour mark, losing the logs with it. A step timeout turns the next hang into a killed
+        # step whose log names the test.
+        timeout-minutes: 40
         run: |
-          cd py && pytest --junitxml=junit/test-results.xml
+          cd py && pytest -v --junitxml=junit/test-results.xml
 
       - name: Publish Test Report
         if:
