@@ -378,8 +378,15 @@ def _gate_spans(
         _gate_spans(member, f"{where}.transformations[{position}]", systems, spans)
 
 
-def _gate_top_level_transforms(metadata, version: str) -> None:
-    """Refuse a multiscale-level transform the 0.6 schema cannot express.
+def _gate_top_level_transforms(source, metadata, version: str) -> None:
+    """Refuse a multiscale-level transform the target version would drop or reject.
+
+    ``to_version`` carries over the transforms the target model can express --
+    0.4 keeps its own scale/translation form -- and drops the rest, an RFC-5
+    entry written at 0.4 among them. Dropping is silent: the store is written,
+    the entry is gone, and the only witness is a reader finding ``None`` where
+    a transform was declared. What the conversion kept is therefore compared
+    with what was declared, and a loss is refused rather than written.
 
     From 0.6 a transform on the multiscales entry maps between two named
     coordinate systems, and the schema requires both ``input`` and ``output``
@@ -392,9 +399,16 @@ def _gate_top_level_transforms(metadata, version: str) -> None:
     Each transform then runs the reader's ``validate_transform`` against the
     systems it names, so a store this writes is one it can read back.
     """
-    if version not in ("0.6", NgffVersion.V09dev1.value):
-        return
-    if not metadata.coordinateTransformations:
+    declared = getattr(source, "coordinateTransformations", None) or []
+    transforms = getattr(metadata, "coordinateTransformations", None) or []
+    if len(transforms) < len(declared):
+        raise ValueError(
+            f"{len(declared) - len(transforms)} of the multiscales metadata's "
+            f"{len(declared)} coordinateTransformations have no form in "
+            f"OME-Zarr {version}, which would drop them silently. Write with "
+            "version='0.6', or remove them."
+        )
+    if not transforms or version not in ("0.6", NgffVersion.V09dev1.value):
         return
     from .v06.zarr_metadata import validate_transform
 
@@ -1750,7 +1764,7 @@ def _to_ngff_zarr_impl(
         _guard_overwrite_of_source_store(multiscales, store_path)
     root_attributes = _check_root_attributes(multiscales.root_attributes)
     metadata, dimension_names, _ = _prepare_metadata(multiscales, version)
-    _gate_top_level_transforms(metadata, version)
+    _gate_top_level_transforms(multiscales.metadata, metadata, version)
     _gate_transform_arity(metadata)
     if start_level:
         _guard_rewrite_of_read_levels(

@@ -254,6 +254,68 @@ def test_v06_write_refuses_a_top_level_transform_without_references(tmp_path):
     validate(zarr.open_group(str(store), mode="r").attrs.asdict(), version="0.6")
 
 
+def test_a_version_that_cannot_carry_top_level_transforms_refuses_them(tmp_path):
+    # ``to_version`` converts the model to the target version's shape, and a
+    # shape with no ``coordinateTransformations`` field dropped the transforms
+    # in that conversion: the store was written, the entry was gone, and the
+    # only witness was a reader finding None where a transform was declared.
+    # An RFC-5 entry cannot exist before 0.6, so the writer must say so
+    # rather than write a store that silently is not what was declared.
+    from ngff_zarr.v06.zarr_metadata import Axis as AxisV06
+    from ngff_zarr.v06.zarr_metadata import (
+        CoordinateSystem,
+        CoordinateSystemIdentifier,
+        Displacements,
+    )
+
+    array = np.random.random((3, 4, 8, 8)).astype("float32")
+    multiscales = to_multiscales(array, [])
+    physical = CoordinateSystem(
+        name="physical",
+        axes=[AxisV06(name=name, type="space", unit=None) for name in ("z", "y", "x")],
+    )
+    reference = CoordinateSystemIdentifier(name="physical")
+    multiscales.metadata.coordinateSystems = [
+        *multiscales.metadata.coordinateSystems,
+        physical,
+    ]
+    multiscales.metadata.coordinateTransformations = [
+        Displacements(
+            input=reference,
+            output=reference,
+            path=multiscales.metadata.datasets[0].path,
+            interpolation="linear",
+        )
+    ]
+
+    with pytest.raises(ValueError, match="would drop them silently"):
+        to_ome_zarr(tmp_path / "dropped.ome.zarr", multiscales, version="0.4")
+
+
+def test_the_04_legal_top_level_scale_is_written(tmp_path):
+    # OME-Zarr 0.4 allows a multiscale-level scale/translation applying to
+    # every resolution, and the writer serializes that form: the refusal is
+    # for the transforms a version has no shape for, not for these.
+    import dataclasses
+
+    from ngff_zarr.v04.zarr_metadata import Scale as ScaleV04
+
+    array = np.random.random((4, 8, 8)).astype("float32")
+    multiscales = to_multiscales(array, [])
+    metadata = multiscales.metadata.to_version("0.4")
+    metadata.coordinateTransformations = [ScaleV04(scale=[2.0, 2.0, 2.0])]
+
+    store = tmp_path / "kept.ome.zarr"
+    to_ome_zarr(
+        store, dataclasses.replace(multiscales, metadata=metadata), version="0.4"
+    )
+
+    written = zarr.open_group(str(store), mode="r").attrs.asdict()
+    assert written["multiscales"][0]["coordinateTransformations"] == [
+        {"scale": [2.0, 2.0, 2.0], "type": "scale"}
+    ]
+
+
 @requires_zarr_v3
 def test_read_warns_on_a_superseded_0_6_tag_and_validates_the_rest(tmp_path):
     # A store tagged with an earlier 0.6 pre-release differs from a valid store
