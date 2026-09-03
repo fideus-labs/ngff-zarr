@@ -52,6 +52,7 @@ async def convert_images_to_ome_zarr(
     # New RFC 4 and storage options
     anatomical_orientation: str | None = None,
     storage_options: dict[str, str] | None = None,
+    consolidate_metadata: bool = True,
 ) -> ConversionResult:
     """
     Convert images to OME-Zarr format.
@@ -80,6 +81,9 @@ async def convert_images_to_ome_zarr(
             Applies to file/array inputs only; for existing zarr-store inputs
             the orientation already in the source metadata is preserved.
         storage_options: Storage options for remote stores (S3, GCS, etc.)
+        consolidate_metadata: Write consolidated metadata (default True). Set
+            False for stores destined for a backend that rejects it, such as
+            Icechunk.
 
     Returns:
         ConversionResult with success status and store information
@@ -116,6 +120,7 @@ async def convert_images_to_ome_zarr(
         cache_dir=cache_dir,
         anatomical_orientation=anatomical_orientation,
         storage_options=storage_options,  # type: ignore[arg-type]
+        consolidate_metadata=consolidate_metadata,
     )
 
     return await convert_to_ome_zarr(input_paths, options)
@@ -177,6 +182,7 @@ async def optimize_ome_zarr_store(
     compression_level: int | None = None,
     chunks: list[int] | None = None,
     chunks_per_shard: list[int] | None = None,
+    consolidate_metadata: bool = True,
 ) -> ConversionResult:
     """
     Optimize an existing OME-Zarr store with new compression/chunking.
@@ -188,6 +194,9 @@ async def optimize_ome_zarr_store(
         compression_level: New compression level
         chunks: New chunk sizes
         chunks_per_shard: New sharding configuration
+        consolidate_metadata: Write consolidated metadata (default True). Set
+            False for stores destined for a backend that rejects it, such as
+            Icechunk.
 
     Returns:
         ConversionResult with optimization results
@@ -201,6 +210,7 @@ async def optimize_ome_zarr_store(
         chunks=chunks,
         chunks_per_shard=chunks_per_shard,
         storage_options=None,  # Add the required parameter
+        consolidate_metadata=consolidate_metadata,
     )
 
     return await optimize_zarr_store(options)

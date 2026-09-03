@@ -282,3 +282,25 @@ async def test_convert_with_anatomical_orientation(test_input_file, temp_output_
     for dim, value in expected.items():
         assert by_name[dim]["orientation"]["type"] == "anatomical"
         assert by_name[dim]["orientation"]["value"] == value
+
+
+@pytest.mark.asyncio
+async def test_convert_without_consolidated_metadata(test_input_file, temp_output_dir):
+    """``consolidate_metadata=False`` skips the consolidated metadata."""
+    from ngff_zarr._zarrista_utils import has_consolidated_metadata
+
+    output_path = Path(temp_output_dir) / "mr_head_unconsolidated.ome.zarr"
+
+    options = ConversionOptions(
+        output_path=str(output_path),
+        ome_zarr_version="0.5",
+        method="itkwasm_gaussian",
+        scale_factors=None,
+        chunks=64,
+        consolidate_metadata=False,
+    )
+
+    result = await convert_to_ome_zarr([str(test_input_file)], options)
+    assert result.success, f"Conversion failed: {result.error}"
+
+    assert not has_consolidated_metadata(str(output_path), 3)

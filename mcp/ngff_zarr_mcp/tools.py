@@ -234,6 +234,7 @@ async def convert_to_ome_zarr(
                     version=options.ome_zarr_version,
                     chunks_per_shard=chunks_per_shard,
                     use_tensorstore=options.use_tensorstore,
+                    consolidate_metadata=options.consolidate_metadata,
                     **kwargs,
                 )
 
@@ -481,6 +482,7 @@ async def optimize_zarr_store(options: OptimizationOptions) -> ConversionResult:
             output_store,
             optimized_multiscales,
             chunks_per_shard=chunks_per_shard,
+            consolidate_metadata=options.consolidate_metadata,
             **compression_kwargs,
         )
 
