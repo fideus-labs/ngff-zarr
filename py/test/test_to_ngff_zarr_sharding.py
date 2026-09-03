@@ -170,3 +170,75 @@ def test_large_image_serialization_with_sharding(input_images, tmp_path):
     # verify_against_baseline(dataset_name, baseline_name, multiscales)
 
     config.memory_target = default_mem_target
+
+
+def _stored_grid(store):
+    """The stored shard shape and the inner chunk shape of one scale array."""
+    for path in sorted(store.rglob("zarr.json")):
+        metadata = json.loads(path.read_text())
+        if metadata.get("node_type") != "array":
+            continue
+        inner = next(
+            codec["configuration"]["chunk_shape"]
+            for codec in metadata["codecs"]
+            if codec["name"] == "sharding_indexed"
+        )
+        return metadata["chunk_grid"]["configuration"]["chunk_shape"], inner
+    raise AssertionError(f"no array metadata under {store}")
+
+
+@pytest.mark.parametrize("path", ["small", "large", "metadata_only"])
+def test_a_shard_may_run_past_the_axis(tmp_path, path):
+    """The requested chunk survives an axis that factors badly (gh-733).
+
+    A shard shortened to the axis has to be divided evenly by the inner chunk,
+    and 275 (5 * 5 * 11) has no divisor near 256, so the chunk collapsed to 55
+    while a prime 271 collapsed to the whole shard. Zarr v3 permits a partial
+    final shard, so the shard is stored as asked instead. Every write path
+    describes the array the same way.
+    """
+    import dask.array as da
+    import numpy as np
+
+    data = da.zeros((2, 12, 275, 271), dtype=np.uint8, chunks=(1, 1, 256, 256))
+    image = to_ngff_image(data, dims=["c", "z", "y", "x"])
+    multiscales = to_multiscales(
+        image, scale_factors=[], chunks={"c": 1, "z": 1, "y": 256, "x": 256}
+    )
+    store = tmp_path / f"{path}.ome.zarr"
+    chunks_per_shard = {"z": 10, "y": 2, "x": 2, "c": 2}
+
+    default_mem_target = config.memory_target
+    if path == "large":
+        config.memory_target = 4 * 1024 * 1024
+    try:
+        to_ngff_zarr(
+            str(store),
+            multiscales,
+            chunks_per_shard=chunks_per_shard,
+            metadata_only=path == "metadata_only",
+        )
+    finally:
+        config.memory_target = default_mem_target
+
+    assert _stored_grid(store) == ([2, 10, 512, 512], [1, 1, 256, 256])
+
+
+def test_a_shard_is_capped_at_the_chunks_that_cover_the_axis(tmp_path):
+    """No shard grid is larger than the array needs (gh-733).
+
+    Two chunks per shard on an axis one chunk long would store a shard grid
+    twice the array; the shard is held to the chunks that cover the axis.
+    """
+    import dask.array as da
+    import numpy as np
+
+    data = da.zeros((1, 3, 29, 185), dtype=np.uint8, chunks=(1, 3, 8, 8))
+    image = to_ngff_image(data, dims=["t", "c", "y", "x"])
+    multiscales = to_multiscales(image, scale_factors=[], chunks=8)
+    store = tmp_path / "capped.ome.zarr"
+    to_ngff_zarr(str(store), multiscales, chunks_per_shard=2)
+
+    shard, inner = _stored_grid(store)
+    assert shard == [1, 3, 16, 16]
+    assert inner == [1, 3, 8, 8]
