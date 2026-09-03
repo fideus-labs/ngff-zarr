@@ -1403,3 +1403,246 @@ def test_a_lone_bspline_keeps_zero_in_its_range():
         # Zero in the range keeps the grid's own undisplaced extent covered.
         assert region.start_index[dim] <= 8
         assert region.start_index[dim] + region.size[dim] >= 8 + 15 + 10
+
+
+def _reached_corners(itk, transform, grid):
+    """Where ``transform`` actually sends every point of ``grid``.
+
+    ``itk.TransformToDisplacementFieldFilter`` materializes the whole
+    composition as one displacement field over the grid, so a stage the
+    walk cannot see analytically still shows up here. Adding each grid
+    point's own position back gives the reached positions; their per-axis
+    extremes are what the region has to contain.
+
+    The filter is only wrapped for float fields, so the values carry
+    single-precision rounding; the callers below allow for it. Two
+    dimensions, like the cases that call it.
+
+    :return: ``{dim: (low, high)}`` in NGFF dimension names.
+    """
+    field_type = itk.Image[itk.Vector[itk.F, 2], 2]
+    filt = itk.TransformToDisplacementFieldFilter[field_type, itk.D].New()
+    filt.SetTransform(transform)
+    filt.SetSize([int(grid.data.shape[1]), int(grid.data.shape[0])])
+    filt.SetOutputOrigin([grid.translation["x"], grid.translation["y"]])
+    filt.SetOutputSpacing([grid.scale["x"], grid.scale["y"]])
+    filt.SetOutputDirection(itk.matrix_from_array(np.eye(2)))
+    filt.Update()
+    output = filt.GetOutput()
+    output.DisconnectPipeline()
+    # A view aliases the filter's buffer, which the next Update() reuses.
+    displacements = np.array(itk.array_view_from_image(output), copy=True)
+
+    rows, columns = grid.data.shape
+    grid_y, grid_x = np.mgrid[0:rows, 0:columns].astype(np.float64)
+    grid_y = grid_y * grid.scale["y"] + grid.translation["y"]
+    grid_x = grid_x * grid.scale["x"] + grid.translation["x"]
+    reached_x = grid_x + displacements[..., 0]
+    reached_y = grid_y + displacements[..., 1]
+    return {
+        "y": (float(reached_y.min()), float(reached_y.max())),
+        "x": (float(reached_x.min()), float(reached_x.max())),
+    }
+
+
+def _assert_region_reaches(region, reached, tolerance=1e-3):
+    """The region's physical extent contains every reached position."""
+    for dim, (low, high) in reached.items():
+        assert region.corners_min[dim] <= low + tolerance, (
+            f"{dim}: region starts at {region.corners_min[dim]}, "
+            f"transform reaches {low}"
+        )
+        assert region.corners_max[dim] >= high - tolerance, (
+            f"{dim}: region ends at {region.corners_max[dim]}, transform reaches {high}"
+        )
+
+
+def _varied_bspline(itk, extent=64.0, mesh=4, seed=0, amplitude=12.0):
+    """A B-spline whose coefficients differ from one another and from zero."""
+    spline = itk.BSplineTransform[itk.D, 2, 3].New()
+    spline.SetTransformDomainOrigin([0.0, 0.0])
+    spline.SetTransformDomainPhysicalDimensions([extent, extent])
+    size = itk.Size[2]()
+    size.Fill(mesh)
+    spline.SetTransformDomainMeshSize(size)
+    count = spline.GetNumberOfParameters()
+    parameters = itk.OptimizerParameters[itk.D](count)
+    values = np.random.default_rng(seed).uniform(-amplitude, amplitude, count)
+    for index in range(count):
+        parameters.SetElement(index, float(values[index]))
+    spline.SetParameters(parameters)
+    return spline
+
+
+def _itk_affine(itk, matrix, offset):
+    affine = itk.AffineTransform[itk.D, 2].New()
+    affine.SetMatrix(itk.matrix_from_array(np.asarray(matrix, dtype=float)))
+    affine.SetOffset(list(offset))
+    return affine
+
+
+def _itk_composite(itk, *transforms):
+    composite = itk.CompositeTransform[itk.D, 2].New()
+    for transform in transforms:
+        composite.AddTransform(transform)
+    return composite
+
+
+def _reaching_grids():
+    """The fixed grid these cases transform, and a moving image to land in."""
+    fixed = _image("yx", {"y": 64, "x": 64}, {"y": 1.0, "x": 1.0}, {"y": 0.0, "x": 0.0})
+    moving = _image(
+        "yx", {"y": 512, "x": 512}, {"y": 1.0, "x": 1.0}, {"y": -128.0, "x": -128.0}
+    )
+    return fixed, moving
+
+
+def test_a_bspline_with_non_trivial_coefficients_is_covered():
+    """Coefficients that differ per control point, not one constant shift."""
+    itk = pytest.importorskip("itk")
+    fixed, moving = _reaching_grids()
+    spline = _varied_bspline(itk)
+
+    region = resample_bounding_box(spline, fixed, moving, padding=0)
+
+    _assert_region_reaches(region, _reached_corners(itk, spline, fixed))
+
+
+def test_a_bspline_then_affine_composite_is_covered():
+    itk = pytest.importorskip("itk")
+    fixed, moving = _reaching_grids()
+    composite = _itk_composite(
+        itk,
+        _varied_bspline(itk),
+        _itk_affine(itk, [[1.0, 0.0], [0.0, 1.0]], [5.0, 3.0]),
+    )
+
+    region = resample_bounding_box(composite, fixed, moving, padding=0)
+
+    _assert_region_reaches(region, _reached_corners(itk, composite, fixed))
+
+
+def test_a_composite_of_several_affines_is_covered_exactly():
+    """A purely linear composition: the boundary walk reports it exactly."""
+    itk = pytest.importorskip("itk")
+    fixed, moving = _reaching_grids()
+    composite = _itk_composite(
+        itk,
+        _itk_affine(itk, [[2.0, 0.0], [0.0, 0.5]], [1.0, 2.0]),
+        _itk_affine(itk, [[1.0, 0.3], [0.0, 1.0]], [-4.0, 7.0]),
+    )
+
+    region = resample_bounding_box(composite, fixed, moving, padding=0)
+
+    reached = _reached_corners(itk, composite, fixed)
+    _assert_region_reaches(region, reached)
+    # No displacement stage widens this one, so the region is the reached
+    # extent itself rather than a bound around it.
+    for dim, (low, high) in reached.items():
+        assert region.corners_min[dim] == pytest.approx(low, abs=1e-3)
+        assert region.corners_max[dim] == pytest.approx(high, abs=1e-3)
+
+
+def test_an_affine_then_bspline_composite_is_covered():
+    itk = pytest.importorskip("itk")
+    fixed, moving = _reaching_grids()
+    composite = _itk_composite(
+        itk,
+        _itk_affine(itk, [[1.5, 0.0], [0.0, 1.5]], [2.0, -3.0]),
+        _varied_bspline(itk),
+    )
+
+    region = resample_bounding_box(composite, fixed, moving, padding=0)
+
+    _assert_region_reaches(region, _reached_corners(itk, composite, fixed))
+
+
+def test_an_affine_then_displacement_field_composite_is_covered():
+    itk = pytest.importorskip("itk")
+    fixed, moving = _reaching_grids()
+    warp, _profile = _bump_displacement_transform(itk)
+    composite = _itk_composite(
+        itk, _itk_affine(itk, [[2.0, 0.0], [0.0, 2.0]], [4.0, 4.0]), warp
+    )
+
+    region = resample_bounding_box(composite, fixed, moving, padding=0)
+
+    _assert_region_reaches(region, _reached_corners(itk, composite, fixed))
+
+
+def test_an_affine_bspline_and_field_composite_is_covered():
+    """Two displacement stages of different kinds, one outside the other.
+
+    The interior bump is invisible to the boundary walk, and the B-spline
+    stage sits between it and the affine, so the range has to travel through
+    a stage that is itself non-linear.
+    """
+    itk = pytest.importorskip("itk")
+    fixed, moving = _reaching_grids()
+    warp, _profile = _bump_displacement_transform(itk)
+    composite = _itk_composite(
+        itk,
+        _itk_affine(itk, [[1.2, 0.0], [0.0, 0.8]], [3.0, 1.0]),
+        _varied_bspline(itk),
+        warp,
+    )
+
+    region = resample_bounding_box(composite, fixed, moving, padding=0)
+
+    _assert_region_reaches(region, _reached_corners(itk, composite, fixed))
+
+
+def test_an_affine_and_two_displacement_fields_composite_is_covered():
+    """Two fields in one composition, each bumped where the other is not."""
+    itk = pytest.importorskip("itk")
+    fixed, moving = _reaching_grids()
+    first, _first_profile = _bump_displacement_transform(itk, peaks=(40.0, -20.0))
+    second, _second_profile = _bump_displacement_transform(
+        itk, radius=12, peaks=(-30.0, 50.0)
+    )
+    composite = _itk_composite(
+        itk, _itk_affine(itk, [[1.0, 0.0], [0.0, 1.0]], [2.0, 2.0]), first, second
+    )
+
+    region = resample_bounding_box(composite, fixed, moving, padding=0)
+
+    _assert_region_reaches(region, _reached_corners(itk, composite, fixed))
+
+
+def test_a_composite_range_contains_the_range_its_field_shows():
+    """The bound the split derives holds the displacement ITK measures.
+
+    ``TransformToDisplacementFieldFilter`` collapses the composition into one
+    field, which ``_stage_interval`` reads exactly as it reads a field stage.
+    Comparing the two ranges only means something when the linear part is the
+    identity, so this composition carries no affine, and the test says so.
+    """
+    itk = pytest.importorskip("itk")
+    from ngff_zarr.resample_bounding_box import _nonlinear_interval, _stage_interval
+
+    fixed, _moving = _reaching_grids()
+    warp, _profile = _bump_displacement_transform(itk)
+    composite = _itk_composite(itk, _varied_bspline(itk), warp)
+
+    entries = _as_itk_transform_list(composite)
+    walked, (low, high) = _nonlinear_interval(entries, 2)
+    for entry in walked:
+        assert _stage_interval(entry, 2) is None
+
+    field_type = itk.Image[itk.Vector[itk.F, 2], 2]
+    filt = itk.TransformToDisplacementFieldFilter[field_type, itk.D].New()
+    filt.SetTransform(composite)
+    filt.SetSize([int(fixed.data.shape[1]), int(fixed.data.shape[0])])
+    filt.SetOutputOrigin([fixed.translation["x"], fixed.translation["y"]])
+    filt.SetOutputSpacing([fixed.scale["x"], fixed.scale["y"]])
+    filt.SetOutputDirection(itk.matrix_from_array(np.eye(2)))
+    filt.Update()
+    output = filt.GetOutput()
+    output.DisconnectPipeline()
+    measured = itk.DisplacementFieldTransform[itk.F, 2].New()
+    measured.SetDisplacementField(output)
+    (entry,) = _as_itk_transform_list(measured)
+    measured_low, measured_high = _stage_interval(entry, 2)
+
+    assert np.all(low <= measured_low + 1e-3)
+    assert np.all(high >= measured_high - 1e-3)

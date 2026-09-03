@@ -1566,3 +1566,121 @@ Deno.test("an interior bump in an itk field widens the region", async () => {
     );
   }
 });
+
+/** A field that shifts every point of its lattice by the same vector. */
+function constantFieldEntry(
+  shift: number[],
+  size: number[],
+  spacing: number[],
+  // deno-lint-ignore no-explicit-any
+): any {
+  const points = size.reduce((total, extent) => total * extent, 1);
+  const vectors = new Float64Array(points * shift.length);
+  for (let point = 0; point < points; point++) {
+    for (let component = 0; component < shift.length; component++) {
+      vectors[point * shift.length + component] = shift[component];
+    }
+  }
+  return displacementFieldEntry(vectors, size, spacing);
+}
+
+/** A field that is zero on its boundary and peaks at its centre.
+ *
+ * The boundary walk sees only the zero, so a stage outside this one has to
+ * carry the peak for the region to hold it. `peaks` is in ITK component
+ * order (x, y); the returned entry's lattice is unit-spaced at the origin. */
+function bumpFieldEntry(
+  extent: number,
+  peaks: number[],
+  radius: number,
+  // deno-lint-ignore no-explicit-any
+): any {
+  const vectors = new Float64Array(extent * extent * 2);
+  for (let y = 0; y < extent; y++) {
+    for (let x = 0; x < extent; x++) {
+      const distance = Math.hypot(y - extent / 2, x - extent / 2);
+      const profile = distance < radius
+        ? 0.5 * (1 + Math.cos(Math.PI * distance / radius))
+        : 0;
+      const index = (y * extent + x) * 2;
+      vectors[index] = peaks[0] * profile;
+      vectors[index + 1] = peaks[1] * profile;
+    }
+  }
+  return displacementFieldEntry(vectors, [extent, extent], [1, 1]);
+}
+
+Deno.test("a field outside an interior bump carries its range", async () => {
+  // ITK applies the last entry first, so the bump's range has to travel
+  // through the constant field outside it, which is itself non-linear:
+  // folding stage by stage stops there and the walk, which sees only the
+  // bump's zero boundary, reports a region the composition leaves.
+  const { resampleBoundingBox } = await import(
+    "../src/io/resample_bounding_box.ts"
+  );
+  const extent = 64;
+  const peaks = [-60, 60];
+  const bump = bumpFieldEntry(extent, peaks, 20);
+  const shift = [-3, 11];
+  const outer = constantFieldEntry(shift, [256, 256], [1, 1]);
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: extent, x: extent },
+    { y: 1, x: 1 },
+    { y: 0, x: 0 },
+  );
+  const moving = await geometryImage(["y", "x"], { y: 512, x: 512 }, {
+    y: 1,
+    x: 1,
+  }, { y: -128, x: -128 });
+
+  const region = await resampleBoundingBox([outer, bump], fixed, moving, {
+    padding: 0,
+  });
+
+  // The grid centre takes the whole peak, then the constant shift.
+  const centre = extent / 2;
+  assertEquals(region.cornersMax.y >= centre + peaks[1] + shift[1], true);
+  assertEquals(region.cornersMin.x <= centre + peaks[0] + shift[0], true);
+});
+
+Deno.test("an affine outside two fields carries both their ranges", async () => {
+  const { resampleBoundingBox } = await import(
+    "../src/io/resample_bounding_box.ts"
+  );
+  const extent = 64;
+  const peaks = [-60, 60];
+  const bump = bumpFieldEntry(extent, peaks, 20);
+  const shift = [-3, 11];
+  const outer = constantFieldEntry(shift, [256, 256], [1, 1]);
+  const [affine] = itkAffine([[2, 0], [0, 3]], [4, -6]);
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: extent, x: extent },
+    { y: 1, x: 1 },
+    { y: 0, x: 0 },
+  );
+  const moving = await geometryImage(["y", "x"], { y: 1024, x: 1024 }, {
+    y: 1,
+    x: 1,
+  }, { y: -512, x: -512 });
+
+  const region = await resampleBoundingBox(
+    [affine, outer, bump],
+    fixed,
+    moving,
+    { padding: 0 },
+  );
+
+  // The centre takes the peak and the shift, then the affine scales it:
+  // x' = 2 (x + peak_x + shift_x) + 4, y' = 3 (y + peak_y + shift_y) - 6.
+  const centre = extent / 2;
+  assertEquals(
+    region.cornersMax.y >= 3 * (centre + peaks[1] + shift[1]) - 6,
+    true,
+  );
+  assertEquals(
+    region.cornersMin.x <= 2 * (centre + peaks[0] + shift[0]) + 4,
+    true,
+  );
+});

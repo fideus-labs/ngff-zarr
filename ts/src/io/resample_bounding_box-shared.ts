@@ -421,20 +421,41 @@ function boxInsideFieldDomain(
   return true;
 }
 
-/** `interval` carried through the stages applied after its own: ITK applies
- * the last entry of a list first, so those are the entries before it. An
- * affine stage maps the interval through the signs of its matrix, an
- * orthonormal stage bounds every component by the Euclidean reach, and
- * anything else returns undefined: the caller keeps the boundary walk. */
-function foldedInterval(
-  interval: Interval,
-  outers: TransformList,
+/** The range the displacement stages of `entries` can add, or undefined.
+ * ITK applies the last entry of a list first, so the walk runs from the last
+ * entry outward, carrying what the stages seen so far can add. A displacement
+ * stage adds its own range, since the linear list this widens replaced that
+ * stage by the identity; an affine stage maps the range through the signs of
+ * its matrix; an orthonormal stage bounds every component by the range's
+ * Euclidean reach. Any other stage returns undefined, and the caller keeps the
+ * boundary walk.
+ *
+ * Accumulating outward rather than folding each stage separately is what lets
+ * a displacement stage sit outside another one: the range reaching it is
+ * carried through, and its own range joins on top. `intervals` holds one
+ * `stageInterval` per entry, so a field's parameters are scanned once for the
+ * whole list. */
+function accumulatedInterval(
+  entries: TransformList,
+  intervals: (Interval | undefined)[],
   dimension: number,
+  contained: boolean,
 ): Interval | undefined {
-  let low = interval.low.slice();
-  let high = interval.high.slice();
-  for (let position = outers.length - 1; position >= 0; position--) {
-    const entry = outers[position];
+  let low = new Array<number>(dimension).fill(0);
+  let high = new Array<number>(dimension).fill(0);
+  for (let position = entries.length - 1; position >= 0; position--) {
+    const entry = entries[position];
+    const interval = intervals[position];
+    if (interval !== undefined) {
+      // ITK displaces a point beyond a stage's domain by nothing.
+      const ranged = contained ? interval : {
+        low: interval.low.map((value) => Math.min(value, 0)),
+        high: interval.high.map((value) => Math.max(value, 0)),
+      };
+      low = low.map((value, i) => value + ranged.low[i]);
+      high = high.map((value, i) => value + ranged.high[i]);
+      continue;
+    }
     let matrix: number[][] | undefined;
     try {
       matrix = decodeMatrixOffset(entry, dimension).matrix;
@@ -513,35 +534,23 @@ function nonlinearInterval(
   dimension: number,
   gridBox: Interval | undefined,
 ): { entries: TransformList; range: Interval } | undefined {
-  const intervals: [number, Interval][] = [];
-  entries.forEach((entry, index) => {
-    const interval = stageInterval(entry, dimension);
-    if (interval !== undefined) intervals.push([index, interval]);
+  const intervals = entries.map((entry) => stageInterval(entry, dimension));
+  const indices: number[] = [];
+  intervals.forEach((interval, index) => {
+    if (interval !== undefined) indices.push(index);
   });
-  if (intervals.length === 0) return undefined;
+  if (indices.length === 0) return undefined;
   const contained = entries.length === 1 && gridBox !== undefined &&
     boxInsideFieldDomain(entries[0], dimension, gridBox);
-  const low = new Array<number>(dimension).fill(0);
-  const high = new Array<number>(dimension).fill(0);
-  for (const [index, interval] of intervals) {
-    const ranged = contained ? interval : {
-      low: interval.low.map((value) => Math.min(value, 0)),
-      high: interval.high.map((value) => Math.max(value, 0)),
-    };
-    const folded = foldedInterval(ranged, entries.slice(0, index), dimension);
-    if (folded === undefined) return undefined;
-    for (let component = 0; component < dimension; component++) {
-      low[component] += folded.low[component];
-      high[component] += folded.high[component];
-    }
-  }
+  const range = accumulatedInterval(entries, intervals, dimension, contained);
+  if (range === undefined) return undefined;
   const replaced = entries.slice();
   const identity = ngffTransformToItkTransform(
     { type: "identity" },
     ["z", "y", "x"].slice(-dimension),
   )[0];
-  for (const [index] of intervals) replaced[index] = identity;
-  return { entries: replaced, range: { low, high } };
+  for (const index of indices) replaced[index] = identity;
+  return { entries: replaced, range };
 }
 
 /** The physical range as the two per-dimension mappings `grown` takes: the
@@ -671,7 +680,8 @@ export async function resampleBoundingBoxShared(
     // reports a linear map exactly and misses what a DisplacementField or
     // BSpline stage does strictly inside it. The walk therefore measures
     // the list with those stages replaced by the identity, and the range
-    // their values can add widens the result.
+    // their values can add widens the result; a stage outside another one
+    // carries the range reaching it and adds its own on top.
     const split = nonlinearInterval(
       transform,
       itkDims.length,
