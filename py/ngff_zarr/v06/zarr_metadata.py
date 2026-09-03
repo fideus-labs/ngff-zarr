@@ -1,5 +1,28 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+#: The public, version-scoped API of this module. CoordinateSystem here is the 0.6 model; ngff_zarr.v09.zarr_metadata carries a different one.
+__all__ = [
+    "Axis",
+    "CoordinateSystem",
+    "CoordinateSystemIdentifier",
+    "BaseTransform",
+    "Identity",
+    "Scale",
+    "Translation",
+    "Rotation",
+    "Affine",
+    "Coordinates",
+    "Displacements",
+    "MapAxis",
+    "ProjectAxis",
+    "ByDimensionItem",
+    "ByDimension",
+    "Bijection",
+    "TransformSequence",
+    "Dataset",
+    "Metadata",
+]
+
 import copy
 import warnings
 from abc import ABC
@@ -1075,27 +1098,3 @@ class Metadata:
     @property
     def dimension_names(self) -> tuple:
         return tuple([ax.name for ax in self.coordinateSystems[0].axes])
-
-
-#: The public, version-scoped API of this module. CoordinateSystem here is the 0.6 model; ngff_zarr.v09.zarr_metadata carries a different one.
-__all__ = [
-    "Axis",
-    "CoordinateSystem",
-    "CoordinateSystemIdentifier",
-    "BaseTransform",
-    "Identity",
-    "Scale",
-    "Translation",
-    "Rotation",
-    "Affine",
-    "Coordinates",
-    "Displacements",
-    "MapAxis",
-    "ProjectAxis",
-    "ByDimensionItem",
-    "ByDimension",
-    "Bijection",
-    "TransformSequence",
-    "Dataset",
-    "Metadata",
-]

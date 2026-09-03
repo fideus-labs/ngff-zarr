@@ -36,7 +36,8 @@ The transformation data classes live in `ngff_zarr.v06.zarr_metadata`, the publi
 version-scoped API. Import from the spec version you target: `CoordinateSystem` is
 defined in both `v06` and `v09` with different fields, so there is no single top-level
 export. The field transforms (`Displacements`, `Coordinates`, ...) are shared, and `v09`
-reuses them from `v06`.
+reuses them from `v06`. `ngff_zarr.v09` is a development model that changes between
+releases; it is reachable by its import path but not re-exported from the package.
 
 | Class | `type` | Parameters |
 | --- | --- | --- |

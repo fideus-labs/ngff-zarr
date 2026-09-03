@@ -15,6 +15,28 @@ This module defines :class:`Axis`, :class:`CoordinateSystem` and
 :mod:`ngff_zarr.v06.zarr_metadata`.
 """
 
+#: The public, version-scoped API of this module: 0.9's own Axis/CoordinateSystem/Metadata,
+#: plus the field transforms and shared types it reuses from v06.
+__all__ = [
+    "Affine",
+    "Axis",
+    "BaseTransform",
+    "CoordinateSystem",
+    "CoordinateSystemIdentifier",
+    "Coordinates",
+    "Dataset",
+    "Displacements",
+    "Identity",
+    "Metadata",
+    "MethodMetadata",
+    "Omero",
+    "Rotation",
+    "Scale",
+    "Transform",
+    "TransformSequence",
+    "Translation",
+]
+
 import functools
 import logging
 from dataclasses import dataclass, field, fields
@@ -397,26 +419,3 @@ class Metadata:
             patched, store, validate=False, subpath=subpath
         )
         return cls._from_v06(metadata_v06), images
-
-
-#: The public, version-scoped API of this module: 0.9's own Axis/CoordinateSystem/Metadata,
-#: plus the field transforms and shared types it reuses from v06.
-__all__ = [
-    "Affine",
-    "Axis",
-    "BaseTransform",
-    "CoordinateSystem",
-    "CoordinateSystemIdentifier",
-    "Coordinates",
-    "Dataset",
-    "Displacements",
-    "Identity",
-    "Metadata",
-    "MethodMetadata",
-    "Omero",
-    "Rotation",
-    "Scale",
-    "Transform",
-    "TransformSequence",
-    "Translation",
-]

@@ -6,6 +6,10 @@
 There is no unambiguous top-level export: v06 and v09 each define their own
 CoordinateSystem with different fields, so a bare ``ngff_zarr.CoordinateSystem``
 would silently pick a spec version. Users import from the version they target.
+
+Only released versions are re-exported from the package. The 0.9 model is a
+development one that changes between releases, so it is reachable by its own
+import path and nothing more.
 """
 
 import ngff_zarr
@@ -13,13 +17,17 @@ from ngff_zarr.v06 import zarr_metadata as v06
 from ngff_zarr.v09 import zarr_metadata as v09
 
 
-def test_version_subpackages_are_reachable_from_the_package():
+def test_released_version_subpackages_are_reachable_from_the_package():
     from ngff_zarr.v04 import zarr_metadata as v04
 
-    assert {"v04", "v06", "v09"} <= set(ngff_zarr.__all__)
+    assert {"v04", "v06"} <= set(ngff_zarr.__all__)
     assert ngff_zarr.v04.zarr_metadata.Axis is v04.Axis
     assert ngff_zarr.v06.zarr_metadata.CoordinateSystem is v06.CoordinateSystem
-    assert ngff_zarr.v09.zarr_metadata.CoordinateSystem is v09.CoordinateSystem
+
+
+def test_the_development_model_is_not_exported():
+    assert "v09" not in ngff_zarr.__all__
+    assert v09.CoordinateSystem is not None  # reachable by its own import path
 
 
 def test_required_version_specific_names_stay_public():
