@@ -1527,6 +1527,7 @@ def to_ome_zarr(
     scale_strategy: ScaleStrategy = "pad",
     metadata_only: bool = False,
     start_level: int = 0,
+    consolidate_metadata: bool = True,
     **kwargs,
 ) -> None:
     """
@@ -1587,6 +1588,12 @@ def to_ome_zarr(
         are kept, the multiscales entry is rewritten in full, and a level at or above
         ``start_level`` that already exists is replaced.
     :type  start_level: int, optional
+
+    :param consolidate_metadata: If True (default), write consolidated metadata
+        after the arrays. Set False to skip it, e.g. when the store will be
+        uploaded to a backend that rejects consolidated metadata such as
+        Icechunk.
+    :type  consolidate_metadata: bool, optional
 
     :param **kwargs: Array-creation options: `compressor` (zarr format 2) and
         `compressors` (zarr format 3). The engine encodes with the `bytes` codec
@@ -1668,6 +1675,7 @@ def to_ome_zarr(
                 progress=progress,
                 chunks_per_shard=chunks_per_shard,
                 scale_strategy=scale_strategy,
+                consolidate_metadata=consolidate_metadata,
                 **kwargs,
             )
 
@@ -1691,6 +1699,7 @@ def to_ome_zarr(
         scale_strategy=scale_strategy,
         metadata_only=metadata_only,
         start_level=start_level,
+        consolidate_metadata=consolidate_metadata,
         **kwargs,
     )
 
@@ -1711,6 +1720,7 @@ def _to_ngff_zarr_impl(
     scale_strategy: ScaleStrategy = "pad",
     metadata_only: bool = False,
     start_level: int = 0,
+    consolidate_metadata: bool = True,
     **kwargs,
 ) -> None:
     """
@@ -1763,6 +1773,25 @@ def _to_ngff_zarr_impl(
     # Format parameters
     zarr_format = 2 if version == "0.4" else 3
 
+    # A zarr v2 store keeps consolidated metadata in a separate .zmetadata
+    # sidecar. An in-place write (overwrite=False) rewrites only the group
+    # document, so that sidecar would remain and go stale; a full overwrite
+    # recreates the store and drops it. Reject skipping consolidation for the
+    # in-place case, which start_level always is. Zarr v3 stores the block
+    # inside the root document, which the rewrite drops, so they self-clean.
+    if (
+        zarr_format == 2
+        and not consolidate_metadata
+        and not overwrite
+        and has_consolidated_metadata(store, zarr_format)
+    ):
+        raise ValueError(
+            "Cannot write into a zarr v2 store that already has consolidated "
+            "metadata with consolidate_metadata=False and overwrite=False: the "
+            "existing .zmetadata would be left stale. Recreate the store with "
+            "overwrite=True, or keep consolidate_metadata=True."
+        )
+
     # Create Zarr root
     # Appending names only the levels it keeps until the new arrays are in
     # place, so an interrupted call leaves a store that reads as those levels.
@@ -1773,7 +1802,9 @@ def _to_ngff_zarr_impl(
         kept = copy.deepcopy(metadata_dict)
         kept["datasets"] = kept["datasets"][:start_level]
         _create_zarr_root(store, version, overwrite, kept, root_attributes)
-        if was_consolidated:
+        # Restore consolidation for the kept levels only when the final write
+        # will re-consolidate; otherwise this partial block would go stale.
+        if was_consolidated and consolidate_metadata:
             _zarrista_consolidate_metadata(store, zarr_format)
     else:
         _create_zarr_root(store, version, overwrite, metadata_dict, root_attributes)
@@ -1974,5 +2005,5 @@ def _to_ngff_zarr_impl(
             callback()
         image.computed_callbacks = []
 
-    # Consolidate metadata
-    _zarrista_consolidate_metadata(store, zarr_format)
+    if consolidate_metadata:
+        _zarrista_consolidate_metadata(store, zarr_format)
