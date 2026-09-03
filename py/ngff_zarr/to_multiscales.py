@@ -10,7 +10,7 @@ import uuid
 from collections.abc import Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from dask.array.core import Array as DaskArray
@@ -438,6 +438,7 @@ def to_multiscales(
     progress: NgffProgress | NgffProgressCallback | None = None,
     cache: bool | None = None,
     orientation: str | Mapping[str, AnatomicalOrientation] | None = None,
+    axis_order: Literal["canonical", "preserve"] = "canonical",
 ) -> NgffMultiscales:
     """
     Generate multiple resolution scales for the OME-NGFF standard data model.
@@ -471,10 +472,17 @@ def to_multiscales(
         output automatically whenever it is present; no separate opt-in is required.
     :type  orientation: str or mapping of str to AnatomicalOrientation, optional
 
+    :param axis_order: What to do with an input whose axes are not in the
+        OME-Zarr specification order. ``"canonical"``, the default, reorders
+        them to time, then channel, then space (t, c, z, y, x) with a lazy
+        transpose, which is what conversion sources need: the TIFF ``S``
+        (sample) axis, ITK component images and the 4-D/5-D default dims
+        inference all yield channel-last. ``"preserve"`` writes the axes in
+        the order given, which RFC-3 permits from OME-Zarr 0.9.dev1 on and
+        which no earlier version accepts.
+    :type  axis_order: str, optional
+
     :return: NgffImage for each resolution and NGFF multiscales metadata.
-        Axes are normalized to the OME-Zarr specification order -- time, then
-        channel, then space (t, c, z, y, x) -- with a lazy transpose when the
-        input image orders them differently.
     :rtype : NgffMultiscales
     """
     # Shallow copy, with its own computed_callbacks: the rechunk and dask
@@ -555,8 +563,14 @@ def to_multiscales(
     # OME-Zarr orders axes time, then channel, then space. Channel-last input
     # (the TIFF S axis, ITK component images, the 4-D/5-D default dims) is
     # normalized with a lazy transpose so the generated metadata and every
-    # scale are spec-ordered.
-    ngff_image = _canonical_axis_order(ngff_image)
+    # scale are spec-ordered. An order the caller chose is kept on request:
+    # RFC-3 lifts the ordering rule, and the reorder is silent otherwise
+    # (gh-issue-734).
+    if axis_order not in ("canonical", "preserve"):
+        msg = f"axis_order must be 'canonical' or 'preserve'; got {axis_order!r}"
+        raise ValueError(msg)
+    if axis_order == "canonical":
+        ngff_image = _canonical_axis_order(ngff_image)
     # Re-key the dim-keyed chunk mappings to follow the (possibly reordered)
     # dims; _ngff_image_scale_factors asserts this ordering.
     out_chunks = {dim: out_chunks[dim] for dim in ngff_image.dims}

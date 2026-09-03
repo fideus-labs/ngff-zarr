@@ -9,7 +9,7 @@
  * axis model outside that vocabulary alone.
  */
 
-import { assertEquals, assertNotEquals } from "@std/assert";
+import { assertEquals, assertNotEquals, assertRejects } from "@std/assert";
 import * as zarr from "zarrita";
 
 import {
@@ -192,5 +192,36 @@ Deno.test("canonicalAxisOrder - a 64-bit integer image transposes", async () => 
   assertEquals(
     Array.from(values as BigInt64Array).map(Number),
     [0, 2, 4, 6, 8, 10, 1, 3, 5, 7, 9, 11],
+  );
+});
+
+Deno.test("toMultiscales - preserve keeps the order the caller chose", async () => {
+  const image = await rampImage(["z", "y", "x", "c"], [8, 16, 16, 2]);
+  const multiscales = await toMultiscales(image, {
+    scaleFactors: [2],
+    method: Methods.ITKWASM_GAUSSIAN,
+    axisOrder: "preserve",
+  });
+
+  assertEquals(
+    multiscales.metadata.axes.map((axis) => axis.name),
+    ["z", "y", "x", "c"],
+  );
+  assertEquals(multiscales.images[0].dims, ["z", "y", "x", "c"]);
+  // The pyramid follows the axes it was given: the channel axis is not scaled.
+  assertEquals(multiscales.images[1].data.shape, [4, 8, 8, 2]);
+});
+
+Deno.test("toMultiscales - an unknown axis order is refused", async () => {
+  const image = await rampImage(["z", "y", "x", "c"], [8, 16, 16, 2]);
+  await assertRejects(
+    () =>
+      toMultiscales(image, {
+        scaleFactors: [],
+        // deno-lint-ignore no-explicit-any
+        axisOrder: "spec" as any,
+      }),
+    Error,
+    "axisOrder must be",
   );
 });
