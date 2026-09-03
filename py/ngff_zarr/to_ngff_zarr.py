@@ -1775,10 +1775,10 @@ def _to_ngff_zarr_impl(
 
     # A zarr v2 store keeps consolidated metadata in a separate .zmetadata
     # sidecar. An in-place write (overwrite=False) rewrites only the group
-    # document, so that sidecar would remain and go stale; a full overwrite
-    # recreates the store and drops it. Reject skipping consolidation for the
-    # in-place case, which start_level always is. Zarr v3 stores the block
-    # inside the root document, which the rewrite drops, so they self-clean.
+    # document, so without re-consolidation the sidecar would become stale.
+    # A full overwrite is ok without consolidate because it recreates the store.
+    # For zarr v3 zarrista rewrites the entire zarr.json file so we don't need
+    # to error there.
     if (
         zarr_format == 2
         and not consolidate_metadata
@@ -1788,7 +1788,7 @@ def _to_ngff_zarr_impl(
         raise ValueError(
             "Cannot write into a zarr v2 store that already has consolidated "
             "metadata with consolidate_metadata=False and overwrite=False: the "
-            "existing .zmetadata would be left stale. Recreate the store with "
+            "existing consolidated metadata would be left stale. Either use "
             "overwrite=True, or keep consolidate_metadata=True."
         )
 
