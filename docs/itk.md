@@ -268,6 +268,15 @@ Transforms convert in both directions, mirroring `itk_image_to_ngff_image` and
 | `itk_transform_to_ngff_matrix` | ITK to RFC-5, as raw numbers |
 | `ngff_displacement_field_to_itk_transform` | RFC-5 `displacements` to an ITK field |
 | `itk_displacement_field_to_ngff_transform` | ITK field to RFC-5 `displacements` |
+| `convert_itk_field_block` | either direction, one block of a field at a time |
+
+`convert_itk_field_block` converts the values alone, for a field that is never
+assembled: a producer writing a store region by region converts each block on
+its way in, and `inverse=True` is the way back. It takes the block's own
+`translation` on the field's grid, so a block converted where it sits equals
+that block of the converted whole. The conversion also moves the components
+from ITK's interleaved vector layout to the store's dims order (and back with
+`inverse=True`).
 
 `itk_transform_to_ngff_matrix` returns the `(matrix, offset)` pair in Zarr axis
 order instead of an RFC-5 dataclass. Reach for it to *inspect* a registration

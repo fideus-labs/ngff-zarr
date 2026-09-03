@@ -22,6 +22,7 @@ from .config import config
 from .declare_field_transform import FieldTransformType, declare_field_transform
 from .detect_cli_io_backend import ConversionBackend, detect_cli_io_backend
 from .displacement_field_transform import (
+    convert_itk_field_block,
     itk_displacement_field_to_ngff_transform,
     ngff_displacement_field_to_itk_transform,
 )
@@ -159,6 +160,7 @@ __all__ = [
     "itk_transform_to_ngff_transform",
     "itk_displacement_field_to_ngff_transform",
     "ngff_displacement_field_to_itk_transform",
+    "convert_itk_field_block",
     "AxisType",
     "FieldTransformType",
     "declare_field_transform",
