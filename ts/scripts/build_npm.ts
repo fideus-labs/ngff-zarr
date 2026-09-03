@@ -38,7 +38,7 @@ export const NPM_DEPENDENCIES: Record<string, string> = {
   // breaks the browser bundle with unresolved "itk-wasm" imports.
   "itk-wasm": "^1.0.0-b.201",
   "@zarrita/storage": "^0.1.4",
-  zod: "^4.0.2",
+  zod: "^4.5.0",
   zarrita: "^0.6.1",
 };
 

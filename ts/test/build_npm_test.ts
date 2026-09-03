@@ -21,6 +21,8 @@ import {
   rewriteImports,
 } from "../scripts/build_npm.ts";
 
+const ZOD_COMPILE_MINIMUM = "4.5.0";
+
 // ---------------------------------------------------------------------------
 // Relative .ts → .js
 // ---------------------------------------------------------------------------
@@ -367,6 +369,12 @@ Deno.test("every published dependency resolves in deno.lock", () => {
     }. They are published to consumers but never resolved here, so nothing ` +
       `tests them.`,
   );
+});
+
+Deno.test("published Zod supports schema compilation", () => {
+  const range = parseRange(NPM_DEPENDENCIES.zod);
+  assertEquals(satisfies(parse(ZOD_COMPILE_MINIMUM), range), true);
+  assertEquals(satisfies(parse("4.4.99"), range), false);
 });
 
 Deno.test("JSR-resolved exceptions really are absent from npm resolution", () => {
