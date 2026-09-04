@@ -1,3 +1,22 @@
+## mcp-v0.15.0 (2026-09-04)
+
+### ♻️ Refactoring
+
+- rename convert_field_block to convert_itk_field_block ([f9c3b5c](https://github.com/fideus-labs/ngff-zarr/commit/f9c3b5c923e09554aedcd4a179460b759388d3e5))
+
+### ✨ Features
+
+- **mcp**: expose consolidate_metadata option ([96384d7](https://github.com/fideus-labs/ngff-zarr/commit/96384d78291d30d0e258db138f18fcdc7456e5d1))
+
+### 🐛 Bug Fixes
+
+- **py,ts**: carry a displacement range through a non-linear outer stage ([76c0ae0](https://github.com/fideus-labs/ngff-zarr/commit/76c0ae0bdf0e44d34f6c70c37e680d98a0b3a5c5))
+- **py,ts**: let only a field prove the grid stays on its domain ([318099c](https://github.com/fideus-labs/ngff-zarr/commit/318099cbc1426213ed6f1b2338df52d8d3b54288))
+- **py,ts**: bound a displacement stage of an ITK transform by its values ([1753989](https://github.com/fideus-labs/ngff-zarr/commit/1753989a550f15e5d6fbd80205b0f8b9c40e5443))
+- **py,ts**: size a field's region by what the field displaces ([bc9f983](https://github.com/fideus-labs/ngff-zarr/commit/bc9f983c0a74f52dfd0ef53f1dde5b3332c09e39))
+- **mcp**: reject a compression level given without a codec ([906a3a3](https://github.com/fideus-labs/ngff-zarr/commit/906a3a3aed9d58deb555d50f2bb69153457b2802))
+- **mcp**: pass the optimizer's compression through as a codec ([6d27f62](https://github.com/fideus-labs/ngff-zarr/commit/6d27f628e7702ccc9fa5e1e516614f73496e2522))
+
 ## mcp-v0.14.0 (2026-08-28)
 
 ### 🐛 Bug Fixes
