@@ -1,3 +1,37 @@
+## py-v0.46.0 (2026-09-04)
+
+### ♻️ Refactoring
+
+- **py**: keep the 0.9 development model out of the package exports ([ffb1619](https://github.com/fideus-labs/ngff-zarr/commit/ffb161960a57cf693b28ecdfabd22a1163b157d2))
+- rename convert_field_block to convert_itk_field_block ([f9c3b5c](https://github.com/fideus-labs/ngff-zarr/commit/f9c3b5c923e09554aedcd4a179460b759388d3e5))
+- **py**: name the axis and field transformation types ([6cdb8a9](https://github.com/fideus-labs/ngff-zarr/commit/6cdb8a927e41a91652e083833cf8376d511dfb60))
+
+### ✨ Features
+
+- **py**: add consolidate_metadata option to to_ome_zarr ([2de3c7a](https://github.com/fideus-labs/ngff-zarr/commit/2de3c7aec584ad3f21a67c2babf1145035611d2b))
+- **py**: add consolidate_metadata option to to_ome_zarr ([3f31a1c](https://github.com/fideus-labs/ngff-zarr/commit/3f31a1ceb9f7407325257871e4d51baf48642a56))
+- **py**: make the version-scoped metadata API public per version ([8d206b8](https://github.com/fideus-labs/ngff-zarr/commit/8d206b81875d9ea225da4e10458d053e43f4be09))
+- **py**: convert a field block between ITK's convention and RFC-5's ([25767d9](https://github.com/fideus-labs/ngff-zarr/commit/25767d908e0fb9a6f8dd2f4af5d15105308f150a))
+- **py**: declare a field image as an RFC-5 field transform ([bece32f](https://github.com/fideus-labs/ngff-zarr/commit/bece32f7cb53eb86a02abcf9775eb462f6341d7c))
+- **py**: open an array in a remote store ([dfc13e6](https://github.com/fideus-labs/ngff-zarr/commit/dfc13e63489647499c43570b6f0310e8fc675864))
+- **py**: read a displacement field one window per block ([329a084](https://github.com/fideus-labs/ngff-zarr/commit/329a084f890ac33508e089215d3555c98baa9d5b))
+
+### 🐛 Bug Fixes
+
+- **py**: v09 __all__ keeps its v06 re-exports; test covers v04 and required names ([53dd4e1](https://github.com/fideus-labs/ngff-zarr/commit/53dd4e16e8c5f5d59d63cc478cdb82d33830d48d))
+- **py,ts**: carry a displacement range through a non-linear outer stage ([76c0ae0](https://github.com/fideus-labs/ngff-zarr/commit/76c0ae0bdf0e44d34f6c70c37e680d98a0b3a5c5))
+- **py**: refuse a write through an empty stepped slice ([fc47c5c](https://github.com/fideus-labs/ngff-zarr/commit/fc47c5cd9ac5074452c37f76208e342c23ec8eb2))
+- **py**: serve stepped and negative-step slices from the lazy adapter ([525919f](https://github.com/fideus-labs/ngff-zarr/commit/525919fb89b1b64d97acf14446484be200e16e34))
+- **py**: refuse the multiscale-level transforms a version would drop ([2fd62bd](https://github.com/fideus-labs/ngff-zarr/commit/2fd62bd2747637adca4d86f6e6dc5ee9c6bfb3f5))
+- **py**: resolve the bucket region an S3 read needs ([1c1e615](https://github.com/fideus-labs/ngff-zarr/commit/1c1e61578a2acc2a83ee4be55d7d07cfba7f9e4f))
+- **py**: refuse a transform whose vector does not span its axes ([29c3ef2](https://github.com/fideus-labs/ngff-zarr/commit/29c3ef21763cc7b7af7aeb4bb8edd07b538ba9d7))
+- **py,ts**: let only a field prove the grid stays on its domain ([318099c](https://github.com/fideus-labs/ngff-zarr/commit/318099cbc1426213ed6f1b2338df52d8d3b54288))
+- **py,ts**: bound a displacement stage of an ITK transform by its values ([1753989](https://github.com/fideus-labs/ngff-zarr/commit/1753989a550f15e5d6fbd80205b0f8b9c40e5443))
+- **py,ts**: size a field's region by what the field displaces ([bc9f983](https://github.com/fideus-labs/ngff-zarr/commit/bc9f983c0a74f52dfd0ef53f1dde5b3332c09e39))
+- **py**: reject the codec and chunk arguments the writer cannot honor ([c350f2d](https://github.com/fideus-labs/ngff-zarr/commit/c350f2dc02e93e207fdf64ef0cadf9bec4b87f0b))
+- **py**: reject codec chains the write engine cannot encode ([e0127a4](https://github.com/fideus-labs/ngff-zarr/commit/e0127a431aee11c45551128de1569356a5345a3f))
+- **py**: carry upstream's re-synced RFC-4 schema descriptions ([3d95b71](https://github.com/fideus-labs/ngff-zarr/commit/3d95b71bbc75682d51cf3591c80a5d68ee2053ab))
+
 ## py-v0.45.0 (2026-08-27)
 
 ### ✨ Features
