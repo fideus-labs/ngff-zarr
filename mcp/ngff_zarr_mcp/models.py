@@ -82,6 +82,13 @@ class ConversionOptions(BaseModel):
     use_tensorstore: bool = Field(
         False, description="Deprecated: uses the zarrista backend for I/O"
     )
+    consolidate_metadata: bool = Field(
+        True,
+        description=(
+            "Write consolidated metadata. Set False for stores destined for a "
+            "backend that rejects it, such as Icechunk"
+        ),
+    )
 
     # Performance options
     use_local_cluster: bool = Field(
@@ -162,6 +169,13 @@ class OptimizationOptions(BaseModel):
     )
     storage_options: dict[str, str | int | bool] | None = Field(
         None, description="Storage options for remote stores"
+    )
+    consolidate_metadata: bool = Field(
+        True,
+        description=(
+            "Write consolidated metadata. Set False for stores destined for a "
+            "backend that rejects it, such as Icechunk"
+        ),
     )
 
     @model_validator(mode="after")
