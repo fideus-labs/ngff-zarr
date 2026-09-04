@@ -13,6 +13,15 @@ At `0.9.dev3` the root `ome` value is a typed node document; the
 `multiscales` wrapper of earlier versions is replaced. RFC-8 is an early
 draft (status D1), so this surface is expected to evolve with it.
 
+[`py/examples/rfc8_collections_demo.ipynb`](https://github.com/fideus-labs/ngff-zarr/blob/main/py/examples/rfc8_collections_demo.ipynb)
+builds one collection out of an abdominal CT and MR read from the SynthRAD2025
+archive, two segmentations published on an object store, and the deformable
+registration between them. The label maps stay in the space each was computed
+in and name their image through a `source` reference; the registration is a
+`displacements` transformation on the collection's scene, which `resample`
+applies to check that the metadata says something true. It ends with what the
+draft still leaves open.
+
 Support is being built in stages
 ([issue #714](https://github.com/fideus-labs/ngff-zarr/issues/714)). The
 current stages cover the building blocks, collections, id-based coordinate
