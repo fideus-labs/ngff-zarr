@@ -1,3 +1,26 @@
+## ts-v0.32.0 (2026-09-04)
+
+### ♻️ Refactoring
+
+- rename convert_field_block to convert_itk_field_block ([f9c3b5c](https://github.com/fideus-labs/ngff-zarr/commit/f9c3b5c923e09554aedcd4a179460b759388d3e5))
+
+### ⚡ Performance
+
+- **ts**: compile metadata validation schemas ([8544677](https://github.com/fideus-labs/ngff-zarr/commit/8544677873a703789f272a9b130172a887ab69c3))
+
+### ✨ Features
+
+- **ts**: convert a field block between ITK's convention and RFC-5's ([80b37b2](https://github.com/fideus-labs/ngff-zarr/commit/80b37b293c3fd4fcf21a4e5382808b0fe6f8c1ea))
+- **ts**: declare a field image as an RFC-5 field transform ([dd2c05b](https://github.com/fideus-labs/ngff-zarr/commit/dd2c05b583ea42a86d12ee5ffa240e50ff6729aa))
+
+### 🐛 Bug Fixes
+
+- **ts**: match the Python field converter on coordinates and buffer length ([e0c4230](https://github.com/fideus-labs/ngff-zarr/commit/e0c4230a17c98175712f0358dea6aebbb4fd1857))
+- **py,ts**: carry a displacement range through a non-linear outer stage ([76c0ae0](https://github.com/fideus-labs/ngff-zarr/commit/76c0ae0bdf0e44d34f6c70c37e680d98a0b3a5c5))
+- **py,ts**: let only a field prove the grid stays on its domain ([318099c](https://github.com/fideus-labs/ngff-zarr/commit/318099cbc1426213ed6f1b2338df52d8d3b54288))
+- **py,ts**: bound a displacement stage of an ITK transform by its values ([1753989](https://github.com/fideus-labs/ngff-zarr/commit/1753989a550f15e5d6fbd80205b0f8b9c40e5443))
+- **py,ts**: size a field's region by what the field displaces ([bc9f983](https://github.com/fideus-labs/ngff-zarr/commit/bc9f983c0a74f52dfd0ef53f1dde5b3332c09e39))
+
 ## ts-v0.31.0 (2026-08-27)
 
 ### 🐛 Bug Fixes
