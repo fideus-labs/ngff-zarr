@@ -6,6 +6,11 @@ import type { NgffMultiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { ZarrCodec } from "../utils/codecs.ts";
 import { defaultCodecs } from "../utils/codecs.ts";
+import {
+  type ConsolidatableStore,
+  consolidateMetadata,
+  datasetNodePaths,
+} from "../utils/consolidate_metadata.ts";
 import { createWriteQueue, zarrGet, zarrSet } from "../utils/worker_pool.ts";
 import type { MemoryStore } from "./from_ngff_zarr.ts";
 import { isOzxPath, memoryStoreToZip } from "./rfc9_zip.ts";
@@ -31,6 +36,13 @@ export interface ToOmeZarrOptions {
    * {@link codecFromName} or {@link bytesOnlyCodecs} to build common pipelines.
    */
   codecs?: ZarrCodec[];
+  /**
+   * Write consolidated metadata into the root `zarr.json` once the arrays are
+   * in place (default `true`). Set `false` for a store destined for a backend
+   * that rejects it, such as Icechunk, which runs its own consolidation and
+   * treats a consolidated block as interference.
+   */
+  consolidateMetadata?: boolean;
 }
 
 /** @deprecated Use {@link ToOmeZarrOptions} instead. */
@@ -51,6 +63,12 @@ export interface ToOmeZarrOzxOptions {
   onProgress?:
     | ((completedChunks: number, totalChunks: number) => void)
     | undefined;
+  /**
+   * Write consolidated metadata into the root `zarr.json` (default `true`).
+   * A zipped store is where consolidation pays off most for a reader that
+   * understands the block, so leave it on unless the destination rejects it.
+   */
+  consolidateMetadata?: boolean | undefined;
 }
 
 /** @deprecated Use {@link ToOmeZarrOzxOptions} instead. */
@@ -111,7 +129,9 @@ export async function toOmeZarr(
     }
 
     // Delegate to toOmeZarrOzx (which always uses version 0.5)
-    await toOmeZarrOzx(store, multiscales);
+    await toOmeZarrOzx(store, multiscales, {
+      consolidateMetadata: options.consolidateMetadata,
+    });
     return;
   }
 
@@ -174,6 +194,20 @@ export async function toOmeZarr(
         dataset.path,
         undefined, // onProgress
         options.codecs,
+      );
+    }
+
+    // Consolidate last: the block inlines the array documents, so it has to be
+    // written after them. `zarr.create` above replaced the root document
+    // wholesale, so a store that was consolidated before this call and is
+    // written with `consolidateMetadata: false` is left unconsolidated rather
+    // than stale -- the Zarr v3 behavior the Python writer relies on too.
+    if (options.consolidateMetadata ?? true) {
+      await consolidateMetadata(
+        _resolvedStore as ConsolidatableStore,
+        datasetNodePaths(
+          multiscales.metadata.datasets.map((dataset) => dataset.path),
+        ),
       );
     }
   } catch (error) {
@@ -614,6 +648,7 @@ export async function toOmeZarrOzxData(
     memoryStore,
     multiscales,
     options.onProgress ?? null,
+    options.consolidateMetadata ?? true,
   );
 
   // Convert the memory store to ZIP data
@@ -633,11 +668,13 @@ async function _writeToMemoryStore(
   store: MemoryStore,
   multiscales: NgffMultiscales,
   onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
+  consolidate: boolean = true,
 ): Promise<void> {
   await writeNgffMultiscalesToMemoryStore(
     store,
     multiscales,
     _writeImage,
     onProgress,
+    consolidate,
   );
 }
