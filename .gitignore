@@ -22,3 +22,4 @@ wheels/
 .installed.cfg
 *.egg
 .serena/
+.maestro/
