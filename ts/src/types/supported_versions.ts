@@ -24,8 +24,31 @@ export enum NgffVersion {
    * {@link LATEST} stays `0.6rc0`, so 0.9.dev1 is opt-in.
    */
   V09dev1 = "0.9.dev1",
+  /**
+   * 0.9.dev1 plus RFC-8: the root `ome` value becomes a typed node
+   * (collections, references, typed paths) in place of the multiscales
+   * wrapper. Also opt-in; {@link LATEST} stays `0.6rc0`.
+   */
+  V09dev3 = "0.9.dev3",
   LATEST = "0.6rc0",
 }
+
+/**
+ * The versions an image (multiscales) store can carry, as the readers,
+ * writers and upgraders accept them. Widens to `"0.9.dev3"` when the RFC-8
+ * multiscale node model lands (issue #714); until then images are written at
+ * 0.9.dev1 and referenced from 0.9.dev3 collections.
+ */
+export type ImageVersion = "0.4" | "0.5" | "0.6" | "0.9.dev1";
+
+/**
+ * The OME-Zarr 0.9 development series, oldest first. Each tag extends the
+ * one before: dev1 is 0.6 plus RFC-3 and RFC-4, dev3 is dev1 plus RFC-8.
+ */
+export const V09_DEV_SERIES: readonly string[] = [
+  NgffVersion.V09dev1,
+  NgffVersion.V09dev3,
+] as const;
 
 /**
  * The on-disk `ome.version` string written for OME-Zarr v0.6. The v0.6 spec
@@ -49,6 +72,7 @@ export const SUPPORTED_VERSIONS: readonly NgffVersion[] = [
   NgffVersion.V06dev4,
   NgffVersion.V06rc0,
   NgffVersion.V09dev1,
+  NgffVersion.V09dev3,
 ] as const;
 
 /**
@@ -71,20 +95,21 @@ export function isV06Version(version: string): boolean {
 /**
  * Whether a version adopts the RFC-3 free-form axis model.
  *
- * Only `0.9.dev1` does: the bundled 0.4, 0.5 and 0.6 axes schemas all cap the
- * axis count at 5, and require 2-3 `space` axes (0.6 excepted for an `array`
- * coordinate system, see `takesArraySchemaBranch`). `undefined` applies the
- * restrictions.
+ * Only the OME-Zarr 0.9 development series does: the bundled 0.4, 0.5 and
+ * 0.6 axes schemas all cap the axis count at 5, and require 2-3 `space` axes
+ * (0.6 excepted for an `array` coordinate system, see
+ * `takesArraySchemaBranch`). `undefined` applies the restrictions.
  */
 export function isRfc3AxisModelAllowed(version?: string): boolean {
-  return version !== undefined && version === NgffVersion.V09dev1;
+  return version !== undefined && V09_DEV_SERIES.includes(version);
 }
 
 /**
  * Whether a version makes the RFC-4 orientation rules normative.
  *
- * Only `0.9.dev1` does (ome/ngff-spec#190 folds RFC-4 into it): the released
- * 0.4, 0.5 and 0.6 specs give `orientation` no normative status, so when the
+ * Only the OME-Zarr 0.9 development series does (ome/ngff-spec#190 folds
+ * RFC-4 into 0.9.dev1, and 0.9.dev3 extends 0.9.dev1): the released 0.4,
+ * 0.5 and 0.6 specs give `orientation` no normative status, so when the
  * caller declares one of those versions the orientation rules are inert.
  * `undefined` keeps them on: with no declared version, enforcement is a
  * strictness choice, exactly like `axis-names-unique` below 0.9.dev1 (see
@@ -96,5 +121,19 @@ export function isRfc3AxisModelAllowed(version?: string): boolean {
  * than at it.
  */
 export function isRfc4OrientationEnforced(version?: string): boolean {
-  return version === undefined || version === NgffVersion.V09dev1;
+  return version === undefined || V09_DEV_SERIES.includes(version);
+}
+
+/**
+ * Whether a version stores the RFC-8 node model under `ome`.
+ *
+ * Only `0.9.dev3` does: RFC-8 replaces the multiscales wrapper with a typed
+ * node document, so this predicate answers a structural question (which
+ * document shape a version stores) rather than gating a strictness rule,
+ * and `undefined` is `false`: with no declared version nothing says the
+ * document is node-shaped. The RFC-8 collection rules gate themselves the
+ * RFC-4 way instead (see `validateCollection`).
+ */
+export function isRfc8NodeModel(version?: string): boolean {
+  return version !== undefined && version === NgffVersion.V09dev3;
 }

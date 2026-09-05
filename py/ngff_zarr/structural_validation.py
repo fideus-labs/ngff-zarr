@@ -81,6 +81,27 @@ violation, in canonical spec-MUST order.
 #   well-acquisition-missing
 #       each well image references an acquisition when the plate declares many
 #       e.g. well.images[0].acquisition
+#   node-type-required
+#       every RFC-8 node declares a non-empty string type; from 0.9.dev3
+#       e.g. ome.nodes[1]
+#   node-name-required
+#       every RFC-8 node declares a non-empty string name; from 0.9.dev3
+#       e.g. ome.nodes[1]
+#   node-name-unique
+#       sibling RFC-8 nodes carry distinct names; from 0.9.dev3
+#       e.g. ome.nodes[2]
+#   node-id-format
+#       RFC-8 node and reference ids match [a-zA-Z0-9-_.]+; from 0.9.dev3
+#       e.g. ome.nodes[0].id
+#   node-id-unique
+#       RFC-8 ids are unique within the JSON document; from 0.9.dev3
+#       e.g. ome.nodes[3].id
+#   node-nodes-xor-path
+#       a collection carries exactly one of nodes or path; from 0.9.dev3
+#       e.g. ome.nodes[1]
+#   path-type-known
+#       an RFC-8 path type is zarr, json, or prefixed; from 0.9.dev3
+#       e.g. ome.nodes[1].path.type
 
 from __future__ import annotations
 
@@ -88,7 +109,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
-from ._supported_versions import NgffVersion, is_v06_version
+from ._supported_versions import V09_DEV_SERIES, NgffVersion, is_v06_version
 
 if TYPE_CHECKING:
     from .v04.zarr_metadata import Axis, Dataset, Metadata, Plate, Transform, Well
@@ -118,6 +139,13 @@ class SpecRule(StrEnum):
     OME_NAMESPACE = "ome-namespace"
     PLATE_ROW_INDEX_CONSISTENCY = "plate-row-index-consistency"
     WELL_ACQUISITION_MISSING = "well-acquisition-missing"
+    NODE_TYPE_REQUIRED = "node-type-required"
+    NODE_NAME_REQUIRED = "node-name-required"
+    NODE_NAME_UNIQUE = "node-name-unique"
+    NODE_ID_FORMAT = "node-id-format"
+    NODE_ID_UNIQUE = "node-id-unique"
+    NODE_NODES_XOR_PATH = "node-nodes-xor-path"
+    PATH_TYPE_KNOWN = "path-type-known"
 
 
 class ValidationLevel(StrEnum):
@@ -355,34 +383,52 @@ def _takes_array_schema_branch(axes: list, version: object | None) -> bool:
 def is_rfc3_axis_model_allowed(version: object | None = None) -> bool:
     """Whether ``version`` adopts the RFC-3 free-form axis model.
 
-    Only OME-Zarr ``0.9.dev1`` does: the bundled 0.4, 0.5 and 0.6 ``axes``
-    schemas all cap the axis count at 5, and require 2 or 3 ``space`` axes
-    (0.6 excepted for an ``array`` coordinate system, see
+    Only the OME-Zarr 0.9 development series does: the bundled 0.4, 0.5 and
+    0.6 ``axes`` schemas all cap the axis count at 5, and require 2 or 3
+    ``space`` axes (0.6 excepted for an ``array`` coordinate system, see
     :func:`_takes_array_schema_branch`). ``None`` applies the restrictions.
 
-    Compared by string equality: a dev release precedes its release, so
-    ``packaging.version.parse("0.9.dev1")`` sorts below ``0.9`` and a ``>=``
-    test against ``"0.9"`` is ``False``.
+    Compared by string equality against each series member: a dev release
+    precedes its release, so ``packaging.version.parse("0.9.dev1")`` sorts
+    below ``0.9`` and a ``>=`` test against ``"0.9"`` is ``False``.
     """
-    return version is not None and version == NgffVersion.V09dev1
+    return version is not None and version in V09_DEV_SERIES
 
 
 def is_rfc4_orientation_enforced(version: object | None = None) -> bool:
     """Whether ``version`` makes the RFC-4 orientation rules normative.
 
-    Only OME-Zarr ``0.9.dev1`` does (``ome/ngff-spec#190`` folds RFC-4 into
-    it): the released 0.4, 0.5 and 0.6 specs give ``orientation`` no normative
-    status, so when the caller declares one of those versions the orientation
-    rules are inert. ``None`` keeps them on: with no declared version,
-    enforcement is a strictness choice, exactly like ``axis-names-unique``
-    below 0.9.dev1 (see docs/validation/rule-reference.md).
+    Only the OME-Zarr 0.9 development series does (``ome/ngff-spec#190``
+    folds RFC-4 into 0.9.dev1, and 0.9.dev3 extends 0.9.dev1): the released
+    0.4, 0.5 and 0.6 specs give ``orientation`` no normative status, so when
+    the caller declares one of those versions the orientation rules are
+    inert. ``None`` keeps them on: with no declared version, enforcement is a
+    strictness choice, exactly like ``axis-names-unique`` below 0.9.dev1 (see
+    docs/validation/rule-reference.md).
 
     The gate points the opposite way from :func:`is_rfc3_axis_model_allowed`:
     at 0.9.dev1 RFC-3 *lifts* the axis restrictions while RFC-4 *adds* the
     orientation requirements, so the rules exit early below 0.9.dev1 rather
     than at it.
     """
-    return version is None or version == NgffVersion.V09dev1
+    return version is None or version in V09_DEV_SERIES
+
+
+def is_rfc8_node_model(version: object | None = None) -> bool:
+    """Whether ``version`` stores the RFC-8 node model under ``ome``.
+
+    Only OME-Zarr ``0.9.dev3`` does: RFC-8 replaces the ``multiscales``
+    wrapper with a typed node document, so this predicate answers a
+    structural question (which document shape a version stores) rather than
+    gating a strictness rule, and ``None`` is ``False``: with no declared
+    version nothing says the document is node-shaped. The RFC-8 collection
+    rules gate themselves the RFC-4 way instead (see
+    :func:`ngff_zarr.rfc8.validate_collection`).
+
+    Compared by equality like the other predicates: a dev release precedes
+    its release under ``packaging.version``, so a ``>=`` test is wrong.
+    """
+    return version is not None and version == NgffVersion.V09dev3
 
 
 def validate_axis_count(metadata: Metadata, version: object | None = None) -> None:

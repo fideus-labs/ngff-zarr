@@ -1,0 +1,397 @@
+{
+    "zarr_format": 3,
+    "node_type": "group",
+    "attributes": {
+        "ome": {
+            "version": "0.9.dev3",
+            "id": "af92b1d8-1b02-46d5-884c-de92b215edb0",
+            "type": "collection",
+            "name": "l4dense_motta_et_al_dev_v2",
+            "attributes": {
+                "webknossos:rendering": {
+                    "coordinate_system": {
+                        "$ref": "fa8a2d0a-0f4a-4c95-bf5b-a9528433653e"
+                    },
+                    "position": {
+                        "x": 2850,
+                        "y": 4318,
+                        "z": 1770
+                    },
+                    "zoom": 1.3
+                },
+                "coordinateSystems": [
+                    {
+                        "id": "fa8a2d0a-0f4a-4c95-bf5b-a9528433653e",
+                        "name": "world",
+                        "axes": [
+                            {
+                                "name": "c",
+                                "type": "channel"
+                            },
+                            {
+                                "name": "x",
+                                "type": "space",
+                                "unit": "nanometer"
+                            },
+                            {
+                                "name": "y",
+                                "type": "space",
+                                "unit": "nanometer"
+                            },
+                            {
+                                "name": "z",
+                                "type": "space",
+                                "unit": "nanometer"
+                            }
+                        ]
+                    }
+                ]
+            },
+            "nodes": [
+                {
+                    "id": "65d8484b-3792-4eb8-9d4e-e9fbee3a5458",
+                    "type": "multiscale",
+                    "name": "color",
+                    "attributes": {
+                        "webknossos:category": "color",
+                        "webknossos:bounding_box": {
+                            "topleft": {
+                                "x": 128,
+                                "y": 128,
+                                "z": 128
+                            },
+                            "size": {
+                                "x": 5445,
+                                "y": 8380,
+                                "z": 3285
+                            }
+                        },
+                        "webknossos:data_type": "uint8"
+                    },
+                    "nodes": [
+                        {
+                            "id": "4ec0b506-ad9f-404f-b106-9e66246b00e1",
+                            "type": "singlescale",
+                            "name": "1",
+                            "path": {
+                                "type": "zarr",
+                                "path": "/absolute/path/to/l4dense_motta_et_al_demo/color/1"
+                            },
+                            "attributes": {
+                                "coordinateTransformations": [
+                                    {
+                                        "type": "scale",
+                                        "scale": [
+                                            1.0,
+                                            11.239999771118164,
+                                            11.239999771118164,
+                                            28.0
+                                        ],
+                                        "input": {
+                                            "type": "singlescale",
+                                            "$ref": "4ec0b506-ad9f-404f-b106-9e66246b00e1"
+                                        },
+                                        "output": {
+                                            "type": "coordinateSystem",
+                                            "$ref": "fa8a2d0a-0f4a-4c95-bf5b-a9528433653e"
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "id": "1a612389-20f5-4af1-b125-8bed8a5d7e85",
+                            "type": "singlescale",
+                            "name": "2-2-1",
+                            "path": {
+                                "type": "zarr",
+                                "path": "/absolute/path/to/l4dense_motta_et_al_demo/color/2-2-1"
+                            },
+                            "attributes": {
+                                "coordinateTransformations": [
+                                    {
+                                        "type": "scale",
+                                        "scale": [
+                                            1.0,
+                                            22.479999542236328,
+                                            22.479999542236328,
+                                            28.0
+                                        ],
+                                        "input": {
+                                            "type": "singlescale",
+                                            "$ref": "1a612389-20f5-4af1-b125-8bed8a5d7e85"
+                                        },
+                                        "output": {
+                                            "type": "coordinateSystem",
+                                            "$ref": "fa8a2d0a-0f4a-4c95-bf5b-a9528433653e"
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "id": "3967cf03-0ca0-49f0-a0c6-27f105724ab7",
+                    "type": "multiscale",
+                    "name": "segmentation",
+                    "attributes": {
+                        "webknossos:category": "segmentation",
+                        "webknossos:bounding_box": {
+                            "topleft": {
+                                "x": 0,
+                                "y": 0,
+                                "z": 0
+                            },
+                            "size": {
+                                "x": 5632,
+                                "y": 8704,
+                                "z": 3584
+                            }
+                        },
+                        "webknossos:data_type": "uint32",
+                        "webknossos:values": {
+                            "max": 100000
+                        }
+                    },
+                    "nodes": [
+                        {
+                            "id": "00b522ce-9e08-4838-936e-8302cb0f43c1",
+                            "type": "singlescale",
+                            "name": "1",
+                            "path": {
+                                "type": "zarr",
+                                "path": "./segmentation/1"
+                            },
+                            "attributes": {
+                                "coordinateTransformations": [
+                                    {
+                                        "type": "scale",
+                                        "scale": [
+                                            1.0,
+                                            11.239999771118164,
+                                            11.239999771118164,
+                                            28.0
+                                        ],
+                                        "input": {
+                                            "type": "singlescale",
+                                            "$ref": "00b522ce-9e08-4838-936e-8302cb0f43c1"
+                                        },
+                                        "output": {
+                                            "type": "coordinateSystem",
+                                            "$ref": "fa8a2d0a-0f4a-4c95-bf5b-a9528433653e"
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "id": "92d5c223-cc30-4e4c-92ed-629e41acc139",
+                            "type": "singlescale",
+                            "name": "2-2-1",
+                            "path": {
+                                "type": "zarr",
+                                "path": "./segmentation/2-2-1"
+                            },
+                            "attributes": {
+                                "coordinateTransformations": [
+                                    {
+                                        "type": "scale",
+                                        "scale": [
+                                            1.0,
+                                            22.479999542236328,
+                                            22.479999542236328,
+                                            28.0
+                                        ],
+                                        "input": {
+                                            "type": "singlescale",
+                                            "$ref": "92d5c223-cc30-4e4c-92ed-629e41acc139"
+                                        },
+                                        "output": {
+                                            "type": "coordinateSystem",
+                                            "$ref": "fa8a2d0a-0f4a-4c95-bf5b-a9528433653e"
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "id": "194888b2-656d-4d8c-81db-0d38ac2eecd6",
+                            "type": "singlescale",
+                            "name": "4-4-2",
+                            "path": {
+                                "type": "zarr",
+                                "path": "./segmentation/4-4-2"
+                            },
+                            "attributes": {
+                                "coordinateTransformations": [
+                                    {
+                                        "type": "scale",
+                                        "scale": [
+                                            1.0,
+                                            44.959999084472656,
+                                            44.959999084472656,
+                                            56.0
+                                        ],
+                                        "input": {
+                                            "type": "singlescale",
+                                            "$ref": "194888b2-656d-4d8c-81db-0d38ac2eecd6"
+                                        },
+                                        "output": {
+                                            "type": "coordinateSystem",
+                                            "$ref": "fa8a2d0a-0f4a-4c95-bf5b-a9528433653e"
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "type": "webknossos:mesh",
+                    "name": "meshfile_4-4-2",
+                    "path": {
+                        "type": "zarr",
+                        "path": "./segmentation/zarr/meshes/meshfile_4-4-2"
+                    },
+                    "attributes": {
+                        "webknossos:parent": {
+                            "type": "multiscale",
+                            "$ref": "3967cf03-0ca0-49f0-a0c6-27f105724ab7"
+                        }
+                    }
+                },
+                {
+                    "type": "webknossos:agglomeration",
+                    "name": "agglomerate_view_5",
+                    "path": {
+                        "type": "zarr",
+                        "path": "./segmentation/zarr/agglomerates/agglomerate_view_5"
+                    },
+                    "attributes": {
+                        "webknossos:parent": {
+                            "type": "multiscale",
+                            "$ref": "3967cf03-0ca0-49f0-a0c6-27f105724ab7"
+                        }
+                    }
+                },
+                {
+                    "type": "webknossos:segment_index",
+                    "name": "segmentIndex",
+                    "path": {
+                        "type": "zarr",
+                        "path": "./segmentation/zarr/segmentIndex/segmentIndex"
+                    },
+                    "attributes": {
+                        "webknossos:parent": {
+                            "type": "multiscale",
+                            "$ref": "3967cf03-0ca0-49f0-a0c6-27f105724ab7"
+                        }
+                    }
+                },
+                {
+                    "type": "webknossos:connectome",
+                    "name": "paper_l4_full_connectome",
+                    "path": {
+                        "type": "zarr",
+                        "path": "./segmentation/zarr/connectomes/paper_l4_full_connectome"
+                    },
+                    "attributes": {
+                        "webknossos:parent": {
+                            "type": "multiscale",
+                            "$ref": "3967cf03-0ca0-49f0-a0c6-27f105724ab7"
+                        }
+                    }
+                },
+                {
+                    "id": "294cdc31-8362-4d67-be14-57a74d2bc2fa",
+                    "type": "multiscale",
+                    "name": "prediction",
+                    "attributes": {
+                        "webknossos:category": "color",
+                        "webknossos:bounding_box": {
+                            "topleft": {
+                                "c": 0,
+                                "x": 128,
+                                "y": 128,
+                                "z": 128
+                            },
+                            "size": {
+                                "c": 3,
+                                "x": 5445,
+                                "y": 8380,
+                                "z": 3285
+                            }
+                        },
+                        "webknossos:data_type": "uint8",
+                        "webknossos:rendering": {
+                            "is_disabled": true
+                        }
+                    },
+                    "nodes": [
+                        {
+                            "id": "556d7d8d-ca99-44b6-be1b-62fbcf1eba5e",
+                            "type": "singlescale",
+                            "name": "1",
+                            "path": {
+                                "type": "zarr",
+                                "path": "./prediction/1"
+                            },
+                            "attributes": {
+                                "coordinateTransformations": [
+                                    {
+                                        "type": "scale",
+                                        "scale": [
+                                            1.0,
+                                            11.239999771118164,
+                                            11.239999771118164,
+                                            28.0
+                                        ],
+                                        "input": {
+                                            "type": "singlescale",
+                                            "$ref": "556d7d8d-ca99-44b6-be1b-62fbcf1eba5e"
+                                        },
+                                        "output": {
+                                            "type": "coordinateSystem",
+                                            "$ref": "fa8a2d0a-0f4a-4c95-bf5b-a9528433653e"
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "id": "6550f3d2-5d65-4668-82c1-e2fb16370449",
+                            "type": "singlescale",
+                            "name": "2-2-1",
+                            "path": {
+                                "type": "zarr",
+                                "path": "./prediction/2-2-1"
+                            },
+                            "attributes": {
+                                "coordinateTransformations": [
+                                    {
+                                        "type": "scale",
+                                        "scale": [
+                                            1.0,
+                                            22.479999542236328,
+                                            22.479999542236328,
+                                            28.0
+                                        ],
+                                        "input": {
+                                            "type": "singlescale",
+                                            "$ref": "6550f3d2-5d65-4668-82c1-e2fb16370449"
+                                        },
+                                        "output": {
+                                            "type": "coordinateSystem",
+                                            "$ref": "fa8a2d0a-0f4a-4c95-bf5b-a9528433653e"
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+}

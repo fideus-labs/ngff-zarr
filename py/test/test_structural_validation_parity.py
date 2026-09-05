@@ -26,6 +26,7 @@ from ngff_zarr import (
     ValidationError,
     ValidationLevel,
     structural_validation,
+    validate_collection,
     validate_structural,
 )
 from ngff_zarr.v04.zarr_metadata import (
@@ -44,8 +45,9 @@ from ngff_zarr.v04.zarr_metadata import (
 # so the two are directly comparable. The first thirteen entries are the
 # image/multiscales rules dispatched by validate_structural -- the first eleven
 # are the v0.4 rules and the next two (zarr-format, ome-namespace) are the v0.5
-# namespacing rules, inert for v0.4; the final two are the HCS plate/well rules
-# dispatched by validate_plate / validate_well.
+# namespacing rules, inert for v0.4; the next two are the HCS plate/well rules
+# dispatched by validate_plate / validate_well; the final seven are the RFC-8
+# node/collection rules dispatched by validate_collection.
 CANONICAL_SPEC_RULE_IDS = [
     "axis-count",
     "axis-type",
@@ -62,6 +64,13 @@ CANONICAL_SPEC_RULE_IDS = [
     "ome-namespace",
     "plate-row-index-consistency",
     "well-acquisition-missing",
+    "node-type-required",
+    "node-name-required",
+    "node-name-unique",
+    "node-id-format",
+    "node-id-unique",
+    "node-nodes-xor-path",
+    "path-type-known",
 ]
 
 
@@ -73,6 +82,7 @@ CANONICAL_SPEC_RULE_IDS = [
 # never inert (see docs/validation/rule-reference.md).
 CANONICAL_RFC3_VERSIONS = [
     "0.9.dev1",
+    "0.9.dev3",
 ]
 
 # Every other supported version, plus the no-version default, must enforce the
@@ -93,6 +103,7 @@ NON_RFC3_VERSIONS = [
 # keeps them on, as a strictness choice (like axis-names-unique).
 CANONICAL_RFC4_VERSIONS = [
     "0.9.dev1",
+    "0.9.dev3",
 ]
 
 # Every other supported version must leave the orientation rules inert. Read
@@ -102,6 +113,23 @@ PRE_RFC4_VERSIONS = [
     version.value
     for version in SUPPORTED_VERSIONS
     if version.value not in CANONICAL_RFC4_VERSIONS
+]
+
+# The locked RFC-8 version manifest: the versions that store the node model
+# under ``ome``, at which the seven node/collection rules are normative. This
+# identical literal list appears in the Deno mirror test. Like the RFC-4
+# rules, the collection rules stay on when no version is declared.
+CANONICAL_RFC8_VERSIONS = [
+    "0.9.dev3",
+]
+
+# Every other supported version must leave the collection rules inert. Read
+# off SUPPORTED_VERSIONS so a newly supported version has to be classified
+# here rather than silently defaulting to either side.
+PRE_RFC8_VERSIONS = [
+    version.value
+    for version in SUPPORTED_VERSIONS
+    if version.value not in CANONICAL_RFC8_VERSIONS
 ]
 
 # The canonical fail-fast evaluation order of the image/multiscales
@@ -527,6 +555,39 @@ def test_rfc4_orientation_version_manifest_is_locked():
         # ...and inert at every earlier supported version.
         for version in PRE_RFC4_VERSIONS:
             validate_structural(_orientation_metadata(build_axes()), version=version)
+
+
+# ---------------------------------------------------------------------------
+# Manifest: the locked RFC-8 collection version set
+# ---------------------------------------------------------------------------
+
+
+def _invalid_collection_document() -> dict:
+    """A collection whose sibling nodes share a name, and nothing else wrong.
+
+    Trips :attr:`SpecRule.NODE_NAME_UNIQUE` exactly when the RFC-8 rules run,
+    so the orchestrator accepts it exactly when they are inert.
+    """
+    return {
+        "type": "collection",
+        "name": "c",
+        "nodes": [
+            {"type": "multiscale", "name": "img"},
+            {"type": "multiscale", "name": "img"},
+        ],
+    }
+
+
+def test_rfc8_collection_version_manifest_is_locked():
+    # Enforced at the manifest versions, and when no version is given...
+    for version in [*CANONICAL_RFC8_VERSIONS, None]:
+        with pytest.raises(ValidationError) as exc_info:
+            validate_collection(_invalid_collection_document(), version=version)
+        assert exc_info.value.rule == SpecRule.NODE_NAME_UNIQUE, version
+    # ...and inert at every other supported version, 0.9.dev1 included:
+    # RFC-8 lands at 0.9.dev3.
+    for version in PRE_RFC8_VERSIONS:
+        validate_collection(_invalid_collection_document(), version=version)
 
 
 def _commented_rule_ids() -> list[str]:

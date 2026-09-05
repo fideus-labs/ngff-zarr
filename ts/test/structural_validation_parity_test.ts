@@ -32,6 +32,7 @@
  */
 
 import { assertEquals, assertMatch, assertThrows } from "@std/assert";
+import { validateCollection } from "../src/mod.ts";
 import {
   SpecRule,
   SUPPORTED_VERSIONS,
@@ -53,8 +54,9 @@ import {
 // the two are directly comparable. The first thirteen entries are the
 // image/multiscales rules dispatched by validateStructural -- the first eleven
 // are the v0.4 rules and the next two (zarr-format, ome-namespace) are the v0.5
-// namespacing rules, inert for v0.4; the final two are the HCS plate/well rules
-// dispatched by validatePlate / validateWell.
+// namespacing rules, inert for v0.4; the next two are the HCS plate/well rules
+// dispatched by validatePlate / validateWell; the final seven are the RFC-8
+// node/collection rules dispatched by validateCollection.
 const CANONICAL_SPEC_RULE_IDS: string[] = [
   "axis-count",
   "axis-type",
@@ -71,6 +73,13 @@ const CANONICAL_SPEC_RULE_IDS: string[] = [
   "ome-namespace",
   "plate-row-index-consistency",
   "well-acquisition-missing",
+  "node-type-required",
+  "node-name-required",
+  "node-name-unique",
+  "node-id-format",
+  "node-id-unique",
+  "node-nodes-xor-path",
+  "path-type-known",
 ];
 
 // The locked RFC-3 version manifest: the versions whose axis model is
@@ -81,6 +90,7 @@ const CANONICAL_SPEC_RULE_IDS: string[] = [
 // never inert (see docs/validation/rule-reference.md).
 const CANONICAL_RFC3_VERSIONS: string[] = [
   "0.9.dev1",
+  "0.9.dev3",
 ];
 
 // Every other supported version, plus the no-version default, must enforce the
@@ -102,6 +112,7 @@ const NON_RFC3_VERSIONS: (string | undefined)[] = [
 // keeps them on, as a strictness choice (like axis-names-unique).
 const CANONICAL_RFC4_VERSIONS: string[] = [
   "0.9.dev1",
+  "0.9.dev3",
 ];
 
 // Every other supported version must leave the orientation rules inert. Read
@@ -110,6 +121,21 @@ const CANONICAL_RFC4_VERSIONS: string[] = [
 const PRE_RFC4_VERSIONS: string[] = SUPPORTED_VERSIONS
   .map((version) => version as string)
   .filter((version) => !CANONICAL_RFC4_VERSIONS.includes(version));
+
+// The locked RFC-8 version manifest: the versions that store the node model
+// under `ome`, at which the seven node/collection rules are normative. This
+// identical literal list appears in the Python twin. Like the RFC-4 rules,
+// the collection rules stay on when no version is declared.
+const CANONICAL_RFC8_VERSIONS: string[] = [
+  "0.9.dev3",
+];
+
+// Every other supported version must leave the collection rules inert. Read
+// off SUPPORTED_VERSIONS so a newly supported version has to be classified
+// here rather than silently defaulting to either side.
+const PRE_RFC8_VERSIONS: string[] = SUPPORTED_VERSIONS
+  .map((version) => version as string)
+  .filter((version) => !CANONICAL_RFC8_VERSIONS.includes(version));
 
 // The canonical fail-fast evaluation order of the image/multiscales
 // orchestrator (validateStructural). Each entry is the SpecRule the
@@ -596,5 +622,38 @@ Deno.test("RFC-4 orientation version manifest is locked", () => {
     for (const version of PRE_RFC4_VERSIONS) {
       validateStructural(orientationMetadata(buildAxes()), undefined, version);
     }
+  }
+});
+
+/**
+ * A collection whose sibling nodes share a name, and nothing else wrong.
+ *
+ * Trips `node-name-unique` exactly when the RFC-8 rules run, so the
+ * orchestrator accepts it exactly when they are inert.
+ */
+function invalidCollectionDocument(): Record<string, unknown> {
+  return {
+    type: "collection",
+    name: "c",
+    nodes: [
+      { type: "multiscale", name: "img" },
+      { type: "multiscale", name: "img" },
+    ],
+  };
+}
+
+Deno.test("RFC-8 collection version manifest is locked", () => {
+  // Enforced at the manifest versions, and when no version is given...
+  for (const version of [...CANONICAL_RFC8_VERSIONS, undefined]) {
+    const error = assertThrows(
+      () => validateCollection(invalidCollectionDocument(), version),
+      ValidationError,
+    );
+    assertEquals(error.rule, SpecRule.NodeNameUnique, String(version));
+  }
+  // ...and inert at every other supported version, 0.9.dev1 included:
+  // RFC-8 lands at 0.9.dev3.
+  for (const version of PRE_RFC8_VERSIONS) {
+    validateCollection(invalidCollectionDocument(), version);
   }
 });

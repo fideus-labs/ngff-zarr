@@ -83,6 +83,20 @@ export const SpecRule = {
   PlateRowIndexConsistency: "plate-row-index-consistency",
   /** Each well image references an acquisition when the plate declares many. */
   WellAcquisitionMissing: "well-acquisition-missing",
+  /** Every RFC-8 node declares a non-empty string type; from 0.9.dev3. */
+  NodeTypeRequired: "node-type-required",
+  /** Every RFC-8 node declares a non-empty string name; from 0.9.dev3. */
+  NodeNameRequired: "node-name-required",
+  /** Sibling RFC-8 nodes carry distinct names; from 0.9.dev3. */
+  NodeNameUnique: "node-name-unique",
+  /** RFC-8 node and reference ids match [a-zA-Z0-9-_.]+; from 0.9.dev3. */
+  NodeIdFormat: "node-id-format",
+  /** RFC-8 ids are unique within the JSON document; from 0.9.dev3. */
+  NodeIdUnique: "node-id-unique",
+  /** A collection carries exactly one of nodes or path; from 0.9.dev3. */
+  NodeNodesXorPath: "node-nodes-xor-path",
+  /** An RFC-8 path type is zarr, json, or prefixed; from 0.9.dev3. */
+  PathTypeKnown: "path-type-known",
 } as const;
 
 /** Union of the {@link SpecRule} string values. */

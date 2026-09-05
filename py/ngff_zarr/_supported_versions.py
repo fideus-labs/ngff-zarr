@@ -19,6 +19,10 @@ class NgffVersion(StrEnum):
     # OME-Zarr 0.9 in development: 0.6 plus RFC-3 (any axis count, names,
     # types and ordering). LATEST stays 0.6rc0, so 0.9.dev1 is opt-in.
     V09dev1 = "0.9.dev1"
+    # 0.9.dev1 plus RFC-8: the root ``ome`` value becomes a typed node
+    # (collections, references, typed paths) in place of the multiscales
+    # wrapper. Also opt-in; LATEST stays 0.6rc0.
+    V09dev3 = "0.9.dev3"
     # An alias of V06rc0 (same value): it must stay last.
     LATEST = "0.6rc0"
 
@@ -34,7 +38,14 @@ SUPPORTED_VERSIONS = (
     NgffVersion.V06dev4,
     NgffVersion.V06rc0,
     NgffVersion.V09dev1,
+    NgffVersion.V09dev3,
 )
+
+#: The OME-Zarr 0.9 development series, oldest first. Each tag extends the one
+#: before: dev1 is 0.6 plus RFC-3 and RFC-4, dev3 is dev1 plus RFC-8. A tuple
+#: rather than a frozenset: membership tests compare with ``==``, so a
+#: non-string ``version`` object cannot raise on hashing.
+V09_DEV_SERIES = (NgffVersion.V09dev1, NgffVersion.V09dev3)
 
 #: The ``ome.version`` string written to disk for the API version ``"0.6"``.
 #: The 0.6 spec is a release candidate, so a store is tagged with the

@@ -5,6 +5,7 @@
 import * as zarr from "zarrita";
 
 import type { NgffMultiscales } from "../types/multiscales.ts";
+import type { ImageVersion } from "../types/supported_versions.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { ZarrCodec } from "../utils/codecs.ts";
 import { defaultCodecs } from "../utils/codecs.ts";
@@ -20,7 +21,7 @@ export { isOzxPath } from "./rfc9_zip.ts";
 
 export interface ToOmeZarrOptions {
   overwrite?: boolean;
-  version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
+  version?: ImageVersion;
   chunksPerShard?: number | number[] | Record<string, number>;
   /**
    * Custom codec pipeline for array compression. When omitted the default

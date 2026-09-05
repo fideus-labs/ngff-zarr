@@ -1,0 +1,35 @@
+{
+    "ome": {
+        "id": "5e6979ce-915f-480e-bc4a-695713402968",
+        "type": "collection",
+        "version": "0.9.dev3",
+        "name": "sub-collection",
+        "nodes": [
+            {
+                "id": "a1b2c3d4-e5f6-7890-1234-56789abcdef0",
+                "type": "multiscale",
+                "name": "image-label",
+                "path": {
+                    "type": "zarr",
+                    "path": "https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.5/idr0062A/6001240_labels.zarr/labels/0/"
+                },
+                "attributes": {
+                    "ngio:source": {
+                        "ref": {
+                            "path": {
+                                "type": "json",
+                                "path": "./parent_collection.json"
+                            },
+                            "id": "e4f1e2ee-a52f-46b5-ae1a-543e689cecad"
+                        }
+                    }
+                }
+            }
+        ],
+        "attributes": {
+            "ex:a": 0,
+            "ex:b": 0,
+            "ex:c": 3
+        }
+    }
+}
