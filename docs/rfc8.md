@@ -77,6 +77,62 @@ Dereferencing follows whatever locations a document declares, local paths
 and http(s) URLs alike, with no allowlist in between. Load collections from
 sources you trust, or inspect `resolve_location` results first; a resolver
 policy hook is a candidate once the RFC stabilizes.
+
+### Coordinate systems and transformations
+
+RFC-8 defines `coordinateSystems` and `coordinateTransformations` as node
+attribute keys and references coordinate systems by a required `id` (the
+`name` becomes an optional label); transformation inputs and outputs are
+References. The `CoordinateSystem` and `CoordinateSystemIdentifier` model
+classes carry the `id`, and typed accessors read and write the attribute
+keys:
+
+```python
+from ngff_zarr.rfc8 import (
+    coordinate_systems,
+    coordinate_transformations,
+    set_coordinate_systems,
+    set_coordinate_transformations,
+)
+from ngff_zarr.v09.zarr_metadata import (
+    Axis,
+    CoordinateSystem,
+    CoordinateSystemIdentifier,
+    Scale,
+)
+
+node = ngff_zarr.Node(type="multiscale", name="img", id="img")
+set_coordinate_systems(
+    node,
+    [
+        CoordinateSystem(
+            name="pixels",
+            id="s0",
+            axes=[Axis(name="y", type="space"), Axis(name="x", type="space")],
+        ),
+        CoordinateSystem(
+            name="physical",
+            id="physical",
+            axes=[Axis(name="y", type="space"), Axis(name="x", type="space")],
+        ),
+    ],
+)
+set_coordinate_transformations(
+    node,
+    [
+        Scale(
+            scale=[1.0, 2.0],
+            input=CoordinateSystemIdentifier(id="s0"),
+            output=CoordinateSystemIdentifier(id="physical"),
+        ),
+    ],
+)
+```
+
+An identifier's `id` resolves before its RFC-5 `name`; a reference whose id
+is not declared in the document must carry a `path` locating its document
+(`reference-path-required`).
+
 ### Validation
 
 `validate_collection` runs the RFC-8 structural rules over a raw `ome`

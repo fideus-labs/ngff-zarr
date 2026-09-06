@@ -70,8 +70,34 @@ class Axis:
 
 @dataclass
 class CoordinateSystem:
-    name: str
+    #: RFC-5 names the system; RFC-8 (OME-Zarr 0.9.dev3) additionally gives it
+    #: a required ``id`` matching ``[a-zA-Z0-9-_.]+``, referenced by
+    #: transformations in place of the name. ``None`` below 0.9.dev3.
+    name: str | None
     axes: list[Axis]
+    id: str | None = None
+
+
+def resolve_coordinate_system(reference, coordinateSystems):
+    """The declared coordinate system ``reference`` designates, or ``None``.
+
+    An ``id`` is the identity (RFC-8) and is the only thing looked up when
+    present: a reference whose id matches nothing resolves to nothing, whatever
+    label it carries. A ``name`` resolves an id-less reference (RFC-5).
+    """
+    if reference is None or not coordinateSystems:
+        return None
+    if reference.id is not None:
+        return next(
+            (system for system in coordinateSystems if system.id == reference.id),
+            None,
+        )
+    if reference.name is not None:
+        return next(
+            (system for system in coordinateSystems if system.name == reference.name),
+            None,
+        )
+    return None
 
 
 @dataclass
@@ -80,27 +106,30 @@ class CoordinateSystemIdentifier:
     CoordinateSystemIdentifier field used in transformations metadata.
 
     There, the input/output fields of transformations must be an object with
-    'path' and 'name' fields.
+    'path' and 'name' fields. RFC-8 (OME-Zarr 0.9.dev3) references coordinate
+    systems by ``id`` instead of by name; an identifier read from a 0.9.dev3
+    document carries the ``id``, and may carry a ``name`` purely as a label.
+    ``path`` is a dataset path string in the v0.6 shape; an RFC-8 external
+    reference carries a typed path mapping ``{"type", "path"}`` instead, and
+    it round-trips through here unchanged.
     """
 
-    path: str | None = None
+    path: str | dict | None = None
     name: str | None = None
+    id: str | None = None
 
     def axis_count(
         self, coordinateSystems: list[CoordinateSystem] | None
     ) -> int | None:
         """Number of axes of the referenced coordinate system, when resolvable.
 
-        Returns ``None`` when this identifier names no system in
-        ``coordinateSystems``, as for the wrapped transforms that omit
-        ``input`` and ``output``.
+        An ``id`` resolves alone (RFC-8); a ``name`` resolves an id-less
+        reference (RFC-5). Returns ``None`` when this identifier references no
+        system in ``coordinateSystems``, as for the wrapped transforms that
+        omit ``input`` and ``output``.
         """
-        if self.name is None or not coordinateSystems:
-            return None
-        for coordinate_system in coordinateSystems:
-            if coordinate_system.name == self.name:
-                return len(coordinate_system.axes)
-        return None
+        system = resolve_coordinate_system(self, coordinateSystems)
+        return None if system is None else len(system.axes)
 
 
 def _resolved_axis_count(
@@ -653,8 +682,13 @@ class Metadata:
                 "This is out of spec for this ome-zarr 0.6."
             )
 
-        # find the cs in the list of coordinate systems with the same name as the output
-        return next(cs for cs in self.coordinateSystems if cs.name == output_cs[0].name)
+        system = resolve_coordinate_system(output_cs[0], self.coordinateSystems)
+        if system is None:
+            raise ValueError(
+                "Dataset coordinate transformations reference coordinate system "
+                f"{output_cs[0]!r}, which is not declared in coordinateSystems."
+            )
+        return system
 
     @property
     def axes(self) -> list[Axis]:
@@ -762,7 +796,12 @@ class Metadata:
             translation = Translation_v05(translation=translation.translation)
             coordinateTransformations = [scale, translation]
 
-            cs = next(cs for cs in self.coordinateSystems if cs.name == output.name)
+            cs = resolve_coordinate_system(output, self.coordinateSystems)
+            if cs is None:
+                raise ValueError(
+                    f"Dataset {path!r} references coordinate system {output!r}, "
+                    "which is not declared in coordinateSystems."
+                )
 
             datasets.append(
                 Dataset_v05(
@@ -900,7 +939,11 @@ class Metadata:
         for cs in root_attrs.get("coordinateSystems", []):
             axes = [Axis(**axis) for axis in cs["axes"]]
 
-            coordinate_systems.append(CoordinateSystem(name=cs["name"], axes=axes))
+            coordinate_systems.append(
+                # An RFC-8 system may declare only an id; the name is then
+                # absent rather than an error.
+                CoordinateSystem(name=cs.get("name"), axes=axes, id=cs.get("id"))
+            )
 
         if not coordinate_systems:
             raise ValueError(
@@ -921,24 +964,36 @@ class Metadata:
             ):
                 data = data.astype(data.dtype.newbyteorder())
 
-            # parse dataset coordinate transformations if present
-            dims = [ax.name for ax in coordinate_systems[0].axes]
+            # The dataset's own output names the system its array lives in,
+            # and that system's axes are the dims; the first declared system
+            # stands in only when no output resolves.
+            parsed: list[Transform] | None = None
+            if "coordinateTransformations" in dataset:
+                parsed = cls._parse_transforms(
+                    dataset["coordinateTransformations"],
+                    coordinate_systems,
+                    declared_version,
+                )
+            cs_intrinsic = None
+            if parsed:
+                cs_intrinsic = resolve_coordinate_system(
+                    getattr(parsed[0], "output", None), coordinate_systems
+                )
+            if cs_intrinsic is None:
+                cs_intrinsic = coordinate_systems[0]
+            dims = [ax.name for ax in cs_intrinsic.axes]
             scale = Scale(scale=[1.0 for d in dims])
             translation = Translation(translation=[0.0 for d in dims])
             coordinateTransformations: list[Transform] = [
                 TransformSequence(
                     transformations=[scale, translation],
                     input=CoordinateSystemIdentifier(path=dataset["path"]),
-                    output=CoordinateSystemIdentifier(name=coordinate_systems[0].name),
-                    name=f"scale_{index}_to_{coordinate_systems[0].name}",
+                    output=CoordinateSystemIdentifier(name=cs_intrinsic.name),
+                    name=f"scale_{index}_to_{cs_intrinsic.name}",
                 )
             ]
-            if "coordinateTransformations" in dataset:
-                coordinateTransformations = cls._parse_transforms(
-                    dataset["coordinateTransformations"],
-                    coordinate_systems,
-                    declared_version,
-                )
+            if parsed is not None:
+                coordinateTransformations = parsed
 
                 # extract scale and translation for ngff_image convenience
                 for transform in coordinateTransformations:
@@ -962,12 +1017,6 @@ class Metadata:
                             "Unsupported transform type: "
                             f"{transform.type} in dataset {dataset['path']}"
                         )
-
-            cs_intrinsic = next(
-                cs
-                for cs in coordinate_systems
-                if cs.name == coordinateTransformations[0].output.name
-            )
 
             datasets.append(
                 Dataset(
@@ -1071,17 +1120,33 @@ class Metadata:
             output = None
             if isinstance(tf_input, dict):
                 input = CoordinateSystemIdentifier()
-                if "name" in tf_input and tf_input["name"] in coordinate_system_names:
+                # A name resolves an RFC-5 reference, so it is kept only when a
+                # declared system carries it; on an RFC-8 reference the id is the
+                # identity and the name is a label, kept as given.
+                if "name" in tf_input and (
+                    tf_input["name"] in coordinate_system_names
+                    or isinstance(tf_input.get("id"), str)
+                ):
                     input.name = tf_input["name"]
                 if "path" in tf_input:
                     input.path = tf_input["path"]
+                if isinstance(tf_input.get("id"), str):
+                    input.id = tf_input["id"]
 
             if isinstance(tf_output, dict):
                 output = CoordinateSystemIdentifier()
-                if "name" in tf_output and tf_output["name"] in coordinate_system_names:
+                # A name resolves an RFC-5 reference, so it is kept only when a
+                # declared system carries it; on an RFC-8 reference the id is the
+                # identity and the name is a label, kept as given.
+                if "name" in tf_output and (
+                    tf_output["name"] in coordinate_system_names
+                    or isinstance(tf_output.get("id"), str)
+                ):
                     output.name = tf_output["name"]
                 if "path" in tf_output:
                     output.path = tf_output["path"]
+                if isinstance(tf_output.get("id"), str):
+                    output.id = tf_output["id"]
 
             transformation.input = input
             transformation.output = output

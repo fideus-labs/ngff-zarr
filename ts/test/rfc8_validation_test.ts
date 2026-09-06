@@ -65,6 +65,9 @@ Deno.test("every rule is exercised by the shared cases", () => {
       "node-id-unique",
       "node-nodes-xor-path",
       "path-type-known",
+      "coordinate-system-id-required",
+      "reference-id-required",
+      "reference-path-required",
     ]),
   );
 });

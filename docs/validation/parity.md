@@ -80,9 +80,12 @@ The canonical `SpecRule` set, in evaluation order:
 20. `node-id-unique`
 21. `node-nodes-xor-path`
 22. `path-type-known`
+23. `coordinate-system-id-required`
+24. `reference-id-required`
+25. `reference-path-required`
 
 Entries 12–13 are the v0.5 namespacing rules; they fire only for v0.5 metadata
-and are inert for v0.4. Entries 16–22 are the RFC-8 node/collection rules,
+and are inert for v0.4. Entries 16–25 are the RFC-8 node/collection rules,
 dispatched by the separate `validate_collection` orchestrator. Each suite pins this list as a `CANONICAL_SPEC_RULE_IDS`
 literal — byte-identical between the two languages so the tests are
 line-for-line comparable.
@@ -157,16 +160,16 @@ Each suite independently locks:
   is given) and inert at every other supported version, asserted through
   `validate_collection` / `validateCollection`.
 
-Eleven of the twenty-two rules never appear in `EXPECTED_EVALUATION_ORDER`,
+Fourteen of the twenty-five rules never appear in `EXPECTED_EVALUATION_ORDER`,
 each for its own reason. The two v0.5 namespacing rules (`zarr-format`,
 `ome-namespace`) run last in the image orchestrator but are inert for the v0.4
 metadata the order test exercises. The two HCS rules
-(`plate-row-index-consistency`, `well-acquisition-missing`) and the seven
-RFC-8 rules (`node-type-required` through `path-type-known`) are deliberately
-absent; they are dispatched by the separate plate/well and collection
-orchestrators (see [[rule-reference]]), and the RFC-8 rules' own fail-fast
-order is pinned by the shared `rfc8_collection_cases.json` fixture both suites
-drive.
+(`plate-row-index-consistency`, `well-acquisition-missing`) and the ten
+RFC-8 rules (`node-type-required` through `reference-path-required`) are
+deliberately absent; they are dispatched by the separate plate/well and
+collection orchestrators (see [[rule-reference]]), and the RFC-8 rules' own
+fail-fast order is pinned by the shared `rfc8_collection_cases.json` fixture
+both suites drive.
 
 ## Sanctioned TypeScript-only adaptations
 

@@ -40,10 +40,12 @@ export function buildV06MultiscalesEntry(
 
   // The first (intrinsic) coordinate system uses the RFC-processed axes; any
   // additional systems (e.g. a user-supplied output space) are serialized
-  // verbatim.
+  // verbatim. The RFC-8 `id` rides along whenever the model carries one,
+  // matching the Python serializer, so id-based references stay resolvable.
   const serializedCoordinateSystems = coordinateSystems.map((cs, index) => ({
-    name: cs.name,
+    ...(cs.name !== undefined && { name: cs.name }),
     axes: index === 0 ? processedAxes : cs.axes,
+    ...(cs.id !== undefined && { id: cs.id }),
   }));
 
   const datasets = metadata.datasets.map((ds, index) => {
@@ -222,7 +224,7 @@ export function serializeV06Transform(
  */
 export function parseV06Transforms(
   raw: Array<Record<string, unknown>>,
-  coordinateSystemNames: string[],
+  coordinateSystemNames: (string | undefined)[],
   coordinateSystems?: CoordinateSystem[],
   version?: string,
 ): V06Transform[] {
@@ -233,7 +235,7 @@ export function parseV06Transforms(
 
 function parseV06Transform(
   entry: Record<string, unknown>,
-  coordinateSystemNames: string[],
+  coordinateSystemNames: (string | undefined)[],
   coordinateSystems?: CoordinateSystem[],
   version?: string,
 ): V06Transform {
@@ -405,7 +407,18 @@ function axisCount(
   identifier: CoordinateSystemIdentifier | undefined,
   coordinateSystems: CoordinateSystem[],
 ): number | undefined {
-  if (identifier === undefined || identifier.name === undefined) {
+  if (identifier === undefined) {
+    return undefined;
+  }
+  // An `id` resolves first (RFC-8), then a `name` (RFC-5), mirroring the
+  // Python `CoordinateSystemIdentifier.axis_count`.
+  if (identifier.id !== undefined) {
+    const byId = coordinateSystems.find((cs) => cs.id === identifier.id);
+    if (byId !== undefined) {
+      return byId.axes.length;
+    }
+  }
+  if (identifier.name === undefined) {
     return undefined;
   }
   return coordinateSystems.find((cs) => cs.name === identifier.name)?.axes
@@ -777,15 +790,18 @@ function identifierToDict(
   if (id.name !== undefined) {
     out.name = id.name;
   }
-  // An identifier carrying neither `path` nor `name` is meaningless and invalid
-  // per the v0.6 schema (input requires a path, output requires a name); omit
-  // it rather than emitting `input: {}` / `output: {}`.
-  return out.path !== undefined || out.name !== undefined ? out : undefined;
+  if (id.id !== undefined) {
+    out.id = id.id;
+  }
+  // An identifier carrying no field at all is meaningless and invalid at
+  // every version (the v0.6 schema requires a path or a name, RFC-8 an id);
+  // omit it rather than emitting `input: {}` / `output: {}`.
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function dictToIdentifier(
   value: unknown,
-  coordinateSystemNames: string[],
+  coordinateSystemNames: (string | undefined)[],
 ): CoordinateSystemIdentifier | undefined {
   if (value === null || typeof value !== "object") {
     return undefined;
@@ -799,6 +815,14 @@ function dictToIdentifier(
   }
   if (typeof dict.path === "string") {
     id.path = dict.path;
+  } else if (dict.path !== null && typeof dict.path === "object") {
+    // An RFC-8 external reference carries a typed path object.
+    id.path = dict.path as { type: string; path: string };
   }
-  return id.name !== undefined || id.path !== undefined ? id : undefined;
+  if (typeof dict.id === "string") {
+    id.id = dict.id;
+  }
+  return id.name !== undefined || id.path !== undefined || id.id !== undefined
+    ? id
+    : undefined;
 }

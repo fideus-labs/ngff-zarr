@@ -322,6 +322,264 @@
       "location": "ome.nodes[0].path.type"
     },
     {
+      "name": "coordinate systems and id references resolve in-document",
+      "ome": {
+        "type": "multiscale",
+        "name": "img",
+        "id": "img",
+        "attributes": {
+          "coordinateSystems": [
+            {
+              "id": "physical",
+              "axes": [
+                {
+                  "name": "y",
+                  "type": "space"
+                },
+                {
+                  "name": "x",
+                  "type": "space"
+                }
+              ]
+            }
+          ],
+          "coordinateTransformations": [
+            {
+              "type": "scale",
+              "scale": [
+                1.0,
+                1.0
+              ],
+              "input": {
+                "id": "s0"
+              },
+              "output": {
+                "id": "physical"
+              }
+            }
+          ]
+        },
+        "nodes": [
+          {
+            "type": "singlescale",
+            "name": "s0",
+            "id": "s0",
+            "path": {
+              "type": "zarr",
+              "path": "./s0"
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "ok": true
+    },
+    {
+      "name": "an external reference passes with a path",
+      "ome": {
+        "type": "collection",
+        "name": "tiles",
+        "attributes": {
+          "coordinateTransformations": [
+            {
+              "type": "translation",
+              "translation": [
+                0.0,
+                100.0
+              ],
+              "input": {
+                "id": "physical",
+                "path": {
+                  "type": "zarr",
+                  "path": "./tile_0.zarr"
+                }
+              },
+              "output": {
+                "id": "physical",
+                "path": {
+                  "type": "zarr",
+                  "path": "./tile_1.zarr"
+                }
+              }
+            }
+          ]
+        },
+        "nodes": []
+      },
+      "version": "0.9.dev3",
+      "ok": true
+    },
+    {
+      "name": "a coordinate system without an id",
+      "ome": {
+        "type": "multiscale",
+        "name": "img",
+        "nodes": [],
+        "attributes": {
+          "coordinateSystems": [
+            {
+              "name": "physical",
+              "axes": [
+                {
+                  "name": "x",
+                  "type": "space"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "coordinate-system-id-required",
+      "message": "Spec rule [coordinate-system-id-required] violated: Coordinate system declares no 'id'; RFC-8 references coordinate systems by id.",
+      "location": "ome.attributes.coordinateSystems[0]"
+    },
+    {
+      "name": "a malformed coordinate-system id",
+      "ome": {
+        "type": "multiscale",
+        "name": "img",
+        "nodes": [],
+        "attributes": {
+          "coordinateSystems": [
+            {
+              "id": "a b",
+              "axes": [
+                {
+                  "name": "x",
+                  "type": "space"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "node-id-format",
+      "message": "Spec rule [node-id-format] violated: Id 'a b' does not match [a-zA-Z0-9-_.]+.",
+      "location": "ome.attributes.coordinateSystems[0].id"
+    },
+    {
+      "name": "a coordinate-system id repeating a node id",
+      "ome": {
+        "type": "multiscale",
+        "name": "img",
+        "id": "physical",
+        "nodes": [],
+        "attributes": {
+          "coordinateSystems": [
+            {
+              "id": "physical",
+              "axes": [
+                {
+                  "name": "x",
+                  "type": "space"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "node-id-unique",
+      "message": "Spec rule [node-id-unique] violated: Id 'physical' is already used in this document; ids must be unique within the JSON document.",
+      "location": "ome.attributes.coordinateSystems[0].id"
+    },
+    {
+      "name": "a name-based transformation reference",
+      "ome": {
+        "type": "multiscale",
+        "name": "img",
+        "nodes": [],
+        "attributes": {
+          "coordinateTransformations": [
+            {
+              "type": "identity",
+              "input": {
+                "name": "s0"
+              },
+              "output": {
+                "id": "physical"
+              }
+            }
+          ]
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "reference-id-required",
+      "message": "Spec rule [reference-id-required] violated: Transformation reference must be an object with an 'id'.",
+      "location": "ome.attributes.coordinateTransformations[0].input"
+    },
+    {
+      "name": "a transformation without an output",
+      "ome": {
+        "type": "multiscale",
+        "name": "img",
+        "nodes": [],
+        "attributes": {
+          "coordinateTransformations": [
+            {
+              "type": "identity",
+              "input": {
+                "id": "s0"
+              }
+            }
+          ]
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "reference-id-required",
+      "message": "Spec rule [reference-id-required] violated: Transformation reference must be an object with an 'id'.",
+      "location": "ome.attributes.coordinateTransformations[0].output"
+    },
+    {
+      "name": "an unresolved reference without a path",
+      "ome": {
+        "type": "collection",
+        "name": "tiles",
+        "nodes": [],
+        "attributes": {
+          "coordinateTransformations": [
+            {
+              "type": "identity",
+              "input": {
+                "id": "physical"
+              },
+              "output": {
+                "id": "world"
+              }
+            }
+          ]
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "reference-path-required",
+      "message": "Spec rule [reference-path-required] violated: Reference id 'physical' is not declared in this document, so the reference must carry a 'path'.",
+      "location": "ome.attributes.coordinateTransformations[0].input"
+    },
+    {
+      "name": "the coordinate rules are inert at 0.9.dev1",
+      "ome": {
+        "type": "multiscale",
+        "name": "img",
+        "attributes": {
+          "coordinateSystems": [
+            {
+              "name": "physical",
+              "axes": [
+                {
+                  "name": "x",
+                  "type": "space"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "version": "0.9.dev1",
+      "ok": true
+    },
+    {
       "name": "name uniqueness reported before the id format",
       "ome": {
         "type": "collection",
@@ -342,6 +600,96 @@
       "rule": "node-name-unique",
       "message": "Spec rule [node-name-unique] violated: Node name 'img' is repeated; node names must be unique within the enclosing collection.",
       "location": "ome.nodes[1]"
+    },
+    {
+      "name": "a prefixed extension path type on a transform reference passes",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "multiscale",
+        "name": "img",
+        "id": "img",
+        "attributes": {
+          "coordinateSystems": [
+            {
+              "id": "physical",
+              "name": "physical",
+              "axes": [
+                {
+                  "name": "x",
+                  "type": "space"
+                }
+              ]
+            }
+          ],
+          "coordinateTransformations": [
+            {
+              "type": "scale",
+              "scale": [
+                1.0
+              ],
+              "input": {
+                "id": "physical"
+              },
+              "output": {
+                "id": "elsewhere",
+                "path": {
+                  "type": "myorg:zip",
+                  "path": "./other.zarr"
+                }
+              }
+            }
+          ]
+        },
+        "nodes": []
+      },
+      "version": "0.9.dev3",
+      "ok": true
+    },
+    {
+      "name": "an unprefixed extension path type on a transform reference",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "multiscale",
+        "name": "img",
+        "id": "img",
+        "attributes": {
+          "coordinateSystems": [
+            {
+              "id": "physical",
+              "name": "physical",
+              "axes": [
+                {
+                  "name": "x",
+                  "type": "space"
+                }
+              ]
+            }
+          ],
+          "coordinateTransformations": [
+            {
+              "type": "scale",
+              "scale": [
+                1.0
+              ],
+              "input": {
+                "id": "physical"
+              },
+              "output": {
+                "id": "elsewhere",
+                "path": {
+                  "type": "google-sheet",
+                  "path": "./other.zarr"
+                }
+              }
+            }
+          ]
+        },
+        "nodes": []
+      },
+      "version": "0.9.dev3",
+      "rule": "path-type-known",
+      "message": "Spec rule [path-type-known] violated: Path type 'google-sheet' is not 'zarr', 'json', or a prefixed extension type.",
+      "location": "ome.attributes.coordinateTransformations[0].output.path.type"
     }
   ]
 }
