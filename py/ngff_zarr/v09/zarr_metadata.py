@@ -67,6 +67,7 @@ from ..v06.zarr_metadata import (
     Transform,
     TransformSequence,
     Translation,
+    resolve_coordinate_system,
 )
 from ..v06.zarr_metadata import AxesType as AxesTypeV06
 
@@ -225,14 +226,14 @@ class Metadata:
                 "This is out of spec for this ome-zarr 0.9.dev1."
             )
 
-        for cs in self.coordinateSystems:
-            if cs.name == output_cs[0].name:
-                return cs
-        raise ValueError(
-            f"Dataset coordinate transformations reference coordinate system"
-            f" {output_cs[0].name!r}, which is not declared in"
-            f" coordinateSystems: {[cs.name for cs in self.coordinateSystems]}."
-        )
+        system = resolve_coordinate_system(output_cs[0], self.coordinateSystems)
+        if system is None:
+            raise ValueError(
+                f"Dataset coordinate transformations reference coordinate system"
+                f" {output_cs[0]!r}, which is not declared in"
+                f" coordinateSystems: {[cs.name for cs in self.coordinateSystems]}."
+            )
+        return system
 
     @property
     def axes(self) -> list[Axis]:

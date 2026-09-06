@@ -98,6 +98,33 @@ def test_identifier_resolves_by_id_before_name():
     assert CoordinateSystemIdentifier(id="a").axis_count(systems) == 2
     assert CoordinateSystemIdentifier(name="a").axis_count(systems) == 1
     assert CoordinateSystemIdentifier(id="missing").axis_count(systems) is None
+    # An id is the identity: a label beside an unresolved id resolves nothing.
+    assert (
+        CoordinateSystemIdentifier(id="missing", name="a").axis_count(systems) is None
+    )
+
+
+def test_id_based_reference_keeps_its_label():
+    """An id is the identity; a name beside it is a label, kept as given."""
+    from ngff_zarr.v06.zarr_metadata import Metadata as MetadataV06
+
+    systems = [
+        CoordinateSystem(name="world", id="w", axes=[Axis(name="x", type="space")])
+    ]
+    parsed = MetadataV06._parse_transforms(
+        [
+            {
+                "type": "scale",
+                "scale": [2.0],
+                "input": {"id": "w", "name": "a label nothing declares"},
+                "output": {"id": "w"},
+            }
+        ],
+        systems,
+    )
+    assert parsed[0].input.id == "w"
+    assert parsed[0].input.name == "a label nothing declares"
+    assert parsed[0].to_dict()["input"]["name"] == "a label nothing declares"
 
 
 def test_sequence_transformations_parse_from_attributes():

@@ -423,9 +423,13 @@ export function createBijection(
 }
 
 export function createCoordinateSystem(
-  name: string,
+  name: string | undefined,
   axes: Axis[],
   id?: string,
 ): CoordinateSystem {
-  return { name, axes: [...axes], ...(id !== undefined && { id }) };
+  return {
+    ...(name !== undefined && { name }),
+    axes: [...axes],
+    ...(id !== undefined && { id }),
+  };
 }
