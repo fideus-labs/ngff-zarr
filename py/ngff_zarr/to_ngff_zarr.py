@@ -1088,19 +1088,23 @@ def _resolve_scale_chunks(
         return best or shard_size
 
     if sharding_kwargs and "_shard_shape" in sharding_kwargs:
-        # Sharding: clamp the shard shape to the axis length
         shard_shape = sharding_kwargs["_shard_shape"]
         internal_chunk_shape = sharding_kwargs.get(
             "chunk_shape"
         )  # This is the inner chunk shape
 
-        # Clamp each shard dim to its axis; Zarr v3 permits a partial final shard,
-        # and the inner chunk is chosen to divide the clamped shard below.
+        # A shard may run past the axis, exactly as a chunk may: Zarr v3 permits
+        # a partial final shard. Shortening one to the axis is what dragged a
+        # requested chunk down to an axis divisor, since the inner chunk must
+        # divide the shard -- an axis of 275 (5 * 5 * 11) took a 256 chunk down
+        # to 55, and a prime axis of 271 down to the whole shard
+        # (gh-issue-733). What it is held to instead is the smallest whole
+        # number of inner chunks that covers the axis, so the shard grid is
+        # never larger than the array needs.
+        inner = internal_chunk_shape or tuple(c[0] for c in arr.chunks)
         optimized_shard_shape = tuple(
-            [
-                _find_optimal_chunk_size(s, arr.shape[i])
-                for i, s in enumerate(shard_shape)
-            ]
+            min(int(shard), -(-int(size) // int(chunk)) * int(chunk))
+            for shard, size, chunk in zip(shard_shape, arr.shape, inner)
         )
 
         # Ensure internal_chunk_shape divides evenly into optimized_shard_shape
@@ -1128,9 +1132,12 @@ def _resolve_scale_chunks(
                 ]
             )
 
-        # For region computation, use the optimized shard shape (the actual
-        # stored chunk grid); the array is created from these values.
-        zarr_chunk_shape = optimized_shard_shape
+        # The stored grid is the shard as asked for; the region planner works on
+        # it clamped to the axes, because a region cannot run past the array.
+        zarr_chunk_shape = tuple(
+            _find_optimal_chunk_size(s, arr.shape[i])
+            for i, s in enumerate(optimized_shard_shape)
+        )
         chunks = optimized_shard_shape
         shards = optimized_shard_shape
     else:
@@ -1514,6 +1521,10 @@ def _prepare_next_scale(
             d: f for d, f in dim_factors.items() if d in spatial_dims
         }
 
+        # The level being re-derived already has the axis order the first
+        # call settled on, canonical or kept as given; reordering it here
+        # would store the array in one order under dimension names in the
+        # other (gh-issue-734).
         next_multiscales = to_multiscales(
             source_image,
             scale_factors=[
@@ -1523,6 +1534,7 @@ def _prepare_next_scale(
             chunks=multiscales.chunks,
             progress=progress,
             cache=False,
+            axis_order="preserve",
         )
         multiscales.images[index + 1] = next_multiscales.images[1]
         return next_multiscales.images[1]

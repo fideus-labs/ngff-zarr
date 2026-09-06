@@ -56,6 +56,16 @@ export interface ToMultiscalesOptions {
    * the compress/decompress round-trip would be wasted work.
    */
   codecs?: ZarrCodec[];
+
+  /**
+   * What to do with an input whose axes are not in the OME-Zarr specification
+   * order. `"canonical"`, the default, reorders them to time, then channel,
+   * then space (t, c, z, y, x), which is what conversion sources need: ITK
+   * component images and the 4-D/5-D default dims inference both yield
+   * channel-last. `"preserve"` writes the axes in the order given, which RFC-3
+   * permits from OME-Zarr 0.9.dev1 on and which no earlier version accepts.
+   */
+  axisOrder?: "canonical" | "preserve";
 }
 
 /**
@@ -89,13 +99,25 @@ export async function toMultiscalesCore(
     chunks: requestedChunks,
     codecs,
     orientation,
+    axisOrder = "canonical",
   } = options;
 
+  if (axisOrder !== "canonical" && axisOrder !== "preserve") {
+    throw new Error(
+      `axisOrder must be "canonical" or "preserve"; got ${
+        JSON.stringify(axisOrder)
+      }`,
+    );
+  }
   // OME-Zarr orders axes time, then channel, then space. Channel-last input
   // (ITK component images, the 4-D/5-D default dims) is normalized here so the
   // generated metadata and every scale are spec-ordered, and so a model the
-  // writer would refuse below 0.9.dev1 never reaches it.
-  const image = await canonicalAxisOrder(inputImage, codecs);
+  // writer would refuse below 0.9.dev1 never reaches it. An order the caller
+  // chose is kept on request: RFC-3 lifts the ordering rule, and the reorder is
+  // silent otherwise.
+  const image = axisOrder === "canonical"
+    ? await canonicalAxisOrder(inputImage, codecs)
+    : inputImage;
   // A positional `chunks` array indexes the caller's dims, so it follows them
   // through the reordering. The dim-keyed and scalar forms need no change.
   const _chunks = Array.isArray(requestedChunks) && image !== inputImage

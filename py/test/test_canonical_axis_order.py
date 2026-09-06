@@ -75,3 +75,80 @@ def test_unknown_dims_are_left_untouched():
     result = _canonical_axis_order(image)
 
     assert result is image
+
+
+def test_preserve_keeps_the_order_the_caller_chose():
+    """RFC-3 lifts the ordering rule, so an order can be asked for (gh-734)."""
+    data = np.random.randint(0, 255, (8, 16, 16, 2), dtype=np.uint8)
+    image = to_ngff_image(
+        data, dims=("z", "y", "x", "c"), scale={"z": 0.3, "y": 0.3, "x": 0.3}
+    )
+
+    multiscales = to_multiscales(image, scale_factors=[2], axis_order="preserve")
+
+    assert multiscales.images[0].dims == ("z", "y", "x", "c")
+    assert [axis.name for axis in multiscales.metadata.axes] == ["z", "y", "x", "c"]
+    # The pyramid follows the axes it was given: the channel axis is not scaled.
+    assert multiscales.images[1].data.shape == (4, 8, 8, 2)
+
+
+def test_preserve_round_trips_through_a_0_9_dev1_store(tmp_path):
+    from ngff_zarr import from_ome_zarr, to_ome_zarr
+
+    source = np.random.randint(0, 255, (8, 16, 16, 2), dtype=np.uint8)
+    image = to_ngff_image(
+        source, dims=("z", "y", "x", "c"), scale={"z": 0.3, "y": 0.3, "x": 0.3}
+    )
+    multiscales = to_multiscales(image, scale_factors=[], axis_order="preserve")
+
+    store = tmp_path / "preserved.ome.zarr"
+    to_ome_zarr(str(store), multiscales, version="0.9.dev1")
+
+    read = from_ome_zarr(str(store))
+    assert tuple(read.images[0].dims) == ("z", "y", "x", "c")
+    assert np.array_equal(np.asarray(read.images[0].data), source)
+
+
+def test_preserve_survives_the_writer_regenerating_a_level(tmp_path):
+    """The writer re-derives generated levels; the order must come along."""
+    import json
+
+    from ngff_zarr import from_ome_zarr, to_ome_zarr
+
+    source = np.random.randint(0, 255, (8, 16, 16, 2), dtype=np.uint8)
+    image = to_ngff_image(
+        source, dims=("z", "y", "x", "c"), scale={"z": 0.3, "y": 0.3, "x": 0.3}
+    )
+    multiscales = to_multiscales(image, scale_factors=[2], axis_order="preserve")
+
+    store = tmp_path / "preserved.ome.zarr"
+    to_ome_zarr(str(store), multiscales, version="0.9.dev1")
+
+    level = json.loads((store / "scale1" / "image" / "zarr.json").read_text())
+    assert level["shape"] == [4, 8, 8, 2]
+    assert level["dimension_names"] == ["z", "y", "x", "c"]
+    read = from_ome_zarr(str(store))
+    assert tuple(read.images[1].dims) == ("z", "y", "x", "c")
+    assert read.images[1].data.shape == (4, 8, 8, 2)
+
+
+def test_canonical_stays_the_default():
+    data = np.zeros((8, 16, 16, 2), dtype=np.uint8)
+    image = to_ngff_image(data, dims=("z", "y", "x", "c"))
+
+    assert to_multiscales(image, scale_factors=[]).images[0].dims == (
+        "c",
+        "z",
+        "y",
+        "x",
+    )
+
+
+def test_an_unknown_axis_order_is_refused():
+    import pytest
+
+    data = np.zeros((8, 16, 16, 2), dtype=np.uint8)
+    image = to_ngff_image(data, dims=("z", "y", "x", "c"))
+
+    with pytest.raises(ValueError, match="axis_order must be"):
+        to_multiscales(image, scale_factors=[], axis_order="spec")
