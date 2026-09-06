@@ -1521,6 +1521,10 @@ def _prepare_next_scale(
             d: f for d, f in dim_factors.items() if d in spatial_dims
         }
 
+        # The level being re-derived already has the axis order the first
+        # call settled on, canonical or kept as given; reordering it here
+        # would store the array in one order under dimension names in the
+        # other (gh-issue-734).
         next_multiscales = to_multiscales(
             source_image,
             scale_factors=[
@@ -1530,6 +1534,7 @@ def _prepare_next_scale(
             chunks=multiscales.chunks,
             progress=progress,
             cache=False,
+            axis_order="preserve",
         )
         multiscales.images[index + 1] = next_multiscales.images[1]
         return next_multiscales.images[1]

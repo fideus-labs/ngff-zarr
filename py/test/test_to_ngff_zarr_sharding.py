@@ -210,7 +210,8 @@ def test_a_shard_may_run_past_the_axis(tmp_path, path):
 
     default_mem_target = config.memory_target
     if path == "large":
-        config.memory_target = 4 * 1024 * 1024
+        # Below the 1.8 MB payload, so the write takes the large-array path.
+        config.memory_target = 1024 * 1024
     try:
         to_ngff_zarr(
             str(store),
