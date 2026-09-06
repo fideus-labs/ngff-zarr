@@ -55,8 +55,8 @@ import {
 // image/multiscales rules dispatched by validateStructural -- the first eleven
 // are the v0.4 rules and the next two (zarr-format, ome-namespace) are the v0.5
 // namespacing rules, inert for v0.4; the next two are the HCS plate/well rules
-// dispatched by validatePlate / validateWell; the final ten are the RFC-8
-// node/collection rules dispatched by validateCollection.
+// dispatched by validatePlate / validateWell; the final twelve are the
+// RFC-8 node/collection rules dispatched by validateCollection.
 const CANONICAL_SPEC_RULE_IDS: string[] = [
   "axis-count",
   "axis-type",
@@ -83,6 +83,8 @@ const CANONICAL_SPEC_RULE_IDS: string[] = [
   "coordinate-system-id-required",
   "reference-id-required",
   "reference-path-required",
+  "label-value-required",
+  "label-color-format",
 ];
 
 // The locked RFC-3 version manifest: the versions whose axis model is

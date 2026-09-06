@@ -135,6 +135,38 @@ An identifier's `id` resolves before its RFC-5 `name`; a reference whose id
 is not declared in the document must carry a `path` locating its document
 (`reference-path-required`).
 
+### Labels
+
+RFC-8 replaces the `labels` Zarr-group mechanism: a multiscale node is a
+label map when it declares the `labels` attribute, whose `labelAttributes`
+merge the previous `colors` and `properties` fields (`rgba` becomes
+`color`, `label-value` becomes `labelValue`) and whose `source` references
+the source multiscales. A label map can annotate several images and an
+image can be annotated by several label maps, in place or remotely.
+
+```python
+from ngff_zarr.rfc8 import LabelAttributes, Labels, labels, set_labels
+
+set_labels(
+    nuclei,
+    Labels(
+        labelAttributes=[
+            LabelAttributes(labelValue=1, color=[255, 0, 0, 255]),
+            LabelAttributes(labelValue=2, color=[0, 255, 0, 255]),
+        ],
+        source=[ngff_zarr.Reference("raw")],
+    ),
+)
+
+labels(nuclei).source  # -> [Reference(id="raw")]
+```
+
+An empty `labels` object (`Labels()`) denotes a label map without saying
+more. Numeric `labelValue` values and the four-integer `color` format are
+checked by the `label-value-required` and `label-color-format` rules, and
+`source` entries join the reference rules; a pathless `source` reference
+must name a node id declared in the document.
+
 ### Validation
 
 `validate_collection` runs the RFC-8 structural rules over a raw `ome`
