@@ -184,27 +184,41 @@ from ngff_zarr.v09.zarr_metadata import (
     Translation,
 )
 
+world = CoordinateSystem(
+    name="world",
+    id="world",
+    axes=[Axis(name="y", type="space"), Axis(name="x", type="space")],
+)
+
+# The RFC-8 shape references systems by id and locates an external one
+# with a typed path.
 tiles = Scene(
-    coordinateSystems=[
-        CoordinateSystem(
-            name="world",
-            id="world",
-            axes=[Axis(name="y", type="space"), Axis(name="x", type="space")],
-        )
-    ],
+    coordinateSystems=[world],
     coordinateTransformations=[
         Translation(
             translation=[0.0, 100.0],
             input=CoordinateSystemIdentifier(
-                name="physical", id="physical", path="./tile_0.zarr"
+                id="physical", path={"type": "zarr", "path": "./tile_0.zarr"}
             ),
-            output=CoordinateSystemIdentifier(name="world", id="world"),
+            output=CoordinateSystemIdentifier(id="world"),
         )
     ],
 )
+set_scene(collection, tiles)
 
-set_scene(collection, tiles)  # RFC-8 attribute shape
-write_scene("scene.ome.zarr", tiles, version="0.6")  # RFC-5 store shape
+# The 0.6-family shape names its systems and takes a dataset path string;
+# it refuses the typed path object above.
+tiles_v06 = Scene(
+    coordinateSystems=[world],
+    coordinateTransformations=[
+        Translation(
+            translation=[0.0, 100.0],
+            input=CoordinateSystemIdentifier(name="physical", path="./tile_0.zarr"),
+            output=CoordinateSystemIdentifier(name="world"),
+        )
+    ],
+)
+write_scene("scene.ome.zarr", tiles_v06, version="0.6")
 read_scene("scene.ome.zarr")  # reads either shape
 ```
 
