@@ -46,8 +46,8 @@ from ngff_zarr.v04.zarr_metadata import (
 # image/multiscales rules dispatched by validate_structural -- the first eleven
 # are the v0.4 rules and the next two (zarr-format, ome-namespace) are the v0.5
 # namespacing rules, inert for v0.4; the next two are the HCS plate/well rules
-# dispatched by validate_plate / validate_well; the final ten are the RFC-8
-# node/collection rules dispatched by validate_collection.
+# dispatched by validate_plate / validate_well; the final twelve are the
+# RFC-8 node/collection rules dispatched by validate_collection.
 CANONICAL_SPEC_RULE_IDS = [
     "axis-count",
     "axis-type",
@@ -74,6 +74,8 @@ CANONICAL_SPEC_RULE_IDS = [
     "coordinate-system-id-required",
     "reference-id-required",
     "reference-path-required",
+    "label-value-required",
+    "label-color-format",
 ]
 
 

@@ -68,6 +68,8 @@ Deno.test("every rule is exercised by the shared cases", () => {
       "coordinate-system-id-required",
       "reference-id-required",
       "reference-path-required",
+      "label-value-required",
+      "label-color-format",
     ]),
   );
 });
