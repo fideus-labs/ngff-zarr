@@ -175,10 +175,11 @@ def multiscales_entry_from_ome(
     systems = [dict(system) for system in attributes.pop("coordinateSystems", [])]
     id_to_name: dict[str, str] = {}
     for system in systems:
-        if not system.get("name"):
-            system["name"] = system["id"]
-        if system.get("id") is not None:
-            id_to_name[system["id"]] = system["name"]
+        system_id = system.get("id")
+        if not system.get("name") and system_id is not None:
+            system["name"] = system_id
+        if system_id is not None:
+            id_to_name[system_id] = system["name"]
 
     datasets = []
     for node in ome.get("nodes") or []:

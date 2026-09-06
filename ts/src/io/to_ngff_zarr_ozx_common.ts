@@ -198,7 +198,11 @@ export function buildRootAttributes(
 
   if (version === "0.9.dev1") {
     // "0.9.dev1" is already the on-disk string.
-    const v09Entry = buildV06MultiscalesEntry(metadata, processedAxes);
+    const v09Entry = buildV06MultiscalesEntry(
+      metadata,
+      processedAxes,
+      NgffVersion.V09dev1,
+    );
     return {
       ome: {
         version: NgffVersion.V09dev1,

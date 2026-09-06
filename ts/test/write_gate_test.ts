@@ -13,6 +13,8 @@ import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import { buildRootAttributes } from "../src/io/to_ngff_zarr_ozx_common.ts";
 import {
   type Axis,
+  createCoordinateSystem,
+  createMapAxis,
   createScale,
   type MetadataInterface,
 } from "../src/types/zarr_metadata.ts";
@@ -270,4 +272,25 @@ Deno.test("0.9.dev1 round-trip goes through the v0.6 reader", async () => {
   // The v0.6 parser records `0.6`; a 0.9.dev1 store must report its own
   // version, which is how a caller tells the two models apart.
   assertEquals(roundTripped.metadata.version, "0.9.dev1");
+});
+
+// A six-axis permutation is a valid 0.9.dev1 transform, and the writer has to
+// validate it against that version rather than the default bound.
+Deno.test("the writer accepts a six-axis mapAxis at 0.9.dev1", () => {
+  const axes = ["a", "b", "c", "d", "e", "f"].map(space);
+  const mapAxis = createMapAxis([5, 4, 3, 2, 1, 0]);
+  mapAxis.input = { name: "intrinsic" };
+  mapAxis.output = { name: "permuted" };
+  const metadata: MetadataInterface = {
+    ...buildMetadata(axes),
+    coordinateSystems: [
+      createCoordinateSystem("intrinsic", axes),
+      createCoordinateSystem("permuted", [...axes].reverse()),
+    ],
+    coordinateTransformations: [mapAxis],
+  };
+  const attrs = buildRootAttributes(metadata, "0.9.dev1") as {
+    ome: { multiscales: { coordinateTransformations: unknown[] }[] };
+  };
+  assertEquals(attrs.ome.multiscales[0].coordinateTransformations.length, 1);
 });
