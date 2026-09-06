@@ -16,6 +16,12 @@ import {
   isV06Version,
   NgffVersion,
 } from "../types/supported_versions.ts";
+import {
+  distributedSinglescaleTransforms,
+  multiscalesEntryFromOme,
+} from "../utils/rfc8_multiscale.ts";
+import { validateCollection } from "../utils/rfc8_validation.ts";
+import { OmeNodeDocumentSchema } from "../schemas/rfc8.ts";
 
 export type { ChunkCache } from "../utils/worker_pool.ts";
 
@@ -98,27 +104,49 @@ export async function fromOmeZarr(
     // OME-Zarr v0.6 (RFC 5) uses a different on-disk shape (coordinateSystems +
     // per-dataset sequence transforms) than the inline v0.4/v0.5 parser below,
     // so delegate to the shared, environment-agnostic v0.6 reader.
-    const rootAttrsForVersion = attrs as Record<string, unknown>;
-    const omeForVersion = rootAttrsForVersion.ome as
+    let rootAttrsForVersion = attrs as Record<string, unknown>;
+    let omeForVersion = rootAttrsForVersion.ome as
       | Record<string, unknown>
       | undefined;
-    const onDiskVersion =
-      omeForVersion && typeof omeForVersion.version === "string"
-        ? omeForVersion.version
-        : undefined;
+    let onDiskVersion = omeForVersion &&
+        typeof omeForVersion.version === "string"
+      ? omeForVersion.version
+      : undefined;
     // RFC-8: at 0.9.dev3 the root `ome` value is a typed node document, not
-    // a multiscales wrapper, so neither delegate below can parse it; without
-    // this guard the store would die on the generic no-multiscales error
-    // instead of naming the collection reader.
-    if (onDiskVersion === NgffVersion.V09dev3) {
-      const nodeType = omeForVersion?.type;
-      throw new Error(
-        `The input is an OME-Zarr 0.9.dev3 store whose root is a ` +
-          `'${nodeType}' node. 0.9.dev3 stores the RFC-8 node model in ` +
-          `place of the multiscales metadata; use fromCollectionZarr() to ` +
-          `read it. fromOmeZarr() reads multiscale image stores written at ` +
-          `earlier versions.`,
+    // a multiscales wrapper. A multiscale node converts to the 0.9.dev1
+    // entry shape and reads through the same delegate; any other node type
+    // is a collection-model document.
+    let isDev2Multiscale = false;
+    if (onDiskVersion === NgffVersion.V09dev3 && omeForVersion) {
+      if (omeForVersion.type !== "multiscale") {
+        throw new Error(
+          `The input is an OME-Zarr 0.9.dev3 store whose root is a ` +
+            `'${omeForVersion.type}' node. 0.9.dev3 stores the RFC-8 node ` +
+            `model in place of the multiscales metadata; use ` +
+            `fromCollectionZarr() to read it. fromOmeZarr() reads ` +
+            `multiscale image stores.`,
+        );
+      }
+      if (validate) {
+        validateCollection(omeForVersion, onDiskVersion);
+        OmeNodeDocumentSchema.parse(omeForVersion);
+      }
+      const singlescale = await distributedSinglescaleTransforms(
+        omeForVersion,
+        resolvedStore as zarr.Readable,
       );
+      const { entry, omero } = multiscalesEntryFromOme(
+        omeForVersion,
+        singlescale,
+      );
+      omeForVersion = {
+        version: NgffVersion.V09dev1,
+        multiscales: [entry],
+        ...(omero !== undefined && { omero }),
+      };
+      onDiskVersion = NgffVersion.V09dev1;
+      rootAttrsForVersion = { ...rootAttrsForVersion, ome: omeForVersion };
+      isDev2Multiscale = true;
     }
 
     // 0.9.dev1 carries the same coordinateSystems layout as v0.6, so it reads
@@ -133,12 +161,15 @@ export async function fromOmeZarr(
       // reader and the v0.4/v0.5 path below; otherwise behavior diverges by
       // version and environment. The v0.6 family (`0.6` and its pre-release
       // tags) is treated as equivalent.
+      const effectiveVersion = isDev2Multiscale
+        ? NgffVersion.V09dev3
+        : onDiskVersion;
       const versionsMatch = version === undefined ||
-        version === onDiskVersion ||
-        (isV06Version(onDiskVersion) && isV06Version(version));
+        version === effectiveVersion ||
+        (isV06Version(effectiveVersion) && isV06Version(version));
       if (validate && !versionsMatch) {
         throw new Error(
-          `Expected OME-Zarr version ${version}, but found ${onDiskVersion}`,
+          `Expected OME-Zarr version ${version}, but found ${effectiveVersion}`,
         );
       }
       const result = await fromZarrAttrsV06(
@@ -150,7 +181,9 @@ export async function fromOmeZarr(
       // family but not for a 0.9.dev1 store: that string is the on-disk
       // version, and callers read `metadata.version` to tell them apart.
       if (onDiskVersion === NgffVersion.V09dev1) {
-        result.metadata.version = NgffVersion.V09dev1;
+        result.metadata.version = isDev2Multiscale
+          ? NgffVersion.V09dev3
+          : NgffVersion.V09dev1;
       }
       const entry = (omeForVersion.multiscales as unknown[])[0] as Record<
         string,

@@ -176,6 +176,43 @@ def _open_root_node(store, version: str | None):
     )
 
 
+def _distributed_singlescale_transforms(ome_value: dict, root) -> dict:
+    """Transformations of singlescale children that carry none inline.
+
+    The RFC-8 distributed layout stores each level's singlescale document in
+    the level's own ``zarr.json``; this collects their
+    ``coordinateTransformations``, keyed by dataset path, reading only the
+    children the inlined document leaves empty.
+    """
+    collected: dict[str, list] = {}
+    for node in ome_value.get("nodes") or []:
+        if not isinstance(node, dict) or node.get("type") != "singlescale":
+            continue
+        attributes = node.get("attributes") or {}
+        if attributes.get("coordinateTransformations"):
+            continue
+        raw_path = (node.get("path") or {}).get("path")
+        if not isinstance(raw_path, str):
+            continue
+        path = raw_path[2:] if raw_path.startswith("./") else raw_path
+        try:
+            child = root[path]
+        except (KeyError, FileNotFoundError):
+            # An absent child means this level has no distributed document;
+            # any other failure (permissions, transport) must surface rather
+            # than silently dropping the level's transformations.
+            continue
+        child_ome = child.attrs.asdict().get("ome")
+        if not isinstance(child_ome, dict):
+            continue
+        transforms = (child_ome.get("attributes") or {}).get(
+            "coordinateTransformations"
+        )
+        if transforms:
+            collected[path] = transforms
+    return collected
+
+
 def from_ome_zarr(
     store: StoreLike,
     validate: bool = False,
@@ -361,20 +398,45 @@ def from_ome_zarr(
 
     if version == "0.9.dev3":
         # RFC-8: the root ``ome`` value is a typed node document, not a
-        # multiscales wrapper, so the multiscales readers below cannot parse
-        # it (and without this guard a 0.9.dev3 store would fall through to
-        # the v0.4 branch and fail on a missing ``multiscales`` key).
+        # multiscales wrapper. A multiscale node converts to the 0.9.dev1
+        # entry shape and reads through the 0.9.dev1 machinery; any other
+        # node type is a collection-model document (and without this branch
+        # a 0.9.dev3 store would fall through to the v0.4 branch and fail on
+        # a missing ``multiscales`` key).
         ome_value = root_attrs.get("ome")
         node_type = ome_value.get("type") if isinstance(ome_value, dict) else None
-        raise ValueError(
-            f"The input is an OME-Zarr 0.9.dev3 store whose root is a "
-            f"{node_type!r} node. 0.9.dev3 stores the RFC-8 node model in "
-            "place of the multiscales metadata; use from_collection_zarr() "
-            "to read it. from_ome_zarr() reads multiscale image stores "
-            "written at earlier versions."
-        )
+        if node_type != "multiscale":
+            raise ValueError(
+                f"The input is an OME-Zarr 0.9.dev3 store whose root is a "
+                f"{node_type!r} node. 0.9.dev3 stores the RFC-8 node model in "
+                "place of the multiscales metadata; use from_collection_zarr() "
+                "to read it. from_ome_zarr() reads multiscale image stores."
+            )
+        from .rfc8.multiscale import multiscales_entry_from_ome
+        from .v09.zarr_metadata import Metadata
 
-    if version == "0.9.dev1":
+        if validate:
+            from .rfc8.io import _validate_document
+
+            declared = ome_value.get("version")
+            declared = declared if isinstance(declared, str) else None
+            _validate_document(ome_value, declared)
+
+        singlescale_transforms = _distributed_singlescale_transforms(ome_value, root)
+        entry, omero = multiscales_entry_from_ome(ome_value, singlescale_transforms)
+        converted_attrs = {"ome": {"version": "0.9.dev1", "multiscales": [entry]}}
+        if omero is not None:
+            converted_attrs["ome"]["omero"] = omero
+        metadata_obj, images = Metadata._from_zarr_attrs(
+            converted_attrs, store, validate=False, subpath=subpath
+        )
+        if validate:
+            from .structural_validation import validate_structural
+
+            validate_structural(metadata_obj, version="0.9.dev3")
+        method, method_type, method_metadata = _extract_method_metadata(entry)
+
+    elif version == "0.9.dev1":
         from .v09.zarr_metadata import Metadata
 
         # No 0.9.dev1 JSON Schema is published; `validate` is forwarded so
@@ -444,10 +506,11 @@ def from_ome_zarr(
             root_attrs["multiscales"][0]
         )
 
-    # Normalize to the richest model the store can express. A 0.9.dev1 store
-    # stays 0.9.dev1; downgrading it to 0.6 would discard its RFC-3 axis model.
+    # Normalize to the richest model the store can express. A 0.9 development
+    # series store stays on the 0.9 model; downgrading it to 0.6 would discard
+    # its RFC-3 axis model.
     metadata_obj = metadata_obj.to_version(
-        "0.9.dev1" if version == "0.9.dev1" else "0.6"
+        version if version in ("0.9.dev1", "0.9.dev3") else "0.6"
     )
     metadata_obj.type = method_type
     metadata_obj.metadata = method_metadata

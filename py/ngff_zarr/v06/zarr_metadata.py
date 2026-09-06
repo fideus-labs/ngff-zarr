@@ -341,7 +341,11 @@ class ProjectAxis(BaseTransform):
                     f"{_PROJECT_AXIS_MAX_OPERATIONS} axes; got {indices}"
                 )
 
-    def validate(self, coordinateSystems: list[CoordinateSystem] | None = None) -> None:
+    def validate(
+        self,
+        coordinateSystems: list[CoordinateSystem] | None = None,
+        version: object | None = None,  # noqa: ARG002
+    ) -> None:
         self._check_intrinsic()
         dropped = self.droppedInputs or []
         created = self.createdOutputs or []
@@ -621,7 +625,7 @@ def validate_transform(
     This also checks the ones that need the ``input`` and ``output``
     coordinate systems, when those resolve in ``coordinateSystems``.
     """
-    transformation.validate(coordinateSystems)
+    transformation.validate(coordinateSystems, version)
 
 
 @dataclass
@@ -714,7 +718,7 @@ class Metadata:
             return self._to_v05()
         if version == NgffVersion.V06:
             return self
-        if version == NgffVersion.V09dev1:
+        if version in (NgffVersion.V09dev1, NgffVersion.V09dev3):
             from ..v09.zarr_metadata import Metadata as Metadata_v09
 
             return Metadata_v09.from_version(self)
