@@ -70,6 +70,7 @@ Deno.test("every rule is exercised by the shared cases", () => {
       "reference-path-required",
       "label-value-required",
       "label-color-format",
+      "scene-transformations-required",
     ]),
   );
 });

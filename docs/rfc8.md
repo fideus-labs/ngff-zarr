@@ -167,6 +167,53 @@ checked by the `label-value-required` and `label-color-format` rules, and
 `source` entries join the reference rules; a pathless `source` reference
 must name a node id declared in the document.
 
+### Scene
+
+Scene metadata relates the coordinate systems of a collection's members
+(RFC-5, issue #563). Both storage shapes parse into one in-memory `Scene`:
+the `ome.scene` of a 0.6-family group (name-based identifiers) and the
+`scene` attribute of an RFC-8 collection node (id-based references, cross
+document with an `id` plus a typed `path`).
+
+```python
+from ngff_zarr.rfc8 import Scene, read_scene, scene, set_scene, write_scene
+from ngff_zarr.v09.zarr_metadata import (
+    Axis,
+    CoordinateSystem,
+    CoordinateSystemIdentifier,
+    Translation,
+)
+
+tiles = Scene(
+    coordinateSystems=[
+        CoordinateSystem(
+            name="world",
+            id="world",
+            axes=[Axis(name="y", type="space"), Axis(name="x", type="space")],
+        )
+    ],
+    coordinateTransformations=[
+        Translation(
+            translation=[0.0, 100.0],
+            input=CoordinateSystemIdentifier(
+                name="physical", id="physical", path="./tile_0.zarr"
+            ),
+            output=CoordinateSystemIdentifier(name="world", id="world"),
+        )
+    ],
+)
+
+set_scene(collection, tiles)  # RFC-8 attribute shape
+write_scene("scene.ome.zarr", tiles, version="0.6")  # RFC-5 store shape
+read_scene("scene.ome.zarr")  # reads either shape
+```
+
+A scene's identifiers are preserved verbatim (unresolved names and ids
+included): they usually point into member documents, and dereferencing is
+the caller's choice. A declared scene must carry a non-empty
+`coordinateTransformations` array (`scene-transformations-required`), and
+its systems and references join the id and reference rules.
+
 ### Validation
 
 `validate_collection` runs the RFC-8 structural rules over a raw `ome`

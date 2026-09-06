@@ -117,6 +117,9 @@ violation, in canonical spec-MUST order.
 #   label-color-format
 #       an RFC-8 label color is four integers between 0 and 255
 #       e.g. ome.nodes[1].attributes.labels.labelAttributes[0].color
+#   scene-transformations-required
+#       a scene declares a non-empty coordinateTransformations array
+#       e.g. ome.attributes.scene
 
 from __future__ import annotations
 
@@ -166,6 +169,7 @@ class SpecRule(StrEnum):
     REFERENCE_PATH_REQUIRED = "reference-path-required"
     LABEL_VALUE_REQUIRED = "label-value-required"
     LABEL_COLOR_FORMAT = "label-color-format"
+    SCENE_TRANSFORMATIONS_REQUIRED = "scene-transformations-required"
 
 
 class ValidationLevel(StrEnum):

@@ -51,23 +51,35 @@ def _iter_nodes(
                 yield from _iter_nodes(child, f"{location}.nodes[{index}]")
 
 
-def _iter_coordinate_systems(
+def _iter_coordinate_containers(
     document: Mapping[str, Any],
 ) -> Iterator[tuple[str, Mapping[str, Any]]]:
-    """Yield ``(location, system)`` for each declared coordinate system."""
+    """Yield each container that may declare coordinate metadata.
+
+    A node's ``attributes`` is one; its ``scene`` attribute, whose systems
+    and transformations share the document's id namespace, is another.
+    """
     for location, node in _iter_nodes(document, "ome"):
         attributes = node.get("attributes")
         if not isinstance(attributes, Mapping):
             continue
-        systems = attributes.get("coordinateSystems")
+        yield f"{location}.attributes", attributes
+        scene = attributes.get("scene")
+        if isinstance(scene, Mapping):
+            yield f"{location}.attributes.scene", scene
+
+
+def _iter_coordinate_systems(
+    document: Mapping[str, Any],
+) -> Iterator[tuple[str, Mapping[str, Any]]]:
+    """Yield ``(location, system)`` for each declared coordinate system."""
+    for base, container in _iter_coordinate_containers(document):
+        systems = container.get("coordinateSystems")
         if not isinstance(systems, list):
             continue
         for index, system in enumerate(systems):
             if isinstance(system, Mapping):
-                yield (
-                    f"{location}.attributes.coordinateSystems[{index}]",
-                    system,
-                )
+                yield f"{base}.coordinateSystems[{index}]", system
 
 
 def _iter_transform_reference_sites(
@@ -76,22 +88,20 @@ def _iter_transform_reference_sites(
     """Yield ``(location, value)`` for each transformation input/output.
 
     Walks the top-level entries of every node's
-    ``attributes.coordinateTransformations``; the transforms wrapped inside a
-    sequence or bijection omit their references and are not walked.
+    ``attributes.coordinateTransformations`` and of its scene's; the
+    transforms wrapped inside a sequence or bijection omit their references
+    and are not walked.
     """
-    for location, node in _iter_nodes(document, "ome"):
-        attributes = node.get("attributes")
-        if not isinstance(attributes, Mapping):
-            continue
-        transformations = attributes.get("coordinateTransformations")
+    for base, container in _iter_coordinate_containers(document):
+        transformations = container.get("coordinateTransformations")
         if not isinstance(transformations, list):
             continue
         for index, transformation in enumerate(transformations):
             if not isinstance(transformation, Mapping):
                 continue
-            base = f"{location}.attributes.coordinateTransformations[{index}]"
+            prefix = f"{base}.coordinateTransformations[{index}]"
             for field in ("input", "output"):
-                yield f"{base}.{field}", transformation.get(field)
+                yield f"{prefix}.{field}", transformation.get(field)
 
 
 def _iter_label_entries(
@@ -549,6 +559,43 @@ def validate_label_color_format(document: Mapping[str, Any]) -> None:
             )
 
 
+def validate_scene_transformations_required(
+    document: Mapping[str, Any],
+) -> None:
+    """Validate that a declared scene carries its transformations.
+
+    Both the RFC-5 and RFC-8 scene shapes require a non-empty
+    ``coordinateTransformations`` array; a scene without one relates
+    nothing.
+
+    Raises
+    ------
+    ValidationError
+        With :attr:`SpecRule.SCENE_TRANSFORMATIONS_REQUIRED` for the first
+        node, in depth-first order, whose ``scene`` attribute lacks a
+        non-empty ``coordinateTransformations`` array; location e.g.
+        ``ome.attributes.scene``.
+    """
+    for location, node in _iter_nodes(document, "ome"):
+        attributes = node.get("attributes")
+        if not isinstance(attributes, Mapping):
+            continue
+        scene = attributes.get("scene")
+        if scene is None:
+            continue
+        transformations = (
+            scene.get("coordinateTransformations")
+            if isinstance(scene, Mapping)
+            else None
+        )
+        if not isinstance(transformations, list) or not transformations:
+            raise ValidationError(
+                SpecRule.SCENE_TRANSFORMATIONS_REQUIRED,
+                "Scene must declare a non-empty 'coordinateTransformations' array.",
+                f"{location}.attributes.scene",
+            )
+
+
 #: The RFC-8 rules in canonical evaluation order (the SpecRule declaration
 #: order), dispatched fail-fast by :func:`validate_collection`.
 _COLLECTION_RULES = (
@@ -564,6 +611,7 @@ _COLLECTION_RULES = (
     validate_reference_path_required,
     validate_label_value_required,
     validate_label_color_format,
+    validate_scene_transformations_required,
 )
 
 
