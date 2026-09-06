@@ -28,7 +28,7 @@ OME-Zarr 0.9.dev1, which incorporates RFC-4 through `ome/ngff-spec#190` (and
 from 0.9.dev3, which extends it): they are inert when the caller declares 0.4,
 0.5 or 0.6, where RFC 4 has no normative status, and stay on when no version
 is declared — a strictness choice, like `axis-names-unique` below 0.9.dev1.
-The twelve RFC 8 node/collection rules (16–27) are normative from OME-Zarr
+The thirteen RFC 8 node/collection rules (16–28) are normative from OME-Zarr
 0.9.dev3, the version that stores the RFC-8 node model. For the conceptual background and the two
 validation levels, see [[overview]]; for invocation, see [[api]].
 
@@ -64,11 +64,12 @@ the `SpecRule` enum declares them and the orchestrators evaluate them.
 | 20| `node-id-unique` | RFC-8 nodes | Ids are unique within the JSON document (path-referenced nodes live in their own documents). Same gating as rule 16. | RFC-8: ids MUST be unique within the JSON document. | `ome.nodes[3].id` |
 | 21| `node-nodes-xor-path` | RFC-8 collections and multiscales | A collection or multiscale node carries exactly one of `nodes` and `path`; `singlescale` (optional `path`, no `nodes`), unknown and extension node types are exempt. Same gating as rule 16. | RFC-8: either `nodes` or `path` MUST be present, but not both. | `ome.nodes[1]` |
 | 22| `path-type-known` | RFC-8 paths | A path `type` is `zarr`, `json`, or a prefixed extension identifier (`prefix:name`), which passes as opaque. Applies to every node's own `path` and to the `path` of every reference site. Same gating as rule 16. | RFC-8: unprefixed path types are reserved for the core specification, which defines `zarr` and `json`. | `ome.nodes[1].path.type` |
-| 23| `coordinate-system-id-required` | RFC-8 coordinate systems | Every coordinate system declared under a node's `attributes.coordinateSystems` carries an `id` (the `name` becomes an optional label). Same gating as rule 16. | RFC-8: coordinate systems are referenced by id, not by name. | `ome.nodes[0].attributes.coordinateSystems[1]` |
-| 24| `reference-id-required` | RFC-8 references | Every top-level transformation `input`/`output` under `attributes.coordinateTransformations`, and every labels `source` entry, is an object carrying an `id`; wrapped transforms inside a sequence are exempt. Same gating as rule 16. | RFC-8: transformation inputs and outputs, and label sources, are References. | `ome.nodes[0].attributes.coordinateTransformations[0].input` |
+| 23| `coordinate-system-id-required` | RFC-8 coordinate systems | Every coordinate system declared under a node's `attributes.coordinateSystems`, or under its `attributes.scene.coordinateSystems`, carries an `id` (the `name` becomes an optional label). Same gating as rule 16. | RFC-8: coordinate systems are referenced by id, not by name. | `ome.nodes[0].attributes.coordinateSystems[1]` |
+| 24| `reference-id-required` | RFC-8 references | Every top-level transformation `input`/`output` under `attributes.coordinateTransformations` or `attributes.scene.coordinateTransformations`, and every labels `source` entry, is an object carrying an `id`; wrapped transforms inside a sequence are exempt. Same gating as rule 16. | RFC-8: transformation inputs and outputs, and label sources, are References. | `ome.nodes[0].attributes.coordinateTransformations[0].input` |
 | 25| `reference-path-required` | RFC-8 references | A reference whose `id` is not declared in this document carries a `path` locating its document; a transformation reference resolves against node and coordinate-system ids, a labels `source` reference against multiscale node ids only. What the path points at is not resolved. Same gating as rule 16. | RFC-8: for external references, the path field MUST be present. | `ome.nodes[0].attributes.coordinateTransformations[0].output` |
 | 26| `label-value-required` | RFC-8 labels | Every entry of a `labels` attribute's `labelAttributes` declares a numeric `labelValue`. Same gating as rule 16. | RFC-8: `labelValue` MUST be the label value. | `ome.nodes[1].attributes.labels.labelAttributes[0]` |
 | 27| `label-color-format` | RFC-8 labels | A declared label `color` is an array of four integers between 0 and 255 (the uint8 RGBA values). Same gating as rule 16. | RFC-8: the color field MUST have an array with four integers between 0 and 255, inclusive. | `ome.nodes[1].attributes.labels.labelAttributes[0].color` |
+| 28| `scene-transformations-required` | RFC-8 scene | A declared `scene` attribute carries a non-empty `coordinateTransformations` array; its systems and references join the id and reference walks of rules 19, 20, 23, 24 and 25. Same gating as rule 16. | RFC-5/RFC-8: scene `coordinateTransformations` is required. | `ome.attributes.scene` |
 
 ## Evaluation order and orchestrators
 
@@ -93,14 +94,14 @@ rules:
   (`plate-row-index-consistency`).
 - **`validate_well` / `validateWell`** evaluates rule **15**
   (`well-acquisition-missing`), in the context of its parent plate.
-- **`validate_collection` / `validateCollection`** evaluates rules **16–27**
+- **`validate_collection` / `validateCollection`** evaluates rules **16–28**
   (the RFC-8 node/collection rules) against the raw `ome` document of an
   OME-Zarr 0.9.dev3 store or standalone JSON file, walking the node tree
   depth-first once per rule. The rules are enforced when the document
   declares 0.9.dev3 or no version, and inert when an earlier version is
   declared (RFC-8 lands at 0.9.dev3; see `is_rfc8_node_model`).
 
-The HCS rules (14 and 15) and the RFC-8 rules (16–27) are deliberately absent
+The HCS rules (14 and 15) and the RFC-8 rules (16–28) are deliberately absent
 from the image orchestrator's order; they operate on separate metadata
 objects. The exact fail-fast sequence is locked by the parity tests described
 in [[parity]].
@@ -133,4 +134,5 @@ TypeScript by checking the target version in `axisViews`.
   `node-id-format`, `node-id-unique`, `node-nodes-xor-path`,
   `path-type-known`, `coordinate-system-id-required`,
   `reference-id-required`, `reference-path-required`,
-  `label-value-required`, `label-color-format`.
+  `label-value-required`, `label-color-format`,
+  `scene-transformations-required`.
