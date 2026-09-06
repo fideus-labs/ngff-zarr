@@ -214,6 +214,40 @@ the caller's choice. A declared scene must carry a non-empty
 `coordinateTransformations` array (`scene-transformations-required`), and
 its systems and references join the id and reference rules.
 
+### High-content screening
+
+RFC-8 reworks the HCS metadata as collection attributes: a plate is a
+collection with a `plate` attribute (string-id `acquisitions`, `columns`
+and `rows` entries), a well is a collection with a `well` attribute
+referencing one column and one row by id, and an `acquisition` attribute
+sits on individual multiscale nodes (the "wide" layout of the RFC) or on
+sub-collections grouping one acquisition's images (the "tall" layout).
+
+```python
+from ngff_zarr.rfc8 import (
+    PlateAttribute,
+    PlateEntry,
+    WellAttribute,
+    plate,
+    set_plate,
+    set_well,
+    set_acquisition,
+    plate_collection_from_hcs,
+)
+
+# The RFC-8 view of an existing HCS plate (any OME-Zarr version): a wide
+# layout collection referencing the well images in place. Written beside
+# the plate metadata, both views read from one store.
+hcs_plate = ngff_zarr.from_hcs_zarr("plate.ome.zarr")
+root = plate_collection_from_hcs(hcs_plate)
+ngff_zarr.to_collection_zarr("plate.ome.zarr", root)
+```
+
+Well and acquisition references resolve against the nearest enclosing
+plate (`well-reference-resolves`, `acquisition-reference-resolves`), a
+plate must declare its columns and rows (`plate-columns-rows-required`),
+and the plate entry ids join the document-wide id rules.
+
 ### Validation
 
 `validate_collection` runs the RFC-8 structural rules over a raw `ome`

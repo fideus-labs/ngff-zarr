@@ -155,6 +155,102 @@ def _iter_reference_sites(
     yield from _iter_label_source_sites(document)
 
 
+def _iter_plate_attributes(
+    document: Mapping[str, Any],
+) -> Iterator[tuple[str, Mapping[str, Any]]]:
+    """Yield ``(location, plate)`` for each declared ``plate`` attribute."""
+    for location, node in _iter_nodes(document, "ome"):
+        attributes = node.get("attributes")
+        if not isinstance(attributes, Mapping):
+            continue
+        plate = attributes.get("plate")
+        if isinstance(plate, Mapping):
+            yield f"{location}.attributes.plate", plate
+
+
+def _iter_plate_entries(
+    document: Mapping[str, Any],
+) -> Iterator[tuple[str, Any]]:
+    """Yield the acquisition, column and row entries of every plate.
+
+    Non-object entries are yielded too, so a ``null`` entry reaches the id
+    rules instead of escaping validation.
+    """
+    for base, plate in _iter_plate_attributes(document):
+        for field in ("acquisitions", "columns", "rows"):
+            entries = plate.get(field)
+            if not isinstance(entries, list):
+                continue
+            for index, entry in enumerate(entries):
+                yield f"{base}.{field}[{index}]", entry
+
+
+def _iter_hcs_reference_sites(
+    document: Mapping[str, Any],
+) -> Iterator[tuple[str, Any]]:
+    """Yield the well column/row and acquisition references of every node.
+
+    These resolve against the enclosing plate's entries, checked by their
+    dedicated rules; they join the id-format walk but not the generic
+    reference-path rule.
+    """
+    for location, node in _iter_nodes(document, "ome"):
+        attributes = node.get("attributes")
+        if not isinstance(attributes, Mapping):
+            continue
+        well = attributes.get("well")
+        if isinstance(well, Mapping):
+            for field in ("column", "row"):
+                yield f"{location}.attributes.well.{field}", well.get(field)
+        if attributes.get("acquisition") is not None:
+            yield (
+                f"{location}.attributes.acquisition",
+                attributes.get("acquisition"),
+            )
+
+
+def _iter_nodes_with_plate(
+    document: Mapping[str, Any],
+) -> Iterator[tuple[str, Mapping[str, Any], Mapping[str, Any] | None]]:
+    """Yield ``(location, node, plate)``, with the nearest enclosing plate.
+
+    The plate is the nearest strictly enclosing one: RFC-8 resolves well and
+    acquisition references against the plate attribute on the enclosing
+    plate-level collection, so a node's own ``plate`` never answers for its
+    own references.
+    """
+
+    def _walk(
+        node: Mapping[str, Any],
+        location: str,
+        plate: Mapping[str, Any] | None,
+    ) -> Iterator[tuple[str, Mapping[str, Any], Mapping[str, Any] | None]]:
+        yield location, node, plate
+        attributes = node.get("attributes")
+        if isinstance(attributes, Mapping) and isinstance(
+            attributes.get("plate"), Mapping
+        ):
+            plate = attributes["plate"]
+        children = node.get("nodes")
+        if isinstance(children, list):
+            for index, child in enumerate(children):
+                if isinstance(child, Mapping):
+                    yield from _walk(child, f"{location}.nodes[{index}]", plate)
+
+    yield from _walk(document, "ome", None)
+
+
+def _plate_entry_ids(plate: Mapping[str, Any], field: str) -> set[str]:
+    entries = plate.get(field)
+    if not isinstance(entries, list):
+        return set()
+    return {
+        entry["id"]
+        for entry in entries
+        if isinstance(entry, Mapping) and isinstance(entry.get("id"), str)
+    }
+
+
 def _iter_path_sites(
     document: Mapping[str, Any],
 ) -> Iterator[tuple[str, Any]]:
@@ -185,7 +281,16 @@ def _iter_id_sites(
     for location, system in _iter_coordinate_systems(document):
         if system.get("id") is not None:
             yield f"{location}.id", system.get("id"), True
+    # Every plate entry is yielded, id present or not: RFC-8 requires an id
+    # on each acquisition, column and row, so a missing one must fail the
+    # format rule rather than escape the walk.
+    for location, entry in _iter_plate_entries(document):
+        entry_id = entry.get("id") if isinstance(entry, Mapping) else None
+        yield f"{location}.id", entry_id, True
     for location, reference in _iter_reference_sites(document):
+        if isinstance(reference, Mapping) and reference.get("id") is not None:
+            yield f"{location}.id", reference.get("id"), False
+    for location, reference in _iter_hcs_reference_sites(document):
         if isinstance(reference, Mapping) and reference.get("id") is not None:
             yield f"{location}.id", reference.get("id"), False
 
@@ -596,6 +701,144 @@ def validate_scene_transformations_required(
             )
 
 
+def validate_plate_columns_rows_required(
+    document: Mapping[str, Any],
+) -> None:
+    """Validate that every plate declares its columns and rows.
+
+    Raises
+    ------
+    ValidationError
+        With :attr:`SpecRule.PLATE_COLUMNS_ROWS_REQUIRED` for the first
+        ``plate`` attribute, in depth-first order, that is not an object,
+        whose ``columns`` or ``rows`` is not a non-empty array, or whose
+        present ``acquisitions`` is not an array; location e.g.
+        ``ome.attributes.plate``.
+    """
+    for location, node in _iter_nodes(document, "ome"):
+        attributes = node.get("attributes")
+        if not isinstance(attributes, Mapping) or "plate" not in attributes:
+            continue
+        plate = attributes["plate"]
+        site = f"{location}.attributes.plate"
+        if not isinstance(plate, Mapping):
+            raise ValidationError(
+                SpecRule.PLATE_COLUMNS_ROWS_REQUIRED,
+                f"A 'plate' attribute must be an object; got {plate!r}.",
+                site,
+            )
+        for field in ("columns", "rows"):
+            entries = plate.get(field)
+            if not isinstance(entries, list) or not entries:
+                raise ValidationError(
+                    SpecRule.PLATE_COLUMNS_ROWS_REQUIRED,
+                    f"Plate must declare a non-empty {field!r} array.",
+                    site,
+                )
+        acquisitions = plate.get("acquisitions")
+        if acquisitions is not None and not isinstance(acquisitions, list):
+            raise ValidationError(
+                SpecRule.PLATE_COLUMNS_ROWS_REQUIRED,
+                f"Plate 'acquisitions' must be an array; got {acquisitions!r}.",
+                site,
+            )
+
+
+def validate_well_reference_resolves(document: Mapping[str, Any]) -> None:
+    """Validate that a well's column and row reference its plate's entries.
+
+    Raises
+    ------
+    ValidationError
+        With :attr:`SpecRule.WELL_REFERENCE_RESOLVES` for the first ``well``
+        attribute, in depth-first order, whose ``column``/``row`` is not an
+        id reference, sits outside any collection declaring a ``plate``, or
+        references an id the enclosing plate's ``columns``/``rows`` do not
+        declare; location e.g. ``ome.nodes[0].attributes.well.column``.
+    """
+    for location, node, plate in _iter_nodes_with_plate(document):
+        attributes = node.get("attributes")
+        if not isinstance(attributes, Mapping) or "well" not in attributes:
+            continue
+        well = attributes["well"]
+        if not isinstance(well, Mapping):
+            raise ValidationError(
+                SpecRule.WELL_REFERENCE_RESOLVES,
+                f"A 'well' attribute must be an object; got {well!r}.",
+                f"{location}.attributes.well",
+            )
+        for field, plural in (("column", "columns"), ("row", "rows")):
+            reference = well.get(field)
+            site = f"{location}.attributes.well.{field}"
+            value = reference.get("id") if isinstance(reference, Mapping) else None
+            if not isinstance(value, str):
+                raise ValidationError(
+                    SpecRule.WELL_REFERENCE_RESOLVES,
+                    f"Well {field!r} must be a reference with an 'id'.",
+                    site,
+                )
+            if plate is None:
+                raise ValidationError(
+                    SpecRule.WELL_REFERENCE_RESOLVES,
+                    f"Well {field!r} references {value!r}, but no enclosing "
+                    f"collection declares a 'plate'.",
+                    site,
+                )
+            if value not in _plate_entry_ids(plate, plural):
+                raise ValidationError(
+                    SpecRule.WELL_REFERENCE_RESOLVES,
+                    f"Well {field!r} references {value!r}, which the "
+                    f"enclosing plate's {plural!r} do not declare.",
+                    site,
+                )
+
+
+def validate_acquisition_reference_resolves(
+    document: Mapping[str, Any],
+) -> None:
+    """Validate that an acquisition reference names a declared acquisition.
+
+    Raises
+    ------
+    ValidationError
+        With :attr:`SpecRule.ACQUISITION_REFERENCE_RESOLVES` for the first
+        ``acquisition`` attribute, in depth-first order, that is not an id
+        reference, sits outside any collection declaring a ``plate``, or
+        references an id the enclosing plate's ``acquisitions`` do not
+        declare; location e.g.
+        ``ome.nodes[0].nodes[1].attributes.acquisition``.
+    """
+    for location, node, plate in _iter_nodes_with_plate(document):
+        attributes = node.get("attributes")
+        if not isinstance(attributes, Mapping):
+            continue
+        reference = attributes.get("acquisition")
+        if reference is None:
+            continue
+        site = f"{location}.attributes.acquisition"
+        value = reference.get("id") if isinstance(reference, Mapping) else None
+        if not isinstance(value, str):
+            raise ValidationError(
+                SpecRule.ACQUISITION_REFERENCE_RESOLVES,
+                "Acquisition must be a reference with an 'id'.",
+                site,
+            )
+        if plate is None:
+            raise ValidationError(
+                SpecRule.ACQUISITION_REFERENCE_RESOLVES,
+                f"Acquisition references {value!r}, but no enclosing "
+                f"collection declares a 'plate'.",
+                site,
+            )
+        if value not in _plate_entry_ids(plate, "acquisitions"):
+            raise ValidationError(
+                SpecRule.ACQUISITION_REFERENCE_RESOLVES,
+                f"Acquisition references {value!r}, which the enclosing "
+                f"plate's 'acquisitions' do not declare.",
+                site,
+            )
+
+
 #: The RFC-8 rules in canonical evaluation order (the SpecRule declaration
 #: order), dispatched fail-fast by :func:`validate_collection`.
 _COLLECTION_RULES = (
@@ -612,6 +855,9 @@ _COLLECTION_RULES = (
     validate_label_value_required,
     validate_label_color_format,
     validate_scene_transformations_required,
+    validate_plate_columns_rows_required,
+    validate_well_reference_resolves,
+    validate_acquisition_reference_resolves,
 )
 
 

@@ -71,6 +71,9 @@ Deno.test("every rule is exercised by the shared cases", () => {
       "label-value-required",
       "label-color-format",
       "scene-transformations-required",
+      "plate-columns-rows-required",
+      "well-reference-resolves",
+      "acquisition-reference-resolves",
     ]),
   );
 });
