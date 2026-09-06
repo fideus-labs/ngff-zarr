@@ -292,20 +292,12 @@ def _validate_ngff_parameters(
     if isinstance(version, str):
         version = NgffVersion(version)
 
-    if version == NgffVersion.V09dev3:
-        raise ValueError(
-            'version="0.9.dev3" stores the RFC-8 node model in place of the '
-            "multiscales metadata; writing images at 0.9.dev3 is not "
-            "implemented yet (issue #714). Write the image at 0.9.dev1 and "
-            "reference it from a 0.9.dev3 collection with "
-            "to_collection_zarr()."
-        )
-
     if version not in [
         NgffVersion.V04,
         NgffVersion.V05,
         NgffVersion.V06,
         NgffVersion.V09dev1,
+        NgffVersion.V09dev3,
     ]:
         raise ValueError(f"Unsupported version: {version}")
 
@@ -387,6 +379,23 @@ def _gate_spans(
         _gate_spans(member, f"{where}.transformations[{position}]", systems, spans)
 
 
+def _gate_named_systems(metadata, version: str) -> None:
+    """Refuse a nameless coordinate system the 0.6 family cannot express.
+
+    From 0.6 through 0.9.dev1 coordinate systems are referenced by name; an
+    RFC-8 id-only system is expressible only at 0.9.dev3.
+    """
+    if version not in ("0.6", NgffVersion.V09dev1.value):
+        return
+    for system in getattr(metadata, "coordinateSystems", None) or []:
+        if getattr(system, "name", None) is None:
+            raise ValueError(
+                f"coordinateSystems entries must carry a name at OME-Zarr "
+                f"{version}: the 0.6 family references coordinate systems by "
+                'name. Name the system, or write at version "0.9.dev3".'
+            )
+
+
 def _gate_top_level_transforms(source, metadata, version: str) -> None:
     """Refuse a multiscale-level transform the target version would drop or reject.
 
@@ -402,8 +411,9 @@ def _gate_top_level_transforms(source, metadata, version: str) -> None:
     to name one. The writer serializes whatever the model holds, so a missing
     reference would produce a store the validated reader rejects.
 
-    0.9.dev1 is the 0.6 model with the axis restrictions relaxed, so its
-    inter-system transforms carry the same requirement and the gate covers it.
+    0.9.dev1 is the 0.6 model with the axis restrictions relaxed and 0.9.dev3
+    is 0.9.dev1 with the RFC-8 node model, so their inter-system transforms
+    carry the same requirement and the gate covers them.
 
     Each transform then runs the reader's ``validate_transform`` against the
     systems it names, so a store this writes is one it can read back.
@@ -417,7 +427,11 @@ def _gate_top_level_transforms(source, metadata, version: str) -> None:
             f"OME-Zarr {version}, which would drop them silently. Write with "
             "version='0.6', or remove them."
         )
-    if not transforms or version not in ("0.6", NgffVersion.V09dev1.value):
+    if not transforms or version not in (
+        "0.6",
+        NgffVersion.V09dev1.value,
+        NgffVersion.V09dev3.value,
+    ):
         return
     from .v06.zarr_metadata import validate_transform
 
@@ -425,15 +439,25 @@ def _gate_top_level_transforms(source, metadata, version: str) -> None:
     for index, transform in enumerate(metadata.coordinateTransformations):
         for side in ("input", "output"):
             reference = getattr(transform, side, None)
-            if reference is None or getattr(reference, "name", None) is None:
-                raise ValueError(
-                    f"multiscales coordinateTransformations[{index}] "
-                    f"({transform.type}) names no {side} coordinate system; "
-                    "OME-Zarr 0.6 requires every multiscale-level transformation "
-                    "to name both its input and its output coordinate system"
-                )
+            named = (
+                reference is not None and getattr(reference, "name", None) is not None
+            )
+            # RFC-8 (0.9.dev3) references coordinate systems by id, so an
+            # id-only reference is complete there; 0.6 and 0.9.dev1 need the
+            # name the schema requires.
+            has_id = (
+                reference is not None and getattr(reference, "id", None) is not None
+            )
+            if named or (has_id and version == NgffVersion.V09dev3.value):
+                continue
+            raise ValueError(
+                f"multiscales coordinateTransformations[{index}] "
+                f"({transform.type}) names no {side} coordinate system; "
+                "OME-Zarr 0.6 requires every multiscale-level transformation "
+                "to name both its input and its output coordinate system"
+            )
         try:
-            validate_transform(transform, systems)
+            validate_transform(transform, systems, version)
         except ValueError as invalid:
             raise ValueError(
                 f"multiscales coordinateTransformations[{index}] "
@@ -529,9 +553,10 @@ def _gate_axis_model(metadata, version) -> None:
                     f'Cannot write OME-Zarr version="{version}": this axis model '
                     f"violates that version's [{exc.rule.value}] rule. "
                     f"{exc.message} Axes at {location}: [{rendered}]. "
-                    f'Pass version="{NgffVersion.V09dev1.value}" to write it: '
-                    "0.9.dev1 is the only OME-Zarr version that adopts RFC-3 "
-                    "(arbitrary axis count, names, types and ordering)."
+                    f'Pass version="{NgffVersion.V09dev1.value}" or '
+                    f'version="{NgffVersion.V09dev3.value}" to write it: the '
+                    "OME-Zarr 0.9 development series adopts RFC-3 (arbitrary "
+                    "axis count, names, types and ordering)."
                 ) from exc
 
 
@@ -719,6 +744,13 @@ def _root_ome_attrs(metadata_dict: dict, version: str) -> dict:
     is popped so it lives only in its hoisted location, matching historical
     behavior.
     """
+    if version == NgffVersion.V09dev3.value:
+        # RFC-8: the root ome value is a multiscale node document; the
+        # datasets become singlescale child nodes and omero rides in the
+        # node's attributes.
+        from .rfc8.multiscale import multiscale_ome_dict
+
+        return {"ome": multiscale_ome_dict(metadata_dict, version)}
     if version != "0.4":
         # RFC 2, Zarr 3 - omero goes inside ome namespace
         if version == "0.6":
@@ -1782,6 +1814,7 @@ def _to_ngff_zarr_impl(
     if overwrite:
         _guard_overwrite_of_source_store(multiscales, store_path)
     root_attributes = _check_root_attributes(multiscales.root_attributes)
+    _gate_named_systems(multiscales.metadata, version)
     metadata, dimension_names, _ = _prepare_metadata(multiscales, version)
     _gate_top_level_transforms(multiscales.metadata, metadata, version)
     _gate_transform_arity(metadata)

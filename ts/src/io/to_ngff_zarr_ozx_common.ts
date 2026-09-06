@@ -17,6 +17,7 @@ import {
   buildV06MultiscalesEntry,
   legacyTopLevelTransforms,
 } from "../utils/v06_metadata.ts";
+import { multiscaleOmeDict } from "../utils/rfc8_multiscale.ts";
 import {
   type ImageVersion,
   NgffVersion,
@@ -51,7 +52,8 @@ function axisViews(
 ): Array<{ location: string; axes: Axis[] }> {
   const systems = metadata.coordinateSystems ?? [];
   const serializesSystems = version === "0.6" ||
-    version === NgffVersion.V09dev1;
+    version === NgffVersion.V09dev1 ||
+    version === NgffVersion.V09dev3;
   if (serializesSystems && systems.length > 0) {
     // `buildV06MultiscalesEntry` serializes the first system from
     // `metadata.axes` and the later ones verbatim, and `MetadataInterface`
@@ -110,9 +112,10 @@ function gateAxisModel(
           `Cannot write OME-Zarr version="${version}": this axis model violates ` +
             `that version's [${error.rule}] rule. ${error.detail} ` +
             `Axes at ${view.location}: [${rendered}]. ` +
-            `Pass version="${NgffVersion.V09dev1}" to write it: 0.9.dev1 is the ` +
-            `only OME-Zarr version that adopts RFC-3 (arbitrary axis count, ` +
-            `names, types and ordering).`,
+            `Pass version="${NgffVersion.V09dev1}" or ` +
+            `version="${NgffVersion.V09dev3}" to write it: the OME-Zarr 0.9 ` +
+            `development series adopts RFC-3 (arbitrary axis count, names, ` +
+            `types and ordering).`,
         );
       }
     }
@@ -174,26 +177,32 @@ export function buildRootAttributes(
   metadata: MetadataInterface,
   version: ImageVersion,
 ): Record<string, unknown> {
-  // The ImageVersion union excludes "0.9.dev3" at compile time, but plain
-  // JavaScript callers can still pass it; without this runtime refusal the
-  // string would fall through to the bare-multiscales v0.4 arm below.
-  if ((version as string) === NgffVersion.V09dev3) {
-    throw new Error(
-      'version="0.9.dev3" stores the RFC-8 node model in place of the ' +
-        "multiscales metadata; writing images at 0.9.dev3 is not " +
-        "implemented yet (issue #714). Write the image at 0.9.dev1 and " +
-        "reference it from a 0.9.dev3 collection with toCollectionZarr().",
-    );
-  }
-
   gateAxisModel(metadata, version);
 
   // Process axes (orientation included when present).
   const processedAxes = processAxes(metadata.axes);
 
+  if (version === NgffVersion.V09dev3) {
+    // RFC-8: the root ome value is a multiscale node document; the datasets
+    // become singlescale child nodes and omero rides in the node's
+    // attributes.
+    const v09Entry = buildV06MultiscalesEntry(
+      metadata,
+      processedAxes,
+      NgffVersion.V09dev3,
+    );
+    return {
+      ome: multiscaleOmeDict(v09Entry, NgffVersion.V09dev3, metadata.omero),
+    };
+  }
+
   if (version === "0.9.dev1") {
     // "0.9.dev1" is already the on-disk string.
-    const v09Entry = buildV06MultiscalesEntry(metadata, processedAxes);
+    const v09Entry = buildV06MultiscalesEntry(
+      metadata,
+      processedAxes,
+      NgffVersion.V09dev1,
+    );
     return {
       ome: {
         version: NgffVersion.V09dev1,
