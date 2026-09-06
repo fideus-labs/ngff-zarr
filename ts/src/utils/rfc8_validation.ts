@@ -900,6 +900,206 @@ export function validateAcquisitionReferenceResolves(
 }
 
 /**
+ * Non-root nodes do not contradict the root's version
+ * (`node-version-consistent`). A no-op when the root declares none: there
+ * is then nothing to differ from, and a parsed node tree (whose root
+ * version the parser returns separately) is judged the same as its
+ * document.
+ */
+export function validateNodeVersionConsistent(
+  document: Record<string, unknown>,
+): void {
+  const rootVersion = document.version;
+  if (typeof rootVersion !== "string") {
+    return;
+  }
+  for (const [location, node] of iterNodes(document, "ome")) {
+    if (location === "ome") {
+      continue;
+    }
+    if (!("version" in node)) {
+      continue;
+    }
+    // A present null is a declared value and differs from any string.
+    const value = node.version;
+    if (value === rootVersion) {
+      continue;
+    }
+    throw new ValidationError(
+      SpecRule.NodeVersionConsistent,
+      `Node declares version ${pyReprValue(value)}, but the root declares ` +
+        `${pyRepr(rootVersion)}; a non-root node must not differ.`,
+      `${location}.version`,
+    );
+  }
+}
+
+function isScaleThenTranslation(entries: unknown[]): boolean {
+  const types = entries.map((entry) =>
+    isRecord(entry) ? entry.type : undefined
+  );
+  return (
+    (types.length === 1 && types[0] === "scale") ||
+    (types.length === 2 && types[0] === "scale" &&
+      types[1] === "translation")
+  );
+}
+
+/**
+ * The transformations a singlescale node declares
+ * (`singlescale-transform-shape`): exactly one `scale`, or a `sequence` of
+ * a `scale` followed by a `translation`, with `input` referencing the
+ * node's own id. Inlined entries without attributes (the distributed
+ * layout) are exempt.
+ */
+export function validateSinglescaleTransformShape(
+  document: Record<string, unknown>,
+): void {
+  for (const [location, node] of iterNodes(document, "ome")) {
+    if (node.type !== "singlescale") {
+      continue;
+    }
+    const attributes = node.attributes;
+    const transformations = isRecord(attributes)
+      ? attributes.coordinateTransformations
+      : undefined;
+    const site = `${location}.attributes.coordinateTransformations`;
+    if (transformations === undefined || transformations === null) {
+      if (location === "ome") {
+        // Only entries inlined in a multiscale may leave their
+        // transformations to the level's own document.
+        throw new ValidationError(
+          SpecRule.SinglescaleTransformShape,
+          "A singlescale document must declare its " +
+            "'coordinateTransformations'.",
+          site,
+        );
+      }
+      continue;
+    }
+    let shaped = Array.isArray(transformations) &&
+      transformations.length === 1;
+    const entry = shaped ? (transformations as unknown[])[0] : undefined;
+    if (shaped && isRecord(entry)) {
+      if (entry.type === "scale") {
+        // A single scale is the simplest conforming shape.
+      } else if (
+        entry.type === "sequence" &&
+        isScaleThenTranslation(
+          Array.isArray(entry.transformations) ? entry.transformations : [],
+        )
+      ) {
+        // A sequence of scale then translation also conforms.
+      } else {
+        shaped = false;
+      }
+    } else {
+      shaped = false;
+    }
+    if (!shaped || !isRecord(entry)) {
+      throw new ValidationError(
+        SpecRule.SinglescaleTransformShape,
+        "Singlescale transformations must be a single scale, or a " +
+          "sequence of a scale followed by a translation.",
+        site,
+      );
+    }
+    const nodeId = node.id;
+    const reference = entry.input;
+    const inputId = isRecord(reference) ? reference.id : undefined;
+    if (typeof inputId === "string" && inputId !== nodeId) {
+      const described = typeof nodeId === "string"
+        ? `the node's own id is ${pyRepr(nodeId)}`
+        : "the node declares no id";
+      throw new ValidationError(
+        SpecRule.SinglescaleTransformShape,
+        `Singlescale transformation input references ${pyRepr(inputId)}, ` +
+          `but ${described}.`,
+        `${site}[0].input`,
+      );
+    }
+  }
+}
+
+/**
+ * A multiscale's singlescale outputs agree
+ * (`multiscale-output-consistent`): every output references one and the
+ * same coordinate system, declared under the multiscale's
+ * `coordinateSystems`.
+ */
+export function validateMultiscaleOutputConsistent(
+  document: Record<string, unknown>,
+): void {
+  for (const [location, node] of iterNodes(document, "ome")) {
+    if (node.type !== "multiscale") {
+      continue;
+    }
+    const attributes = node.attributes;
+    // A missing or malformed coordinateSystems list declares nothing, so
+    // every inline output reference fails the membership check below.
+    let declared = new Set<string>();
+    if (
+      isRecord(attributes) && Array.isArray(attributes.coordinateSystems)
+    ) {
+      declared = new Set(
+        attributes.coordinateSystems
+          .filter(isRecord)
+          .map((system) => system.id)
+          .filter((id): id is string => typeof id === "string"),
+      );
+    }
+    const children = node.nodes;
+    if (!Array.isArray(children)) {
+      continue;
+    }
+    let seen: [string, string] | undefined;
+    for (const [index, child] of children.entries()) {
+      if (!isRecord(child) || child.type !== "singlescale") {
+        continue;
+      }
+      const childAttributes = child.attributes;
+      if (!isRecord(childAttributes)) {
+        continue;
+      }
+      const transformations = childAttributes.coordinateTransformations;
+      if (!Array.isArray(transformations)) {
+        continue;
+      }
+      for (const [entryIndex, entry] of transformations.entries()) {
+        if (!isRecord(entry)) {
+          continue;
+        }
+        const reference = entry.output;
+        const outputId = isRecord(reference) ? reference.id : undefined;
+        if (typeof outputId !== "string") {
+          continue;
+        }
+        const site = `${location}.nodes[${index}].attributes` +
+          `.coordinateTransformations[${entryIndex}].output`;
+        if (!declared.has(outputId)) {
+          throw new ValidationError(
+            SpecRule.MultiscaleOutputConsistent,
+            `Singlescale output references ${pyRepr(outputId)}, which ` +
+              `the multiscale's 'coordinateSystems' do not declare.`,
+            site,
+          );
+        }
+        if (seen === undefined) {
+          seen = [outputId, site];
+        } else if (outputId !== seen[0]) {
+          throw new ValidationError(
+            SpecRule.MultiscaleOutputConsistent,
+            `Singlescale outputs must all reference the same coordinate ` +
+              `system; got ${pyRepr(seen[0])} and ${pyRepr(outputId)}.`,
+            site,
+          );
+        }
+      }
+    }
+  }
+}
+
+/**
  * The RFC-8 rules in canonical evaluation order (the SpecRule declaration
  * order), dispatched fail-fast by {@link validateCollection}.
  */
@@ -920,6 +1120,9 @@ const COLLECTION_RULES = [
   validatePlateColumnsRowsRequired,
   validateWellReferenceResolves,
   validateAcquisitionReferenceResolves,
+  validateNodeVersionConsistent,
+  validateSinglescaleTransformShape,
+  validateMultiscaleOutputConsistent,
 ] as const;
 
 /**
@@ -948,10 +1151,18 @@ export function validateCollection(
     return;
   }
   // A parsed node is structurally a document already: it carries the same
-  // modeled keys, and the keys the parser tucks under `extra` are ones no
-  // rule reads. The Python port serializes its dataclass first; walking the
-  // object directly yields the same verdicts, so both forms share one path.
-  const document = root as Record<string, unknown>;
+  // modeled keys. The Python port serializes its dataclass first; walking
+  // the object directly yields the same verdicts, so both forms share one
+  // path.
+  let document = root as Record<string, unknown>;
+  if (
+    (document.version === undefined || document.version === null) &&
+    version !== undefined
+  ) {
+    // A parsed node tree carries its version separately; stamp it so the
+    // version-consistency rule judges the tree like its document.
+    document = { ...document, version };
+  }
   for (const rule of COLLECTION_RULES) {
     rule(document);
   }

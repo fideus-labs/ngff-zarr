@@ -1937,6 +1937,587 @@
       "rule": "well-reference-resolves",
       "message": "Spec rule [well-reference-resolves] violated: A 'well' attribute must be an object; got 'invalid'.",
       "location": "ome.nodes[0].attributes.well"
+    },
+    {
+      "name": "matching non-root versions pass",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "collection",
+        "name": "c",
+        "nodes": [
+          {
+            "type": "singlescale",
+            "name": "s0",
+            "version": "0.9.dev3",
+            "path": {
+              "type": "zarr",
+              "path": "./s0"
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "ok": true
+    },
+    {
+      "name": "a non-root node with a different version",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "collection",
+        "name": "c",
+        "nodes": [
+          {
+            "type": "singlescale",
+            "name": "s0",
+            "version": "0.9.dev1",
+            "path": {
+              "type": "zarr",
+              "path": "./s0"
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "node-version-consistent",
+      "message": "Spec rule [node-version-consistent] violated: Node declares version '0.9.dev1', but the root declares '0.9.dev3'; a non-root node must not differ.",
+      "location": "ome.nodes[0].version"
+    },
+    {
+      "name": "a conforming multiscale node document",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "multiscale",
+        "name": "img",
+        "id": "img",
+        "attributes": {
+          "coordinateSystems": [
+            {
+              "id": "physical",
+              "axes": [
+                {
+                  "name": "y",
+                  "type": "space"
+                },
+                {
+                  "name": "x",
+                  "type": "space"
+                }
+              ]
+            }
+          ]
+        },
+        "nodes": [
+          {
+            "type": "singlescale",
+            "id": "s0",
+            "name": "s0",
+            "path": {
+              "type": "zarr",
+              "path": "./s0"
+            },
+            "attributes": {
+              "coordinateTransformations": [
+                {
+                  "type": "scale",
+                  "scale": [
+                    1.0,
+                    1.0
+                  ],
+                  "input": {
+                    "id": "s0"
+                  },
+                  "output": {
+                    "id": "physical"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "singlescale",
+            "id": "s1",
+            "name": "s1",
+            "path": {
+              "type": "zarr",
+              "path": "./s1"
+            },
+            "attributes": {
+              "coordinateTransformations": [
+                {
+                  "type": "sequence",
+                  "transformations": [
+                    {
+                      "type": "scale",
+                      "scale": [
+                        2.0,
+                        2.0
+                      ]
+                    },
+                    {
+                      "type": "translation",
+                      "translation": [
+                        0.5,
+                        0.5
+                      ]
+                    }
+                  ],
+                  "input": {
+                    "id": "s1"
+                  },
+                  "output": {
+                    "id": "physical"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "ok": true
+    },
+    {
+      "name": "a singlescale transformation that is not a scale",
+      "ome": {
+        "type": "singlescale",
+        "name": "s0",
+        "id": "s0",
+        "attributes": {
+          "coordinateTransformations": [
+            {
+              "type": "translation",
+              "translation": [
+                0.5,
+                0.5
+              ],
+              "input": {
+                "id": "s0"
+              },
+              "output": {
+                "id": "physical",
+                "path": {
+                  "type": "json",
+                  "path": "../zarr.json"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "singlescale-transform-shape",
+      "message": "Spec rule [singlescale-transform-shape] violated: Singlescale transformations must be a single scale, or a sequence of a scale followed by a translation.",
+      "location": "ome.attributes.coordinateTransformations"
+    },
+    {
+      "name": "a singlescale sequence in the wrong order",
+      "ome": {
+        "type": "singlescale",
+        "name": "s0",
+        "id": "s0",
+        "attributes": {
+          "coordinateTransformations": [
+            {
+              "type": "sequence",
+              "transformations": [
+                {
+                  "type": "translation",
+                  "translation": [
+                    0.5,
+                    0.5
+                  ]
+                },
+                {
+                  "type": "scale",
+                  "scale": [
+                    1.0,
+                    1.0
+                  ]
+                }
+              ],
+              "input": {
+                "id": "s0"
+              },
+              "output": {
+                "id": "physical",
+                "path": {
+                  "type": "json",
+                  "path": "../zarr.json"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "singlescale-transform-shape",
+      "message": "Spec rule [singlescale-transform-shape] violated: Singlescale transformations must be a single scale, or a sequence of a scale followed by a translation.",
+      "location": "ome.attributes.coordinateTransformations"
+    },
+    {
+      "name": "a singlescale input that is not its own id",
+      "ome": {
+        "type": "multiscale",
+        "name": "img",
+        "attributes": {
+          "coordinateSystems": [
+            {
+              "id": "physical",
+              "axes": [
+                {
+                  "name": "x",
+                  "type": "space"
+                }
+              ]
+            }
+          ]
+        },
+        "nodes": [
+          {
+            "type": "singlescale",
+            "id": "s0",
+            "name": "s0",
+            "path": {
+              "type": "zarr",
+              "path": "./s0"
+            },
+            "attributes": {
+              "coordinateTransformations": [
+                {
+                  "type": "scale",
+                  "scale": [
+                    1.0
+                  ],
+                  "input": {
+                    "id": "s1"
+                  },
+                  "output": {
+                    "id": "physical"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "singlescale",
+            "id": "s1",
+            "name": "s1",
+            "path": {
+              "type": "zarr",
+              "path": "./s1"
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "singlescale-transform-shape",
+      "message": "Spec rule [singlescale-transform-shape] violated: Singlescale transformation input references 's1', but the node's own id is 's0'.",
+      "location": "ome.nodes[0].attributes.coordinateTransformations[0].input"
+    },
+    {
+      "name": "singlescale outputs referencing different systems",
+      "ome": {
+        "type": "multiscale",
+        "name": "img",
+        "attributes": {
+          "coordinateSystems": [
+            {
+              "id": "physical",
+              "axes": [
+                {
+                  "name": "x",
+                  "type": "space"
+                }
+              ]
+            },
+            {
+              "id": "other",
+              "axes": [
+                {
+                  "name": "x",
+                  "type": "space"
+                }
+              ]
+            }
+          ]
+        },
+        "nodes": [
+          {
+            "type": "singlescale",
+            "id": "s0",
+            "name": "s0",
+            "path": {
+              "type": "zarr",
+              "path": "./s0"
+            },
+            "attributes": {
+              "coordinateTransformations": [
+                {
+                  "type": "scale",
+                  "scale": [
+                    1.0
+                  ],
+                  "input": {
+                    "id": "s0"
+                  },
+                  "output": {
+                    "id": "physical"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "singlescale",
+            "id": "s1",
+            "name": "s1",
+            "path": {
+              "type": "zarr",
+              "path": "./s1"
+            },
+            "attributes": {
+              "coordinateTransformations": [
+                {
+                  "type": "scale",
+                  "scale": [
+                    2.0
+                  ],
+                  "input": {
+                    "id": "s1"
+                  },
+                  "output": {
+                    "id": "other"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "multiscale-output-consistent",
+      "message": "Spec rule [multiscale-output-consistent] violated: Singlescale outputs must all reference the same coordinate system; got 'physical' and 'other'.",
+      "location": "ome.nodes[1].attributes.coordinateTransformations[0].output"
+    },
+    {
+      "name": "a singlescale output the multiscale does not declare",
+      "ome": {
+        "type": "multiscale",
+        "name": "img",
+        "id": "world",
+        "attributes": {
+          "coordinateSystems": [
+            {
+              "id": "physical",
+              "axes": [
+                {
+                  "name": "x",
+                  "type": "space"
+                }
+              ]
+            }
+          ]
+        },
+        "nodes": [
+          {
+            "type": "singlescale",
+            "id": "s0",
+            "name": "s0",
+            "path": {
+              "type": "zarr",
+              "path": "./s0"
+            },
+            "attributes": {
+              "coordinateTransformations": [
+                {
+                  "type": "scale",
+                  "scale": [
+                    1.0
+                  ],
+                  "input": {
+                    "id": "s0"
+                  },
+                  "output": {
+                    "id": "world"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "multiscale-output-consistent",
+      "message": "Spec rule [multiscale-output-consistent] violated: Singlescale output references 'world', which the multiscale's 'coordinateSystems' do not declare.",
+      "location": "ome.nodes[0].attributes.coordinateTransformations[0].output"
+    },
+    {
+      "name": "a non-root node with an explicit null version",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "collection",
+        "name": "c",
+        "nodes": [
+          {
+            "type": "singlescale",
+            "name": "s0",
+            "version": null,
+            "path": {
+              "type": "zarr",
+              "path": "./s0"
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "node-version-consistent",
+      "message": "Spec rule [node-version-consistent] violated: Node declares version None, but the root declares '0.9.dev3'; a non-root node must not differ.",
+      "location": "ome.nodes[0].version"
+    },
+    {
+      "name": "an undeclared root version follows the caller's",
+      "ome": {
+        "type": "collection",
+        "name": "c",
+        "nodes": [
+          {
+            "type": "singlescale",
+            "name": "s0",
+            "version": "0.9.dev1",
+            "path": {
+              "type": "zarr",
+              "path": "./s0"
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "node-version-consistent",
+      "message": "Spec rule [node-version-consistent] violated: Node declares version '0.9.dev1', but the root declares '0.9.dev3'; a non-root node must not differ.",
+      "location": "ome.nodes[0].version"
+    },
+    {
+      "name": "a root singlescale document without transformations",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "singlescale",
+        "name": "s0",
+        "id": "s0"
+      },
+      "version": "0.9.dev3",
+      "rule": "singlescale-transform-shape",
+      "message": "Spec rule [singlescale-transform-shape] violated: A singlescale document must declare its 'coordinateTransformations'.",
+      "location": "ome.attributes.coordinateTransformations"
+    },
+    {
+      "name": "a singlescale transformation on a node without an id",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "singlescale",
+        "name": "s0",
+        "attributes": {
+          "coordinateSystems": [
+            {
+              "id": "physical",
+              "axes": [
+                {
+                  "name": "x",
+                  "type": "space"
+                }
+              ]
+            }
+          ],
+          "coordinateTransformations": [
+            {
+              "type": "scale",
+              "scale": [
+                1.0
+              ],
+              "input": {
+                "id": "s0",
+                "path": {
+                  "type": "zarr",
+                  "path": "./s0"
+                }
+              },
+              "output": {
+                "id": "physical"
+              }
+            }
+          ]
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "singlescale-transform-shape",
+      "message": "Spec rule [singlescale-transform-shape] violated: Singlescale transformation input references 's0', but the node declares no id.",
+      "location": "ome.attributes.coordinateTransformations[0].input"
+    },
+    {
+      "name": "an inline output under a multiscale declaring no systems",
+      "ome": {
+        "version": "0.9.dev3",
+        "type": "multiscale",
+        "name": "img",
+        "id": "img",
+        "nodes": [
+          {
+            "type": "singlescale",
+            "name": "s0",
+            "id": "s0",
+            "path": {
+              "type": "zarr",
+              "path": "./s0"
+            },
+            "attributes": {
+              "coordinateTransformations": [
+                {
+                  "type": "scale",
+                  "scale": [
+                    1.0
+                  ],
+                  "input": {
+                    "id": "s0"
+                  },
+                  "output": {
+                    "id": "physical",
+                    "path": {
+                      "type": "zarr",
+                      "path": "./x"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "multiscale-output-consistent",
+      "message": "Spec rule [multiscale-output-consistent] violated: Singlescale output references 'physical', which the multiscale's 'coordinateSystems' do not declare.",
+      "location": "ome.nodes[0].attributes.coordinateTransformations[0].output"
+    },
+    {
+      "name": "a null root version follows the caller's",
+      "ome": {
+        "version": null,
+        "type": "collection",
+        "name": "c",
+        "nodes": [
+          {
+            "type": "singlescale",
+            "name": "s0",
+            "version": "0.9.dev1",
+            "path": {
+              "type": "zarr",
+              "path": "./s0"
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "node-version-consistent",
+      "message": "Spec rule [node-version-consistent] violated: Node declares version '0.9.dev1', but the root declares '0.9.dev3'; a non-root node must not differ.",
+      "location": "ome.nodes[0].version"
     }
   ]
 }

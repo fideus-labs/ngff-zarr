@@ -129,6 +129,15 @@ violation, in canonical spec-MUST order.
 #   acquisition-reference-resolves
 #       an acquisition reference names one the enclosing plate declares
 #       e.g. ome.nodes[0].nodes[1].attributes.acquisition
+#   node-version-consistent
+#       a non-root node's version equals the root's declared version
+#       e.g. ome.nodes[2].version
+#   singlescale-transform-shape
+#       singlescale transformations are one scale, or scale then translation
+#       e.g. ome.nodes[0].attributes.coordinateTransformations
+#   multiscale-output-consistent
+#       every singlescale output references the multiscale's one system
+#       e.g. ome.nodes[1].attributes.coordinateTransformations[0].output
 
 from __future__ import annotations
 
@@ -182,6 +191,9 @@ class SpecRule(StrEnum):
     PLATE_COLUMNS_ROWS_REQUIRED = "plate-columns-rows-required"
     WELL_REFERENCE_RESOLVES = "well-reference-resolves"
     ACQUISITION_REFERENCE_RESOLVES = "acquisition-reference-resolves"
+    NODE_VERSION_CONSISTENT = "node-version-consistent"
+    SINGLESCALE_TRANSFORM_SHAPE = "singlescale-transform-shape"
+    MULTISCALE_OUTPUT_CONSISTENT = "multiscale-output-consistent"
 
 
 class ValidationLevel(StrEnum):
