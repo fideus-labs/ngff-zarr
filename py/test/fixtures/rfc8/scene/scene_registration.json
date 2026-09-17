@@ -1,0 +1,87 @@
+{
+  "zarr_format": 3,
+  "node_type": "group",
+  "attributes": {
+    "ome": {
+      "version": "0.9.dev1",
+      "scene": {
+        "coordinateTransformations": [
+          {
+            "type": "bijection",
+            "input": {"path": "JRC2018F", "name": "physical"},
+            "output": {"path": "FCWB", "name": "physical"},
+            "forward": {
+              "type": "sequence",
+              "name": "JRC2018F to FCWB",
+              "transformations": [
+                {
+                  "type": "displacements",
+                  "path": "coordinateTransformations/dfield",
+                  "interpolation": "linear"
+                },
+                {
+                  "type": "affine",
+                  "affine": [
+                    [
+                      0.549687,
+                      -0.0138092,
+                      0.000127526,
+                      2.9986
+                    ],
+                    [
+                      0.0893289,
+                      1.04339,
+                      -0.000121014,
+                      -6.39702
+                    ],
+                    [
+                      0.00779285,
+                      0.00299018,
+                      0.907875,
+                      -3.77146
+                    ]
+                  ]
+                }
+              ]
+            },
+            "inverse": {
+              "type": "sequence",
+              "name": "FCWB to JRC2018F",
+              "transformations": [
+                {
+                  "type": "affine",
+                  "affine": [
+                    [
+                      1.8153162032371448,
+                      0.024026315573955494,
+                      -0.00025178851007148946,
+                      -5.290659956068192
+                    ],
+                    [
+                      -0.1554184181171034,
+                      0.9563570184920926,
+                      0.00014930742384645888,
+                      6.584435749976974
+                    ],
+                    [
+                      -0.015070089856986017,
+                      -0.003356093187801388,
+                      1.1014748899286995,
+                      4.177888664571422
+                    ]
+                  ]
+                },
+                {
+                  "type": "displacements",
+                  "path": "coordinateTransformations/invdfield",
+                  "interpolation": "linear",
+                  "name": ""
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

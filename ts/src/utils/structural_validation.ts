@@ -107,6 +107,8 @@ export const SpecRule = {
   LabelValueRequired: "label-value-required",
   /** An RFC-8 label color is four integers between 0 and 255. */
   LabelColorFormat: "label-color-format",
+  /** A scene declares a non-empty coordinateTransformations array. */
+  SceneTransformationsRequired: "scene-transformations-required",
 } as const;
 
 /** Union of the {@link SpecRule} string values. */

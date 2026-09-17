@@ -22,3 +22,10 @@ and fail `reference-id-required` on purpose.
 Zarr-group storage medium); the others are standalone JSON documents with a
 root `ome` key. The TypeScript test suite reads these files from the Python
 tree, like the RFC-5 transform cases.
+
+The `scene/` directory holds copies of the RFC-5 scene examples
+`examples/scene/{scene_registration,scene_stitching}.json` from
+`ome/ngff-spec` at commit `465dd6fb54f599717d121cf4bddb3621309b4a89`
+(branch `0.9dev`): full `zarr.json` documents whose `ome.scene` uses the
+0.6-family name-based identifiers. Apart from a trailing final newline,
+the files are byte-identical to upstream.

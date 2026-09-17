@@ -84,7 +84,12 @@ function* iterNodes(
   }
 }
 
-function* iterCoordinateSystems(
+/**
+ * Each container that may declare coordinate metadata: a node's
+ * `attributes`, and its `scene` attribute, whose systems and
+ * transformations share the document's id namespace.
+ */
+function* iterCoordinateContainers(
   document: Record<string, unknown>,
 ): Generator<[string, Record<string, unknown>]> {
   for (const [location, node] of iterNodes(document, "ome")) {
@@ -92,16 +97,25 @@ function* iterCoordinateSystems(
     if (!isRecord(attributes)) {
       continue;
     }
-    const systems = attributes.coordinateSystems;
+    yield [`${location}.attributes`, attributes];
+    const scene = attributes.scene;
+    if (isRecord(scene)) {
+      yield [`${location}.attributes.scene`, scene];
+    }
+  }
+}
+
+function* iterCoordinateSystems(
+  document: Record<string, unknown>,
+): Generator<[string, Record<string, unknown>]> {
+  for (const [base, container] of iterCoordinateContainers(document)) {
+    const systems = container.coordinateSystems;
     if (!Array.isArray(systems)) {
       continue;
     }
     for (const [index, system] of systems.entries()) {
       if (isRecord(system)) {
-        yield [
-          `${location}.attributes.coordinateSystems[${index}]`,
-          system,
-        ];
+        yield [`${base}.coordinateSystems[${index}]`, system];
       }
     }
   }
@@ -110,12 +124,8 @@ function* iterCoordinateSystems(
 function* iterTransformReferenceSites(
   document: Record<string, unknown>,
 ): Generator<[string, unknown]> {
-  for (const [location, node] of iterNodes(document, "ome")) {
-    const attributes = node.attributes;
-    if (!isRecord(attributes)) {
-      continue;
-    }
-    const transformations = attributes.coordinateTransformations;
+  for (const [base, container] of iterCoordinateContainers(document)) {
+    const transformations = container.coordinateTransformations;
     if (!Array.isArray(transformations)) {
       continue;
     }
@@ -123,9 +133,9 @@ function* iterTransformReferenceSites(
       if (!isRecord(transformation)) {
         continue;
       }
-      const base = `${location}.attributes.coordinateTransformations[${index}]`;
+      const prefix = `${base}.coordinateTransformations[${index}]`;
       for (const field of ["input", "output"]) {
-        yield [`${base}.${field}`, transformation[field]];
+        yield [`${prefix}.${field}`, transformation[field]];
       }
     }
   }
@@ -587,6 +597,35 @@ export function validateLabelColorFormat(
 }
 
 /**
+ * A declared scene carries a non-empty `coordinateTransformations` array
+ * (`scene-transformations-required`); a scene without one relates nothing.
+ */
+export function validateSceneTransformationsRequired(
+  document: Record<string, unknown>,
+): void {
+  for (const [location, node] of iterNodes(document, "ome")) {
+    const attributes = node.attributes;
+    if (!isRecord(attributes)) {
+      continue;
+    }
+    const scene = attributes.scene;
+    if (scene === undefined || scene === null) {
+      continue;
+    }
+    const transformations = isRecord(scene)
+      ? scene.coordinateTransformations
+      : undefined;
+    if (!Array.isArray(transformations) || transformations.length === 0) {
+      throw new ValidationError(
+        SpecRule.SceneTransformationsRequired,
+        "Scene must declare a non-empty 'coordinateTransformations' array.",
+        `${location}.attributes.scene`,
+      );
+    }
+  }
+}
+
+/**
  * The RFC-8 rules in canonical evaluation order (the SpecRule declaration
  * order), dispatched fail-fast by {@link validateCollection}.
  */
@@ -603,6 +642,7 @@ const COLLECTION_RULES = [
   validateReferencePathRequired,
   validateLabelValueRequired,
   validateLabelColorFormat,
+  validateSceneTransformationsRequired,
 ] as const;
 
 /**

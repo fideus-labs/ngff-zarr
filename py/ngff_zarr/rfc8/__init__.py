@@ -35,6 +35,13 @@ from .model import (
     is_prefixed_identifier,
 )
 from .resolve import resolve_location, resolve_ome_document
+from .scene import (
+    Scene,
+    read_scene,
+    scene,
+    set_scene,
+    write_scene,
+)
 from .serialize import node_from_ome_dict, node_to_ome_dict
 from .validation import (
     validate_collection,
@@ -50,6 +57,7 @@ from .validation import (
     validate_path_type_known,
     validate_reference_id_required,
     validate_reference_path_required,
+    validate_scene_transformations_required,
 )
 
 __all__ = [
@@ -68,6 +76,7 @@ __all__ = [
     "load_rfc8_node_schema",
     "LabelAttributes",
     "Labels",
+    "Scene",
     "coordinate_systems",
     "coordinate_transformations",
     "is_label_map",
@@ -75,6 +84,10 @@ __all__ = [
     "set_labels",
     "node_from_ome_dict",
     "node_to_ome_dict",
+    "read_scene",
+    "scene",
+    "set_scene",
+    "write_scene",
     "set_coordinate_systems",
     "set_coordinate_transformations",
     "resolve_location",
@@ -94,4 +107,5 @@ __all__ = [
     "validate_path_type_known",
     "validate_reference_id_required",
     "validate_reference_path_required",
+    "validate_scene_transformations_required",
 ]
