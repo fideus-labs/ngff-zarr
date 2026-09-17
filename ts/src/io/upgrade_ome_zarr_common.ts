@@ -23,6 +23,11 @@ import {
   V06_ONDISK_VERSION,
 } from "../types/supported_versions.ts";
 import { buildRootAttributes } from "./to_ngff_zarr_ozx_common.ts";
+import {
+  consolidatedNodePaths,
+  consolidateMetadata,
+  datasetNodePaths,
+} from "../utils/consolidate_metadata.ts";
 
 /** Stores/paths `upgradeOmeZarr` can read from. */
 export type UpgradeInput =
@@ -239,7 +244,32 @@ export async function upgradeOmeZarrImpl(
   // chunk data is read), and `zarr.create` overwrites the root `zarr.json`
   // alone — every array `zarr.json` and chunk file is left byte-for-byte
   // untouched. This is the fix for issue #219.
+  //
+  // Read before the rewrite: `zarr.create` replaces the root document
+  // wholesale, and the fresh one carries no consolidated block. Restoring it
+  // keeps a re-tag from silently de-consolidating the store, matching the
+  // refresh Python's `upgrade_ome_zarr` does. Only Zarr v3 reaches here -- the
+  // v2/v3 boundary was rejected above -- so there is no `.zmetadata` sidecar
+  // to worry about, and stale consolidation is impossible either way.
+  const consolidatedBefore = await consolidatedNodePaths(store);
   const multiscales = await deps.fromOmeZarr(store, { validate });
   const attributes = buildRootAttributes(multiscales.metadata, version);
   await zarr.create(location, { attributes });
+  if (consolidatedBefore !== undefined) {
+    // Union, not replace. A store holds nodes the multiscales metadata never
+    // names -- an OME-Zarr `labels` group is the everyday case -- and a
+    // consolidated block is authoritative for what a reader finds, so
+    // narrowing it to the dataset paths would hide those nodes even though
+    // their documents are still there. Python re-globs the store; the block
+    // this store already had is the same census on this side. A key whose
+    // document has since gone is skipped by `consolidateMetadata`, so
+    // carrying a stale one over costs nothing.
+    const nodePaths = new Set([
+      ...consolidatedBefore,
+      ...datasetNodePaths(
+        multiscales.metadata.datasets.map((dataset) => dataset.path),
+      ),
+    ]);
+    await consolidateMetadata(store, [...nodePaths].sort());
+  }
 }

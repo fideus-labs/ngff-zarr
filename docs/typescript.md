@@ -433,6 +433,7 @@ async function toNgffZarr(
   options?: {
     version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
     chunksPerShard?: number | number[] | Record<string, number>;
+    consolidateMetadata?: boolean;
   }
 ): Promise<void>
 ```
@@ -442,6 +443,8 @@ async function toNgffZarr(
 - `multiscales`: NgffMultiscales object to write
 - `options.version`: OME-Zarr version (default: "0.5")
 - `options.chunksPerShard`: Sharding configuration (v0.5 only)
+- `options.consolidateMetadata`: Inline every array's metadata into the root
+  `zarr.json` (default: `true`)
 
 **Example:**
 ```typescript
@@ -457,6 +460,32 @@ await toNgffZarr("output.ome.zarr", multiscales, {
   chunksPerShard: { z: 2, y: 2, x: 2 },
 });
 ```
+
+**Consolidated metadata.** By default the writer finishes by inlining every
+array's `zarr.json` into the root group's own `zarr.json`. A reader that
+understands the block resolves the whole hierarchy from that one document
+instead of one request per scale level, which matters most over HTTP and for
+RFC-9 archives. zarr-python is such a reader, and so is the Python package,
+which consolidates every store it writes -- writing the block keeps the two
+implementations' output equivalent. `fromOmeZarr` does not yet exploit it:
+zarrita's consolidated reader currently understands only the Zarr v2
+`.zmetadata` sidecar, which this writer never emits.
+
+Some backends run their own consolidation and reject the block -- Icechunk is
+the motivating case -- so it can be turned off:
+
+```typescript
+await toOmeZarr("output.ome.zarr", multiscales, {
+  consolidateMetadata: false,
+});
+```
+
+The flag governs the root document alone; the arrays are written identically
+either way. Re-writing a consolidated store with `consolidateMetadata: false`
+leaves it unconsolidated rather than stale, because a Zarr v3 write replaces
+the root document wholesale. `toOmeZarrOzx` / `toOmeZarrOzxData` accept the
+same option for RFC-9 archives. This mirrors the Python package's
+`to_ome_zarr(..., consolidate_metadata=False)`.
 
 #### `toMultiscales()`
 

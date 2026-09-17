@@ -14,6 +14,10 @@ import type { NgffImage } from "../types/ngff_image.ts";
 import type { Axis, MetadataInterface } from "../types/zarr_metadata.ts";
 import type { MemoryStore } from "./rfc9_zip.ts";
 import {
+  consolidateMetadata,
+  datasetNodePaths,
+} from "../utils/consolidate_metadata.ts";
+import {
   buildV06MultiscalesEntry,
   legacyTopLevelTransforms,
 } from "../utils/v06_metadata.ts";
@@ -340,6 +344,8 @@ export function createRfc9RootAttributes(
  * @param writeImage - Function to write individual images
  * @param onProgress - Optional progress callback for cumulative chunk
  *   progress across all scale levels
+ * @param consolidate - Inline the array documents into the root `zarr.json`
+ *   once they are written (default `true`)
  */
 export async function writeNgffMultiscalesToMemoryStore(
   store: MemoryStore,
@@ -353,6 +359,7 @@ export async function writeNgffMultiscalesToMemoryStore(
       | null,
   ) => Promise<void>,
   onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
+  consolidate: boolean = true,
 ): Promise<void> {
   // Validate version
   validateRfc9Version(multiscales);
@@ -417,5 +424,17 @@ export async function writeNgffMultiscalesToMemoryStore(
       }
       completedChunks += imageChunkCount;
     }
+  }
+
+  // Consolidate last: the block inlines the array documents, so they have to
+  // exist first. The root key keeps its insertion position in the Map, so the
+  // RFC-9 zip writer still lays the root document down as the first entry.
+  if (consolidate) {
+    await consolidateMetadata(
+      store,
+      datasetNodePaths(
+        multiscales.metadata.datasets.map((dataset) => dataset.path),
+      ),
+    );
   }
 }
