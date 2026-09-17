@@ -3,6 +3,12 @@
 """RFC-8 "Collections and Extensibility" support (OME-Zarr 0.9.dev3)."""
 
 from .collection import NgffCollection
+from .coordinates import (
+    coordinate_systems,
+    coordinate_transformations,
+    set_coordinate_systems,
+    set_coordinate_transformations,
+)
 from .io import (
     from_collection_json,
     from_collection_zarr,
@@ -25,6 +31,7 @@ from .resolve import resolve_location, resolve_ome_document
 from .serialize import node_from_ome_dict, node_to_ome_dict
 from .validation import (
     validate_collection,
+    validate_coordinate_system_id_required,
     validate_node_id_format,
     validate_node_id_unique,
     validate_node_name_required,
@@ -32,6 +39,8 @@ from .validation import (
     validate_node_nodes_xor_path,
     validate_node_type_required,
     validate_path_type_known,
+    validate_reference_id_required,
+    validate_reference_path_required,
 )
 
 __all__ = [
@@ -48,8 +57,12 @@ __all__ = [
     "is_collection_node",
     "is_prefixed_identifier",
     "load_rfc8_node_schema",
+    "coordinate_systems",
+    "coordinate_transformations",
     "node_from_ome_dict",
     "node_to_ome_dict",
+    "set_coordinate_systems",
+    "set_coordinate_transformations",
     "resolve_location",
     "resolve_ome_document",
     "to_collection_json",
@@ -60,6 +73,9 @@ __all__ = [
     "validate_node_name_required",
     "validate_node_name_unique",
     "validate_node_nodes_xor_path",
+    "validate_coordinate_system_id_required",
     "validate_node_type_required",
     "validate_path_type_known",
+    "validate_reference_id_required",
+    "validate_reference_path_required",
 ]

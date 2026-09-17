@@ -105,8 +105,17 @@ export {
   parseOmero,
 } from "./utils/parse_metadata.ts";
 export {
+  COORDINATE_SYSTEMS_KEY,
+  COORDINATE_TRANSFORMATIONS_KEY,
+  coordinateSystems,
+  coordinateTransformations,
+  setCoordinateSystems,
+  setCoordinateTransformations,
+} from "./utils/rfc8_coordinates.ts";
+export {
   CORE_PATH_TYPES,
   validateCollection,
+  validateCoordinateSystemIdRequired,
   validateNodeIdFormat,
   validateNodeIdUnique,
   validateNodeNameRequired,
@@ -114,6 +123,8 @@ export {
   validateNodeNodesXorPath,
   validateNodeTypeRequired,
   validatePathTypeKnown,
+  validateReferenceIdRequired,
+  validateReferencePathRequired,
   XOR_NODE_TYPES,
 } from "./utils/rfc8_validation.ts";
 export {

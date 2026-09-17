@@ -102,6 +102,15 @@ violation, in canonical spec-MUST order.
 #   path-type-known
 #       an RFC-8 path type is zarr, json, or prefixed; from 0.9.dev3
 #       e.g. ome.nodes[1].path.type
+#   coordinate-system-id-required
+#       every RFC-8 coordinate system declares an id; from 0.9.dev3
+#       e.g. ome.nodes[0].attributes.coordinateSystems[1]
+#   reference-id-required
+#       every RFC-8 transformation input/output is a reference with an id
+#       e.g. ome.nodes[0].attributes.coordinateTransformations[0].input
+#   reference-path-required
+#       a reference that resolves to nothing in-document carries a path
+#       e.g. ome.nodes[0].attributes.coordinateTransformations[0].output
 
 from __future__ import annotations
 
@@ -146,6 +155,9 @@ class SpecRule(StrEnum):
     NODE_ID_UNIQUE = "node-id-unique"
     NODE_NODES_XOR_PATH = "node-nodes-xor-path"
     PATH_TYPE_KNOWN = "path-type-known"
+    COORDINATE_SYSTEM_ID_REQUIRED = "coordinate-system-id-required"
+    REFERENCE_ID_REQUIRED = "reference-id-required"
+    REFERENCE_PATH_REQUIRED = "reference-path-required"
 
 
 class ValidationLevel(StrEnum):

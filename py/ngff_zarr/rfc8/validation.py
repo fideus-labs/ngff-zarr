@@ -51,6 +51,93 @@ def _iter_nodes(
                 yield from _iter_nodes(child, f"{location}.nodes[{index}]")
 
 
+def _iter_coordinate_systems(
+    document: Mapping[str, Any],
+) -> Iterator[tuple[str, Mapping[str, Any]]]:
+    """Yield ``(location, system)`` for each declared coordinate system."""
+    for location, node in _iter_nodes(document, "ome"):
+        attributes = node.get("attributes")
+        if not isinstance(attributes, Mapping):
+            continue
+        systems = attributes.get("coordinateSystems")
+        if not isinstance(systems, list):
+            continue
+        for index, system in enumerate(systems):
+            if isinstance(system, Mapping):
+                yield (
+                    f"{location}.attributes.coordinateSystems[{index}]",
+                    system,
+                )
+
+
+def _iter_transform_reference_sites(
+    document: Mapping[str, Any],
+) -> Iterator[tuple[str, Any]]:
+    """Yield ``(location, value)`` for each transformation input/output.
+
+    Walks the top-level entries of every node's
+    ``attributes.coordinateTransformations``; the transforms wrapped inside a
+    sequence or bijection omit their references and are not walked.
+    """
+    for location, node in _iter_nodes(document, "ome"):
+        attributes = node.get("attributes")
+        if not isinstance(attributes, Mapping):
+            continue
+        transformations = attributes.get("coordinateTransformations")
+        if not isinstance(transformations, list):
+            continue
+        for index, transformation in enumerate(transformations):
+            if not isinstance(transformation, Mapping):
+                continue
+            base = f"{location}.attributes.coordinateTransformations[{index}]"
+            for field in ("input", "output"):
+                yield f"{base}.{field}", transformation.get(field)
+
+
+def _iter_path_sites(
+    document: Mapping[str, Any],
+) -> Iterator[tuple[str, Any]]:
+    """Yield ``(location, value)`` for every typed path in the document.
+
+    Covers each node's own ``path`` and the ``path`` of every reference
+    site, so an extension path type is judged the same wherever it appears.
+    """
+    for location, node in _iter_nodes(document, "ome"):
+        yield f"{location}.path", node.get("path")
+    for location, reference in _iter_transform_reference_sites(document):
+        if isinstance(reference, Mapping):
+            yield f"{location}.path", reference.get("path")
+
+
+def _iter_id_sites(
+    document: Mapping[str, Any],
+) -> Iterator[tuple[str, Any, bool]]:
+    """Yield ``(location, value, declared)`` for every id in the document.
+
+    Declared sites are node ids and coordinate-system ids, which share the
+    document-wide uniqueness namespace; reference sites reuse a declared id
+    and are checked for format only.
+    """
+    for location, node in _iter_nodes(document, "ome"):
+        if node.get("id") is not None:
+            yield f"{location}.id", node.get("id"), True
+    for location, system in _iter_coordinate_systems(document):
+        if system.get("id") is not None:
+            yield f"{location}.id", system.get("id"), True
+    for location, reference in _iter_transform_reference_sites(document):
+        if isinstance(reference, Mapping) and reference.get("id") is not None:
+            yield f"{location}.id", reference.get("id"), False
+
+
+def _declared_ids(document: Mapping[str, Any]) -> set[str]:
+    """The node and coordinate-system ids declared in the document."""
+    return {
+        value
+        for _, value, declared in _iter_id_sites(document)
+        if declared and isinstance(value, str)
+    }
+
+
 def _require_nonempty_str(
     document: Mapping[str, Any], key: str, rule: SpecRule
 ) -> None:
@@ -127,49 +214,50 @@ def validate_node_name_unique(document: Mapping[str, Any]) -> None:
 def validate_node_id_format(document: Mapping[str, Any]) -> None:
     """Validate that every declared node id matches ``[a-zA-Z0-9-_.]+``.
 
-    The id production is shared with references, so later RFC-8 stages
-    report reference ids under this same rule.
+    The id production is shared across the document: node ids,
+    coordinate-system ids, and the reference ids of transformation inputs
+    and outputs are all checked here.
 
     Raises
     ------
     ValidationError
-        With :attr:`SpecRule.NODE_ID_FORMAT` for the first node, in
-        depth-first order, whose ``id`` is not a match; location e.g.
-        ``ome.nodes[0].id``.
+        With :attr:`SpecRule.NODE_ID_FORMAT` for the first declared or
+        referenced ``id``, in depth-first order, that is not a match;
+        location e.g. ``ome.nodes[0].id``.
     """
-    for location, node in _iter_nodes(document, "ome"):
-        value = node.get("id")
-        if value is None:
-            continue
+    for location, value, _ in _iter_id_sites(document):
         if not isinstance(value, str) or not RFC8_ID_PATTERN.match(value):
             raise ValidationError(
                 SpecRule.NODE_ID_FORMAT,
                 f"Id {value!r} does not match [a-zA-Z0-9-_.]+.",
-                f"{location}.id",
+                location,
             )
 
 
 def validate_node_id_unique(document: Mapping[str, Any]) -> None:
-    """Validate that ids are unique within the JSON document.
+    """Validate that declared ids are unique within the JSON document.
+
+    Node ids and coordinate-system ids share the namespace; the reference
+    ids of transformation inputs and outputs reuse a declared id and are
+    exempt.
 
     Raises
     ------
     ValidationError
-        With :attr:`SpecRule.NODE_ID_UNIQUE` for the first node, in
-        depth-first order, whose ``id`` repeats an earlier one; location
-        e.g. ``ome.nodes[3].id``.
+        With :attr:`SpecRule.NODE_ID_UNIQUE` for the first declared ``id``,
+        node ids first then coordinate-system ids, that repeats an earlier
+        one; location e.g. ``ome.nodes[3].id``.
     """
     seen: set[str] = set()
-    for location, node in _iter_nodes(document, "ome"):
-        value = node.get("id")
-        if not isinstance(value, str):
+    for location, value, declared in _iter_id_sites(document):
+        if not declared or not isinstance(value, str):
             continue
         if value in seen:
             raise ValidationError(
                 SpecRule.NODE_ID_UNIQUE,
                 f"Id {value!r} is already used in this document; ids must "
                 f"be unique within the JSON document.",
-                f"{location}.id",
+                location,
             )
         seen.add(value)
 
@@ -223,8 +311,7 @@ def validate_path_type_known(document: Mapping[str, Any]) -> None:
         string, or an unprefixed identifier outside the core set; location
         e.g. ``ome.nodes[1].path.type``.
     """
-    for location, node in _iter_nodes(document, "ome"):
-        path = node.get("path")
+    for location, path in _iter_path_sites(document):
         if not isinstance(path, Mapping):
             continue
         value = path.get("type")
@@ -232,15 +319,98 @@ def validate_path_type_known(document: Mapping[str, Any]) -> None:
             raise ValidationError(
                 SpecRule.PATH_TYPE_KNOWN,
                 f"Path must declare a non-empty string 'type'; got {value!r}.",
-                f"{location}.path.type",
+                f"{location}.type",
             )
         if value in CORE_PATH_TYPES or is_prefixed_identifier(value):
             continue
         raise ValidationError(
             SpecRule.PATH_TYPE_KNOWN,
             f"Path type {value!r} is not 'zarr', 'json', or a prefixed extension type.",
-            f"{location}.path.type",
+            f"{location}.type",
         )
+
+
+def validate_coordinate_system_id_required(
+    document: Mapping[str, Any],
+) -> None:
+    """Validate that every declared coordinate system carries an ``id``.
+
+    RFC-8 references coordinate systems by id, so a system without one is
+    unreachable; the ``name`` becomes an optional label. Malformed ids are
+    reported by :func:`validate_node_id_format` instead.
+
+    Raises
+    ------
+    ValidationError
+        With :attr:`SpecRule.COORDINATE_SYSTEM_ID_REQUIRED` for the first
+        coordinate system, in depth-first order, without an ``id``; location
+        e.g. ``ome.nodes[0].attributes.coordinateSystems[1]``.
+    """
+    for location, system in _iter_coordinate_systems(document):
+        if system.get("id") is None:
+            raise ValidationError(
+                SpecRule.COORDINATE_SYSTEM_ID_REQUIRED,
+                "Coordinate system declares no 'id'; RFC-8 references "
+                "coordinate systems by id.",
+                location,
+            )
+
+
+def validate_reference_id_required(document: Mapping[str, Any]) -> None:
+    """Validate that transformation inputs and outputs are id references.
+
+    RFC-8 replaces the name-based RFC-5 identifiers: each top-level
+    transformation's ``input`` and ``output`` must be an object carrying an
+    ``id``.
+
+    Raises
+    ------
+    ValidationError
+        With :attr:`SpecRule.REFERENCE_ID_REQUIRED` for the first
+        transformation ``input``/``output``, in depth-first order, that is
+        absent, not an object, or without an ``id``; location e.g.
+        ``ome.nodes[0].attributes.coordinateTransformations[0].input``.
+    """
+    for location, reference in _iter_transform_reference_sites(document):
+        if not isinstance(reference, Mapping) or reference.get("id") is None:
+            raise ValidationError(
+                SpecRule.REFERENCE_ID_REQUIRED,
+                "Transformation reference must be an object with an 'id'.",
+                location,
+            )
+
+
+def validate_reference_path_required(document: Mapping[str, Any]) -> None:
+    """Validate that unresolved references carry a ``path``.
+
+    A reference whose ``id`` is declared in this document (as a node id or a
+    coordinate-system id) is internal; any other reference is external, and
+    RFC-8 requires external references to locate their document with a
+    ``path``. What the path points at is not resolved here.
+
+    Raises
+    ------
+    ValidationError
+        With :attr:`SpecRule.REFERENCE_PATH_REQUIRED` for the first
+        transformation reference, in depth-first order, whose ``id``
+        resolves to nothing in-document and that carries no ``path``;
+        location e.g.
+        ``ome.nodes[0].attributes.coordinateTransformations[0].output``.
+    """
+    declared = _declared_ids(document)
+    for location, reference in _iter_transform_reference_sites(document):
+        if not isinstance(reference, Mapping):
+            continue
+        value = reference.get("id")
+        if not isinstance(value, str) or value in declared:
+            continue
+        if reference.get("path") is None:
+            raise ValidationError(
+                SpecRule.REFERENCE_PATH_REQUIRED,
+                f"Reference id {value!r} is not declared in this document, "
+                f"so the reference must carry a 'path'.",
+                location,
+            )
 
 
 #: The RFC-8 rules in canonical evaluation order (the SpecRule declaration
@@ -253,6 +423,9 @@ _COLLECTION_RULES = (
     validate_node_id_unique,
     validate_node_nodes_xor_path,
     validate_path_type_known,
+    validate_coordinate_system_id_required,
+    validate_reference_id_required,
+    validate_reference_path_required,
 )
 
 
