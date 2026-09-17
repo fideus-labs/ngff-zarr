@@ -18,6 +18,26 @@ export {
   type FromOmeZarrOptions,
   type MemoryStore,
 } from "./io/from_ngff_zarr-browser.ts";
+export {
+  browserCollectionIo,
+  fromCollectionJson,
+  fromCollectionZarr,
+  loadCollectionNode,
+} from "./io/from_collection_zarr-browser.ts";
+export type { FromCollectionOptions } from "./io/from_collection_zarr-browser.ts";
+export {
+  documentBase,
+  nodeDocumentOrThrow,
+  nodeFromOmeDict,
+  nodeToOmeDict,
+  OME_ROOT_KEYS,
+  parseCollectionJsonDocument,
+  parseCollectionRootAttrs,
+  resolveLocation,
+  resolveOmeDocument,
+  toCollectionJsonDocument,
+} from "./io/collection_common.ts";
+export type { CollectionIo, LoadedNode } from "./io/collection_common.ts";
 // ITK-Wasm conversion utilities
 export {
   itkImageToNgffImage,
@@ -66,6 +86,14 @@ export {
   toOmeZarrOzx,
   type ToOmeZarrOzxOptions,
 } from "./io/to_ngff_zarr-browser.ts";
+export {
+  toCollectionJson,
+  toCollectionZarr,
+} from "./io/to_collection_zarr-browser.ts";
+export type {
+  ToCollectionJsonOptions,
+  ToCollectionOptions,
+} from "./io/to_collection_zarr-browser.ts";
 // upgradeOmeZarr: spec-version upgrade (in-place metadata rewrite or
 // write-to-new-store). In the browser only MemoryStore inputs/outputs are
 // supported; in-place upgrade of a local *path* store is Node/Deno-only.
@@ -84,9 +112,17 @@ export * from "./schemas/zarr_metadata.ts";
 export * from "./types/array_interface.ts";
 export * from "./types/methods.ts";
 export * from "./types/multiscales.ts";
+export * from "./types/rfc8.ts";
 export * from "./types/ngff_image.ts";
 export * from "./types/units.ts";
 export * from "./types/zarr_metadata.ts";
+export {
+  OmeNodeDocumentSchema,
+  OmeNodeSchema,
+  OmePathSchema,
+  ReferenceSchema,
+  Rfc8IdSchema,
+} from "./schemas/rfc8.ts";
 export type { CodecName, ZarrCodec } from "./utils/codecs.ts";
 export {
   AVAILABLE_CODECS,
@@ -127,6 +163,18 @@ export {
   createNgffMultiscales,
 } from "./utils/factory.ts";
 export { getMethodMetadata } from "./utils/method_metadata.ts";
+export {
+  CORE_PATH_TYPES,
+  validateCollection,
+  validateNodeIdFormat,
+  validateNodeIdUnique,
+  validateNodeNameRequired,
+  validateNodeNameUnique,
+  validateNodeNodesXorPath,
+  validateNodeTypeRequired,
+  validatePathTypeKnown,
+  XOR_NODE_TYPES,
+} from "./utils/rfc8_validation.ts";
 export {
   SpecRule,
   type ValidateOptions,

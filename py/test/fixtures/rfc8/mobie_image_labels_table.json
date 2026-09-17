@@ -1,0 +1,47 @@
+{
+    "ome": {
+        "id": "7fa2f064-62c5-4d55-9e6c-25acc1aa3a31",
+        "type": "collection",
+        "name": "em_labels_table",
+        "version": "0.9.dev3",
+        "nodes": [
+            {
+                "id": "e4f1e2ee-a52f-46b5-ae1a-543e689cecad",
+                "type": "multiscale",
+                "name": "image",
+                "path": {
+                    "type": "zarr",
+                    "path": "https://s3.embl.de/i2k-2020/platy-raw.ome.zarr"
+                },
+                "attributes": {}
+            },
+            {
+                "id": "5e6979ce-915f-480e-bc4a-695713402968",
+                "type": "multiscale",
+                "name": "labels",
+                "path": {
+                    "type": "zarr",
+                    "path": "https://s3.embl.de/i2k-2020/platy-raw.ome.zarr/labels/cells"
+                },
+                "attributes": {
+                    "mobie:labels_table": {
+                        "ref": "e4f1e2ee-a52f-46b5-ae1a-543e689cecad",
+                        "path": {
+                            "type": "google-sheet",
+                            "path": "https://docs.google.com/spreadsheets/d/1xZ4Zfpg0RUwhPZVCUrX_whB0QGztLN_VVNLx89_rZs4/edit?gid=890359520#gid=890359520"
+                        }
+                    }
+                }
+            },
+            {
+                "id": "5e6979ce-915f-480e-bc4a-695713402969",
+                "type": "mobie:spots_table",
+                "name": "spots",
+                "path": {
+                    "type": "google-sheet",
+                    "path": "https://docs.google.com/spreadsheets/d/1xZ4Zfpg0RUwhPZVCUrX_whB0QGztLN_VVNLx89_rZs4/edit?gid=1367078606#gid=1367078606"
+                }
+            }
+        ]
+    }
+}

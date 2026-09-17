@@ -11,7 +11,11 @@ import type { AxisUnit } from "../types/units.ts";
 import type { Metadata, Omero } from "../types/zarr_metadata.ts";
 import { extractMethodMetadata } from "../utils/parse_metadata.ts";
 import { fromZarrAttrsV06 } from "../utils/from_zarr_attrs.ts";
-import { isV06Version, NgffVersion } from "../types/supported_versions.ts";
+import {
+  type ImageVersion,
+  isV06Version,
+  NgffVersion,
+} from "../types/supported_versions.ts";
 
 export type { ChunkCache } from "../utils/worker_pool.ts";
 
@@ -19,7 +23,7 @@ export interface FromOmeZarrOptions {
   /** Enable schema validation of OME-Zarr metadata. */
   validate?: boolean;
   /** Expected OME-Zarr version. */
-  version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
+  version?: ImageVersion;
   /**
    * Optional decoded-chunk cache passed to `zarrGet` calls.
    *
@@ -102,6 +106,21 @@ export async function fromOmeZarr(
       omeForVersion && typeof omeForVersion.version === "string"
         ? omeForVersion.version
         : undefined;
+    // RFC-8: at 0.9.dev3 the root `ome` value is a typed node document, not
+    // a multiscales wrapper, so neither delegate below can parse it; without
+    // this guard the store would die on the generic no-multiscales error
+    // instead of naming the collection reader.
+    if (onDiskVersion === NgffVersion.V09dev3) {
+      const nodeType = omeForVersion?.type;
+      throw new Error(
+        `The input is an OME-Zarr 0.9.dev3 store whose root is a ` +
+          `'${nodeType}' node. 0.9.dev3 stores the RFC-8 node model in ` +
+          `place of the multiscales metadata; use fromCollectionZarr() to ` +
+          `read it. fromOmeZarr() reads multiscale image stores written at ` +
+          `earlier versions.`,
+      );
+    }
+
     // 0.9.dev1 carries the same coordinateSystems layout as v0.6, so it reads
     // through the same delegate. Without this the store falls through to the
     // v0.4/v0.5 parser below, which expects a flat `axes` entry and cannot read

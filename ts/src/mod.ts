@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 export { config, setWorkerPoolSize } from "./config.ts";
+export * from "./io/collection_common.ts";
+export * from "./io/from_collection_zarr.ts";
 export * from "./io/from_ngff_zarr.ts";
 export * from "./io/hcs.ts";
 export * from "./io/itk_image_to_ngff_image.ts";
@@ -18,6 +20,7 @@ export {
   readOzxJsonFirst,
   readOzxVersion,
 } from "./io/rfc9_zip.ts";
+export * from "./io/to_collection_zarr.ts";
 export * from "./io/to_ngff_zarr.ts";
 // upgradeOmeZarr: spec-version upgrade (in-place metadata rewrite or
 // write-to-new-store). In-place upgrade of a local *path* store is Node/Deno-
@@ -32,6 +35,7 @@ export * from "./process/to_multiscales-node.ts";
 export * from "./schemas/methods.ts";
 export * from "./schemas/multiscales.ts";
 export * from "./schemas/ngff_image.ts";
+export * from "./schemas/rfc8.ts";
 export * from "./schemas/units.ts";
 export * from "./schemas/zarr_metadata.ts";
 export * from "./types/array_interface.ts";
@@ -40,6 +44,7 @@ export * from "./types/methods.ts";
 export * from "./types/multiscales.ts";
 export * from "./types/ngff_image.ts";
 export * from "./types/rfc4.ts";
+export * from "./types/rfc8.ts";
 export * from "./types/supported_versions.ts";
 export * from "./types/units.ts";
 export * from "./types/zarr_metadata.ts";
@@ -99,6 +104,18 @@ export {
   extractMethodMetadata,
   parseOmero,
 } from "./utils/parse_metadata.ts";
+export {
+  CORE_PATH_TYPES,
+  validateCollection,
+  validateNodeIdFormat,
+  validateNodeIdUnique,
+  validateNodeNameRequired,
+  validateNodeNameUnique,
+  validateNodeNodesXorPath,
+  validateNodeTypeRequired,
+  validatePathTypeKnown,
+  XOR_NODE_TYPES,
+} from "./utils/rfc8_validation.ts";
 export {
   SpecRule,
   type ValidateOptions,

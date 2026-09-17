@@ -292,6 +292,15 @@ def _validate_ngff_parameters(
     if isinstance(version, str):
         version = NgffVersion(version)
 
+    if version == NgffVersion.V09dev3:
+        raise ValueError(
+            'version="0.9.dev3" stores the RFC-8 node model in place of the '
+            "multiscales metadata; writing images at 0.9.dev3 is not "
+            "implemented yet (issue #714). Write the image at 0.9.dev1 and "
+            "reference it from a 0.9.dev3 collection with "
+            "to_collection_zarr()."
+        )
+
     if version not in [
         NgffVersion.V04,
         NgffVersion.V05,

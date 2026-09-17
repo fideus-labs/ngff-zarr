@@ -43,6 +43,12 @@ supported by `ngff-zarr`.
   of axes. It is opt-in: pass `version="0.9.dev1"` explicitly, the default
   target is unchanged. The schemas of the `0.9.dev1` release are bundled, so
   `validate=True` checks a store at that version as it does at any other.
+- **OME-Zarr 0.9.dev3**: The development version that adopts
+  [RFC-8 collections](./rfc8.md). Collection documents are read and written
+  (`from_collection_zarr` / `to_collection_zarr` and the standalone-JSON
+  equivalents); the RFC-8 image (multiscale node) model is not implemented
+  yet, so images are written at `0.9.dev1` and referenced from `0.9.dev3`
+  collections.
 
 ## High Content Screening (HCS)
 

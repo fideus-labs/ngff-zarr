@@ -35,6 +35,7 @@ A lean and kind
   stay readable by zarr-python 2 and 3, and 0.5+ (Zarr v3) by zarr-python 3
 - [Anatomical orientation metadata](./rfc4.md) (RFC-4)
 - [Coordinate systems and transformations](./rfc5.md) (RFC-5)
+- [Collections and extensibility](./rfc8.md) (RFC-8, in progress)
 - **OME-Zarr Zip (.ozx) file support** for single-file OME-Zarr datasets (RFC-9)
 - **High Content Screening (HCS) support** for plate and well data
 - **TIFF/OME-TIFF support** with automatic metadata extraction and multi-series conversion
@@ -52,6 +53,7 @@ cli.md
 mcp.md
 rfc4.md
 rfc5.md
+rfc8.md
 hcs.md
 spec_features.md
 itk.md

@@ -1,0 +1,347 @@
+{
+  "$comment": "Shared RFC-8 validation cases consumed by both py/test/test_rfc8_validation.py and ts/test/rfc8_validation_test.ts. The message and location strings pin the cross-language byte contract: both ports must raise them verbatim. A case without a version validates with no declared version (the strict default).",
+  "cases": [
+    {
+      "name": "minimal collection with empty nodes",
+      "ome": {
+        "type": "collection",
+        "name": "c",
+        "nodes": []
+      },
+      "version": "0.9.dev3",
+      "ok": true
+    },
+    {
+      "name": "collection referencing its nodes by path",
+      "ome": {
+        "type": "collection",
+        "name": "c",
+        "path": {
+          "type": "json",
+          "path": "./nodes.json"
+        }
+      },
+      "version": "0.9.dev3",
+      "ok": true
+    },
+    {
+      "name": "prefixed extension path type passes as opaque",
+      "ome": {
+        "type": "collection",
+        "name": "c",
+        "nodes": [
+          {
+            "type": "mobie:spots_table",
+            "name": "spots",
+            "path": {
+              "type": "myorg:sheet",
+              "path": "./spots"
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "ok": true
+    },
+    {
+      "name": "names may repeat across sibling collections",
+      "ome": {
+        "type": "collection",
+        "name": "c",
+        "nodes": [
+          {
+            "type": "collection",
+            "name": "a",
+            "nodes": [
+              {
+                "type": "multiscale",
+                "name": "img"
+              }
+            ]
+          },
+          {
+            "type": "collection",
+            "name": "b",
+            "nodes": [
+              {
+                "type": "multiscale",
+                "name": "img"
+              }
+            ]
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "ok": true
+    },
+    {
+      "name": "a non-collection node may carry neither nodes nor path",
+      "ome": {
+        "type": "collection",
+        "name": "c",
+        "nodes": [
+          {
+            "type": "multiscale",
+            "name": "img"
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "ok": true
+    },
+    {
+      "name": "the rules are inert when an earlier version is declared",
+      "ome": {
+        "type": "collection",
+        "nodes": [
+          {
+            "type": "multiscale",
+            "name": "a",
+            "id": "dup"
+          },
+          {
+            "type": "multiscale",
+            "name": "a",
+            "id": "dup"
+          }
+        ]
+      },
+      "version": "0.6",
+      "ok": true
+    },
+    {
+      "name": "missing type on the root node",
+      "ome": {
+        "name": "c",
+        "nodes": []
+      },
+      "rule": "node-type-required",
+      "message": "Spec rule [node-type-required] violated: Node must declare a non-empty string 'type'; got None.",
+      "location": "ome"
+    },
+    {
+      "name": "empty type string",
+      "ome": {
+        "type": "",
+        "name": "c",
+        "nodes": []
+      },
+      "version": "0.9.dev3",
+      "rule": "node-type-required",
+      "message": "Spec rule [node-type-required] violated: Node must declare a non-empty string 'type'; got ''.",
+      "location": "ome"
+    },
+    {
+      "name": "non-string type on a child node",
+      "ome": {
+        "type": "collection",
+        "name": "c",
+        "nodes": [
+          {
+            "type": 5,
+            "name": "img"
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "node-type-required",
+      "message": "Spec rule [node-type-required] violated: Node must declare a non-empty string 'type'; got 5.",
+      "location": "ome.nodes[0]"
+    },
+    {
+      "name": "missing name on the root node",
+      "ome": {
+        "type": "collection",
+        "nodes": []
+      },
+      "version": "0.9.dev3",
+      "rule": "node-name-required",
+      "message": "Spec rule [node-name-required] violated: Node must declare a non-empty string 'name'; got None.",
+      "location": "ome"
+    },
+    {
+      "name": "empty name on a child node",
+      "ome": {
+        "type": "collection",
+        "name": "c",
+        "nodes": [
+          {
+            "type": "multiscale",
+            "name": ""
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "node-name-required",
+      "message": "Spec rule [node-name-required] violated: Node must declare a non-empty string 'name'; got ''.",
+      "location": "ome.nodes[0]"
+    },
+    {
+      "name": "sibling nodes sharing a name",
+      "ome": {
+        "type": "collection",
+        "name": "c",
+        "nodes": [
+          {
+            "type": "multiscale",
+            "name": "img"
+          },
+          {
+            "type": "multiscale",
+            "name": "img"
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "node-name-unique",
+      "message": "Spec rule [node-name-unique] violated: Node name 'img' is repeated; node names must be unique within the enclosing collection.",
+      "location": "ome.nodes[1]"
+    },
+    {
+      "name": "id with characters outside the production",
+      "ome": {
+        "type": "collection",
+        "name": "c",
+        "id": "a b",
+        "nodes": []
+      },
+      "version": "0.9.dev3",
+      "rule": "node-id-format",
+      "message": "Spec rule [node-id-format] violated: Id 'a b' does not match [a-zA-Z0-9-_.]+.",
+      "location": "ome.id"
+    },
+    {
+      "name": "non-string id",
+      "ome": {
+        "type": "collection",
+        "name": "c",
+        "nodes": [
+          {
+            "type": "multiscale",
+            "name": "img",
+            "id": 7
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "node-id-format",
+      "message": "Spec rule [node-id-format] violated: Id 7 does not match [a-zA-Z0-9-_.]+.",
+      "location": "ome.nodes[0].id"
+    },
+    {
+      "name": "id repeated across the document",
+      "ome": {
+        "type": "collection",
+        "name": "c",
+        "id": "n1",
+        "nodes": [
+          {
+            "type": "collection",
+            "name": "sub",
+            "nodes": [
+              {
+                "type": "multiscale",
+                "name": "img",
+                "id": "n1"
+              }
+            ]
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "node-id-unique",
+      "message": "Spec rule [node-id-unique] violated: Id 'n1' is already used in this document; ids must be unique within the JSON document.",
+      "location": "ome.nodes[0].nodes[0].id"
+    },
+    {
+      "name": "collection declaring both nodes and path",
+      "ome": {
+        "type": "collection",
+        "name": "c",
+        "nodes": [],
+        "path": {
+          "type": "json",
+          "path": "./nodes.json"
+        }
+      },
+      "version": "0.9.dev3",
+      "rule": "node-nodes-xor-path",
+      "message": "Spec rule [node-nodes-xor-path] violated: Node declares both 'nodes' and 'path'; exactly one must be present.",
+      "location": "ome"
+    },
+    {
+      "name": "collection declaring neither nodes nor path",
+      "ome": {
+        "type": "collection",
+        "name": "c"
+      },
+      "version": "0.9.dev3",
+      "rule": "node-nodes-xor-path",
+      "message": "Spec rule [node-nodes-xor-path] violated: Node declares neither 'nodes' nor 'path'; exactly one must be present.",
+      "location": "ome"
+    },
+    {
+      "name": "path without a type",
+      "ome": {
+        "type": "collection",
+        "name": "c",
+        "nodes": [
+          {
+            "type": "multiscale",
+            "name": "img",
+            "path": {
+              "path": "./img.zarr"
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "path-type-known",
+      "message": "Spec rule [path-type-known] violated: Path must declare a non-empty string 'type'; got None.",
+      "location": "ome.nodes[0].path.type"
+    },
+    {
+      "name": "unprefixed path type outside the core set",
+      "ome": {
+        "type": "collection",
+        "name": "c",
+        "nodes": [
+          {
+            "type": "multiscale",
+            "name": "img",
+            "path": {
+              "type": "google-sheet",
+              "path": "./sheet"
+            }
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "path-type-known",
+      "message": "Spec rule [path-type-known] violated: Path type 'google-sheet' is not 'zarr', 'json', or a prefixed extension type.",
+      "location": "ome.nodes[0].path.type"
+    },
+    {
+      "name": "name uniqueness reported before the id format",
+      "ome": {
+        "type": "collection",
+        "name": "c",
+        "nodes": [
+          {
+            "type": "multiscale",
+            "name": "img",
+            "id": "bad id"
+          },
+          {
+            "type": "multiscale",
+            "name": "img"
+          }
+        ]
+      },
+      "version": "0.9.dev3",
+      "rule": "node-name-unique",
+      "message": "Spec rule [node-name-unique] violated: Node name 'img' is repeated; node names must be unique within the enclosing collection.",
+      "location": "ome.nodes[1]"
+    }
+  ]
+}

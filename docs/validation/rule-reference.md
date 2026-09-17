@@ -24,10 +24,12 @@ across the Python and TypeScript ports — see [[parity]] for the guarantee. Mos
 rules enforce OME-Zarr v0.4 MUSTs; the two v0.5 namespacing rules
 (`zarr-format`, `ome-namespace`) fire only for v0.5 metadata and are inert (a
 no-op) for v0.4. The three RFC 4 orientation rules (9–11) are normative from
-OME-Zarr 0.9.dev1, which incorporates RFC-4 through `ome/ngff-spec#190`: they are
-inert when the caller declares 0.4, 0.5 or 0.6, where RFC 4 has no normative
-status, and stay on when no version is declared — a strictness choice, like
-`axis-names-unique` below 0.9.dev1. For the conceptual background and the two
+OME-Zarr 0.9.dev1, which incorporates RFC-4 through `ome/ngff-spec#190` (and
+from 0.9.dev3, which extends it): they are inert when the caller declares 0.4,
+0.5 or 0.6, where RFC 4 has no normative status, and stay on when no version
+is declared — a strictness choice, like `axis-names-unique` below 0.9.dev1.
+The seven RFC 8 node/collection rules (16–22) are normative from OME-Zarr
+0.9.dev3, the version that stores the RFC-8 node model. For the conceptual background and the two
 validation levels, see [[overview]]; for invocation, see [[api]].
 
 Location strings are dotted-segment, JSON-Pointer-style identifiers of the
@@ -55,6 +57,13 @@ the `SpecRule` enum declares them and the orchestrators evaluate them.
 | 13| `ome-namespace` | images/multiscales (v0.5) | A v0.5 entry must not retain a group-level `ome` or `multiscales` wrapper key — the `ome` namespace wraps the group attributes, not each entry. Inert for v0.4. | v0.5: multiscales live under the top-level `ome` namespace, with `version` hoisted to `ome.version`. | `multiscales[0]` |
 | 14| `plate-row-index-consistency` | HCS plate | Each well's `path` is `<row>/<column>`, naming declared row/column entries, with `rowIndex`/`columnIndex` equal to those entries' positions. | v0.4: well `rowIndex`/`columnIndex` match the named row/column positions in `plate.rows`/`plate.columns`. | `plate.wells[3]` |
 | 15| `well-acquisition-missing` | HCS well | When the plate declares more than one acquisition, every well image references one via `acquisition`. | v0.4: with multiple acquisitions, each well image references an acquisition. | `well.images[0].acquisition` |
+| 16| `node-type-required` | RFC-8 nodes | Every node of a 0.9.dev3 document declares a non-empty string `type`. Enforced when the document declares 0.9.dev3 or no version; inert below. | RFC-8 (normative from 0.9.dev3): a node's `type` MUST be a string identifying the node type. | `ome.nodes[1]` |
+| 17| `node-name-required` | RFC-8 nodes | Every node declares a non-empty string `name` for human-readable display. Same gating as rule 16. | RFC-8: a node's `name` MUST be a non-empty string. | `ome.nodes[1]` |
+| 18| `node-name-unique` | RFC-8 nodes | Sibling nodes within one collection carry distinct names; nodes of different collections may share one. Same gating as rule 16. | RFC-8: names MUST be unique within the enclosing collection. | `ome.nodes[2]` |
+| 19| `node-id-format` | RFC-8 nodes | Every declared `id` (node ids today, reference ids when references land) matches `[a-zA-Z0-9-_.]+`. Same gating as rule 16. | RFC-8: an id MUST be a string matching `[a-zA-Z0-9-_.]+`. | `ome.nodes[0].id` |
+| 20| `node-id-unique` | RFC-8 nodes | Ids are unique within the JSON document (path-referenced nodes live in their own documents). Same gating as rule 16. | RFC-8: ids MUST be unique within the JSON document. | `ome.nodes[3].id` |
+| 21| `node-nodes-xor-path` | RFC-8 collections | A collection carries exactly one of `nodes` and `path`; unknown and extension node types are exempt. Same gating as rule 16. | RFC-8: either `nodes` or `path` MUST be present on a collection, but not both. | `ome.nodes[1]` |
+| 22| `path-type-known` | RFC-8 paths | A path `type` is `zarr`, `json`, or a prefixed extension identifier (`prefix:name`), which passes as opaque. Same gating as rule 16. | RFC-8: unprefixed path types are reserved for the core specification, which defines `zarr` and `json`. | `ome.nodes[1].path.type` |
 
 ## Evaluation order and orchestrators
 
@@ -79,10 +88,17 @@ rules:
   (`plate-row-index-consistency`).
 - **`validate_well` / `validateWell`** evaluates rule **15**
   (`well-acquisition-missing`), in the context of its parent plate.
+- **`validate_collection` / `validateCollection`** evaluates rules **16–22**
+  (the RFC-8 node/collection rules) against the raw `ome` document of an
+  OME-Zarr 0.9.dev3 store or standalone JSON file, walking the node tree
+  depth-first once per rule. The rules are enforced when the document
+  declares 0.9.dev3 or no version, and inert when an earlier version is
+  declared (RFC-8 lands at 0.9.dev3; see `is_rfc8_node_model`).
 
-The two HCS rules (14 and 15) are deliberately absent from the image
-orchestrator's order; they operate on separate metadata objects. The exact
-fail-fast sequence is locked by the parity tests described in [[parity]].
+The HCS rules (14 and 15) and the RFC-8 rules (16–22) are deliberately absent
+from the image orchestrator's order; they operate on separate metadata
+objects. The exact fail-fast sequence is locked by the parity tests described
+in [[parity]].
 
 A fourth dispatcher sits on the write path: `_gate_axis_model` /
 `gateAxisModel` refuses to serialize an axis model the target version cannot
@@ -107,3 +123,7 @@ TypeScript by checking the target version in `axisViews`.
 - **v0.5 namespacing** — `zarr-format`, `ome-namespace` (inert for v0.4).
 - **HCS plate / well** — `plate-row-index-consistency`,
   `well-acquisition-missing`.
+- **RFC 8 nodes / collections** (normative from 0.9.dev3) —
+  `node-type-required`, `node-name-required`, `node-name-unique`,
+  `node-id-format`, `node-id-unique`, `node-nodes-xor-path`,
+  `path-type-known`.

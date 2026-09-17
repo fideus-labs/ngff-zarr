@@ -3,7 +3,11 @@
 import * as zarr from "zarrita";
 
 import { NgffMultiscales } from "../types/multiscales.ts";
-import { isV06Version, NgffVersion } from "../types/supported_versions.ts";
+import {
+  type ImageVersion,
+  isV06Version,
+  NgffVersion,
+} from "../types/supported_versions.ts";
 import {
   fromZarrAttrsV04,
   fromZarrAttrsV05,
@@ -21,7 +25,7 @@ export interface FromOmeZarrOptions {
   /** Enable schema validation of OME-Zarr metadata. */
   validate?: boolean;
   /** Expected OME-Zarr version. */
-  version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
+  version?: ImageVersion;
   /**
    * Optional decoded-chunk cache passed to `zarrGet` calls.
    *
@@ -119,6 +123,25 @@ export async function fromOmeZarr(
     const multiscalesSource = hasOmeWrapper
       ? (rootAttrs.ome as Record<string, unknown>)
       : rootAttrs;
+
+    // RFC-8: at 0.9.dev3 the root `ome` value is a typed node document, not
+    // a multiscales wrapper, so the multiscales readers below cannot parse
+    // it; without this guard the store would die on the generic no-multiscales
+    // error instead of naming the collection reader.
+    if (
+      hasOmeWrapper &&
+      (rootAttrs.ome as Record<string, unknown>).version ===
+        NgffVersion.V09dev3
+    ) {
+      const nodeType = (rootAttrs.ome as Record<string, unknown>).type;
+      throw new Error(
+        `The input is an OME-Zarr 0.9.dev3 store whose root is a ` +
+          `'${nodeType}' node. 0.9.dev3 stores the RFC-8 node model in ` +
+          `place of the multiscales metadata; use fromCollectionZarr() to ` +
+          `read it. fromOmeZarr() reads multiscale image stores written at ` +
+          `earlier versions.`,
+      );
+    }
 
     if (!multiscalesSource.multiscales) {
       throw new Error("No multiscales metadata found in Zarr store");

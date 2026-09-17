@@ -79,6 +79,18 @@ from .rfc4 import (
     orientation_from_name,
     remove_anatomical_orientation_from_axis,
 )
+from .rfc8 import (
+    Collection,
+    NgffCollection,
+    Node,
+    OmePath,
+    Reference,
+    from_collection_json,
+    from_collection_zarr,
+    to_collection_json,
+    to_collection_zarr,
+    validate_collection,
+)
 from .rfc9_zip import (
     is_ozx_path,
     read_ozx_json_first,
@@ -200,6 +212,7 @@ __all__ = [
     "validate_structural",
     "validate_plate",
     "validate_well",
+    "validate_collection",
     "SpecRule",
     "ValidationLevel",
     "ValidateOptions",
@@ -225,6 +238,16 @@ __all__ = [
     "Omero",
     "OmeroChannel",
     "OmeroWindow",
+    # RFC 8 - Collections (OME-Zarr 0.9.dev3)
+    "OmePath",
+    "Reference",
+    "Node",
+    "Collection",
+    "NgffCollection",
+    "from_collection_zarr",
+    "from_collection_json",
+    "to_collection_zarr",
+    "to_collection_json",
     # HCS (High Content Screening)
     "Plate",
     "PlateAcquisition",

@@ -39,6 +39,7 @@ export {
 
 // Coordinate systems (RFC5)
 export * from "./coordinate_systems.ts";
+export * from "./rfc8.ts";
 
 // Zarr metadata schemas (with RFC4 integration)
 export {

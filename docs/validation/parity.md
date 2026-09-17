@@ -73,9 +73,17 @@ The canonical `SpecRule` set, in evaluation order:
 13. `ome-namespace`
 14. `plate-row-index-consistency`
 15. `well-acquisition-missing`
+16. `node-type-required`
+17. `node-name-required`
+18. `node-name-unique`
+19. `node-id-format`
+20. `node-id-unique`
+21. `node-nodes-xor-path`
+22. `path-type-known`
 
 Entries 12–13 are the v0.5 namespacing rules; they fire only for v0.5 metadata
-and are inert for v0.4. Each suite pins this list as a `CANONICAL_SPEC_RULE_IDS`
+and are inert for v0.4. Entries 16–22 are the RFC-8 node/collection rules,
+dispatched by the separate `validate_collection` orchestrator. Each suite pins this list as a `CANONICAL_SPEC_RULE_IDS`
 literal — byte-identical between the two languages so the tests are
 line-for-line comparable.
 
@@ -83,6 +91,7 @@ The versions that adopt the RFC-3 axis model are pinned the same way, as a
 `CANONICAL_RFC3_VERSIONS` literal:
 
 1. `0.9.dev1`
+2. `0.9.dev3`
 
 Rules 1–3 (and the spatial arm of 3) are inert at those versions and enforced
 at every other. Rule 4, `axis-names-unique`, is never inert: RFC-3 *adds* it,
@@ -93,10 +102,20 @@ The versions at which the RFC-4 orientation rules are normative are pinned the
 same way, as a `CANONICAL_RFC4_VERSIONS` literal:
 
 1. `0.9.dev1`
+2. `0.9.dev3`
 
 Rules 9–11 gate the opposite way from the RFC-3 set: they are enforced at
 those versions and when no version is given, and inert at every earlier
 version, where RFC-4 has no normative status (see [[rule-reference]]).
+
+The versions that store the RFC-8 node model are pinned as a
+`CANONICAL_RFC8_VERSIONS` literal:
+
+1. `0.9.dev3`
+
+Rules 16–22 gate like the RFC-4 set: enforced at those versions and when no
+version is given, inert at every other supported version, 0.9.dev1 included
+(RFC-8 lands at 0.9.dev3).
 
 ## The parity tests
 
@@ -133,13 +152,21 @@ Each suite independently locks:
   exactly the versions in `CANONICAL_RFC4_VERSIONS` (and when no version is
   given) and inert at every other supported version, asserted the same way,
   once per orientation rule.
+- **RFC-8 collection version set** — the node/collection rules are enforced
+  at exactly the versions in `CANONICAL_RFC8_VERSIONS` (and when no version
+  is given) and inert at every other supported version, asserted through
+  `validate_collection` / `validateCollection`.
 
-Four of the fifteen rules never appear in `EXPECTED_EVALUATION_ORDER`, each for
-its own reason. The two v0.5 namespacing rules (`zarr-format`, `ome-namespace`)
-run last in the image orchestrator but are inert for the v0.4 metadata the order
-test exercises. The two HCS rules (`plate-row-index-consistency`,
-`well-acquisition-missing`) are deliberately absent; they are dispatched by the
-separate plate/well orchestrators (see [[rule-reference]]).
+Eleven of the twenty-two rules never appear in `EXPECTED_EVALUATION_ORDER`,
+each for its own reason. The two v0.5 namespacing rules (`zarr-format`,
+`ome-namespace`) run last in the image orchestrator but are inert for the v0.4
+metadata the order test exercises. The two HCS rules
+(`plate-row-index-consistency`, `well-acquisition-missing`) and the seven
+RFC-8 rules (`node-type-required` through `path-type-known`) are deliberately
+absent; they are dispatched by the separate plate/well and collection
+orchestrators (see [[rule-reference]]), and the RFC-8 rules' own fail-fast
+order is pinned by the shared `rfc8_collection_cases.json` fixture both suites
+drive.
 
 ## Sanctioned TypeScript-only adaptations
 
