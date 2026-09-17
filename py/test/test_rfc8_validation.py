@@ -55,6 +55,9 @@ def test_every_rule_is_exercised_by_the_shared_cases():
         "label-value-required",
         "label-color-format",
         "scene-transformations-required",
+        "plate-columns-rows-required",
+        "well-reference-resolves",
+        "acquisition-reference-resolves",
     }
 
 
