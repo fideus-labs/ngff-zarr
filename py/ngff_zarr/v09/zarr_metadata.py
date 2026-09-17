@@ -251,7 +251,7 @@ class Metadata:
 
         if version == NgffVersion.V09dev1:
             return self
-        if version in (NgffVersion.V06, NgffVersion.V06dev4):
+        if version == NgffVersion.V06:
             return self._to_v06()
         if version == NgffVersion.V05:
             return self._to_v06()._to_v05()

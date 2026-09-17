@@ -83,14 +83,14 @@ if TYPE_CHECKING:
 def _normalize_target_version(version: str | NgffVersion) -> str:
     """Return the API version string (``"0.4"``/``"0.5"``/``"0.6"``/``"0.9.dev1"``).
 
-    Both the API alias ``"0.6"`` and the on-disk pre-release strings of the
-    0.6 family normalize to ``"0.6"`` so the value can be handed to
-    ``Metadata.to_version`` (which only knows the three released versions).
-    ``"0.9.dev1"`` needs no such collapse: unlike v0.6 it is itself the
-    on-disk string.
+    Accepts a :class:`NgffVersion` member or its value, so the result can be
+    handed to ``Metadata.to_version``. A 0.6 pre-release string such as
+    ``"0.6rc0"`` or ``"0.6.dev4"`` is not an accepted *target*: those are no
+    longer enum members, so ``NgffVersion(version)`` raises ``ValueError``.
+    They remain readable as a *source*, see ``_detect_version``.
     """
     nv = NgffVersion(version)
-    if nv in (NgffVersion.V06, NgffVersion.V06dev4, NgffVersion.V06rc0):
+    if nv == NgffVersion.V06:
         return "0.6"
     return nv.value
 
@@ -98,9 +98,10 @@ def _normalize_target_version(version: str | NgffVersion) -> str:
 def _ondisk_version_for(target_version: str) -> str:
     """The ``ome.version`` string a store written at ``target_version`` carries.
 
-    ``"0.4"`` and ``"0.5"`` are written as themselves; ``"0.6"`` is written as
-    the pre-release tag the bundled schemas carry, see
-    :data:`~ngff_zarr._supported_versions.V06_ONDISK_VERSION`.
+    Every version is written as itself; ``"0.6"`` goes through
+    :data:`~ngff_zarr._supported_versions.V06_ONDISK_VERSION` (``"0.6"`` since
+    the 0.6 release) so this stays the one place the 0.6 tag is chosen,
+    mirroring the TypeScript port's ``onDiskVersionFor``.
     """
     if target_version == "0.6":
         return V06_ONDISK_VERSION.value
@@ -188,11 +189,15 @@ def _read_source_version(store: StoreLike, storage_options: dict | None) -> str:
 
     ``from_ome_zarr`` always normalizes the metadata it returns to v0.6, so the
     original version cannot be recovered from the returned object. It is read
-    here straight from the root attributes.
+    here straight from the root attributes: the raw recorded tag when there is
+    one (so a ``0.6rc0`` store is reported as such rather than as the collapsed
+    ``0.6`` family), else the version ``_detect_version`` infers from the
+    layout.
     """
-    from .parse_metadata import _detect_version
+    from .parse_metadata import _detect_version, _ondisk_version
 
-    return _detect_version(_read_root_attrs(store, storage_options)).value
+    root_attrs = _read_root_attrs(store, storage_options)
+    return _ondisk_version(root_attrs) or _detect_version(root_attrs).value
 
 
 def _validate_target_version(target_version: str, requested: str | NgffVersion) -> None:
@@ -493,7 +498,7 @@ def upgrade_ome_zarr(
     :return: ``None``. The upgraded metadata is written to ``output`` (or, for an
         in-place upgrade, back to ``input``).
     """
-    from .parse_metadata import _detect_version
+    from .parse_metadata import _detect_version, _ondisk_version
 
     target_version = _normalize_target_version(version)
     _validate_target_version(target_version, version)
@@ -509,10 +514,13 @@ def upgrade_ome_zarr(
     same_store = _stores_are_same(input, output)
 
     # No-op: the store already carries the exact tag the target would write.
-    # Compared on the on-disk string rather than the API version, so a 0.6
-    # store tagged with an earlier pre-release is rewritten and its tag catches
-    # up with the vendored schemas, which is the only way to re-tag it.
-    if source_version == _ondisk_version_for(target_version) and same_store:
+    # Compared on the raw recorded string rather than on ``source_version``,
+    # which ``_detect_version`` collapses to the ``0.6`` family, so a store
+    # tagged ``0.6.dev4`` or ``0.6rc0`` is rewritten to ``0.6`` rather than
+    # silently skipped; this is the only way to re-tag it. Same check as the
+    # TypeScript port's ``(onDiskVersion(rootAttrs) ?? sourceVersion)``.
+    recorded_tag = _ondisk_version(root_attrs) or source_version
+    if recorded_tag == _ondisk_version_for(target_version) and same_store:
         # In-place no-op: leave the store bit-for-bit unchanged (no read, no
         # write). When an ``output`` is given for a same-version request we fall
         # through instead, so the user still gets their requested new store.

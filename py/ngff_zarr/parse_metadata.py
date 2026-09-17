@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 from typing import Union
 
-from ._supported_versions import NgffVersion
+from ._supported_versions import NgffVersion, is_v06_version
 from .methods import Methods
 from .v04.zarr_metadata import MethodMetadata, Omero, OmeroChannel, OmeroWindow
 
@@ -315,6 +315,30 @@ def _get_bioformats2raw_series(root) -> list:
     return image_paths
 
 
+def _ondisk_version(root_attrs: dict) -> str | None:
+    """The raw version string a store records, before any family collapsing.
+
+    ``ome.version`` (0.5+) if present, else the per-entry
+    ``multiscales[0].version`` (0.4), else ``None``. Unlike
+    :func:`_detect_version` a ``0.6`` pre-release tag such as ``0.6rc0`` is
+    returned as written, which is what a caller comparing the recorded tag
+    against the one a writer would produce needs. Twin of ``onDiskVersion`` in
+    the TypeScript port's ``upgrade_ome_zarr_common.ts``.
+    """
+    ome = root_attrs.get("ome")
+    if isinstance(ome, dict) and isinstance(ome.get("version"), str):
+        return ome["version"]
+    multiscales = root_attrs.get("multiscales")
+    if (
+        isinstance(multiscales, list)
+        and multiscales
+        and isinstance(multiscales[0], dict)
+        and isinstance(multiscales[0].get("version"), str)
+    ):
+        return multiscales[0]["version"]
+    return None
+
+
 def _detect_version(root_attrs: dict) -> NgffVersion:
     """Detect NGFF version from root attributes.
 
@@ -334,7 +358,7 @@ def _detect_version(root_attrs: dict) -> NgffVersion:
                 f"Root attributes keys: {list(root_attrs.keys())}"
             )
         # v0.5+ format has metadata under "ome" key
-        version_str = ome_value.get("version")
+        version_str = _ondisk_version(root_attrs)
         # If version is not specified in ome dict, default to 0.5
         # since the presence of "ome" key indicates v0.5+ format
         if version_str is None:
@@ -400,5 +424,12 @@ def _detect_version(root_attrs: dict) -> NgffVersion:
             )
 
         raise ValueError(error_msg)
+
+    # Any 0.6-family tag, the pre-release ``0.6.dev4`` and ``0.6rc0`` included,
+    # is read as v0.6: those strings are no longer ``NgffVersion`` members, and
+    # the v0.6 read path handles the whole family. Mirrors ``isV06Version`` in
+    # the TypeScript port's ``parse_metadata.ts``.
+    if is_v06_version(version_str):
+        return NgffVersion.V06
 
     return NgffVersion(version_str)

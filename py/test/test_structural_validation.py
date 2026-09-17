@@ -194,7 +194,7 @@ class _BackportStyleVersion(str):
     """
 
     def __str__(self) -> str:
-        return "NgffVersion.V06dev4"
+        return "NgffVersion.V06"
 
 
 def test_is_v06_version_accepts_enum_members_and_strings():
@@ -203,14 +203,15 @@ def test_is_v06_version_accepts_enum_members_and_strings():
     ``NgffVersion`` is a stdlib ``StrEnum`` from 3.11 and a ``str, Enum``
     backport below it. Only the former renders as its value under ``str()``,
     so a ``str()``-based check silently returns ``False`` for enum members on
-    3.10 -- the version the zarr-python 2 CI matrix runs.
+    3.10 -- the version the zarr-python 2 CI matrix runs. The 0.6 pre-release
+    tags are plain strings (no longer enum members) and still count as v0.6.
     """
     from ngff_zarr._supported_versions import NgffVersion, is_v06_version
 
     assert is_v06_version(NgffVersion.V06)
-    assert is_v06_version(NgffVersion.V06dev4)
     assert is_v06_version("0.6")
     assert is_v06_version("0.6.dev4")
+    assert is_v06_version("0.6rc0")
     assert not is_v06_version(NgffVersion.V05)
     assert not is_v06_version("0.4")
     assert not is_v06_version(NgffVersion.V09dev1)

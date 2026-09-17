@@ -705,14 +705,16 @@ def _root_ome_attrs(metadata_dict: dict, version: str) -> dict:
 
     Returns the ``ome``/``multiscales`` attribute mapping (hoisting ``omero``
     to its version-specific location) exactly as the writer persists it --
-    including mapping the API version ``"0.6"`` to the pre-release string
-    stored on disk (:data:`~ngff_zarr._supported_versions.V06_ONDISK_VERSION`). ``metadata_dict`` is mutated in place: its ``omero`` entry
-    is popped so it lives only in its hoisted location, matching historical
-    behavior.
+    including the ``ome.version`` tag for the API version ``"0.6"``, which is
+    taken from :data:`~ngff_zarr._supported_versions.V06_ONDISK_VERSION`
+    (``"0.6"`` since the 0.6 release) so the tag is chosen in one place.
+    ``metadata_dict`` is mutated in place: its ``omero`` entry is popped so it
+    lives only in its hoisted location, matching historical behavior.
     """
     if version != "0.4":
         # RFC 2, Zarr 3 - omero goes inside ome namespace
         if version == "0.6":
+            # The one place the 0.6 tag is chosen; see V06_ONDISK_VERSION.
             version = V06_ONDISK_VERSION.value
         ome_dict = {"version": version, "multiscales": [metadata_dict]}
         if "omero" in metadata_dict:
