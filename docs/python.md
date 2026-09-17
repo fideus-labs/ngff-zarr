@@ -251,8 +251,10 @@ To write an OME-Zarr dataset as a `.ozx` file, simply use the `.ozx` extension:
 >>> nz.to_ngff_zarr('cthead1.ozx', multiscales, version='0.5')
 ```
 
-All RFC-9 recommendations are followed. By default, `.ozx` files are written using OME-Zarr version 0.5 (Zarr v3 format), which is recommended for the ZIP-based format.
+All RFC-9 recommendations are followed. By default, `.ozx` files are written using OME-Zarr version 0.5. Any version stored in Zarr v3 can be zipped -- pass `version='0.6'` for the current release of the specification -- while OME-Zarr 0.4, which lives in Zarr v2, cannot be, and raises a `ValueError`.
 The OME-Zarr version is automatically embedded in the ZIP file comment for proper detection when reading.
+
+HCS plates can be written to `.ozx` as well; see [HCS support](./hcs.md#rfc-9-zipped-ome-zarr-ozx-support).
 
 ### Converting existing OME-Zarr stores to .ozx
 

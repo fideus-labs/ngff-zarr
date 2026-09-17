@@ -203,7 +203,8 @@ def write_store_to_zip(
     zip_path : str or Path
         Path to output .ozx file
     version : str, optional
-        OME-Zarr version string (e.g., "0.5")
+        OME-Zarr version string recorded in the ZIP comment (e.g., "0.5" or
+        "0.6"); it should match the version the store's metadata records.
     compression : int, optional
         ZIP compression method (default: ZIP_STORED for no compression)
 

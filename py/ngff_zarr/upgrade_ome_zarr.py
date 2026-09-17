@@ -45,11 +45,13 @@ from dataclasses import asdict
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
-import packaging.version
-
 from ._remote_reader import RemoteZarrStore, remote_read_available
 from ._store_types import StoreLike
-from ._supported_versions import V06_ONDISK_VERSION, NgffVersion
+from ._supported_versions import (
+    V06_ONDISK_VERSION,
+    NgffVersion,
+    _zarr_format_for_version,
+)
 from ._zarrista_utils import (
     _is_local_path,
     create_zarrista_array,
@@ -106,13 +108,6 @@ def _ondisk_version_for(target_version: str) -> str:
     if target_version == "0.6":
         return V06_ONDISK_VERSION.value
     return target_version
-
-
-def _zarr_format_for_version(version: str) -> int:
-    """OME-Zarr < 0.5 lives in Zarr v2; 0.5 and later live in Zarr v3."""
-    if packaging.version.parse(version) < packaging.version.parse("0.5"):
-        return 2
-    return 3
 
 
 def _store_fspath(store: StoreLike) -> Path | None:

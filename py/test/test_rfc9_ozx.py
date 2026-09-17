@@ -3,6 +3,7 @@
 """Tests for RFC-9: Zipped OME-Zarr (.ozx) support"""
 
 import json
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -555,3 +556,31 @@ def test_zip_read_store_is_a_context_manager(tmp_path):
         assert store["zarr.json"] == b"{}"
     with pytest.raises(ValueError):
         store["zarr.json"]
+
+
+@pytest.mark.parametrize("version", ["0.6", "0.9.dev1"])
+def test_write_ozx_at_versions_after_0_5(tmp_path, version):
+    """Any version stored in Zarr v3 can be zipped, not only 0.5 (GH #748).
+
+    The archive's ZIP comment records the version as written, and the
+    validated read path recognises it and returns the same pixel data.
+    """
+    data = np.arange(64 * 64, dtype=np.uint16).reshape(64, 64)
+    image = to_ngff_image(data=data, dims=("y", "x"), scale={"y": 0.5, "x": 0.5})
+    multiscales = to_multiscales(image, [2])
+    ozx_path = tmp_path / "image.ozx"
+
+    to_ngff_zarr(str(ozx_path), multiscales, version=version)
+
+    assert read_ozx_version(ozx_path) == version
+    with zipfile.ZipFile(ozx_path) as zf:
+        assert zf.namelist()[0] == "zarr.json"
+        root_attrs = json.loads(zf.read("zarr.json"))["attributes"]
+    assert root_attrs["ome"]["version"] == version
+
+    multiscales_read = from_ngff_zarr(str(ozx_path), validate=True)
+    # Read through the 0.6 model (0.9.dev1 shares it): coordinate systems,
+    # not the flat ``axes`` of 0.5.
+    assert multiscales_read.metadata.coordinateSystems
+    np.testing.assert_array_equal(multiscales_read.images[0].data.compute(), data)
+    _close_zipstore_handles(multiscales_read)

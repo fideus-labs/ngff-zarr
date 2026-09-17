@@ -46,7 +46,8 @@ supported by `ngff-zarr`.
 
 ## High Content Screening (HCS)
 
-Complete implementation of the HCS specification defined in OME-Zarr v0.4+:
+Complete implementation of the HCS specification defined in OME-Zarr v0.4+,
+read and written at versions 0.4, 0.5, and 0.6:
 
 - **Plate Metadata**: Support for plate-level metadata including rows, columns,
   wells, and acquisitions
@@ -54,8 +55,10 @@ Complete implementation of the HCS specification defined in OME-Zarr v0.4+:
   well
 - **Multi-field Imaging**: Support for multiple fields of view within each well
 - **Time Series**: Support for acquisition metadata and time series data
-- **Validation**: HCS-specific metadata validation using the appropriate JSON
-  schema
+- **Validation**: HCS-specific metadata validation using the plate and well
+  JSON schemas of the version the plate records
+- **Zipped plates**: Plates at the Zarr v3 versions (0.5 and 0.6) can be
+  written to and read from RFC-9 `.ozx` archives
 
 See the [HCS documentation](./hcs.md) for detailed usage examples and
 implementation details.
@@ -79,7 +82,8 @@ implementation details.
 
 [RFC-9](https://ngff.openmicroscopy.org/rfc/9/index.html) defines the OME-Zarr Zip (.ozx) format, which packages complete OME-Zarr hierarchies into single ZIP archives. Key features include:
 
-- **Portable Distribution**: Share entire multiscale datasets as single files
+- **Portable Distribution**: Share entire multiscale datasets, or whole HCS plates, as single files
+- **Any Zarr v3 version**: OME-Zarr 0.5 and 0.6 can be zipped; 0.4 (Zarr v2) cannot
 - **Version Detection**: OME-Zarr version stored in ZIP file comment for automatic format detection
 - **Lazy Remote Access**: Efficient HTTP byte-range requests for remote .ozx files
 - **Compression**: Individual files compressed within the ZIP archive
