@@ -6,8 +6,10 @@
 **coordinate transformations** — identity, scale, translation, rotation,
 affine, axis permutations, transformation sequences, per-dimension and
 invertible wrappers, and array-backed *displacement* and *coordinate* fields.
-This is the OME-Zarr v0.6 data model. `ngff-zarr` reads and writes it in both
-the Python and TypeScript packages.
+This is the OME-Zarr v0.6 data model. OME-Zarr 0.6 was released in September
+2026: see the [specification](https://ngff.openmicroscopy.org/0.6/) and the
+[release announcement](https://forum.image.sc/t/ngff-specification-0-6-released/122551).
+`ngff-zarr` reads and writes it in both the Python and TypeScript packages.
 
 ## Overview
 

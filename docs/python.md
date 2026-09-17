@@ -295,7 +295,7 @@ pip install "ngff-zarr[validate]"
 
 If the metadata does not follow the data model, an error will be raised.
 
-Metadata validation is supported for OME-Zarr version 0.1 to 0.5.
+Metadata validation is supported for OME-Zarr version 0.1 to 0.6.
 
 ## Write an OME-Zarr
 
