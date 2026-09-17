@@ -140,9 +140,8 @@ Deno.test("v0.6 write produces coordinate systems and sequence transforms", asyn
     version: string;
     multiscales: Array<Record<string, unknown>>;
   };
-  // The on-disk tag is the pre-release the bundled schemas carry, not the
-  // requested `"0.6"`.
-  assertEquals(ome.version, "0.6rc0");
+  // Since the 0.6 release the on-disk tag is the requested `"0.6"` itself.
+  assertEquals(ome.version, "0.6");
 
   const entry = ome.multiscales[0];
   // v0.6 carries axes inside coordinate systems, not at the entry level.
@@ -712,25 +711,30 @@ Deno.test("RFC-9 metadata drops a v0.6-only rotation but keeps a scale", async (
   assertEquals("output" in kept[0], false);
 });
 
-// --- OME-Zarr v0.6 pre-release version tag handling ---
+// --- OME-Zarr v0.6 version tag handling ---
 
-// Writing version "0.6" tags the store with the pre-release "0.6rc0" on disk
-// while keeping the in-memory metadata version at "0.6".
-Deno.test("v0.6 write tags the store 0.6rc0 but reads back as 0.6", async () => {
+// The historical pre-release tags earlier releases wrote into a 0.6 store.
+// Both stay readable through the `isV06Version` family check even though
+// neither is a supported version any more.
+const V06_PRERELEASE_TAGS = ["0.6.dev4", "0.6rc0"] as const;
+
+// Writing version "0.6" tags the store "0.6" on disk, the same string the
+// in-memory metadata version reads back as.
+Deno.test("v0.6 write tags the store 0.6 and reads back as 0.6", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.6" });
 
   const ome = readOmeAttributes(store) as { version: string };
-  assertEquals(ome.version, "0.6rc0");
+  assertEquals(ome.version, "0.6");
 
   const imported = await fromOmeZarr(store);
   assertEquals(imported.metadata.version, "0.6");
 });
 
 // Round-trip with an explicit requested version "0.6" and validation: the
-// pre-release "0.6rc0" on disk must satisfy the requested "0.6" (family match).
-Deno.test("v0.6 round-trip with validate accepts the 0.6rc0 on-disk tag", async () => {
+// "0.6" tag on disk satisfies the requested "0.6".
+Deno.test("v0.6 round-trip with validate accepts the 0.6 on-disk tag", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.6" });
@@ -740,8 +744,8 @@ Deno.test("v0.6 round-trip with validate accepts the 0.6rc0 on-disk tag", async 
   assertEquals(imported.images.length, multiscales.images.length);
 });
 
-// A store tagged with a plain "0.6" (e.g. a stricter writer) still reads as
-// v0.6 -- isV06Version covers the whole family, not just the draft tag.
+// A store tagged with a plain "0.6", set explicitly so the assertion does not
+// depend on what the writer emits, reads as v0.6 with validation on.
 Deno.test("reader accepts a plain 0.6 on-disk version tag", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
@@ -764,29 +768,75 @@ Deno.test("reader accepts a future 0.6 draft tag", async () => {
   assertEquals(imported.metadata.version, "0.6");
 });
 
-// The browser reader follows the same family rule for the draft tag.
-Deno.test("browser reader accepts the 0.6.dev4 on-disk tag", async () => {
+// The node reader still accepts a store carrying one of the historical
+// pre-release tags, and with `validate` on the family match satisfies a
+// requested "0.6".
+for (const tag of V06_PRERELEASE_TAGS) {
+  Deno.test(`reader accepts the historical ${tag} on-disk tag`, async () => {
+    const multiscales = await buildMultiscales();
+    const store: MemoryStore = new Map();
+    await toOmeZarr(store, multiscales, { version: "0.6" });
+    setOmeVersion(store, tag);
+    assertEquals(
+      (readOmeAttributes(store) as { version: string }).version,
+      tag,
+    );
+
+    const imported = await fromOmeZarr(store, {
+      version: "0.6",
+      validate: true,
+    });
+    assertEquals(imported.metadata.version, "0.6");
+    assertEquals(imported.images.length, multiscales.images.length);
+  });
+}
+
+// The browser writer tags the store the same way as the node writer.
+Deno.test("browser v0.6 write tags the store 0.6 and reads back as 0.6", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
   await toOmeZarrBrowser(store, multiscales, { version: "0.6" });
 
   const ome = readOmeAttributes(store) as { version: string };
-  assertEquals(ome.version, "0.6rc0");
+  assertEquals(ome.version, "0.6");
 
   const imported = await fromOmeZarrBrowser(store, { version: "0.6" });
   assertEquals(imported.metadata.version, "0.6");
   assertEquals(imported.images.length, multiscales.images.length);
 });
 
-// Both 0.6 pre-release tags are recognized, supported version strings: the
-// current one is written, the earlier one is still read.
-Deno.test("the 0.6 pre-release tags are supported versions", () => {
-  assertEquals(isSupportedVersion("0.6rc0"), true);
+// The browser reader follows the same family rule for the historical tags.
+for (const tag of V06_PRERELEASE_TAGS) {
+  Deno.test(
+    `browser reader accepts the historical ${tag} on-disk tag`,
+    async () => {
+      const multiscales = await buildMultiscales();
+      const store: MemoryStore = new Map();
+      await toOmeZarrBrowser(store, multiscales, { version: "0.6" });
+      setOmeVersion(store, tag);
+      assertEquals(
+        (readOmeAttributes(store) as { version: string }).version,
+        tag,
+      );
+
+      const imported = await fromOmeZarrBrowser(store, { version: "0.6" });
+      assertEquals(imported.metadata.version, "0.6");
+      assertEquals(imported.images.length, multiscales.images.length);
+    },
+  );
+}
+
+// The 0.6 pre-release tags left `SUPPORTED_VERSIONS` with the 0.6 release:
+// a caller should ask for "0.6", but stores carrying either tag are still
+// read through the `isV06Version` family check.
+Deno.test("the 0.6 pre-release tags are readable but not supported versions", () => {
+  assertEquals(isSupportedVersion("0.6rc0"), false);
+  assertEquals(isSupportedVersion("0.6.dev4"), false);
   assertEquals(isV06Version("0.6rc0"), true);
-  assertEquals(isSupportedVersion("0.6.dev4"), true);
   assertEquals(isV06Version("0.6.dev4"), true);
   assertEquals(isV06Version("0.6"), true);
   assertEquals(isV06Version("0.5"), false);
+  assertEquals(isSupportedVersion("0.6"), true);
 });
 
 // ngff-zarr 0.29.0 wrote the byDimension axis keys in snake_case; the spec

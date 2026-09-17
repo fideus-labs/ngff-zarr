@@ -211,6 +211,17 @@ ngff-zarr upgrade src.zarr -o dst.zarr --to 0.6 --validate --no-overwrite
 The command prints the detected source version, the target version, and which
 mode it ran. `ngff-zarr upgrade --help` lists every option.
 
+Stores written by earlier `ngff-zarr` releases at version 0.6, before the
+OME-Zarr 0.6 specification was finalized, carry the pre-release tag `0.6.dev4`
+or `0.6rc0` in their `ome.version` attribute. They are still read as OME-Zarr
+0.6, and an in-place upgrade re-tags them as `0.6` without touching the array
+chunks; the detected source tag is printed verbatim.
+
+```shell
+# Re-tag a 0.6.dev4 or 0.6rc0 store as OME-Zarr 0.6.
+ngff-zarr upgrade path/to/image.ome.zarr --to 0.6
+```
+
 ### Check RFC-4 anatomical orientation conformance
 
 The `ngff-zarr conformance` subcommand reads one store and prints a single JSON

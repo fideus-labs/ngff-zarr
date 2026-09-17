@@ -29,8 +29,9 @@ def _schemas_dir(version: str) -> "Traversable":
     """Locate the bundled ``schemas`` directory that holds ``version``.
 
     A pre-release shares the tree of the release it leads to: the bundled 0.6
-    schemas carry the upstream ``0.6rc0`` tag, so the pre-release string a 0.6
-    store records on disk resolves to ``spec/0.6`` just as ``"0.6"`` does.
+    schemas carry the released ``0.6`` tag, and a pre-release string such as
+    ``0.6rc0`` or ``0.6.dev4`` that a 0.6 store records on disk still resolves
+    to ``spec/0.6`` through ``packaging``'s ``base_version``.
 
     The version is matched against the bundled directory names rather than
     joined onto the path as given, because it reaches here straight from a

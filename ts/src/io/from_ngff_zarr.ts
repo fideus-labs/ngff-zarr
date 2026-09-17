@@ -128,8 +128,9 @@ export async function fromOmeZarr(
     const detectedVersion = detectVersion(rootAttrs);
 
     // Validate version if requested. Treat the v0.6 family as equivalent so a
-    // store tagged with a 0.6 pre-release on disk satisfies a requested version
-    // of `"0.6"` (and vice versa).
+    // store still tagged with one of the historical pre-release tags
+    // `0.6.dev4` or `0.6rc0` that earlier releases wrote satisfies a
+    // requested version of `"0.6"` (and vice versa).
     if (validate && requestedVersion) {
       const versionsMatch = detectedVersion === requestedVersion ||
         (isV06Version(detectedVersion) && isV06Version(requestedVersion));
@@ -141,8 +142,9 @@ export async function fromOmeZarr(
     }
 
     // Parse metadata using version-specific function. The v0.6 reader handles
-    // both `0.6` and the pre-release on-disk version strings, and `0.9.dev1`,
-    // which uses the same coordinate-system layout.
+    // `0.6`, the historical `0.6.dev4` / `0.6rc0` on-disk tags that earlier
+    // releases wrote, and `0.9.dev1`, which uses the same coordinate-system
+    // layout.
     let result;
     if (
       isV06Version(detectedVersion) || detectedVersion === NgffVersion.V09dev1

@@ -306,6 +306,8 @@ def test_version_is_supported():
     # read by no code in either port.
     assert signature(to_ome_zarr).parameters["version"].default != "0.9.dev1"
     assert NgffVersion.LATEST is not NgffVersion.V09dev1
+    # The 0.6 release is the latest released spec.
+    assert NgffVersion.LATEST is NgffVersion.V06
 
 
 @pytest.mark.parametrize(

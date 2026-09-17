@@ -38,7 +38,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 # The on-disk ``ome.version`` string a given API version is written as.
-DISK_VERSION = {"0.4": "0.4", "0.5": "0.5", "0.6": "0.6rc0"}
+DISK_VERSION = {"0.4": "0.4", "0.5": "0.5", "0.6": "0.6"}
 
 # Every metadata sidecar name across Zarr v2 and v3, so ``_chunk_files`` can
 # isolate the true chunk *data* whose immutability we assert across an upgrade.
@@ -113,22 +113,25 @@ def _disk_ome_version(store_path, api_version: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
+@pytest.mark.parametrize("source_tag", ["0.6.dev4", "0.6rc0"])
 @pytest.mark.parametrize("validate", [False, True])
-def test_in_place_retags_an_earlier_0_6_prerelease(tmp_path, validate):
+def test_in_place_retags_an_earlier_0_6_prerelease(tmp_path, validate, source_tag):
     # A store written while 0.6 was a draft carries that draft's tag. The
-    # bundled schemas pin ``ome.version`` to a later pre-release, whose enum
-    # rejects the old tag, so ``upgrade`` to the same API version rewrites the
-    # tag instead of treating the request as a no-op. Chunks stay untouched.
-    # With ``validate`` the source is checked with its tag substituted, since
-    # the tag is the one thing this upgrade changes.
+    # bundled schemas carry the released ``0.6`` tag, so ``upgrade`` to the
+    # same API version rewrites the tag in place instead of treating the
+    # request as a no-op; chunks stay untouched. The final ``_version.schema``
+    # also lists ``0.6rc0``, so for that tag the upgrade is purely a re-tag:
+    # with ``validate`` the source is checked as written, no substitution.
+    # ``0.6.dev4`` is outside the enum, so it is checked with the tag
+    # substituted, since the tag is the one thing this upgrade changes.
     multiscales, data = _synth_multiscales()
     store_path = str(tmp_path / "image.ome.zarr")
     to_ome_zarr(store_path, multiscales, version="0.6")
     root = zarr.open_group(store_path, mode="r+")
     ome = dict(root.attrs["ome"])
-    ome["version"] = "0.6.dev4"
+    ome["version"] = source_tag
     root.attrs["ome"] = ome
-    assert zarr.open_group(store_path, mode="r").attrs["ome"]["version"] == "0.6.dev4"
+    assert zarr.open_group(store_path, mode="r").attrs["ome"]["version"] == source_tag
     chunks_before = _chunk_files(tmp_path)
     assert chunks_before
 
@@ -139,6 +142,24 @@ def test_in_place_retags_an_earlier_0_6_prerelease(tmp_path, validate):
     assert _chunk_files(tmp_path) == chunks_before
     reloaded = from_ome_zarr(store_path, validate=True)
     np.testing.assert_array_equal(reloaded.images[0].data.compute(), data)
+
+
+def test_in_place_already_tagged_0_6_is_a_noop(tmp_path):
+    # A store already carrying the released tag is exactly what the target
+    # would write, so the request short-circuits: the root ``zarr.json`` is
+    # neither rewritten (mtime) nor changed (bytes), and nothing else is
+    # touched either.
+    store_path = tmp_path / "image.ome.zarr"
+    _write_source(str(store_path), "0.6")
+    root_json = store_path / "zarr.json"
+    assert zarr.open_group(str(store_path), mode="r").attrs["ome"]["version"] == "0.6"
+    root_before = (root_json.stat().st_mtime_ns, root_json.read_bytes())
+    digest_before = _all_files_digest(tmp_path)
+
+    upgrade_ome_zarr(str(store_path), version="0.6")
+
+    assert (root_json.stat().st_mtime_ns, root_json.read_bytes()) == root_before
+    assert _all_files_digest(tmp_path) == digest_before
 
 
 def test_in_place_0_5_to_0_6(tmp_path):
@@ -154,7 +175,7 @@ def test_in_place_0_5_to_0_6(tmp_path):
     upgrade_ome_zarr(store_path, version="0.6")
 
     root_after = zarr.open_group(store_path, mode="r")
-    assert root_after.attrs["ome"]["version"] == "0.6rc0"
+    assert root_after.attrs["ome"]["version"] == DISK_VERSION["0.6"]
 
     # Array chunk files are byte-identical and unmodified (path, size, mtime,
     # and content) -- only the root group metadata was rewritten.
@@ -466,7 +487,7 @@ def test_output_equal_to_input_routes_in_place(tmp_path):
     upgrade_ome_zarr(store_path, store_path, version="0.6")
 
     root_after = zarr.open_group(store_path, mode="r")
-    assert root_after.attrs["ome"]["version"] == "0.6rc0"
+    assert root_after.attrs["ome"]["version"] == DISK_VERSION["0.6"]
     chunks_after = _chunk_files(tmp_path)
     assert set(chunks_after) == set(chunks_before)
     for rel, sig in chunks_before.items():

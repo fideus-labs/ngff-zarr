@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -196,32 +197,34 @@ def test_validate_v06_resolves_split_schema_refs(tmp_path):
 
 @requires_zarr_v3
 def test_validate_v06_accepts_the_on_disk_version_string(tmp_path):
-    # A v0.6 store records the upstream pre-release tag the bundled schemas
-    # carry. That string has no ``spec`` tree of its own, so it has to resolve
-    # to the tree of the release it leads to.
+    # A v0.6 store records the released tag the bundled schemas carry, taken
+    # from ``V06_ONDISK_VERSION``, the one place the tag lives. The string
+    # read back from disk is a valid ``version`` for the schema API.
     pytest.importorskip("jsonschema")
+    from ngff_zarr import V06_ONDISK_VERSION
 
     store = _write_valid_3d_store_v06(tmp_path / "v06.ome.zarr")
     root_attrs = zarr.open_group(store, mode="r").attrs.asdict()
     on_disk_version = root_attrs["ome"]["version"]
-    assert on_disk_version.startswith("0.6")
-    assert on_disk_version != "0.6"
+    assert on_disk_version == "0.6"
+    assert on_disk_version == V06_ONDISK_VERSION.value
 
     validate(root_attrs, version=on_disk_version, model="image")
 
 
 @requires_zarr_v3
 def test_validate_v06_rejects_an_earlier_prerelease_tag(tmp_path):
-    # The bundled 0.6 schemas pin ``ome.version`` to the pre-release they were
-    # published with, and the schema API checks a document as given. The
-    # reader is the lenient one: see the warning test below.
+    # The bundled 0.6 schemas list the released tag and ``0.6rc0`` in
+    # ``_version.schema``, and the schema API checks a document as given, so
+    # an earlier draft's tag is refused by the enum. The reader is the
+    # lenient one: see the warning test below.
     jsonschema = pytest.importorskip("jsonschema")
 
     store = _write_valid_3d_store_v06(tmp_path / "image.ome.zarr")
     root_attrs = zarr.open_group(str(store), mode="r").attrs.asdict()
     root_attrs["ome"]["version"] = "0.6.dev4"
 
-    with pytest.raises(jsonschema.ValidationError, match="0.6rc0"):
+    with pytest.raises(jsonschema.ValidationError, match="'0.6.dev4' is not one of"):
         validate(root_attrs, version="0.6", model="image")
 
 
@@ -336,20 +339,52 @@ def test_read_warns_on_a_superseded_0_6_tag_and_validates_the_rest(tmp_path):
 
 
 @requires_zarr_v3
+def test_read_accepts_the_0_6rc0_tag_without_substitution(tmp_path):
+    # The final ``_version.schema`` lists ``0.6rc0`` next to ``0.6``, so a
+    # store an earlier release tagged with it validates as written: nothing
+    # is substituted and nothing is reported. It is read as the 0.6 family.
+    pytest.importorskip("jsonschema")
+    from ngff_zarr._supported_versions import NgffVersion
+    from ngff_zarr.parse_metadata import _detect_version
+    from ngff_zarr.v06.zarr_metadata import Metadata as V06Metadata
+
+    store = _write_valid_3d_store_v06(tmp_path / "image.ome.zarr")
+    root = zarr.open_group(str(store), mode="r+")
+    ome = dict(root.attrs["ome"])
+    ome["version"] = "0.6rc0"
+    root.attrs["ome"] = ome
+    root_attrs = zarr.open_group(str(store), mode="r").attrs.asdict()
+    assert root_attrs["ome"]["version"] == "0.6rc0"
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        multiscales = from_ome_zarr(store, validate=True)
+    assert [w for w in caught if issubclass(w.category, UserWarning)] == []
+    assert len(multiscales.images) == 2
+    assert isinstance(multiscales.metadata, V06Metadata)
+    assert _detect_version(root_attrs) is NgffVersion.V06
+
+
+@requires_zarr_v3
 def test_read_does_not_substitute_a_tag_no_release_wrote(tmp_path):
-    # Only the tags earlier releases wrote are substituted. A plain ``0.6``,
-    # which a stricter writer might record, is checked as given, and the
-    # schema rejects it, so it is not passed off as the vendored pre-release.
+    # Only the tag an earlier release wrote is substituted. A 0.6 tag no
+    # release wrote is checked as given, and the schema rejects it, so it is
+    # not passed off as one of the accepted tags.
     jsonschema = pytest.importorskip("jsonschema")
 
     store = _write_valid_3d_store_v06(tmp_path / "image.ome.zarr")
     root = zarr.open_group(str(store), mode="r+")
     ome = dict(root.attrs["ome"])
-    ome["version"] = "0.6"
+    ome["version"] = "0.6.dev5"
     root.attrs["ome"] = ome
 
-    with pytest.raises(jsonschema.ValidationError, match="'0.6' is not one of"):
+    with (
+        warnings.catch_warnings(record=True) as caught,
+        pytest.raises(jsonschema.ValidationError, match="'0.6.dev5' is not one of"),
+    ):
+        warnings.simplefilter("always")
         from_ome_zarr(store, validate=True)
+    assert [w for w in caught if issubclass(w.category, UserWarning)] == []
 
 
 @requires_zarr_v3
@@ -445,6 +480,62 @@ def test_load_schema_rejects_unbundled_version():
         message = str(excinfo.value)
         assert "0.4" in message
         assert "spec/" not in message
+
+
+def _ref_urls(node) -> list:
+    """Every ``$ref`` value under ``node``, in document order."""
+    refs = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "$ref" and isinstance(value, str):
+                refs.append(value)
+            else:
+                refs.extend(_ref_urls(value))
+    elif isinstance(node, list):
+        for item in node:
+            refs.extend(_ref_urls(item))
+    return refs
+
+
+@requires_zarr_v3
+def test_bundled_0_6_schemas_carry_the_release_tag(tmp_path):
+    # The vendored ``spec/0.6`` schemas are the ``ome/ngff-spec`` 0.6 release:
+    # every ``$id`` and cross-file ``$ref`` names the ``/0.6/`` tree, and the
+    # only place the ``0.6rc0`` pre-release tag survives is the version enum,
+    # which the release kept so rc0 stores validate as written. A pre-release
+    # string still resolves to the same bundled tree as ``"0.6"``.
+    import json
+
+    pytest.importorskip("jsonschema")
+    from ngff_zarr.validate import _schemas_dir, load_schema
+
+    schemas_dir = _schemas_dir("0.6")
+    names = sorted(e.name for e in schemas_dir.iterdir() if e.name.endswith(".schema"))
+    assert len(names) == 19
+    for name in names:
+        text = schemas_dir.joinpath(name).read_text()
+        contents = json.loads(text)
+        assert contents["$id"].startswith(
+            "https://ngff.openmicroscopy.org/0.6/schemas/"
+        ), name
+        for ref in _ref_urls(contents):
+            if ref.startswith("http"):
+                assert "/0.6/" in ref, (name, ref)
+        if name != "_version.schema":
+            assert "0.6rc0" not in text, name
+
+    assert load_schema("0.6", "_version")["enum"] == ["0.6", "0.6rc0"]
+
+    # A 0.6 pre-release string has no tree of its own; it resolves to the
+    # release's, so the schema API accepts the tag either way.
+    assert _schemas_dir("0.6rc0") == schemas_dir
+    assert load_schema("0.6rc0", "image") == load_schema("0.6", "image")
+    store = _write_valid_3d_store_v06(tmp_path / "v06.ome.zarr")
+    root_attrs = zarr.open_group(store, mode="r").attrs.asdict()
+    validate(root_attrs, version="0.6rc0", model="image")
+    root_attrs["ome"]["version"] = "0.6rc0"
+    validate(root_attrs, version="0.6rc0", model="image")
+    validate(root_attrs, version="0.6", model="image")
 
 
 @requires_zarr_v3

@@ -331,7 +331,7 @@ function parseV06Transform(
               version,
             ),
             // ngff-zarr 0.29.0 wrote these two keys in snake_case; the spec
-            // and the 0.6rc0 schema spell them inputAxes and outputAxes, which
+            // and the 0.6 schema spell them inputAxes and outputAxes, which
             // is what is written now. Both spellings are read.
             inputAxes: asIntegerArray(
               item.inputAxes ?? item.input_axes,

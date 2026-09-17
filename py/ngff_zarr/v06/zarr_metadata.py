@@ -431,7 +431,7 @@ class ByDimensionItem:
         cls, data: dict, coordinateSystems: list[CoordinateSystem] | None = None
     ) -> "ByDimensionItem":
         # ngff-zarr 0.43.0 wrote these two keys in snake_case; the spec and the
-        # 0.6rc0 schema spell them inputAxes and outputAxes, which is what is
+        # 0.6 schema spell them inputAxes and outputAxes, which is what is
         # written now. Both spellings are read, the spec one taking precedence
         # when a document carries both.
         for legacy, canonical in _BY_DIMENSION_LEGACY_KEYS.items():
@@ -860,10 +860,11 @@ class Metadata:
             )
 
         # From 0.6 the version is recorded on the ``ome`` namespace rather than
-        # on each multiscales entry, as the pre-release string the store was
-        # written with. The per-entry value is the fallback, as on the v0.4 read
-        # path. Read unconditionally: the transform rules whose bounds RFC-3
-        # lifts need it whether or not the schema pass runs.
+        # on each multiscales entry, as the exact string the store was written
+        # with (``0.6``, or a pre-release tag such as ``0.6rc0``). The
+        # per-entry value is the fallback, as on the v0.4 read path. Read
+        # unconditionally: the transform rules whose bounds RFC-3 lifts need it
+        # whether or not the schema pass runs.
         declared_version = str(
             root_attrs["ome"].get("version")
             or root_attrs["ome"]["multiscales"][0].get("version")
@@ -874,18 +875,19 @@ class Metadata:
             schema_version = declared_version
             schema_attrs = root_attrs
             if schema_version in V06_SUPERSEDED_TAGS:
-                # The bundled 0.6 schemas accept one tag, the pre-release they
-                # were published with. A store tagged with one an earlier
-                # release wrote differs from a valid store in that string
-                # alone, so the rest of the document is validated with the tag
-                # substituted, and the substitution is reported:
-                # ``upgrade_ome_zarr`` rewrites the tag in place.
+                # The bundled 0.6 schemas accept the released ``0.6`` tag and
+                # ``0.6rc0``. A store tagged ``0.6.dev4``, which an earlier
+                # release wrote, differs from a valid store in that string
+                # alone, so the rest of the document is validated with
+                # ``V06_ONDISK_VERSION`` (``"0.6"``) substituted, and the
+                # substitution is reported: ``upgrade_ome_zarr`` rewrites the
+                # tag in place.
                 warnings.warn(
                     f"OME-Zarr store carries the superseded 0.6 pre-release tag "
-                    f"{schema_version!r}; the bundled schemas are tagged "
+                    f"{schema_version!r}; the bundled 0.6 schemas accept "
                     f"{V06_ONDISK_VERSION.value!r}. Validating the rest of the "
-                    "document against them. upgrade_ome_zarr(store, "
-                    "version='0.6') rewrites the tag.",
+                    "document with that tag substituted. upgrade_ome_zarr("
+                    "store, version='0.6') rewrites the tag.",
                     stacklevel=2,
                 )
                 schema_attrs = copy.deepcopy(root_attrs)

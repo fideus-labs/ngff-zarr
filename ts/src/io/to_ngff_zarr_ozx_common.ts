@@ -165,7 +165,8 @@ export function processAxes(
  * ({@link toOmeZarr}) and the in-place metadata rewrite in `upgradeOmeZarr`:
  *
  * - **0.6 (RFC 5):** coordinate systems + per-dataset `sequence` transforms,
- *   wrapped under the `ome` namespace and tagged {@link V06_ONDISK_VERSION}.
+ *   wrapped under the `ome` namespace and tagged {@link V06_ONDISK_VERSION}
+ *   (`0.6`).
  * - **0.5:** axes carried directly on the multiscale entry, wrapped under `ome`.
  * - **0.4:** axes carried directly on the multiscale entry at the root (no
  *   `ome` wrapper).
@@ -198,8 +199,8 @@ export function buildRootAttributes(
     const v06Entry = buildV06MultiscalesEntry(metadata, processedAxes);
     return {
       ome: {
-        // Tag the store with the pre-release the bundled schemas carry, not
-        // with the bare `"0.6"` that was requested; see V06_ONDISK_VERSION.
+        // Tag the store with V06_ONDISK_VERSION, which is `0.6` since the
+        // release; the constant stays the single place the tag lives.
         version: V06_ONDISK_VERSION,
         multiscales: [v06Entry],
         ...(metadata.omero && { omero: metadata.omero }),

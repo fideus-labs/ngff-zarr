@@ -146,12 +146,19 @@ function assertDataIntact(actual: Uint16Array): void {
   }
 }
 
-// The on-disk `ome.version` string a given API version is written as.
+// The on-disk `ome.version` string a given API version is written as. Since
+// the 0.6 release every entry is the API version itself; the table stays so
+// the tests read the tag from one place.
 const DISK_VERSION: Record<"0.4" | "0.5" | "0.6", string> = {
   "0.4": "0.4",
   "0.5": "0.5",
-  "0.6": "0.6rc0",
+  "0.6": "0.6",
 };
+
+// The historical pre-release tags earlier releases wrote into a 0.6 store.
+// Neither is a supported version any more, but both stay readable and
+// `upgradeOmeZarr(store, { version: "0.6" })` re-tags them in place.
+const V06_PRERELEASE_TAGS = ["0.6.dev4", "0.6rc0"] as const;
 
 Deno.test("in-place same-format upgrade 0.5 -> 0.6 preserves chunks", async () => {
   const store = await makeSourceStore("0.5");
@@ -163,7 +170,7 @@ Deno.test("in-place same-format upgrade 0.5 -> 0.6 preserves chunks", async () =
   await upgradeOmeZarr(store, { version: "0.6" });
 
   const ome = await readOme(store);
-  assertEquals(ome.version, "0.6rc0");
+  assertEquals(ome.version, DISK_VERSION["0.6"]);
   const ms0 = (ome.multiscales as Record<string, unknown>[])[0];
   assertExists(ms0.coordinateSystems);
 
@@ -171,32 +178,51 @@ Deno.test("in-place same-format upgrade 0.5 -> 0.6 preserves chunks", async () =
   assertDataIntact(await readImageData(store, "0.6"));
 });
 
-Deno.test("in-place upgrade retags an earlier 0.6 pre-release", async () => {
-  // A store written while 0.6 was a draft carries that draft's tag. The
-  // bundled schemas pin `ome.version` to a later pre-release, so upgrading to
-  // the same API version rewrites the tag instead of treating the request as
-  // a no-op. Chunks stay untouched.
+for (const sourceTag of V06_PRERELEASE_TAGS) {
+  Deno.test(
+    `in-place upgrade retags a 0.6 store tagged ${sourceTag} to 0.6`,
+    async () => {
+      // A store written while 0.6 was a draft or a release candidate carries
+      // that pre-release tag. Upgrading to the same API version compares the
+      // raw on-disk string, so the tag is rewritten to `0.6` instead of the
+      // request being treated as a no-op. Chunks stay untouched.
+      const store = await makeSourceStore("0.6");
+      const rootKey = [...store.keys()].find((key) =>
+        key.replace(/^\//, "") === "zarr.json"
+      )!;
+      const rootJson = JSON.parse(
+        new TextDecoder().decode(store.get(rootKey)!),
+      );
+      rootJson.attributes.ome.version = sourceTag;
+      store.set(rootKey, new TextEncoder().encode(JSON.stringify(rootJson)));
+      assertEquals((await readOme(store)).version, sourceTag);
+      const chunksBefore = chunkKeys(store);
+      const before = snapshot(store);
+
+      await upgradeOmeZarr(store, { version: "0.6" });
+
+      assertEquals((await readOme(store)).version, DISK_VERSION["0.6"]);
+      assertChunksUnchanged(store, before, chunksBefore);
+      assertDataIntact(await readImageData(store, "0.6"));
+    },
+  );
+}
+
+Deno.test("in-place upgrade 0.6 -> 0.6 on a 0.6-tagged store is a no-op", async () => {
+  // The store already carries the exact tag the target would write, so the
+  // in-place upgrade returns before reading or writing anything.
   const store = await makeSourceStore("0.6");
-  const rootKey = [...store.keys()].find((key) =>
-    key.replace(/^\//, "") === "zarr.json"
-  )!;
-  const rootJson = JSON.parse(new TextDecoder().decode(store.get(rootKey)!));
-  rootJson.attributes.ome.version = "0.6.dev4";
-  store.set(rootKey, new TextEncoder().encode(JSON.stringify(rootJson)));
-  assertEquals((await readOme(store)).version, "0.6.dev4");
-  const chunksBefore = chunkKeys(store);
+  assertEquals((await readOme(store)).version, DISK_VERSION["0.6"]);
   const before = snapshot(store);
 
   await upgradeOmeZarr(store, { version: "0.6" });
 
-  assertEquals((await readOme(store)).version, DISK_VERSION["0.6"]);
-  assertChunksUnchanged(store, before, chunksBefore);
-  assertDataIntact(await readImageData(store, "0.6"));
+  assertSnapshotsEqual(before, snapshot(store));
 });
 
 Deno.test("in-place same-format downgrade 0.6 -> 0.5 preserves chunks", async () => {
   const store = await makeSourceStore("0.6");
-  assertEquals((await readOme(store)).version, "0.6rc0");
+  assertEquals((await readOme(store)).version, DISK_VERSION["0.6"]);
   const chunksBefore = chunkKeys(store);
   const before = snapshot(store);
 

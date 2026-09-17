@@ -31,8 +31,7 @@ pytestmark = pytest.mark.skipif(
 DISK_VERSION = {
     "0.4": "0.4",
     "0.5": "0.5",
-    "0.6": "0.6rc0",
-    # Unlike 0.6 this is itself the on-disk string.
+    "0.6": "0.6",
     "0.9.dev1": "0.9.dev1",
 }
 
@@ -103,7 +102,7 @@ def test_in_place_upgrade_0_5_to_0_6(tmp_path):
     result = _run_ngff_zarr("upgrade", str(store), "--to", "0.6")
     assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
 
-    # The on-disk spec version was bumped to the 0.6 development string.
+    # The on-disk spec version was bumped to the 0.6 release tag.
     root = zarr.open_group(str(store), mode="r", zarr_format=3)
     assert root.attrs["ome"]["version"] == DISK_VERSION["0.6"]
 
@@ -120,6 +119,33 @@ def test_in_place_upgrade_0_5_to_0_6(tmp_path):
     summary = " ".join(result.stdout.split())
     assert "in-place" in summary
     assert "chunks left untouched" in summary
+
+
+def test_in_place_retags_0_6rc0_to_0_6(tmp_path):
+    """A ``0.6rc0`` store is reported as such and re-tagged to ``0.6``.
+
+    The CLI shows the raw recorded tag rather than the collapsed ``0.6``
+    family, and ``--to 0.6`` is not a no-op for it: the tag is the one thing
+    the upgrade changes, so the chunks stay untouched.
+    """
+    store = tmp_path / "image.ome.zarr"
+    _write_source(str(store), "0.6")
+    root = zarr.open_group(str(store), mode="r+", zarr_format=3)
+    ome = dict(root.attrs["ome"])
+    ome["version"] = "0.6rc0"
+    root.attrs["ome"] = ome
+    assert zarr.open_group(str(store), mode="r").attrs["ome"]["version"] == "0.6rc0"
+    chunks_before = _chunk_files(store)
+
+    result = _run_ngff_zarr("upgrade", str(store), "--to", "0.6")
+    assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+
+    summary = " ".join(result.stdout.split())
+    assert "Detected source OME-Zarr version: 0.6rc0" in summary
+
+    root = zarr.open_group(str(store), mode="r", zarr_format=3)
+    assert root.attrs["ome"]["version"] == DISK_VERSION["0.6"]
+    assert _chunk_files(store) == chunks_before
 
 
 def test_write_to_new_store_0_4_to_0_5(tmp_path):

@@ -88,8 +88,9 @@ function zarrFormatForVersion(version: string): 2 | 3 {
 }
 
 /**
- * Collapse the v0.6 family (including its on-disk pre-release tags) to `"0.6"`
- * so a store tagged with one compares equal to a requested version of `"0.6"`.
+ * Collapse the v0.6 family (including the historical `0.6.dev4` and `0.6rc0`
+ * on-disk tags) to `"0.6"` so a store tagged with one compares equal to a
+ * requested version of `"0.6"`.
  */
 function normalizeVersion(version: string): string {
   return isV06Version(version) ? "0.6" : version;
@@ -109,10 +110,12 @@ function onDiskVersion(rootAttrs: Record<string, unknown>): string | undefined {
 /**
  * The `ome.version` string a store written at `version` carries.
  *
- * Only `0.6` differs from what the caller passes: it is tagged with the
- * pre-release the bundled schemas carry. `0.9.dev1` is itself the on-disk
- * string and is returned unchanged, matching the Python port's
- * `_ondisk_version_for`.
+ * `0.6` resolves through {@link V06_ONDISK_VERSION}, which is `0.6` itself
+ * since the release, so every version is now returned as the caller passes
+ * it. The indirection stays so the no-op check below compares the raw
+ * on-disk string against the tag the target would write: a store still
+ * tagged `0.6.dev4` or `0.6rc0` is rewritten to `0.6`. Matches the Python
+ * port's `_ondisk_version_for`.
  */
 function onDiskVersionFor(
   version: "0.4" | "0.5" | "0.6" | "0.9.dev1",
@@ -215,10 +218,11 @@ export async function upgradeOmeZarrImpl(
   const targetZarrFormat = zarrFormatForVersion(version);
 
   // No-op: the store already carries the exact tag the target would write.
-  // Compared on the on-disk string rather than the detected family, so a 0.6
-  // store tagged with an earlier pre-release is rewritten and its tag catches
-  // up with the vendored schemas, which is the only way to re-tag it. Leaves
-  // the store byte-for-byte unchanged (no read of arrays, no write).
+  // Compared on the raw on-disk string rather than the detected family, so a
+  // store tagged with the historical `0.6.dev4` or `0.6rc0` pre-release tag
+  // is rewritten to `0.6`, which is the only way to re-tag it. A store
+  // already tagged `0.6` is left byte-for-byte unchanged (no read of arrays,
+  // no write).
   if (
     (onDiskVersion(rootAttrs) ?? sourceVersion) === onDiskVersionFor(version)
   ) {
