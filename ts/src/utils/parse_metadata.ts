@@ -179,9 +179,10 @@ export function detectVersion(
     throw new Error("Could not detect NGFF version from root attributes.");
   }
 
-  // Any 0.6-family version, including pre-release tags such as `0.6.dev4`
-  // and `0.6rc0`, is read as v0.6. Mirrors the Python port's
-  // `version.startswith("0.6")` read check so dev releases remain readable.
+  // Any 0.6-family version, including the historical pre-release tags
+  // `0.6.dev4` and `0.6rc0` that earlier releases wrote, is read as v0.6.
+  // Mirrors the Python port's `version.startswith("0.6")` read check so
+  // those stores remain readable.
   if (isV06Version(versionStr)) {
     return NgffVersion.V06;
   }
