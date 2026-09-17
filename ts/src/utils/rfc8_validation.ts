@@ -131,6 +131,63 @@ function* iterTransformReferenceSites(
   }
 }
 
+function* iterLabelEntries(
+  document: Record<string, unknown>,
+): Generator<[string, unknown]> {
+  for (const [location, node] of iterNodes(document, "ome")) {
+    const attributes = node.attributes;
+    if (!isRecord(attributes)) {
+      continue;
+    }
+    const labels = attributes.labels;
+    if (!isRecord(labels)) {
+      continue;
+    }
+    const entries = labels.labelAttributes;
+    if (!Array.isArray(entries)) {
+      continue;
+    }
+    // Non-object entries are yielded too: the value rule rejects them, so
+    // a `null` or string entry cannot slip past validation.
+    for (const [index, entry] of entries.entries()) {
+      yield [
+        `${location}.attributes.labels.labelAttributes[${index}]`,
+        entry,
+      ];
+    }
+  }
+}
+
+function* iterLabelSourceSites(
+  document: Record<string, unknown>,
+): Generator<[string, unknown]> {
+  for (const [location, node] of iterNodes(document, "ome")) {
+    const attributes = node.attributes;
+    if (!isRecord(attributes)) {
+      continue;
+    }
+    const labels = attributes.labels;
+    if (!isRecord(labels)) {
+      continue;
+    }
+    const sources = labels.source;
+    if (!Array.isArray(sources)) {
+      continue;
+    }
+    for (const [index, source] of sources.entries()) {
+      yield [`${location}.attributes.labels.source[${index}]`, source];
+    }
+  }
+}
+
+/** Every reference site of the document: transformations, then labels. */
+function* iterReferenceSites(
+  document: Record<string, unknown>,
+): Generator<[string, unknown]> {
+  yield* iterTransformReferenceSites(document);
+  yield* iterLabelSourceSites(document);
+}
+
 /**
  * Every typed path in the document: each node's own `path` and the `path`
  * of every reference site, so an extension path type is judged the same
@@ -142,7 +199,7 @@ function* iterPathSites(
   for (const [location, node] of iterNodes(document, "ome")) {
     yield [`${location}.path`, node.path];
   }
-  for (const [location, reference] of iterTransformReferenceSites(document)) {
+  for (const [location, reference] of iterReferenceSites(document)) {
     if (isRecord(reference)) {
       yield [`${location}.path`, reference.path];
     }
@@ -167,7 +224,7 @@ function* iterIdSites(
       yield [`${location}.id`, system.id, true];
     }
   }
-  for (const [location, reference] of iterTransformReferenceSites(document)) {
+  for (const [location, reference] of iterReferenceSites(document)) {
     if (
       isRecord(reference) && reference.id !== undefined &&
       reference.id !== null
@@ -175,6 +232,23 @@ function* iterIdSites(
       yield [`${location}.id`, reference.id, false];
     }
   }
+}
+
+/**
+ * The ids of the document's multiscale nodes. RFC-8 defines labels `source`
+ * entries as references to source multiscales, so only these ids satisfy a
+ * pathless source.
+ */
+function declaredMultiscaleIds(
+  document: Record<string, unknown>,
+): Set<string> {
+  const declared = new Set<string>();
+  for (const [, node] of iterNodes(document, "ome")) {
+    if (node.type === "multiscale" && typeof node.id === "string") {
+      declared.add(node.id);
+    }
+  }
+  return declared;
 }
 
 function declaredIds(document: Record<string, unknown>): Set<string> {
@@ -407,33 +481,106 @@ export function validateReferenceIdRequired(
       );
     }
   }
+  for (const [location, reference] of iterLabelSourceSites(document)) {
+    if (
+      !isRecord(reference) || reference.id === undefined ||
+      reference.id === null
+    ) {
+      throw new ValidationError(
+        SpecRule.ReferenceIdRequired,
+        "Label source reference must be an object with an 'id'.",
+        location,
+      );
+    }
+  }
 }
 
 /**
  * Unresolved references carry a `path` (`reference-path-required`). A
- * reference whose `id` is declared in this document (as a node id or a
- * coordinate-system id) is internal; any other reference is external, and
- * RFC-8 requires external references to locate their document with a
- * `path`. What the path points at is not resolved here.
+ * reference whose `id` is declared in this document is internal; any other
+ * reference is external, and RFC-8 requires external references to locate
+ * their document with a `path`. What the path points at is not resolved
+ * here. A transformation reference resolves against node and
+ * coordinate-system ids; a labels `source` reference designates an
+ * annotated image, so only a multiscale node id satisfies it.
  */
 export function validateReferencePathRequired(
   document: Record<string, unknown>,
 ): void {
-  const declared = declaredIds(document);
-  for (const [location, reference] of iterTransformReferenceSites(document)) {
-    if (!isRecord(reference)) {
-      continue;
+  const siteGroups: Array<[Generator<[string, unknown]>, Set<string>]> = [
+    [iterTransformReferenceSites(document), declaredIds(document)],
+    [iterLabelSourceSites(document), declaredMultiscaleIds(document)],
+  ];
+  for (const [sites, resolvable] of siteGroups) {
+    for (const [location, reference] of sites) {
+      if (!isRecord(reference)) {
+        continue;
+      }
+      const value = reference.id;
+      if (typeof value !== "string" || resolvable.has(value)) {
+        continue;
+      }
+      if (reference.path === undefined || reference.path === null) {
+        throw new ValidationError(
+          SpecRule.ReferencePathRequired,
+          `Reference id ${pyRepr(value)} is not declared in this document, ` +
+            `so the reference must carry a 'path'.`,
+          location,
+        );
+      }
     }
-    const value = reference.id;
-    if (typeof value !== "string" || declared.has(value)) {
-      continue;
-    }
-    if (reference.path === undefined || reference.path === null) {
+  }
+}
+
+/**
+ * Every label attributes entry declares a numeric `labelValue`
+ * (`label-value-required`).
+ */
+export function validateLabelValueRequired(
+  document: Record<string, unknown>,
+): void {
+  for (const [location, entry] of iterLabelEntries(document)) {
+    const value = isRecord(entry) ? entry.labelValue : undefined;
+    if (typeof value !== "number") {
       throw new ValidationError(
-        SpecRule.ReferencePathRequired,
-        `Reference id ${pyRepr(value)} is not declared in this document, ` +
-          `so the reference must carry a 'path'.`,
+        SpecRule.LabelValueRequired,
+        `Label attributes must declare a numeric 'labelValue'; got ` +
+          `${pyReprValue(value)}.`,
         location,
+      );
+    }
+  }
+}
+
+/**
+ * A declared label `color` is four integers in 0..=255
+ * (`label-color-format`): the uint8 red, green, blue and alpha values.
+ */
+export function validateLabelColorFormat(
+  document: Record<string, unknown>,
+): void {
+  for (const [location, entry] of iterLabelEntries(document)) {
+    const color = isRecord(entry) ? entry.color : undefined;
+    if (color === undefined || color === null) {
+      continue;
+    }
+    let valid = Array.isArray(color) && color.length === 4;
+    if (valid) {
+      for (const channel of color as unknown[]) {
+        if (
+          typeof channel !== "number" || !Number.isInteger(channel) ||
+          channel < 0 || channel > 255
+        ) {
+          valid = false;
+          break;
+        }
+      }
+    }
+    if (!valid) {
+      throw new ValidationError(
+        SpecRule.LabelColorFormat,
+        "Label color must be an array of four integers between 0 and 255.",
+        `${location}.color`,
       );
     }
   }
@@ -454,6 +601,8 @@ const COLLECTION_RULES = [
   validateCoordinateSystemIdRequired,
   validateReferenceIdRequired,
   validateReferencePathRequired,
+  validateLabelValueRequired,
+  validateLabelColorFormat,
 ] as const;
 
 /**

@@ -113,6 +113,14 @@ export {
   setCoordinateTransformations,
 } from "./utils/rfc8_coordinates.ts";
 export {
+  isLabelMap,
+  type LabelAttributes,
+  type Labels,
+  labels,
+  LABELS_KEY,
+  setLabels,
+} from "./utils/rfc8_labels.ts";
+export {
   multiscaleOmeDict,
   multiscalesEntryFromOme,
 } from "./utils/rfc8_multiscale.ts";
@@ -120,6 +128,8 @@ export {
   CORE_PATH_TYPES,
   validateCollection,
   validateCoordinateSystemIdRequired,
+  validateLabelColorFormat,
+  validateLabelValueRequired,
   validateNodeIdFormat,
   validateNodeIdUnique,
   validateNodeNameRequired,

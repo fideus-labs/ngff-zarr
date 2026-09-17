@@ -94,6 +94,57 @@ def _iter_transform_reference_sites(
                 yield f"{base}.{field}", transformation.get(field)
 
 
+def _iter_label_entries(
+    document: Mapping[str, Any],
+) -> Iterator[tuple[str, Any]]:
+    """Yield ``(location, entry)`` for each labelAttributes entry.
+
+    Non-object entries are yielded too: the value rule rejects them, so a
+    ``null`` or string entry cannot slip past validation.
+    """
+    for location, node in _iter_nodes(document, "ome"):
+        attributes = node.get("attributes")
+        if not isinstance(attributes, Mapping):
+            continue
+        labels = attributes.get("labels")
+        if not isinstance(labels, Mapping):
+            continue
+        entries = labels.get("labelAttributes")
+        if not isinstance(entries, list):
+            continue
+        for index, entry in enumerate(entries):
+            yield (
+                f"{location}.attributes.labels.labelAttributes[{index}]",
+                entry,
+            )
+
+
+def _iter_label_source_sites(
+    document: Mapping[str, Any],
+) -> Iterator[tuple[str, Any]]:
+    """Yield ``(location, value)`` for each labels ``source`` reference."""
+    for location, node in _iter_nodes(document, "ome"):
+        attributes = node.get("attributes")
+        if not isinstance(attributes, Mapping):
+            continue
+        labels = attributes.get("labels")
+        if not isinstance(labels, Mapping):
+            continue
+        sources = labels.get("source")
+        if not isinstance(sources, list):
+            continue
+        for index, source in enumerate(sources):
+            yield f"{location}.attributes.labels.source[{index}]", source
+
+
+def _iter_reference_sites(
+    document: Mapping[str, Any],
+) -> Iterator[tuple[str, Any]]:
+    """Every reference site of the document: transformations, then labels."""
+    yield from _iter_transform_reference_sites(document)
+    yield from _iter_label_source_sites(document)
+
+
 def _iter_path_sites(
     document: Mapping[str, Any],
 ) -> Iterator[tuple[str, Any]]:
@@ -104,7 +155,7 @@ def _iter_path_sites(
     """
     for location, node in _iter_nodes(document, "ome"):
         yield f"{location}.path", node.get("path")
-    for location, reference in _iter_transform_reference_sites(document):
+    for location, reference in _iter_reference_sites(document):
         if isinstance(reference, Mapping):
             yield f"{location}.path", reference.get("path")
 
@@ -124,9 +175,22 @@ def _iter_id_sites(
     for location, system in _iter_coordinate_systems(document):
         if system.get("id") is not None:
             yield f"{location}.id", system.get("id"), True
-    for location, reference in _iter_transform_reference_sites(document):
+    for location, reference in _iter_reference_sites(document):
         if isinstance(reference, Mapping) and reference.get("id") is not None:
             yield f"{location}.id", reference.get("id"), False
+
+
+def _declared_multiscale_ids(document: Mapping[str, Any]) -> set[str]:
+    """The ids of the document's multiscale nodes.
+
+    RFC-8 defines labels ``source`` entries as references to source
+    multiscales, so only these ids satisfy a pathless source.
+    """
+    return {
+        node.get("id")
+        for _, node in _iter_nodes(document, "ome")
+        if node.get("type") == "multiscale" and isinstance(node.get("id"), str)
+    }
 
 
 def _declared_ids(document: Mapping[str, Any]) -> set[str]:
@@ -378,38 +442,110 @@ def validate_reference_id_required(document: Mapping[str, Any]) -> None:
                 "Transformation reference must be an object with an 'id'.",
                 location,
             )
+    for location, reference in _iter_label_source_sites(document):
+        if not isinstance(reference, Mapping) or reference.get("id") is None:
+            raise ValidationError(
+                SpecRule.REFERENCE_ID_REQUIRED,
+                "Label source reference must be an object with an 'id'.",
+                location,
+            )
 
 
 def validate_reference_path_required(document: Mapping[str, Any]) -> None:
     """Validate that unresolved references carry a ``path``.
 
-    A reference whose ``id`` is declared in this document (as a node id or a
-    coordinate-system id) is internal; any other reference is external, and
-    RFC-8 requires external references to locate their document with a
-    ``path``. What the path points at is not resolved here.
+    A reference whose ``id`` is declared in this document is internal; any
+    other reference is external, and RFC-8 requires external references to
+    locate their document with a ``path``. What the path points at is not
+    resolved here. A transformation reference resolves against node and
+    coordinate-system ids; a labels ``source`` reference designates an
+    annotated image, so only a multiscale node id satisfies it.
 
     Raises
     ------
     ValidationError
         With :attr:`SpecRule.REFERENCE_PATH_REQUIRED` for the first
-        transformation reference, in depth-first order, whose ``id``
-        resolves to nothing in-document and that carries no ``path``;
-        location e.g.
+        reference, in depth-first order, whose ``id`` resolves to nothing
+        this site can designate and that carries no ``path``; location e.g.
         ``ome.nodes[0].attributes.coordinateTransformations[0].output``.
     """
-    declared = _declared_ids(document)
-    for location, reference in _iter_transform_reference_sites(document):
-        if not isinstance(reference, Mapping):
-            continue
-        value = reference.get("id")
-        if not isinstance(value, str) or value in declared:
-            continue
-        if reference.get("path") is None:
+    site_groups = (
+        (_iter_transform_reference_sites(document), _declared_ids(document)),
+        (_iter_label_source_sites(document), _declared_multiscale_ids(document)),
+    )
+    for sites, resolvable in site_groups:
+        for location, reference in sites:
+            if not isinstance(reference, Mapping):
+                continue
+            value = reference.get("id")
+            if not isinstance(value, str) or value in resolvable:
+                continue
+            if reference.get("path") is None:
+                raise ValidationError(
+                    SpecRule.REFERENCE_PATH_REQUIRED,
+                    f"Reference id {value!r} is not declared in this document, "
+                    f"so the reference must carry a 'path'.",
+                    location,
+                )
+
+
+def validate_label_value_required(document: Mapping[str, Any]) -> None:
+    """Validate that every label attributes entry declares a ``labelValue``.
+
+    Raises
+    ------
+    ValidationError
+        With :attr:`SpecRule.LABEL_VALUE_REQUIRED` for the first
+        ``labelAttributes`` entry, in depth-first order, whose
+        ``labelValue`` is missing or not a number; location e.g.
+        ``ome.nodes[1].attributes.labels.labelAttributes[0]``.
+    """
+    for location, entry in _iter_label_entries(document):
+        value = entry.get("labelValue") if isinstance(entry, Mapping) else None
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValidationError(
-                SpecRule.REFERENCE_PATH_REQUIRED,
-                f"Reference id {value!r} is not declared in this document, "
-                f"so the reference must carry a 'path'.",
+                SpecRule.LABEL_VALUE_REQUIRED,
+                f"Label attributes must declare a numeric 'labelValue'; got {value!r}.",
                 location,
+            )
+
+
+def validate_label_color_format(document: Mapping[str, Any]) -> None:
+    """Validate that a declared label ``color`` is four ints in 0..=255.
+
+    The four integers are the uint8 red, green, blue and alpha values.
+
+    Raises
+    ------
+    ValidationError
+        With :attr:`SpecRule.LABEL_COLOR_FORMAT` for the first
+        ``labelAttributes`` entry, in depth-first order, whose ``color`` is
+        not an array of four integers between 0 and 255; location e.g.
+        ``ome.nodes[1].attributes.labels.labelAttributes[0].color``.
+    """
+    for location, entry in _iter_label_entries(document):
+        color = entry.get("color") if isinstance(entry, Mapping) else None
+        if color is None:
+            continue
+        valid = isinstance(color, list) and len(color) == 4
+        if valid:
+            for channel in color:
+                # JSON has one number type, so an integral float such as
+                # 255.0 counts; the TypeScript port's Number.isInteger
+                # judges it the same way. Integers are ranged directly: an
+                # oversized one would overflow a float conversion.
+                integral = not isinstance(channel, bool) and (
+                    isinstance(channel, int)
+                    or (isinstance(channel, float) and channel.is_integer())
+                )
+                if not integral or not 0 <= channel <= 255:
+                    valid = False
+                    break
+        if not valid:
+            raise ValidationError(
+                SpecRule.LABEL_COLOR_FORMAT,
+                "Label color must be an array of four integers between 0 and 255.",
+                f"{location}.color",
             )
 
 
@@ -426,6 +562,8 @@ _COLLECTION_RULES = (
     validate_coordinate_system_id_required,
     validate_reference_id_required,
     validate_reference_path_required,
+    validate_label_value_required,
+    validate_label_color_format,
 )
 
 

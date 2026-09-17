@@ -16,6 +16,13 @@ from .io import (
     to_collection_json,
     to_collection_zarr,
 )
+from .labels import (
+    LabelAttributes,
+    Labels,
+    is_label_map,
+    labels,
+    set_labels,
+)
 from .model import (
     PATH_TYPE_JSON,
     PATH_TYPE_ZARR,
@@ -32,6 +39,8 @@ from .serialize import node_from_ome_dict, node_to_ome_dict
 from .validation import (
     validate_collection,
     validate_coordinate_system_id_required,
+    validate_label_color_format,
+    validate_label_value_required,
     validate_node_id_format,
     validate_node_id_unique,
     validate_node_name_required,
@@ -57,8 +66,13 @@ __all__ = [
     "is_collection_node",
     "is_prefixed_identifier",
     "load_rfc8_node_schema",
+    "LabelAttributes",
+    "Labels",
     "coordinate_systems",
     "coordinate_transformations",
+    "is_label_map",
+    "labels",
+    "set_labels",
     "node_from_ome_dict",
     "node_to_ome_dict",
     "set_coordinate_systems",
@@ -74,6 +88,8 @@ __all__ = [
     "validate_node_name_unique",
     "validate_node_nodes_xor_path",
     "validate_coordinate_system_id_required",
+    "validate_label_color_format",
+    "validate_label_value_required",
     "validate_node_type_required",
     "validate_path_type_known",
     "validate_reference_id_required",
