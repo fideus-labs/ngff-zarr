@@ -142,6 +142,11 @@ class NgffCollection:
                     base=document_base(path, location),
                     version=declared or self.version,
                 )
+            if root.type == "multiscale" and path.type == "zarr":
+                # A 0.9.dev3 image store: read it like any other image.
+                from ..from_ngff_zarr import from_ome_zarr
+
+                return from_ome_zarr(location)
             return root
         has_multiscales = "multiscales" in document or (
             isinstance(ome, Mapping) and "multiscales" in ome

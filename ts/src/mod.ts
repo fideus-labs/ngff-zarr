@@ -113,6 +113,10 @@ export {
   setCoordinateTransformations,
 } from "./utils/rfc8_coordinates.ts";
 export {
+  multiscaleOmeDict,
+  multiscalesEntryFromOme,
+} from "./utils/rfc8_multiscale.ts";
+export {
   CORE_PATH_TYPES,
   validateCollection,
   validateCoordinateSystemIdRequired,

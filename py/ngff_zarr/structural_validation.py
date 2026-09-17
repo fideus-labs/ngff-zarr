@@ -97,7 +97,7 @@ violation, in canonical spec-MUST order.
 #       RFC-8 ids are unique within the JSON document; from 0.9.dev3
 #       e.g. ome.nodes[3].id
 #   node-nodes-xor-path
-#       a collection carries exactly one of nodes or path; from 0.9.dev3
+#       a collection or multiscale carries exactly one of nodes or path
 #       e.g. ome.nodes[1]
 #   path-type-known
 #       an RFC-8 path type is zarr, json, or prefixed; from 0.9.dev3

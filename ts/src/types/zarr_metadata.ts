@@ -341,14 +341,19 @@ export function createMetadataWithVersion(
       ...metadata,
       version: "0.5",
     };
-  } else if (version === NgffVersion.V06) {
+  } else if (
+    version === NgffVersion.V06 ||
+    version === NgffVersion.V09dev1 ||
+    version === NgffVersion.V09dev3
+  ) {
     // The in-memory model is version-agnostic (axes + per-dataset scale and
-    // translation); v0.6 additionally exposes coordinate systems. Synthesize
-    // the implicit "intrinsic" system from the axes when one is not present, so
-    // a value converted to v0.6 carries the field the writer expects.
+    // translation); v0.6 and the 0.9 development series additionally expose
+    // coordinate systems. Synthesize the implicit "intrinsic" system from the
+    // axes when one is not present, so a converted value carries the field
+    // the writer expects.
     return {
       ...metadata,
-      version: "0.6",
+      version: version as string,
       coordinateSystems: metadata.coordinateSystems ??
         [{ name: INTRINSIC_COORDINATE_SYSTEM_NAME, axes: metadata.axes }],
     };

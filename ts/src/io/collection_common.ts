@@ -359,6 +359,10 @@ function dispatchDocument(
         version: version ?? fallbackVersion,
       });
     }
+    if (node.type === "multiscale" && path.type === PATH_TYPE_ZARR) {
+      // A 0.9.dev3 image store: read it like any other image.
+      return io.readImage(location);
+    }
     return node;
   }
   const hasMultiscales = "multiscales" in document ||

@@ -34,12 +34,11 @@ export enum NgffVersion {
 }
 
 /**
- * The versions an image (multiscales) store can carry, as the readers,
- * writers and upgraders accept them. Widens to `"0.9.dev3"` when the RFC-8
- * multiscale node model lands (issue #714); until then images are written at
- * 0.9.dev1 and referenced from 0.9.dev3 collections.
+ * The versions an image store can carry, as the readers, writers and
+ * upgraders accept them. At `"0.9.dev3"` the image is an RFC-8 multiscale
+ * node document rather than a multiscales entry.
  */
-export type ImageVersion = "0.4" | "0.5" | "0.6" | "0.9.dev1";
+export type ImageVersion = "0.4" | "0.5" | "0.6" | "0.9.dev1" | "0.9.dev3";
 
 /**
  * The OME-Zarr 0.9 development series, oldest first. Each tag extends the

@@ -15,7 +15,8 @@ draft (status D1), so this surface is expected to evolve with it.
 
 Support is being built in stages
 ([issue #714](https://github.com/fideus-labs/ngff-zarr/issues/714)). The
-current stage covers the building blocks and collections:
+current stages cover the building blocks, collections, id-based coordinate
+systems, and the image model:
 
 - the `OmePath`, `Reference`, `Node` and `Collection` model
   (`ngff_zarr.rfc8`), open-world: unknown node types and prefixed extension
@@ -24,14 +25,15 @@ current stage covers the building blocks and collections:
   (`from_collection_zarr` / `to_collection_zarr`) or standalone JSON
   (`from_collection_json` / `to_collection_json`);
 - lazy dereferencing of path-referenced nodes (`NgffCollection.load`),
-  including multiscales image stores written at earlier versions;
+  including image stores written at any version, 0.9.dev3 included;
+- the RFC-8 image model: `to_ome_zarr(version="0.9.dev3")` writes a
+  `multiscale` node whose datasets are `singlescale` child nodes, and
+  `from_ome_zarr` reads it back (both the inlined layout it writes and the
+  distributed layout, where each level's own `zarr.json` holds its
+  singlescale document); `upgrade_ome_zarr` converts to and from `0.9.dev3`
+  in place or into a new store;
 - the seven RFC-8 structural rules, dispatched by `validate_collection` (see
   the [validation rule reference](./validation/rule-reference.md)).
-
-Writing *images* at `0.9.dev3` (the RFC-8 multiscale/singlescale node model)
-is not implemented yet: `to_ome_zarr(version="0.9.dev3")` explains the
-staging. Write the image at `0.9.dev1` and reference it from a `0.9.dev3`
-collection.
 
 ## Usage
 
@@ -54,7 +56,7 @@ collection = Collection(
 # Metadata-only: the referenced stores are written separately, at their own
 # versions. Nothing beneath the root is ever removed.
 ngff_zarr.to_collection_zarr("study.ome.zarr", collection)
-ngff_zarr.to_ome_zarr("study.ome.zarr/raw", multiscales, version="0.9.dev1")
+ngff_zarr.to_ome_zarr("study.ome.zarr/raw", multiscales, version="0.9.dev3")
 ```
 
 ### Read and dereference

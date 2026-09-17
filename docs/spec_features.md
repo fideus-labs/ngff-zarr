@@ -44,11 +44,12 @@ supported by `ngff-zarr`.
   target is unchanged. The schemas of the `0.9.dev1` release are bundled, so
   `validate=True` checks a store at that version as it does at any other.
 - **OME-Zarr 0.9.dev3**: The development version that adopts
-  [RFC-8 collections](./rfc8.md). Collection documents are read and written
-  (`from_collection_zarr` / `to_collection_zarr` and the standalone-JSON
-  equivalents); the RFC-8 image (multiscale node) model is not implemented
-  yet, so images are written at `0.9.dev1` and referenced from `0.9.dev3`
-  collections.
+  [RFC-8 collections and extensibility](./rfc8.md). Collection documents are
+  read and written (`from_collection_zarr` / `to_collection_zarr` and the
+  standalone-JSON equivalents), and images are written and read as RFC-8
+  multiscale node documents (`version="0.9.dev3"` on the image entry
+  points). A `0.9.dev3` store is checked by the RFC-8 structural rules and
+  the bundled node schema; RFC-8 publishes no normative schema yet.
 
 ## High Content Screening (HCS)
 

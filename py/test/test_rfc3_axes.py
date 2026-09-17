@@ -149,7 +149,7 @@ def test_rfc3_round_trip_preserves_axis_order(tmp_path, label, axes, shape):
     dims_in = tuple(multiscales.images[0].dims)
     pairs_in = _axis_pairs(multiscales)
 
-    # 0.9.dev1 is the only version that can express an RFC-3 axis model; writing
+    # Only the 0.9 development series can express an RFC-3 axis model; writing
     # these shapes at 0.4/0.5/0.6 is refused by the write gate (asserted below).
     out = str(tmp_path / f"{label}-out.ome.zarr")
     to_ome_zarr(out, multiscales, version="0.9.dev1")
@@ -226,8 +226,9 @@ CANONICAL_GATE_MESSAGE_AXIS_COUNT = (
     "2 and 5 axes, inclusive; found 6. Axes at multiscales[0].axes: "
     "['a'(type='space'), 'b'(type='space'), 'c'(type='space'), "
     "'d'(type='space'), 'e'(type='space'), 'f'(type='space')]. Pass "
-    'version="0.9.dev1" to write it: 0.9.dev1 is the only OME-Zarr version '
-    "that adopts RFC-3 (arbitrary axis count, names, types and ordering)."
+    'version="0.9.dev1" or version="0.9.dev3" to write it: the OME-Zarr 0.9 '
+    "development series adopts RFC-3 (arbitrary axis count, names, types and "
+    "ordering)."
 )
 
 

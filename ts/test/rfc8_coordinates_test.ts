@@ -156,6 +156,7 @@ Deno.test("reference paths pass through path-type-known", async () => {
     type: "multiscale",
     name: "img",
     id: "img",
+    nodes: [],
     attributes: {
       coordinateSystems: [
         { id: "physical", axes: [{ name: "x", type: "space" }] },

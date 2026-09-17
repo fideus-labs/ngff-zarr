@@ -58,10 +58,13 @@ function pyReprValue(value: unknown): string {
 /**
  * The node types whose schema declares the `nodes` / `path` pair, and for
  * which exactly one of the two must be present. Unknown and extension node
- * types are exempt (open-world). Issue #714's multiscale stage adds
- * `"multiscale"` here rather than introducing a new rule.
+ * types are exempt (open-world), and so is `singlescale`: its `path` is
+ * optional and it declares no `nodes`.
  */
-export const XOR_NODE_TYPES: ReadonlySet<string> = new Set(["collection"]);
+export const XOR_NODE_TYPES: ReadonlySet<string> = new Set([
+  "collection",
+  "multiscale",
+]);
 
 /** The unprefixed path types the core specification defines. */
 export const CORE_PATH_TYPES: ReadonlySet<string> = new Set(["zarr", "json"]);
