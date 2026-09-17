@@ -58,6 +58,9 @@ def test_every_rule_is_exercised_by_the_shared_cases():
         "plate-columns-rows-required",
         "well-reference-resolves",
         "acquisition-reference-resolves",
+        "node-version-consistent",
+        "singlescale-transform-shape",
+        "multiscale-output-consistent",
     }
 
 
@@ -144,3 +147,45 @@ def test_webknossos_fixture_fails_on_its_draft_reference_shape():
     with pytest.raises(ValidationError) as exc_info:
         validate_collection(webknossos["attributes"]["ome"], version="0.9.dev3")
     assert exc_info.value.rule.value == "reference-id-required"
+
+
+def test_parsed_tree_version_consistency_uses_the_callers_version():
+    # A parsed tree carries its version separately; the orchestrator stamps
+    # it, so a stale child version cannot slip past by round-tripping a
+    # document whose root never declared one.
+    root = Collection(
+        "c",
+        nodes=[
+            Node(
+                type="singlescale",
+                name="s0",
+                path=OmePath("zarr", "./s0"),
+                extra={"version": "0.9.dev1"},
+            )
+        ],
+    )
+    with pytest.raises(ValidationError) as exc_info:
+        validate_collection(root, version="0.9.dev3")
+    assert exc_info.value.rule.value == "node-version-consistent"
+
+
+def test_a_stamped_enum_version_renders_as_its_value():
+    from ngff_zarr import NgffVersion
+
+    document = {
+        "type": "collection",
+        "name": "c",
+        "nodes": [
+            {
+                "type": "singlescale",
+                "name": "s0",
+                "version": "0.9.dev1",
+                "path": {"type": "zarr", "path": "./s0"},
+            }
+        ],
+    }
+    with pytest.raises(ValidationError) as exc_info:
+        validate_collection(document, version=NgffVersion.V09dev3)
+    message = str(exc_info.value)
+    assert "the root declares '0.9.dev3'" in message
+    assert "NgffVersion" not in message

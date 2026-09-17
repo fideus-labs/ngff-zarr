@@ -89,9 +89,12 @@ The canonical `SpecRule` set, in evaluation order:
 29. `plate-columns-rows-required`
 30. `well-reference-resolves`
 31. `acquisition-reference-resolves`
+32. `node-version-consistent`
+33. `singlescale-transform-shape`
+34. `multiscale-output-consistent`
 
 Entries 12–13 are the v0.5 namespacing rules; they fire only for v0.5 metadata
-and are inert for v0.4. Entries 16–31 are the RFC-8 node/collection rules,
+and are inert for v0.4. Entries 16–34 are the RFC-8 node/collection rules,
 dispatched by the separate `validate_collection` orchestrator. Each suite pins this list as a `CANONICAL_SPEC_RULE_IDS`
 literal — byte-identical between the two languages so the tests are
 line-for-line comparable.
@@ -166,12 +169,13 @@ Each suite independently locks:
   is given) and inert at every other supported version, asserted through
   `validate_collection` / `validateCollection`.
 
-Twenty of the thirty-one rules never appear in `EXPECTED_EVALUATION_ORDER`,
-each for its own reason. The two v0.5 namespacing rules (`zarr-format`,
-`ome-namespace`) run last in the image orchestrator but are inert for the v0.4
-metadata the order test exercises. The two 0.4/0.5 HCS rules
-(`plate-row-index-consistency`, `well-acquisition-missing`) and the sixteen
-RFC-8 rules (`node-type-required` through `acquisition-reference-resolves`) are
+Twenty-three of the thirty-four rules never appear in
+`EXPECTED_EVALUATION_ORDER`, each for its own reason. The two v0.5 namespacing
+rules (`zarr-format`, `ome-namespace`) run last in the image orchestrator but
+are inert for the v0.4 metadata the order test exercises. The two 0.4/0.5 HCS
+rules (`plate-row-index-consistency`, `well-acquisition-missing`) and the
+nineteen RFC-8 rules (`node-type-required` through
+`multiscale-output-consistent`) are
 deliberately absent; they are dispatched by the separate plate/well and
 collection orchestrators (see [[rule-reference]]), and the RFC-8 rules' own
 fail-fast order is pinned by the shared `rfc8_collection_cases.json` fixture
