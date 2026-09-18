@@ -150,6 +150,7 @@ def test_write_hcs_well_image_path_store_uses_zarrista(
     sample_multiscales,
 ):
     """Path stores dispatch well-group writes to the zarrista compat layer."""
+    basic_plate_metadata.version = "0.5"
     with tempfile.TemporaryDirectory() as tmpdir:
         store_path = str(Path(tmpdir) / "test_store")
 

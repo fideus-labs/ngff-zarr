@@ -20,6 +20,7 @@ import {
   readOzxVersion,
 } from "../src/io/rfc9_zip.ts";
 import { toNgffZarr, toNgffZarrOzx } from "../src/io/to_ngff_zarr.ts";
+import { fromOmeZarr } from "../src/io/from_ngff_zarr.ts";
 import { itkImageToNgffImage } from "../src/io/itk_image_to_ngff_image.ts";
 import { toMultiscales } from "../src/process/to_multiscales-node.ts";
 import { Methods } from "../src/types/methods.ts";
@@ -31,6 +32,7 @@ import {
 } from "../src/utils/factory.ts";
 import { NgffImage } from "../src/types/ngff_image.ts";
 import * as zarr from "zarrita";
+import { ZipFileStore } from "@zarrita/storage";
 
 // Path to Python test data directory
 const TEST_DATA_DIR = join(Deno.cwd(), "..", "py", "test", "data");
@@ -449,7 +451,7 @@ Deno.test("toNgffZarr - detects .ozx path and writes correctly", async () => {
   console.log("  Auto-detected .ozx path:", ozxPath);
 });
 
-Deno.test("toNgffZarr - requires version 0.5 for .ozx", async () => {
+Deno.test("toNgffZarr - rejects the Zarr v2 version 0.4 for .ozx", async () => {
   const store = new Map<string, Uint8Array>();
   const root = zarr.root(store);
   const array = await zarr.create(root.resolve("data"), {
@@ -476,13 +478,13 @@ Deno.test("toNgffZarr - requires version 0.5 for .ozx", async () => {
 
   const ozxPath = join(OUTPUT_DIR, "test_version_error.ozx");
 
-  // Should throw error for version 0.4
+  // RFC-9 is defined on Zarr v3; 0.4 lives in Zarr v2 and cannot be zipped.
   await assertRejects(
     async () => {
       await toNgffZarr(ozxPath, multiscales, { version: "0.4" });
     },
     Error,
-    "RFC-9 (.ozx) requires OME-Zarr version 0.5",
+    "RFC-9 (.ozx) requires OME-Zarr version 0.5 or later",
   );
 });
 
@@ -619,9 +621,11 @@ Deno.test("toNgffZarr - throws error on chunksPerShard for .ozx", async () => {
   );
 });
 
-Deno.test("toNgffZarrOzx - rejects conflicting metadata version", async () => {
-  // Test that toNgffZarrOzx throws an error when the NgffMultiscales object
-  // has a metadata.version that doesn't match the required 0.5
+Deno.test("toNgffZarrOzx - writes at the requested version, not metadata.version", async () => {
+  // The in-memory metadata.version is where the data came from, not where it
+  // is going: like the directory writer, the archive is written at the
+  // requested version (0.5 by default), so a multiscales read from a 0.4
+  // store zips without being re-tagged first.
   const store = new Map<string, Uint8Array>();
   const root = zarr.root(store);
   const array = await zarr.create(root.resolve("data"), {
@@ -643,20 +647,78 @@ Deno.test("toNgffZarrOzx - rejects conflicting metadata version", async () => {
 
   const axes = [createAxis("y", "space"), createAxis("x", "space")];
   const datasets = [createDataset("scale0/image", [1.0, 1.0], [0.0, 0.0])];
-  // Create metadata with version "0.4" - this should conflict with RFC-9
+  // Metadata tagged "0.4", as a multiscales read from a v0.4 store would be.
   const metadata = createMetadata(axes, datasets, "test", "0.4");
   const multiscales = createMultiscales([image], metadata);
 
-  const ozxPath = join(OUTPUT_DIR, "test_metadata_version_error.ozx");
+  const ozxPath = join(OUTPUT_DIR, "test_metadata_version_source.ozx");
+  await toNgffZarrOzx(ozxPath, multiscales);
 
-  // Should throw error because metadata.version is "0.4" but RFC-9 requires "0.5"
-  await assertRejects(
-    async () => {
-      await toNgffZarrOzx(ozxPath, multiscales);
-    },
-    Error,
-    "Inconsistent NGFF version in NgffMultiscales metadata",
+  const zipData = await Deno.readFile(ozxPath);
+  assertEquals(readOzxVersion(zipData), "0.5");
+  const ome = await ozxOmeAttributes(zipData);
+  assertEquals(ome.version, "0.5");
+});
+
+// The `ome` attributes of the root group inside a .ozx archive.
+async function ozxOmeAttributes(
+  zipData: Uint8Array,
+): Promise<Record<string, unknown>> {
+  const store = ZipFileStore.fromBlob(new Blob([zipData as BlobPart]));
+  const raw = await store.get("/zarr.json");
+  assertExists(raw, ".ozx archive has no root zarr.json");
+  return JSON.parse(new TextDecoder().decode(raw)).attributes.ome;
+}
+
+Deno.test("toNgffZarr - writes a v0.6 .ozx file", async () => {
+  // RFC-9 is defined on Zarr v3, so any version stored in Zarr v3 can be
+  // zipped: a v0.6 archive carries the v0.6 root document (coordinate
+  // systems, no flat axes), and the ZIP comment records 0.6.
+  const store = new Map<string, Uint8Array>();
+  const root = zarr.root(store);
+  const array = await zarr.create(root.resolve("data"), {
+    shape: [4, 4],
+    chunk_shape: [4, 4],
+    data_type: "uint8",
+    fill_value: 0,
+  });
+
+  const image = new NgffImage({
+    data: array,
+    dims: ["y", "x"],
+    scale: { y: 1.0, x: 1.0 },
+    translation: { y: 0.0, x: 0.0 },
+    name: "test",
+    axesUnits: undefined,
+    computedCallbacks: undefined,
+  });
+
+  const axes = [createAxis("y", "space"), createAxis("x", "space")];
+  const datasets = [createDataset("scale0/image", [1.0, 1.0], [0.0, 0.0])];
+  const metadata = createMetadata(axes, datasets, "test", "0.5");
+  const multiscales = createMultiscales([image], metadata);
+
+  const ozxPath = join(OUTPUT_DIR, "test_v06.ozx");
+  await toNgffZarr(ozxPath, multiscales, { version: "0.6" });
+
+  const zipData = await Deno.readFile(ozxPath);
+  assertEquals(readOzxVersion(zipData), "0.6");
+  assertEquals(readOzxJsonFirst(zipData), true);
+  assertEquals(getZipFileList(zipData)[0], "zarr.json");
+
+  const ome = await ozxOmeAttributes(zipData);
+  assertEquals(ome.version, "0.6");
+  const entry = (ome.multiscales as Array<Record<string, unknown>>)[0];
+  assertExists(entry.coordinateSystems);
+  assertEquals("axes" in entry, false);
+
+  // The archive reads back as a v0.6 store with the data intact.
+  const read = await fromOmeZarr(
+    ZipFileStore.fromBlob(new Blob([zipData as BlobPart])),
+    { validate: true },
   );
+  assertEquals(read.metadata.version, "0.6");
+  assertEquals(read.images[0].data.shape, [4, 4]);
 });
 
 // ============================================================================

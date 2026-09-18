@@ -4,6 +4,8 @@
 
 from enum import StrEnum
 
+import packaging.version
+
 
 class NgffVersion(StrEnum):
     V01 = "0.1"
@@ -29,6 +31,25 @@ SUPPORTED_VERSIONS = (
     NgffVersion.V06,
     NgffVersion.V09dev1,
 )
+
+#: The versions :func:`ngff_zarr.to_ome_zarr` writes. Every member of
+#: :data:`SUPPORTED_VERSIONS` is read; the Zarr v2 layouts before 0.4 are not
+#: written. An HCS plate's fields are written through ``to_ome_zarr``, so the
+#: HCS writers accept this same tuple.
+WRITABLE_VERSIONS = (
+    NgffVersion.V04,
+    NgffVersion.V05,
+    NgffVersion.V06,
+    NgffVersion.V09dev1,
+)
+
+
+def _zarr_format_for_version(version: str) -> int:
+    """OME-Zarr < 0.5 lives in Zarr v2; 0.5 and later live in Zarr v3."""
+    if packaging.version.parse(version) < packaging.version.parse("0.5"):
+        return 2
+    return 3
+
 
 #: The ``ome.version`` string written to disk for the API version ``"0.6"``.
 #: With the 0.6 release this is ``"0.6"`` itself: the bundled ``spec/0.6``

@@ -238,61 +238,34 @@ export function buildRootAttributes(
 }
 
 /**
- * Validate that the NgffMultiscales metadata version is compatible with RFC-9.
- * RFC-9 always uses version 0.5.
- *
- * @param multiscales - NgffMultiscales object to validate
- * @throws Error if metadata.version is defined and not "0.5"
+ * The OME-Zarr versions an RFC-9 `.ozx` archive can hold. RFC-9 is defined on
+ * Zarr v3 -- the archive leads with the root `zarr.json` -- so every version
+ * stored in Zarr v3 qualifies: 0.5, 0.6, and the opt-in 0.9.dev1. OME-Zarr
+ * 0.4 lives in Zarr v2 and cannot be zipped. Mirrors the Python port, where
+ * `.ozx` output requires `_zarr_format_for_version(version) == 3`.
  */
-export function validateRfc9Version(multiscales: NgffMultiscales): void {
-  const providedVersion = multiscales.metadata.version;
-  if (providedVersion !== undefined && providedVersion !== "0.5") {
-    throw new Error(
-      `Inconsistent NGFF version in NgffMultiscales metadata: expected "0.5" for RFC-9 OZX export, but got "${providedVersion}".`,
-    );
-  }
-}
+export type OzxVersion = "0.5" | "0.6" | "0.9.dev1";
+
+/** The version an `.ozx` archive is written at when none is requested. */
+export const DEFAULT_OZX_VERSION: OzxVersion = "0.5";
 
 /**
- * Prepare multiscales metadata for RFC-9 export.
- * Processes axes (anatomical orientation is serialized whenever present) and
- * sets version to 0.5.
- *
- * @param multiscales - Source multiscales data
- * @returns Prepared metadata object
+ * Refuse a version an RFC-9 archive cannot hold; see {@link OzxVersion}.
+ * Accepts `undefined` so a caller can pass an option through as given.
  */
-export function prepareRfc9Metadata(
-  multiscales: NgffMultiscales,
-): Record<string, unknown> {
-  const _version = "0.5";
-
-  // Process axes (orientation included when present)
-  const processedAxes = processAxes(multiscales.metadata.axes);
-
-  // RFC-9 (.ozx) is always v0.5, which only supports the simple
-  // scale/translation subset of top-level transforms. Reduce any v0.6-only
-  // transforms (rotation/affine/sequence, or input/output/name on a
-  // scale/translation) to that subset so they cannot leak into the store,
-  // matching the v0.4/v0.5 branch of the regular writer.
-  const legacyTransforms = legacyTopLevelTransforms(
-    multiscales.metadata.coordinateTransformations,
+export function gateOzxVersion(version: string | undefined): OzxVersion {
+  if (version === undefined) {
+    return DEFAULT_OZX_VERSION;
+  }
+  if (version === "0.5" || version === "0.6" || version === "0.9.dev1") {
+    return version;
+  }
+  throw new Error(
+    "RFC-9 (.ozx) requires OME-Zarr version 0.5 or later (Zarr v3). " +
+      `Got version "${version}". ` +
+      "For .ozx files, omit the version option or set it to '0.5', '0.6' " +
+      "or '0.9.dev1'.",
   );
-
-  return {
-    version: _version,
-    name: multiscales.metadata.name,
-    axes: processedAxes,
-    datasets: multiscales.metadata.datasets,
-    ...(legacyTransforms && {
-      coordinateTransformations: legacyTransforms,
-    }),
-    ...(multiscales.metadata.type && {
-      type: multiscales.metadata.type,
-    }),
-    ...(multiscales.metadata.metadata && {
-      metadata: multiscales.metadata.metadata,
-    }),
-  };
 }
 
 /**
@@ -309,34 +282,6 @@ function getChunksFromImage(image: NgffImage): number[] {
 }
 
 /**
- * Create root group attributes for RFC-9 export.
- *
- * @param multiscalesMetadata - Prepared multiscales metadata
- * @param multiscales - Original multiscales (for OMERO metadata)
- * @returns Attributes object for root group
- */
-export function createRfc9RootAttributes(
-  multiscalesMetadata: Record<string, unknown>,
-  multiscales: NgffMultiscales,
-): Record<string, unknown> {
-  const _version = "0.5";
-
-  const attributes: Record<string, unknown> = {
-    ome: {
-      version: _version,
-      multiscales: [multiscalesMetadata],
-    },
-  };
-
-  // Add OMERO metadata at root level if present
-  if (multiscales.metadata.omero) {
-    attributes.omero = multiscales.metadata.omero;
-  }
-
-  return attributes;
-}
-
-/**
  * Write multiscales data to a memory store for RFC-9 export.
  * This is the shared implementation used by both Node and browser versions.
  *
@@ -347,6 +292,8 @@ export function createRfc9RootAttributes(
  *   progress across all scale levels
  * @param consolidate - Inline the array documents into the root `zarr.json`
  *   once they are written (default `true`)
+ * @param version - OME-Zarr version to write the store at; see
+ *   {@link OzxVersion} (default `0.5`)
  */
 export async function writeNgffMultiscalesToMemoryStore(
   store: MemoryStore,
@@ -361,18 +308,14 @@ export async function writeNgffMultiscalesToMemoryStore(
   ) => Promise<void>,
   onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
   consolidate: boolean = true,
+  version: OzxVersion = DEFAULT_OZX_VERSION,
 ): Promise<void> {
-  // Validate version
-  validateRfc9Version(multiscales);
-
   // Create root location and group with zarrita API
   const root = zarr.root(store);
 
-  // Prepare metadata
-  const multiscalesMetadata = prepareRfc9Metadata(multiscales);
-
-  // Create root attributes
-  const attributes = createRfc9RootAttributes(multiscalesMetadata, multiscales);
+  // The same version-specific root document the directory writers produce:
+  // a zipped store differs from a directory store only in its container.
+  const attributes = buildRootAttributes(multiscales.metadata, version);
 
   const rootGroup = await zarr.create(root, { attributes });
 

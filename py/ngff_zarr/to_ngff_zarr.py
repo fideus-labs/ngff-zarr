@@ -15,7 +15,12 @@ import numpy as np
 from itkwasm import array_like_to_numpy_array
 
 from ._store_types import StoreLike
-from ._supported_versions import V06_ONDISK_VERSION, NgffVersion
+from ._supported_versions import (
+    V06_ONDISK_VERSION,
+    WRITABLE_VERSIONS,
+    NgffVersion,
+    _zarr_format_for_version,
+)
 from ._zarrista_utils import (
     OME_ROOT_KEYS,
     _ZarristaArrayAdapter,
@@ -292,12 +297,7 @@ def _validate_ngff_parameters(
     if isinstance(version, str):
         version = NgffVersion(version)
 
-    if version not in [
-        NgffVersion.V04,
-        NgffVersion.V05,
-        NgffVersion.V06,
-        NgffVersion.V09dev1,
-    ]:
+    if version not in WRITABLE_VERSIONS:
         raise ValueError(f"Unsupported version: {version}")
 
     if chunks_per_shard is not None and version == NgffVersion.V04:
@@ -1569,7 +1569,8 @@ def to_ome_zarr(
         Its ``root_attributes`` are written beside the OME metadata at the root of the store.
     :type  multiscales: NgffMultiscales
 
-    :param version: OME-Zarr specification version. For .ozx files, version 0.5 is required.
+    :param version: OME-Zarr specification version. For .ozx files, a version stored in Zarr v3
+        (0.5 or later) is required.
     :type  version: str, optional
 
     :param overwrite: If True, delete any pre-existing data in `store` before creating groups.
@@ -1679,10 +1680,12 @@ def to_ome_zarr(
                 "start_level is not available for .ozx output: a zipped OME-Zarr "
                 "is written in one piece."
             )
-        if version != "0.5":
+        # RFC-9 is defined on Zarr v3 (the root zarr.json leads the archive),
+        # so any version stored in Zarr v3 -- 0.5, 0.6, ... -- can be zipped.
+        if _zarr_format_for_version(version) != 3:
             raise ValueError(
-                "RFC-9 zipped OME-Zarr (.ozx) requires OME-Zarr version 0.5. "
-                f"Got version '{version}'. Please set version='0.5'."
+                "RFC-9 zipped OME-Zarr (.ozx) requires OME-Zarr version 0.5 or "
+                f"later (Zarr v3). Got version '{version}'."
             )
 
         # Default chunks_per_shard to 2 for .ozx files if not specified

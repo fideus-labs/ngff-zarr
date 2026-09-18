@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Optional
 
 from ._remote_reader import RemoteZarrStore, remote_read_available
+from ._supported_versions import WRITABLE_VERSIONS, _zarr_format_for_version
 from ._zarrista_utils import (
     create_zarrista_group,
     create_zarrista_subgroup,
@@ -406,10 +407,14 @@ def from_hcs_zarr(
     root_attrs = root.attrs.asdict()
 
     if validate:
+        from .parse_metadata import _detect_version
         from .validate import validate as validate_ngff
 
-        # Use plate schema for HCS validation instead of image schema
-        validate_ngff(root_attrs, model="plate")
+        # Use the plate schema for HCS validation instead of the image schema,
+        # at the version the store records: from 0.5 the plate document lives
+        # under ``ome``, which the v0.4 schema does not look at.
+        version = _detect_version(root_attrs).value
+        validate_ngff(root_attrs, version=version, model="plate")
 
     # Extract plate metadata
     plate_data = {}
@@ -527,8 +532,8 @@ def from_hcs_zarr(
         # is loaded. Imported lazily so the default validate=False path incurs
         # no extra import cost. Unlike the image reader's structural pass, no
         # >=0.4 version gate is needed here: these plate/well rules are
-        # version-agnostic and from_hcs_zarr only reads v0.4/v0.5 plates (there
-        # is no pre-0.4 plate layout to exempt).
+        # version-agnostic and from_hcs_zarr only reads v0.4+ plates (there is
+        # no pre-0.4 plate layout to exempt).
         from .structural_validation import (
             ValidateOptions,
             ValidationLevel,
@@ -540,6 +545,31 @@ def from_hcs_zarr(
     return HCSPlate(
         store, plate_metadata, well_cache_size, image_cache_size, validate=validate
     )
+
+
+def _check_hcs_version(version: str, plate_metadata: Plate | None = None) -> None:
+    """Reject a version the HCS writers cannot produce, or one the plate lacks.
+
+    A plate's field images are written through :func:`to_ome_zarr`, so the
+    versions an HCS plate can be written at are exactly the ones it writes.
+    When ``plate_metadata`` is given, ``version`` must also be the version the
+    plate root was created with: the root is written at
+    ``plate_metadata.version`` and the wells at ``version``, and a plate whose
+    wells differ from its root -- in the Zarr format as well as the tag -- is
+    not readable as one plate.
+    """
+    if version not in WRITABLE_VERSIONS:
+        supported = ", ".join(v.value for v in WRITABLE_VERSIONS)
+        raise ValueError(
+            f"Unsupported OME-Zarr version: {version}. "
+            f"HCS plates can be written at versions {supported}."
+        )
+    if plate_metadata is not None and version != plate_metadata.version:
+        raise ValueError(
+            f"version {version!r} does not match the plate's version "
+            f"{plate_metadata.version!r}. A plate and its wells are written at "
+            "one OME-Zarr version: pass the version the Plate was created with."
+        )
 
 
 def to_hcs_zarr(plate: HCSPlate, store, overwrite: bool = True) -> None:
@@ -558,6 +588,7 @@ def to_hcs_zarr(plate: HCSPlate, store, overwrite: bool = True) -> None:
         and merge the plate metadata into the root group's attributes, so an
         interrupted acquisition can be resumed without discarding wells.
     """
+    _check_hcs_version(plate.metadata.version)
 
     # For NGFF version 0.4, use Zarr format 2; for 0.5+, use Zarr format 3
     zarr_format = 2 if plate.metadata.version == "0.4" else 3
@@ -576,7 +607,7 @@ def to_hcs_zarr(plate: HCSPlate, store, overwrite: bool = True) -> None:
         ],
     }
 
-    # For v0.4, version goes in plate dict; for v0.5, it goes at top level
+    # For v0.4, version goes in plate dict; from v0.5, it goes at top level
     if plate.metadata.version == "0.4":
         plate_dict["version"] = plate.metadata.version
 
@@ -641,7 +672,10 @@ class HCSPlateWriter:
     plate_metadata : Plate
         Plate-level metadata containing rows, columns, wells, and other plate information.
     version : str, optional
-        OME-Zarr specification version (default: "0.5"). Note: .ozx format requires version 0.5.
+        OME-Zarr specification version. Defaults to ``plate_metadata.version``;
+        when given, it must match it, since the plate root and its wells are
+        written at one version. Note: .ozx format requires a version stored in
+        Zarr v3, i.e. 0.5 or later.
     overwrite : bool, optional
         If True, overwrite existing store (default: True).
 
@@ -700,9 +734,11 @@ class HCSPlateWriter:
         self,
         store,
         plate_metadata: Plate,
-        version: str = "0.5",
+        version: str | None = None,
         overwrite: bool = True,
     ):
+        if version is None:
+            version = plate_metadata.version
         self.final_store = store
         self.plate_metadata = plate_metadata
         self.version = version
@@ -711,10 +747,11 @@ class HCSPlateWriter:
         self._temp_store = None
         self._temp_dir = None
 
-        if self.is_ozx and version != "0.5":
+        _check_hcs_version(version, plate_metadata)
+        if self.is_ozx and _zarr_format_for_version(version) != 3:
             raise ValueError(
-                "RFC-9 zipped OME-Zarr (.ozx) requires OME-Zarr version 0.5. "
-                f"Got version '{version}'. Please set version='0.5'."
+                "RFC-9 zipped OME-Zarr (.ozx) requires OME-Zarr version 0.5 or "
+                f"later (Zarr v3). Got version '{version}'."
             )
 
     def __enter__(self):
@@ -763,7 +800,7 @@ class HCSPlateWriter:
         row_name: str,
         column_name: str,
         field_index: int = 0,
-        acquisition_id: int = 0,
+        acquisition_id: int | None = 0,
         well_metadata: Well | None = None,
         **kwargs,
     ) -> None:
@@ -780,8 +817,9 @@ class HCSPlateWriter:
             Name of the column (e.g., "1", "2", "3").
         field_index : int, optional
             Index of the field of view within the well (default: 0).
-        acquisition_id : int, optional
+        acquisition_id : int or None, optional
             Acquisition ID for time series or multi-condition experiments (default: 0).
+            Pass None to record no acquisition for the image.
         well_metadata : Well, optional
             Well-level metadata. If None, will be created automatically.
         **kwargs
@@ -829,7 +867,7 @@ def write_hcs_well_image(
     row_name: str,
     column_name: str,
     field_index: int = 0,
-    acquisition_id: int = 0,
+    acquisition_id: int | None = 0,
     well_metadata: Well | None = None,
     version: str = "0.4",
     **kwargs,
@@ -855,12 +893,16 @@ def write_hcs_well_image(
         Name of the column (e.g., "1", "2", "3").
     field_index : int, optional
         Index of the field of view within the well (default: 0).
-    acquisition_id : int, optional
+    acquisition_id : int or None, optional
         Acquisition ID for time series or multi-condition experiments (default: 0).
+        Pass None to record no acquisition for the image, which the
+        specification allows when the plate declares at most one acquisition.
     well_metadata : Well, optional
         Well-level metadata. If None, will be created automatically.
     version : str, optional
-        OME-Zarr specification version (default: "0.4").
+        OME-Zarr specification version (default: "0.4"). Any version
+        :func:`to_ome_zarr` writes is accepted; it must match
+        ``plate_metadata.version``, the version the plate was created with.
     **kwargs
         Additional arguments passed to to_ome_zarr.
 
@@ -906,6 +948,16 @@ def write_hcs_well_image(
     use the HCSPlateWriter context manager instead of calling this function directly.
     The context manager defers .ozx file creation until all wells are written.
     """
+    _check_hcs_version(version, plate_metadata)
+
+    # A well image must name its acquisition once the plate declares several
+    # (the reader's well-acquisition-missing rule), so refuse to record none.
+    if acquisition_id is None and len(plate_metadata.acquisitions or []) > 1:
+        raise ValueError(
+            f"The plate declares {len(plate_metadata.acquisitions)} acquisitions, "
+            "so every well image must reference one: pass acquisition_id."
+        )
+
     # Validate row and column exist in plate metadata
     row_index = None
     for i, row in enumerate(plate_metadata.rows):
@@ -944,8 +996,6 @@ def write_hcs_well_image(
     with _well_metadata_lock(store, ""):
         if read_group_attributes(store, zarr_format=zarr_format) is None:
             create_zarrista_group(store, None, zarr_format)
-    if version not in ("0.4", "0.5"):
-        raise ValueError(f"Unsupported OME-Zarr version: {version}")
 
     # The well's image list is read, appended to, and written back. Hold the
     # well's lock across all three so two threads writing different fields of
@@ -973,7 +1023,7 @@ def write_hcs_well_image(
                         existing_images.append(
                             WellImage(
                                 path=img_dict["path"],
-                                acquisition=img_dict.get("acquisition", 0),
+                                acquisition=img_dict.get("acquisition"),
                             )
                         )
                 well_metadata = Well(
@@ -987,26 +1037,26 @@ def write_hcs_well_image(
             well_images = [WellImage(path=str(field_index), acquisition=acquisition_id)]
             well_metadata = Well(images=well_images, version=version)
         else:
-            # Check if the field already exists in well metadata
-            field_exists = False
+            # A field is identified by its path, the Zarr group the pixels are
+            # written to; the entry's acquisition follows the data written
+            # there, so re-writing a field never leaves two entries at one path.
             for img in well_metadata.images:
-                if img.path == str(field_index) and img.acquisition == acquisition_id:
-                    field_exists = True
+                if img.path == str(field_index):
+                    img.acquisition = acquisition_id
                     break
-
-            # Add the field if it doesn't exist
-            if not field_exists:
+            else:
                 well_metadata.images.append(
                     WellImage(path=str(field_index), acquisition=acquisition_id)
                 )
 
-        # Set well metadata
+        # Set well metadata. ``acquisition`` is optional in the well document
+        # (required only when the plate declares several acquisitions), so an
+        # image with none records no key rather than a null or a made-up 0.
         well_dict = {
             "images": [
-                {
-                    "path": img.path,
-                    "acquisition": img.acquisition,
-                }
+                {"path": img.path}
+                if img.acquisition is None
+                else {"path": img.path, "acquisition": img.acquisition}
                 for img in well_metadata.images
             ],
             "version": well_metadata.version or version,
@@ -1014,7 +1064,7 @@ def write_hcs_well_image(
         if version == "0.4":
             well_attr_updates = {"well": well_dict}
         else:
-            well_dict.pop("version", None)  # version goes at top level in 0.5
+            well_dict.pop("version", None)  # version goes at top level from 0.5
             well_attr_updates = {"ome": {"well": well_dict, "version": version}}
 
         # Creates the missing row group along the way, preserving the

@@ -26,8 +26,11 @@ The OME-Zarr specification defines a hierarchical structure for HCS data:
 
 ## Implementation
 
-NGFF-Zarr's HCS implementation follows the OME-Zarr v0.4 specification and
-provides:
+NGFF-Zarr's HCS implementation follows the plate and well layout of the
+OME-Zarr specification at versions 0.4, 0.5, and 0.6 (and the opt-in
+development version `0.9.dev1`) -- including
+[RFC-9 zipped OME-Zarr (`.ozx`)](#rfc-9-zipped-ome-zarr-ozx-support) output
+for the Zarr v3 versions -- and provides:
 
 ### Core Data Classes
 
@@ -184,7 +187,7 @@ The expected workflow for writing HCS data is to:
 
 ### Creating Plate Metadata
 
-The plate metadata structure is the same for both v0.4 and v0.5. The version is specified when creating the `Plate` object:
+The plate metadata structure is the same for v0.4, v0.5, and v0.6. The version is specified when creating the `Plate` object:
 
 ```python
 from ngff_zarr import Plate, PlateColumn, PlateRow, PlateWell, PlateAcquisition
@@ -230,13 +233,29 @@ plate_metadata_v05 = Plate(
     field_count=2,  # Number of fields per well
     version="0.5",  # Use v0.5 format (Zarr v3)
 )
+
+# Create plate metadata for v0.6
+plate_metadata_v06 = Plate(
+    name="Drug Screening Plate",
+    columns=columns,
+    rows=rows,
+    wells=wells,
+    acquisitions=acquisitions,
+    field_count=2,  # Number of fields per well
+    version="0.6",  # Use v0.6 format (Zarr v3)
+)
 ```
 
-**Key Differences Between v0.4 and v0.5:**
+**Key Differences Between Versions:**
 
 - **v0.4**: Uses Zarr format 2, version field included in metadata dicts
 - **v0.5**: Uses Zarr format 3, version at top-level OME wrapper only
-- **Metadata Structure**: v0.5 stores version in `.zattrs["ome"]["version"]` instead of in individual metadata objects
+- **v0.6**: Same plate and well layout as v0.5, tagged `"0.6"`; each field
+  image is written as a v0.6 image, with RFC-5 coordinate systems and
+  transformations
+- **Metadata Structure**: v0.5 and v0.6 store the version in
+  `zarr.json["attributes"]["ome"]["version"]` instead of in individual
+  metadata objects
 
 ### Setting Up the Plate Structure
 
@@ -255,32 +274,34 @@ to_hcs_zarr(hcs_plate, "my_screen.ome.zarr")
 
 After creating the plate structure, use `write_hcs_well_image` to write individual field images as they are acquired. **Important:** Pass the `version` parameter to match your plate version.
 
-**Critical:** All wells in a plate must use the same OME-Zarr version (0.4 or 0.5). Mixing versions within a single plate is not supported.
+**Critical:** All wells in a plate must use the same OME-Zarr version (0.4, 0.5, 0.6, or the opt-in 0.9.dev1) as the plate itself. Mixing versions within a single plate is not supported: `write_hcs_well_image` and `HCSPlateWriter` raise a `ValueError` when `version` differs from `plate_metadata.version`, before anything is written.
 
 ### RFC-9 Zipped OME-Zarr (.ozx) Support
 
 HCS plates can be written to RFC-9 compliant zipped OME-Zarr (`.ozx`) format by simply using an `.ozx` file extension. This format is ideal for sharing and archiving HCS datasets as a single file.
 
 **Requirements:**
-- OME-Zarr version 0.5 (required for RFC-9)
-- Zarr-python >= 3.0.0
+- An OME-Zarr version stored in Zarr v3: 0.5 or 0.6 (or the opt-in
+  development version `0.9.dev1`). RFC-9 is defined on Zarr v3 (the archive
+  leads with the root `zarr.json`), so a v0.4 plate cannot be zipped; writing
+  one to an `.ozx` path raises a `ValueError`.
 
-#### Using HCSPlateWriter for Efficient .ozx Writing
+#### Using HCSPlateWriter for .ozx Writing
 
-For writing multiple wells to `.ozx` format (or for parallel writing to any format), use the `HCSPlateWriter` context manager. This defers `.ozx` file creation until all wells are written, making it much more efficient than writing wells individually.
+To write a plate to `.ozx` format (or for parallel writing to any format), use the `HCSPlateWriter` context manager. It writes the wells to a temporary directory and creates the `.ozx` archive once, when the context exits. The writer takes its version from the `Plate`; a `version` passed explicitly must match it:
 
 ```python
 import ngff_zarr as nz
 from ngff_zarr.hcs import HCSPlateWriter
 
-# Create plate metadata with version 0.5 (required for .ozx)
+# Create plate metadata for v0.6; v0.5 works the same way
 plate_metadata = nz.Plate(
     name="Drug Screening Plate",
     columns=columns,
     rows=rows,
     wells=wells,
     field_count=2,
-    version="0.5",  # Required for .ozx
+    version="0.6",  # .ozx needs 0.5 or later (Zarr v3)
 )
 
 # Use context manager to write multiple wells efficiently
@@ -321,35 +342,22 @@ with HCSPlateWriter("plate.ozx", plate_metadata) as writer:
         executor.map(lambda wd: write_well(writer, wd), well_data_list)
 ```
 
-#### Single-Well .ozx Writing (Simple API)
-
-For writing a single well or a few wells, you can still use `write_hcs_well_image` directly, but note that each call will recreate the entire `.ozx` file:
-
-```python
-# Less efficient for multiple wells - creates .ozx after each write
-nz.write_hcs_well_image(
-    store="my_screen.ozx",
-    multiscales=field_image,
-    plate_metadata=plate_metadata,
-    row_name="A",
-    column_name="1",
-    field_index=0,
-    version="0.5",  # Must be 0.5 for .ozx
-)
-```
+`write_hcs_well_image` and `to_hcs_zarr` write to directories only; a zip
+archive cannot be written in place, so pass them an `.ome.zarr` path and use
+`HCSPlateWriter` (or `write_store_to_zip`, below) for `.ozx` output. This holds
+for a single well too.
 
 #### Reading .ozx Files
 
-The resulting `.ozx` file is a standard ZIP archive containing the entire HCS plate structure and can be read using `from_hcs_zarr`:
+The resulting `.ozx` file is a standard ZIP archive containing the entire HCS plate structure and can be read using `from_hcs_zarr`. The OME-Zarr version is recorded in the archive's ZIP comment and on the plate's metadata:
 
 ```python
 # Read .ozx file - works the same as regular .ome.zarr
-plate = nz.from_hcs_zarr("my_screen.ozx")
+plate = nz.from_hcs_zarr("my_screen.ozx", validate=True)
+print(plate.metadata.version)  # "0.6"
 well = plate.get_well("A", "1")
 image = well.get_image(0)
 ```
-
-**Note:** `.ozx` files automatically use sharding (chunks_per_shard=2 by default) for efficient compression and access.
 
 #### Converting Existing Plates to .ozx
 
@@ -362,7 +370,7 @@ from ngff_zarr import write_store_to_zip
 write_store_to_zip(
     "existing_plate.ome.zarr",  # Source plate directory
     "plate.ozx",  # Output .ozx file
-    version="0.5",  # Required for .ozx
+    version="0.6",  # The plate's OME-Zarr version, recorded in the ZIP comment
 )
 ```
 
@@ -377,7 +385,7 @@ The conversion preserves all plate structure, well data, and metadata. The resul
 ```python
 # IMPORTANT: The plate and all wells must use the same version
 # Define the version once to ensure consistency
-ome_zarr_version = "0.4"  # or "0.5"
+ome_zarr_version = "0.4"  # the version plate_metadata_v04 was created with
 
 # Write first field to well A/1 (v0.4 format)
 nz.write_hcs_well_image(
@@ -427,6 +435,25 @@ nz.write_hcs_well_image(
     store="my_screen_v05.ome.zarr",
     multiscales=field_image,  # Your NgffMultiscales image data
     plate_metadata=plate_metadata_v05,
+    row_name="A",
+    column_name="1",
+    field_index=0,  # First field of view
+    acquisition_id=0,
+    version=ome_zarr_version,  # Must match plate version
+)
+```
+
+Example for v0.6:
+
+```python
+# IMPORTANT: The plate and all wells must use the same version
+ome_zarr_version = "0.6"
+
+# Write first field to well A/1 (v0.6 format)
+nz.write_hcs_well_image(
+    store="my_screen_v06.ome.zarr",
+    multiscales=field_image,  # Your NgffMultiscales image data
+    plate_metadata=plate_metadata_v06,
     row_name="A",
     column_name="1",
     field_index=0,  # First field of view
@@ -634,7 +661,7 @@ print(f"Plate name: {loaded_plate.name}")
 - Updates well metadata automatically as fields are added
 - Maintains proper NGFF hierarchical structure
 - **v0.4**: Stores version in each metadata dict (`.zattrs["well"]["version"]`)
-- **v0.5**: Stores version only at top-level OME wrapper (`.zattrs["ome"]["version"]`)
+- **v0.5 and v0.6**: Store the version only at the top-level OME wrapper (`zarr.json["attributes"]["ome"]["version"]`)
 
 **Performance Considerations**:
 - Each field is written as a complete multiscale image
@@ -727,9 +754,11 @@ plate = nz.from_hcs_zarr("my_plate_v04.ome.zarr")
 print(f"Created v0.4 plate with {len(plate.wells)} wells")
 ```
 
-### Simple Complete Example (v0.5)
+### Simple Complete Example (v0.5 and v0.6)
 
-Here's a minimal working example for v0.5:
+Here's a minimal working example for v0.5. It is the same for v0.6: set
+`ome_zarr_version = "0.6"` and the plate, wells, and field images are all
+written at v0.6.
 
 ```python
 import ngff_zarr as nz
@@ -738,7 +767,8 @@ from ngff_zarr.hcs import HCSPlate, to_hcs_zarr
 from ngff_zarr.v04.zarr_metadata import *
 
 # IMPORTANT: Define version once - all plate and well operations must use the same version
-ome_zarr_version = "0.5"
+ome_zarr_version = "0.5"  # or "0.6"
+plate_store = "my_plate.ome.zarr"
 
 # Create plate layout
 columns = [PlateColumn(name="1"), PlateColumn(name="2")]
@@ -754,7 +784,7 @@ plate_metadata = Plate(
     columns=columns,
     rows=rows,
     wells=wells,
-    name="Example Plate v0.5",
+    name=f"Example Plate v{ome_zarr_version}",
     field_count=1,
     version=ome_zarr_version,
 )
@@ -770,8 +800,8 @@ ngff_image = nz.NgffImage(
 multiscales = nz.to_multiscales(ngff_image)
 
 # First create the plate structure
-hcs_plate = HCSPlate(store="my_plate_v05.ome.zarr", plate_metadata=plate_metadata)
-to_hcs_zarr(hcs_plate, "my_plate_v05.ome.zarr")
+hcs_plate = HCSPlate(store=plate_store, plate_metadata=plate_metadata)
+to_hcs_zarr(hcs_plate, plate_store)
 
 # Write images to each well (all must use same version as plate)
 for well in wells:
@@ -779,7 +809,7 @@ for well in wells:
     col_name = columns[well.columnIndex].name
 
     nz.write_hcs_well_image(
-        store="my_plate_v05.ome.zarr",
+        store=plate_store,
         multiscales=multiscales,
         plate_metadata=plate_metadata,
         row_name=row_name,
@@ -789,12 +819,53 @@ for well in wells:
     )
 
 # Verify the result
-plate = nz.from_hcs_zarr("my_plate_v05.ome.zarr")
-print(f"Created v0.5 plate with {len(plate.wells)} wells")
+plate = nz.from_hcs_zarr(plate_store)
+print(f"Created v{ome_zarr_version} plate with {len(plate.wells)} wells")
 print(f"Version: {plate.metadata.version}")
 ```
 
 These approaches allow you to write individual well images as they are acquired during HCS experiments, making them ideal for real-time acquisition workflows.
+
+### Upgrading a Plate to a Newer Version
+
+`upgrade_ome_zarr` rewrites individual images, not plate hierarchies. To move
+an existing plate to a newer version, re-create the plate at the target
+version and write each field back through `write_hcs_well_image`. Each field
+keeps its path: `write_hcs_well_image` names a field by an integer index, so
+this assumes integer field paths, the layout it writes itself; a plate from
+another tool with other field paths needs those mapped to integers first.
+
+```python
+from dataclasses import replace
+
+import ngff_zarr as nz
+from ngff_zarr.hcs import HCSPlate, to_hcs_zarr
+
+source = nz.from_hcs_zarr("plate_v05.ome.zarr")
+target_version = "0.6"
+
+# A copy: source.metadata is the loaded plate's own object, and it should
+# keep describing the v0.5 store it was read from.
+plate_metadata = replace(source.metadata, version=target_version)
+target = "plate_v06.ome.zarr"
+to_hcs_zarr(HCSPlate(store=target, plate_metadata=plate_metadata), target)
+
+for well_meta in source.wells:
+    row_name = source.rows[well_meta.rowIndex].name
+    col_name = source.columns[well_meta.columnIndex].name
+    well = source.get_well(row_name, col_name)
+    for position, well_image in enumerate(well.images):
+        nz.write_hcs_well_image(
+            store=target,
+            multiscales=well.get_image(position),  # by position in well.images
+            plate_metadata=plate_metadata,
+            row_name=row_name,
+            column_name=col_name,
+            field_index=int(well_image.path),  # keep the source field path
+            acquisition_id=well_image.acquisition,  # None when the source had none
+            version=target_version,
+        )
+```
 
 ### Creating Plate Metadata
 

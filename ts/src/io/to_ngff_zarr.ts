@@ -16,17 +16,18 @@ import type { MemoryStore } from "./from_ngff_zarr.ts";
 import { isOzxPath, memoryStoreToZip } from "./rfc9_zip.ts";
 import {
   buildRootAttributes,
+  gateOzxVersion,
+  type OzxVersion,
   writeNgffMultiscalesToMemoryStore,
 } from "./to_ngff_zarr_ozx_common.ts";
 
 export interface ToOmeZarrOptions {
   overwrite?: boolean;
   /**
-   * OME-Zarr version to write. Defaults to "0.5" for regular Zarr files.
+   * OME-Zarr version to write. Defaults to "0.5".
    * Version "0.6" writes RFC 5 coordinate systems and transformations.
-   * For .ozx files (RFC-9), this must be version 0.5. If omitted for .ozx files,
-   * it defaults to 0.5. If explicitly set to any other value for .ozx files,
-   * an error will be thrown.
+   * For .ozx files (RFC-9), a version stored in Zarr v3 is required: 0.5,
+   * 0.6 or 0.9.dev1. Version 0.4 (Zarr v2) cannot be zipped and throws.
    */
   version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
   chunksPerShard?: number | number[] | Record<string, number>;
@@ -69,6 +70,12 @@ export interface ToOmeZarrOzxOptions {
    * understands the block, so leave it on unless the destination rejects it.
    */
   consolidateMetadata?: boolean | undefined;
+  /**
+   * OME-Zarr version to write the archive at (default `0.5`). Any version
+   * stored in Zarr v3 can be zipped: `0.5`, `0.6` or `0.9.dev1`. The version
+   * is recorded in the archive's ZIP comment as well as in its root metadata.
+   */
+  version?: OzxVersion | undefined;
 }
 
 /** @deprecated Use {@link ToOmeZarrOzxOptions} instead. */
@@ -79,9 +86,10 @@ export type ToNgffZarrOzxOptions = ToOmeZarrOzxOptions;
  *
  * This function automatically detects .ozx paths (RFC-9 zipped OME-Zarr format)
  * and handles them appropriately. For .ozx files:
- * - Version 0.5 is always used when the version option is omitted (undefined)
+ * - Version 0.5 is used when the version option is omitted (undefined)
+ * - Any version stored in Zarr v3 can be requested: 0.5, 0.6 or 0.9.dev1
+ * - Version 0.4 (Zarr v2) cannot be zipped; requesting it throws
  * - Sharding (chunksPerShard) is not supported
- * - An error is thrown if you explicitly specify a version other than "0.5"
  *
  * @param store - File path, MemoryStore, or FetchStore to write to
  * @param multiscales - NgffMultiscales data to write
@@ -89,8 +97,11 @@ export type ToNgffZarrOzxOptions = ToOmeZarrOzxOptions;
  *
  * @example
  * ```typescript
- * // Writing to .ozx file - version 0.5 is used automatically
+ * // Writing to .ozx file - version 0.5 is used when none is given
  * await toOmeZarr("output.ozx", multiscales);
+ *
+ * // Writing a v0.6 .ozx file
+ * await toOmeZarr("output.ozx", multiscales, { version: "0.6" });
  *
  * // Writing to regular zarr with version 0.5 (default)
  * await toOmeZarr("output.zarr", multiscales);
@@ -109,16 +120,9 @@ export async function toOmeZarr(
 
   // Handle .ozx paths (RFC-9)
   if (typeof store === "string" && isOzxPath(store)) {
-    // Validate version - RFC-9 requires version 0.5
-    // If no version is specified (undefined), we silently default to 0.5
-    // If a version is explicitly specified and it's not 0.5, throw an error
-    if (options.version !== undefined && options.version !== "0.5") {
-      throw new Error(
-        "RFC-9 (.ozx) requires OME-Zarr version 0.5. " +
-          `Got version "${options.version}". ` +
-          "For .ozx files, either omit the version option or explicitly set it to '0.5'.",
-      );
-    }
+    // RFC-9 is defined on Zarr v3, so any version stored in Zarr v3 can be
+    // zipped; 0.4 (Zarr v2) is refused. Omitted, the version defaults to 0.5.
+    const ozxVersion = gateOzxVersion(options.version);
 
     // Throw error if chunksPerShard is specified
     if (options.chunksPerShard !== undefined) {
@@ -128,9 +132,9 @@ export async function toOmeZarr(
       );
     }
 
-    // Delegate to toOmeZarrOzx (which always uses version 0.5)
     await toOmeZarrOzx(store, multiscales, {
       consolidateMetadata: options.consolidateMetadata,
+      version: ozxVersion,
     });
     return;
   }
@@ -638,6 +642,8 @@ export async function toOmeZarrOzxData(
   multiscales: NgffMultiscales,
   options: ToOmeZarrOzxOptions = {},
 ): Promise<Uint8Array> {
+  const version = gateOzxVersion(options.version);
+
   // Create a memory store to hold the zarr data
   const memoryStore: MemoryStore = new Map<string, Uint8Array>();
 
@@ -649,10 +655,12 @@ export async function toOmeZarrOzxData(
     multiscales,
     options.onProgress ?? null,
     options.consolidateMetadata ?? true,
+    version,
   );
 
-  // Convert the memory store to ZIP data
-  const zipData = memoryStoreToZip(memoryStore, { version: "0.5" });
+  // Convert the memory store to ZIP data; the ZIP comment records the
+  // version the root metadata was written at.
+  const zipData = memoryStoreToZip(memoryStore, { version });
 
   return zipData;
 }
@@ -669,6 +677,7 @@ async function _writeToMemoryStore(
   multiscales: NgffMultiscales,
   onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
   consolidate: boolean = true,
+  version: OzxVersion = "0.5",
 ): Promise<void> {
   await writeNgffMultiscalesToMemoryStore(
     store,
@@ -676,5 +685,6 @@ async function _writeToMemoryStore(
     _writeImage,
     onProgress,
     consolidate,
+    version,
   );
 }
