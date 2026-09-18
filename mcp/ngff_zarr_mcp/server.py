@@ -60,7 +60,7 @@ async def convert_images_to_ome_zarr(
     Args:
         input_paths: List of input image paths (local files, URLs, or S3 URLs)
         output_path: Output path for OME-Zarr store
-        ome_zarr_version: OME-Zarr version (0.4 or 0.5)
+        ome_zarr_version: OME-Zarr version (0.4, 0.5, or 0.6)
         dims: Ordered NGFF dimensions from {t,z,y,x,c}
         scale: Scale/spacing for each dimension
         translation: Translation/origin for each dimension
@@ -90,16 +90,19 @@ async def convert_images_to_ome_zarr(
     """
 
     # Validate ome_zarr_version
-    if ome_zarr_version not in ["0.4", "0.5"]:
+    if ome_zarr_version not in ["0.4", "0.5", "0.6"]:
         return ConversionResult(
             success=False,
             output_path="",
             store_info={},
-            error=f"Invalid OME-Zarr version: {ome_zarr_version}. Must be '0.4' or '0.5'",
+            error=(
+                f"Invalid OME-Zarr version: {ome_zarr_version}. "
+                "Must be '0.4', '0.5', or '0.6'"
+            ),
         )
 
     # Cast to proper type for mypy
-    validated_version: Literal["0.4", "0.5"] = ome_zarr_version  # type: ignore[assignment]
+    validated_version: Literal["0.4", "0.5", "0.6"] = ome_zarr_version  # type: ignore[assignment]
 
     options = ConversionOptions(
         output_path=output_path,

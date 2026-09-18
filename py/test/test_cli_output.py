@@ -354,3 +354,64 @@ class TestUnsupportedOutput:
         input_path = str(test_data_dir / "input" / "cthead1.png")
         result = _run_ngff_zarr("-i", input_path, "-o", "output.lif")
         assert result.returncode == 1
+
+
+class TestOmeZarrVersionCLI:
+    """Test the --ome-zarr-version choices."""
+
+    @pytest.mark.skipif(
+        zarr_version < packaging.version.parse("3.0.0b2"),
+        reason="zarr version >= 3.0.0b2 required for OME-Zarr version >= 0.5",
+    )
+    def test_version_0_6(self, input_images):  # noqa: ARG002
+        """--ome-zarr-version 0.6 writes an OME-Zarr 0.6 store."""
+        import json
+
+        from ngff_zarr import from_ome_zarr
+
+        input_path = str(test_data_dir / "input" / "cthead1.png")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = os.path.join(tmpdir, "out.ome.zarr")
+            result = _run_ngff_zarr(
+                "-i",
+                input_path,
+                "-o",
+                output_path,
+                "--ome-zarr-version",
+                "0.6",
+            )
+            assert result.returncode == 0, f"stderr: {result.stderr}"
+
+            with open(os.path.join(output_path, "zarr.json")) as f:
+                ome = json.load(f)["attributes"]["ome"]
+            assert ome["version"] == "0.6"
+            # 0.6 (RFC-5) carries coordinateSystems instead of a flat axes list.
+            multiscale = ome["multiscales"][0]
+            assert "coordinateSystems" in multiscale
+            assert "axes" not in multiscale
+
+            # The store reads back validated against the 0.6 schema.
+            multiscales = from_ome_zarr(output_path, version="0.6", validate=True)
+            assert multiscales.images[0].data.shape == (256, 256)
+
+    @pytest.mark.skipif(
+        zarr_version < packaging.version.parse("3.0.0b2"),
+        reason="zarr version >= 3.0.0b2 required for OME-Zarr version >= 0.5",
+    )
+    def test_version_0_6_ozx(self, input_images):  # noqa: ARG002
+        """--ome-zarr-version 0.6 writes a 0.6 RFC-9 zipped OME-Zarr (.ozx)."""
+        from ngff_zarr.rfc9_zip import read_ozx_version
+
+        input_path = str(test_data_dir / "input" / "cthead1.png")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = os.path.join(tmpdir, "out.ozx")
+            result = _run_ngff_zarr(
+                "-i",
+                input_path,
+                "-o",
+                output_path,
+                "--ome-zarr-version",
+                "0.6",
+            )
+            assert result.returncode == 0, f"stderr: {result.stderr}"
+            assert read_ozx_version(output_path) == "0.6"

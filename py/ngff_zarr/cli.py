@@ -545,9 +545,9 @@ def _convert_main(argv: list[str] | None = None) -> None:
     )
     metadata_group.add_argument(
         "--ome-zarr-version",
-        help="OME-Zarr version",
+        help="OME-Zarr version to write (default: 0.5)",
         default="0.5",
-        choices=["0.4", "0.5"],
+        choices=["0.4", "0.5", "0.6"],
     )
     metadata_group.add_argument(
         "--orientation",

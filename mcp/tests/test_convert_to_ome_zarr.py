@@ -188,6 +188,31 @@ async def test_convert_to_ome_zarr_zarr_v05(test_input_file, temp_output_dir):
 
 
 @pytest.mark.asyncio
+async def test_convert_to_ome_zarr_zarr_v06(test_input_file, temp_output_dir):
+    """Test conversion to OME-Zarr v0.6 format."""
+    assert test_input_file.exists(), f"Test input file not found: {test_input_file}"
+
+    output_path = Path(temp_output_dir) / "mr_head_v06.ome.zarr"
+
+    options = ConversionOptions(
+        output_path=str(output_path),
+        ome_zarr_version="0.6",
+        method="itkwasm_gaussian",
+        chunks=64,
+    )
+
+    result = await convert_to_ome_zarr([str(test_input_file)], options)
+
+    assert result.success, f"Conversion failed: {result.error}"
+    assert result.output_path == str(output_path)
+    assert output_path.exists(), "Output OME-Zarr store was not created"
+
+    store_info = result.store_info
+    assert store_info is not None
+    assert store_info.get("version") == "0.6"
+
+
+@pytest.mark.asyncio
 async def test_convert_to_ome_zarr_invalid_input():
     """Test conversion with invalid input file."""
     # Use a non-existent file

@@ -498,8 +498,8 @@ def validate_conversion_options(options: dict[str, Any]) -> list[str]:
 
     # Validate OME-Zarr version
     if "ome_zarr_version" in options:
-        if options["ome_zarr_version"] not in ["0.4", "0.5"]:
-            errors.append("OME-Zarr version must be '0.4' or '0.5'")
+        if options["ome_zarr_version"] not in ["0.4", "0.5", "0.6"]:
+            errors.append("OME-Zarr version must be '0.4', '0.5', or '0.6'")
 
     return errors
 

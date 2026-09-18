@@ -58,7 +58,7 @@ library.
 - Configurable compression levels
 - Flexible chunk sizing
 - Sharding support (Zarr v3/OME-Zarr v0.5)
-- OME-Zarr version selection (0.4 or 0.5)
+- OME-Zarr version selection (0.4, 0.5, or 0.6)
 
 ## Installation
 
