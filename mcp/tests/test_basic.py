@@ -37,6 +37,28 @@ async def test_conversion_options_validation():
     assert options.dims == ["z", "y", "x"]
 
 
+@pytest.mark.parametrize("version", ["0.4", "0.5", "0.6"])
+def test_supported_ome_zarr_versions(version):
+    """Every released OME-Zarr version the writer supports is accepted."""
+    from ngff_zarr_mcp.utils import validate_conversion_options
+
+    options = ConversionOptions(output_path="test.ome.zarr", ome_zarr_version=version)
+    assert options.ome_zarr_version == version
+    assert validate_conversion_options(options.model_dump()) == []
+
+
+def test_invalid_ome_zarr_version():
+    """An unknown OME-Zarr version is rejected by the model and the validator."""
+    from ngff_zarr_mcp.utils import validate_conversion_options
+
+    with pytest.raises(ValueError):
+        ConversionOptions(output_path="test.ome.zarr", ome_zarr_version="0.3")
+    errors = validate_conversion_options(
+        {"output_path": "test.ome.zarr", "ome_zarr_version": "0.3"}
+    )
+    assert any("OME-Zarr version" in error for error in errors)
+
+
 def test_invalid_dims():
     """Test validation of invalid dimensions."""
     with pytest.raises(ValueError):
