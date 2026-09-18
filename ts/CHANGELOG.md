@@ -1,3 +1,25 @@
+## ts-v0.33.0 (2026-09-18)
+
+### BREAKING CHANGE
+
+- `NgffVersion.V06dev4` and `NgffVersion.V06rc0` are
+  removed from the enum and from `SUPPORTED_VERSIONS`, so
+  `isSupportedVersion("0.6rc0")` and `isSupportedVersion("0.6.dev4")` now
+  return `false`. Use `"0.6"` as the version; stores tagged with the
+  pre-release strings are still read and can be re-tagged with
+  `upgradeOmeZarr`. ([d96b9de](https://github.com/fideus-labs/ngff-zarr/commit/d96b9de72fa1b5846e0601e04f6a9373e2eb89b2))
+
+### ✨ Features
+
+- **py,mcp**: accept OME-Zarr 0.6 in the CLI and MCP conversion entry points ([4bce0a7](https://github.com/fideus-labs/ngff-zarr/commit/4bce0a7538ba6807fc8ff595729ed90c4e9602e1))
+- **ts**: write .ozx archives at any Zarr v3 OME-Zarr version ([2cc635f](https://github.com/fideus-labs/ngff-zarr/commit/2cc635fa9e70ca9a588a53cc25742aa02af3e727))
+- **ts**: adopt the final OME-Zarr 0.6 version tag ([d96b9de](https://github.com/fideus-labs/ngff-zarr/commit/d96b9de72fa1b5846e0601e04f6a9373e2eb89b2))
+- **ts**: add consolidateMetadata option to toOmeZarr ([d2952bf](https://github.com/fideus-labs/ngff-zarr/commit/d2952bfca4cc1ae99c89a05cfa29428c7e79f611))
+
+### 🐛 Bug Fixes
+
+- **ts**: keep non-dataset nodes when refreshing consolidation ([5488c20](https://github.com/fideus-labs/ngff-zarr/commit/5488c20a762c9991c0130b089ebee06eca55d465))
+
 ## ts-v0.32.1 (2026-09-11)
 
 ### 🐛 Bug Fixes
