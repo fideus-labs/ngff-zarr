@@ -90,11 +90,11 @@ def test_to_hcs_zarr_uses_correct_zarr_format_v04(basic_plate_metadata):
         root = zarr.open_group(str(output_path), mode="r")
         attrs = root.attrs.asdict()
 
-        # For NGFF 0.4, metadata should be in "multiscales" not "ome"
-        # (but since this is HCS, it should be in "ome" with plate metadata)
-        assert "ome" in attrs
-        assert "plate" in attrs["ome"]
-        assert attrs["ome"]["version"] == "0.4"
+        # For NGFF 0.4, the plate document sits at the top level of .zattrs
+        # with its own version, not under "ome"
+        assert "ome" not in attrs
+        assert "plate" in attrs
+        assert attrs["plate"]["version"] == "0.4"
 
 
 @pytest.mark.skipif(
@@ -136,7 +136,7 @@ def test_to_hcs_zarr_path_store_uses_zarrista(mock_create_group, basic_plate_met
 
         args, kwargs = mock_create_group.call_args
         assert args[0] == test_path
-        assert args[1]["ome"]["plate"]["name"] == "Test Plate"
+        assert args[1]["plate"]["name"] == "Test Plate"
         assert args[2] == 2  # zarr format follows the NGFF version
         assert kwargs["overwrite"] is True
 

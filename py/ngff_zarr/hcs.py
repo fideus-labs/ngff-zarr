@@ -607,10 +607,6 @@ def to_hcs_zarr(plate: HCSPlate, store, overwrite: bool = True) -> None:
         ],
     }
 
-    # For v0.4, version goes in plate dict; from v0.5, it goes at top level
-    if plate.metadata.version == "0.4":
-        plate_dict["version"] = plate.metadata.version
-
     if plate.metadata.acquisitions:
         plate_dict["acquisitions"] = []
         for acq in plate.metadata.acquisitions:
@@ -633,8 +629,14 @@ def to_hcs_zarr(plate: HCSPlate, store, overwrite: bool = True) -> None:
     if plate.metadata.name is not None:
         plate_dict["name"] = plate.metadata.name
 
-    # Set root metadata
-    root_attrs = {"ome": {"version": plate.metadata.version, "plate": plate_dict}}
+    # 0.4 puts the plate document at the top level of .zattrs with its own
+    # version key; 0.5+ nests it under "ome" beside the version, like the
+    # well document written by write_hcs_well_image.
+    if plate.metadata.version == "0.4":
+        plate_dict["version"] = plate.metadata.version
+        root_attrs = {"plate": plate_dict}
+    else:
+        root_attrs = {"ome": {"version": plate.metadata.version, "plate": plate_dict}}
     create_zarrista_group(store, root_attrs, zarr_format, overwrite=overwrite)
 
     # Note: This is a basic implementation that sets up the plate structure.

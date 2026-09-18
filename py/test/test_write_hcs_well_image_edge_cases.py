@@ -391,3 +391,33 @@ def test_plate_writer_overwrite_false_keeps_prior_plate(tmp_path):
 
     assert (store / "A" / "1" / "0").exists(), "resumed write erased the first field"
     assert (store / "A" / "1" / "1").exists()
+
+
+def test_plate_writer_overwrite_false_keeps_v04_root_layout(tmp_path):
+    """Resuming a 0.4 plate must keep its plate document at the top level."""
+    store = tmp_path / "plate.ome.zarr"
+    plate_metadata = Plate(
+        columns=[PlateColumn(name="1")],
+        rows=[PlateRow(name="A")],
+        wells=[PlateWell(path="A/1", rowIndex=0, columnIndex=0)],
+        version="0.4",
+    )
+    multiscales = nz.to_multiscales(
+        np.zeros((16, 16), dtype=np.uint8), scale_factors=[]
+    )
+    with nz.HCSPlateWriter(str(store), plate_metadata, version="0.4") as writer:
+        writer.write_well_image(multiscales, "A", "1", field_index=0)
+
+    with nz.HCSPlateWriter(
+        str(store), plate_metadata, version="0.4", overwrite=False
+    ) as writer:
+        writer.write_well_image(multiscales, "A", "1", field_index=1)
+
+    root_attrs = json.loads((store / ".zattrs").read_text())
+    assert set(root_attrs) == {"plate"}, "resume must not add an ome wrapper"
+    assert root_attrs["plate"]["version"] == "0.4"
+
+    well_attrs = json.loads((store / "A" / "1" / ".zattrs").read_text())
+    assert set(well_attrs) == {"well"}
+    assert [img["path"] for img in well_attrs["well"]["images"]] == ["0", "1"]
+    assert (store / "A" / "1" / "0").exists(), "resumed write erased the first field"
