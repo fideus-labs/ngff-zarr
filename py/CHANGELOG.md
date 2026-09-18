@@ -1,3 +1,22 @@
+## py-v0.47.0 (2026-09-18)
+
+### BREAKING CHANGE
+
+- `NgffVersion.V06dev4` and `NgffVersion.V06rc0` are
+removed from the enum and from `SUPPORTED_VERSIONS`. Use `"0.6"` as the
+version; stores tagged with the pre-release strings are still read and
+can be re-tagged with `upgrade_ome_zarr`. ([563be83](https://github.com/fideus-labs/ngff-zarr/commit/563be834254dbf89b604daf02fe302be942d0c3f))
+
+### ✨ Features
+
+- **py,mcp**: accept OME-Zarr 0.6 in the CLI and MCP conversion entry points ([4bce0a7](https://github.com/fideus-labs/ngff-zarr/commit/4bce0a7538ba6807fc8ff595729ed90c4e9602e1))
+- **py**: write HCS plates and .ozx archives at OME-Zarr 0.6 ([7126371](https://github.com/fideus-labs/ngff-zarr/commit/7126371c9d34bb54e1f13c958d2f7ba751eb75bd))
+- **py**: adopt the final OME-Zarr 0.6 schemas and version tag ([563be83](https://github.com/fideus-labs/ngff-zarr/commit/563be834254dbf89b604daf02fe302be942d0c3f))
+
+### 🐛 Bug Fixes
+
+- **py**: write the 0.4 plate document at the top level of .zattrs ([bc77259](https://github.com/fideus-labs/ngff-zarr/commit/bc77259ca35d6b4e95c74ec3c196983fa93be759))
+
 ## py-v0.46.1 (2026-09-11)
 
 ### 🐛 Bug Fixes
