@@ -1,3 +1,13 @@
+## mcp-v0.16.0 (2026-09-18)
+
+### ✨ Features
+
+- **py,mcp**: accept OME-Zarr 0.6 in the CLI and MCP conversion entry points ([4bce0a7](https://github.com/fideus-labs/ngff-zarr/commit/4bce0a7538ba6807fc8ff595729ed90c4e9602e1))
+
+### 🐛 Bug Fixes
+
+- **py,ts**: let the caller keep the axis order the input already has ([5b0e50b](https://github.com/fideus-labs/ngff-zarr/commit/5b0e50b067142a5dde92d2b1c9859eed71a22858))
+
 ## mcp-v0.15.0 (2026-09-04)
 
 ### ♻️ Refactoring
