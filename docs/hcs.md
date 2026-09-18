@@ -836,14 +836,17 @@ this assumes integer field paths, the layout it writes itself; a plate from
 another tool with other field paths needs those mapped to integers first.
 
 ```python
+from dataclasses import replace
+
 import ngff_zarr as nz
 from ngff_zarr.hcs import HCSPlate, to_hcs_zarr
 
 source = nz.from_hcs_zarr("plate_v05.ome.zarr")
 target_version = "0.6"
 
-plate_metadata = source.metadata
-plate_metadata.version = target_version
+# A copy: source.metadata is the loaded plate's own object, and it should
+# keep describing the v0.5 store it was read from.
+plate_metadata = replace(source.metadata, version=target_version)
 target = "plate_v06.ome.zarr"
 to_hcs_zarr(HCSPlate(store=target, plate_metadata=plate_metadata), target)
 
