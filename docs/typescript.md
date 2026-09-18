@@ -441,8 +441,10 @@ async function toNgffZarr(
 **Parameters:**
 - `store`: Output path for OME-Zarr
 - `multiscales`: NgffMultiscales object to write
-- `options.version`: OME-Zarr version (default: "0.5")
-- `options.chunksPerShard`: Sharding configuration (v0.5 only)
+- `options.version`: OME-Zarr version (default: "0.5"). For a `.ozx` path
+  it must be a version stored in Zarr v3 -- "0.5", "0.6" or "0.9.dev1"
+- `options.chunksPerShard`: Sharding configuration (v0.5 and later; not
+  available for `.ozx`)
 - `options.consolidateMetadata`: Inline every array's metadata into the root
   `zarr.json` (default: `true`)
 
@@ -486,6 +488,37 @@ leaves it unconsolidated rather than stale, because a Zarr v3 write replaces
 the root document wholesale. `toOmeZarrOzx` / `toOmeZarrOzxData` accept the
 same option for RFC-9 archives. This mirrors the Python package's
 `to_ome_zarr(..., consolidate_metadata=False)`.
+
+**OME-Zarr Zip (`.ozx`) archives.** A `.ozx` output path writes an
+[RFC-9](https://ngff.openmicroscopy.org/rfc/9/index.html) zipped OME-Zarr:
+the store is built in memory and packed into a single ZIP with the root
+`zarr.json` as its first entry and the OME-Zarr version in the ZIP comment.
+RFC-9 is defined on Zarr v3, so any version stored in Zarr v3 can be zipped --
+"0.5" (the default), "0.6" or "0.9.dev1" -- while "0.4" (Zarr v2) throws. The
+archive carries the same root document a directory store at that version
+would, so a v0.6 archive keeps its RFC-5 coordinate systems and transforms.
+Sharding is not available for `.ozx` output.
+
+```typescript
+// v0.5 archive (default)
+await toOmeZarr("output.ozx", multiscales);
+
+// v0.6 archive
+await toOmeZarr("output.ozx", multiscales, { version: "0.6" });
+
+// The ZIP bytes without touching the filesystem (browsers, downloads)
+import { toOmeZarrOzxData } from "@fideus-labs/ngff-zarr";
+const zipData = await toOmeZarrOzxData(multiscales, { version: "0.6" });
+```
+
+Read an archive back with `fromOmeZarr` and zarrita's `ZipFileStore`:
+
+```typescript
+import { ZipFileStore } from "@zarrita/storage";
+
+const store = ZipFileStore.fromBlob(new Blob([zipData]));
+const multiscales = await fromOmeZarr(store, { validate: true });
+```
 
 #### `toMultiscales()`
 

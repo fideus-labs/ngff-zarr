@@ -44,7 +44,8 @@ import {
 } from "../src/process/to_multiscales-node.ts";
 import { fromOmeZarr as fromOmeZarrBrowser } from "../src/io/from_ngff_zarr-browser.ts";
 import { toOmeZarr as toOmeZarrBrowser } from "../src/io/to_ngff_zarr-browser.ts";
-import { prepareRfc9Metadata } from "../src/io/to_ngff_zarr_ozx_common.ts";
+import { ZipFileStore } from "@zarrita/storage";
+import { toOmeZarrOzxData } from "../src/io/to_ngff_zarr.ts";
 import { CoordinateTransformationSchema } from "../src/schemas/coordinate_systems.ts";
 import {
   parseV06Transforms,
@@ -684,23 +685,38 @@ Deno.test("v0.6 read validates per-dataset scale length under validate", async (
   );
 });
 
-// RFC-9 (.ozx) output is always v0.5, which cannot represent v0.6-only
-// transforms; prepareRfc9Metadata must reduce them to the scale/translation
-// subset so they never leak into the store.
-Deno.test("RFC-9 metadata drops a v0.6-only rotation but keeps a scale", async () => {
+// The `ome` attributes of the root group inside a .ozx archive.
+async function ozxOmeAttributes(
+  zipData: Uint8Array,
+): Promise<Record<string, unknown>> {
+  const store = ZipFileStore.fromBlob(new Blob([zipData as BlobPart]));
+  const raw = await store.get("/zarr.json");
+  assertExists(raw, ".ozx archive has no root zarr.json");
+  const root = JSON.parse(new TextDecoder().decode(raw));
+  return root.attributes.ome as Record<string, unknown>;
+}
+
+// A v0.5 .ozx archive cannot represent v0.6-only transforms; the writer must
+// reduce them to the scale/translation subset so they never leak into the
+// store, as the directory writer does at 0.5.
+Deno.test("RFC-9 at 0.5 drops a v0.6-only rotation but keeps a scale", async () => {
   const withRotation = await buildMultiscales();
   withRotation.metadata.coordinateTransformations = [createRotation([
     [0.0, -1.0, 0.0],
     [1.0, 0.0, 0.0],
     [0.0, 0.0, 1.0],
   ])];
-  const rotEntry = prepareRfc9Metadata(withRotation);
+  const rotOme = await ozxOmeAttributes(await toOmeZarrOzxData(withRotation));
+  assertEquals(rotOme.version, "0.5");
+  const rotEntry = (rotOme.multiscales as Array<Record<string, unknown>>)[0];
   // No representable top-level transform remains, so the field is omitted.
   assertEquals("coordinateTransformations" in rotEntry, false);
 
   const withScale = await buildMultiscales();
   withScale.metadata.coordinateTransformations = [createScale([2, 2, 2])];
-  const scaleEntry = prepareRfc9Metadata(withScale);
+  const scaleOme = await ozxOmeAttributes(await toOmeZarrOzxData(withScale));
+  const scaleEntry =
+    (scaleOme.multiscales as Array<Record<string, unknown>>)[0];
   const kept = scaleEntry.coordinateTransformations as Array<
     Record<string, unknown>
   >;
@@ -709,6 +725,32 @@ Deno.test("RFC-9 metadata drops a v0.6-only rotation but keeps a scale", async (
   // The v0.6-only input/output/name fields are stripped from the kept transform.
   assertEquals("input" in kept[0], false);
   assertEquals("output" in kept[0], false);
+});
+
+// At 0.6 the same archive keeps the rotation: RFC-9 is defined on Zarr v3,
+// so a v0.6 store zips like a v0.5 one and loses nothing in the process.
+Deno.test("RFC-9 at 0.6 keeps a v0.6-only rotation", async () => {
+  const withRotation = await buildMultiscales();
+  const rotation = createRotation([
+    [0.0, -1.0, 0.0],
+    [1.0, 0.0, 0.0],
+    [0.0, 0.0, 1.0],
+  ]);
+  // At 0.6 a multiscale-level transform names its input and output systems.
+  rotation.input = { name: "intrinsic" };
+  rotation.output = { name: "intrinsic" };
+  withRotation.metadata.coordinateTransformations = [rotation];
+  const ome = await ozxOmeAttributes(
+    await toOmeZarrOzxData(withRotation, { version: "0.6" }),
+  );
+  assertEquals(ome.version, "0.6");
+  const entry = (ome.multiscales as Array<Record<string, unknown>>)[0];
+  assertExists(entry.coordinateSystems);
+  const transforms = entry.coordinateTransformations as Array<
+    Record<string, unknown>
+  >;
+  assertEquals(transforms.length, 1);
+  assertEquals(transforms[0].type, "rotation");
 });
 
 // --- OME-Zarr v0.6 version tag handling ---

@@ -17,6 +17,8 @@ import type { MemoryStore } from "./from_ngff_zarr-browser.ts";
 import { memoryStoreToZip } from "./rfc9_zip.ts";
 import {
   buildRootAttributes,
+  gateOzxVersion,
+  type OzxVersion,
   writeNgffMultiscalesToMemoryStore,
 } from "./to_ngff_zarr_ozx_common.ts";
 
@@ -65,6 +67,12 @@ export interface ToOmeZarrOzxOptions {
    * understands the block, so leave it on unless the destination rejects it.
    */
   consolidateMetadata?: boolean | undefined;
+  /**
+   * OME-Zarr version to write the archive at (default `0.5`). Any version
+   * stored in Zarr v3 can be zipped: `0.5`, `0.6` or `0.9.dev1`. The version
+   * is recorded in the archive's ZIP comment as well as in its root metadata.
+   */
+  version?: OzxVersion | undefined;
 }
 
 /** @deprecated Use {@link ToOmeZarrOzxOptions} instead. */
@@ -521,6 +529,8 @@ export async function toOmeZarrOzx(
   multiscales: NgffMultiscales,
   _options: ToOmeZarrOzxOptions = {},
 ): Promise<Uint8Array> {
+  const version = gateOzxVersion(_options.version);
+
   // Create a memory store to hold the zarr data
   const memoryStore: MemoryStore = new Map<string, Uint8Array>();
 
@@ -531,10 +541,12 @@ export async function toOmeZarrOzx(
     _writeImage,
     _options.onProgress ?? null,
     _options.consolidateMetadata ?? true,
+    version,
   );
 
-  // Convert the memory store to ZIP data
-  const zipData = memoryStoreToZip(memoryStore, { version: "0.5" });
+  // Convert the memory store to ZIP data; the ZIP comment records the
+  // version the root metadata was written at.
+  const zipData = memoryStoreToZip(memoryStore, { version });
 
   return zipData;
 }
