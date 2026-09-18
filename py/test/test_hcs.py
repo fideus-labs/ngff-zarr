@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 """Test high content screening (HCS) functionality."""
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -238,18 +239,47 @@ def test_to_hcs_zarr_basic():
         # Check that the structure was created
         assert output_path.exists()
 
-        # Check metadata
+        # Check metadata: the default version is 0.4, whose plate document
+        # sits at the top level of .zattrs rather than under "ome"
         root = zarr.open_group(str(output_path), mode="r")
         attrs = root.attrs.asdict()
 
-        assert "ome" in attrs
-        assert "plate" in attrs["ome"]
+        assert "ome" not in attrs
+        assert "plate" in attrs
 
-        plate_attrs = attrs["ome"]["plate"]
+        plate_attrs = attrs["plate"]
+        assert plate_attrs["version"] == "0.4"
         assert plate_attrs["name"] == "Test Plate"
         assert len(plate_attrs["wells"]) == 1
         assert len(plate_attrs["rows"]) == 1
         assert len(plate_attrs["columns"]) == 1
+
+
+def test_to_hcs_zarr_v04_root_document_matches_bioformats2raw(hcs_data_path):
+    """A written 0.4 plate lays out its root document like bioformats2raw."""
+    fixture_attrs = json.loads((hcs_data_path / ".zattrs").read_text())
+    assert "plate" in fixture_attrs
+    assert "ome" not in fixture_attrs
+
+    plate_metadata = Plate(
+        columns=[PlateColumn(name="1")],
+        rows=[PlateRow(name="A")],
+        wells=[PlateWell(path="A/1", rowIndex=0, columnIndex=0)],
+        acquisitions=[PlateAcquisition(id=0)],
+        field_count=1,
+        name="Reference Layout",
+        version="0.4",
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "plate.ome.zarr"
+        to_hcs_zarr(HCSPlate(None, plate_metadata), str(output_path))
+        attrs = json.loads((output_path / ".zattrs").read_text())
+
+    # bioformats2raw adds its own layout marker beside the plate document
+    assert set(attrs) == set(fixture_attrs) - {"bioformats2raw.layout"}
+    assert set(attrs["plate"]) == set(fixture_attrs["plate"])
+    assert attrs["plate"]["version"] == fixture_attrs["plate"]["version"] == "0.4"
 
 
 def test_validate_hcs_metadata(hcs_data_path):
@@ -268,7 +298,16 @@ def test_round_trip_basic():
         PlateWell(path="A/1", rowIndex=0, columnIndex=0),
         PlateWell(path="A/2", rowIndex=0, columnIndex=1),
     ]
-    acquisitions = [PlateAcquisition(id=0, name="Test Acq", maximumfieldcount=1)]
+    acquisitions = [
+        PlateAcquisition(
+            id=0,
+            name="Test Acq",
+            maximumfieldcount=1,
+            description="First pass",
+            starttime=1700000000000,
+            endtime=1700003600000,
+        )
+    ]
 
     original_metadata = Plate(
         columns=columns,
@@ -288,8 +327,8 @@ def test_round_trip_basic():
         # Save
         to_hcs_zarr(original_plate, str(output_path))
 
-        # Load
-        loaded_plate = from_hcs_zarr(str(output_path))
+        # Load, validating the written document against the 0.4 plate schema
+        loaded_plate = from_hcs_zarr(str(output_path), validate=True)
 
         # Compare metadata
         assert loaded_plate.name == original_plate.name
@@ -303,11 +342,7 @@ def test_round_trip_basic():
         assert original_plate.acquisitions is not None
         assert len(loaded_plate.acquisitions) == len(original_plate.acquisitions)
 
-        loaded_acq = loaded_plate.acquisitions[0]
-        original_acq = original_plate.acquisitions[0]
-        assert loaded_acq.id == original_acq.id
-        assert loaded_acq.name == original_acq.name
-        assert loaded_acq.maximumfieldcount == original_acq.maximumfieldcount
+        assert loaded_plate.acquisitions == original_plate.acquisitions
 
 
 def test_hcs_image_axes_and_dims(hcs_data_path):
@@ -533,13 +568,16 @@ def test_write_hcs_v05_vs_v04_metadata_structure():
         attrs_v04 = root_v04.attrs.asdict()
         attrs_v05 = root_v05.attrs.asdict()
 
-        # Both should have ome wrapper at plate level
-        assert "ome" in attrs_v04
-        assert "ome" in attrs_v05
+        # v0.4 has plate dict at top level, with version inside it
+        assert "ome" not in attrs_v04
+        assert "plate" in attrs_v04
+        assert attrs_v04["plate"]["version"] == "0.4"
 
-        # v0.4 has version in plate dict
-        assert "version" in attrs_v04["ome"]["plate"]
-        # v0.5 should NOT have version in plate dict
+        # v0.5 has ome wrapper
+        assert "ome" in attrs_v05
+        assert "plate" in attrs_v05["ome"]
+        assert attrs_v05["ome"]["version"] == "0.5"
+        # Version should NOT be in plate dict for v0.5
         assert "version" not in attrs_v05["ome"]["plate"]
 
         # Well level

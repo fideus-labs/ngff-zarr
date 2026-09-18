@@ -774,7 +774,10 @@ def test_hcs_write_path_store_readable(tmp_path, ngff_version):
 
     # zarr-python reads the plate hierarchy and the well pixels back.
     zgroup = zarr.open_group(str(zarrista_path), mode="r")
-    plate_attrs = zgroup.attrs.asdict()["ome"]["plate"]
+    root_attrs = zgroup.attrs.asdict()
+    plate_attrs = (
+        root_attrs["plate"] if ngff_version == "0.4" else root_attrs["ome"]["plate"]
+    )
     assert [well_entry["path"] for well_entry in plate_attrs["wells"]] == [
         "A/1",
         "A/2",
