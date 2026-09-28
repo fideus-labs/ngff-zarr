@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 from ngff_zarr import Methods, to_multiscales, to_ngff_image
 from ngff_zarr.methods import _itkwasm
+from ngff_zarr.methods._support import _merge_chunks_below_halo
 
 
 def _image(data):
@@ -110,6 +111,7 @@ def test_overlap_larger_than_the_chunks_counts_the_merged_chunks(monkeypatch):
     radius = [1, 1, 6]
     # Chunks of 4 along z are merged to at least 6 before the overlap of 6 on
     # each side is added: the block is at least (6 + 12) * 8 * 8 samples.
+    image = _merge_chunks_below_halo(image, np.flip(radius))
     naive = (4 + 12) * (8 + 2) * (8 + 2) * 4
     merged = (6 + 12) * (8 + 2) * (8 + 2) * 4
     monkeypatch.setitem(_itkwasm._WASM_BLOCK_LIMITS, "gaussian", (naive + merged) // 2)

@@ -1,7 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+import dask.array as da
 import numpy as np
 import pytest
+from ngff_zarr.methods import Methods
 from ngff_zarr.to_multiscales import to_multiscales
 from ngff_zarr.to_ngff_image import to_ngff_image
 
@@ -52,3 +54,40 @@ def test_downsamples_when_size_is_exactly_double_chunk():
     assert len(multiscales.images) == 2
     assert multiscales.images[0].data.shape == (128, 128, 128)
     assert multiscales.images[1].data.shape == (64, 64, 64)
+
+
+@pytest.mark.parametrize(
+    "method, dims",
+    [
+        (Methods.ITKWASM_GAUSSIAN, "zyx"),
+        (Methods.ITKWASM_GAUSSIAN, "czyx"),
+        (Methods.ITKWASM_LABEL_IMAGE, "zyx"),
+        (Methods.ITKWASM_LABEL_IMAGE, "czyx"),
+        (Methods.ITK_GAUSSIAN, "zyx"),
+        (Methods.ITK_GAUSSIAN, "tzyx"),
+    ],
+)
+def test_a_level_matches_the_level_computed_in_one_block(method, dims):
+    """A chunk smaller than the halo map_overlap reads is merged into its
+    neighbour, so every block starts on the grid of the level: the level holds
+    the shape it declares and the values computed from a single block."""
+    if method is Methods.ITK_GAUSSIAN:
+        pytest.importorskip("itk")
+    leading = (1,) * (len(dims) - 3)
+    # The last x chunk holds a single voxel.
+    array = rng.integers(0, 5, leading + (16, 16, 33), dtype=np.uint8)
+
+    def level(chunks):
+        data = da.from_array(array, chunks=leading + (chunks,) * 3)
+        multiscales = to_multiscales(
+            to_ngff_image(data, dims=tuple(dims)),
+            scale_factors=[2],
+            method=method,
+            chunks=chunks,
+        )
+        return multiscales.images[1].data
+
+    blocks = level(16)
+    computed = blocks.compute()
+    assert computed.shape == blocks.shape
+    np.testing.assert_array_equal(computed, level(64).compute())

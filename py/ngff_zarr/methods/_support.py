@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 import copy
+from collections.abc import Sequence
 
 import numpy as np
-from numpy.typing import ArrayLike
 
 from ..ngff_image import NgffImage
 
@@ -307,22 +307,47 @@ def _next_scale_metadata(
     return translation, scale
 
 
-def _next_block_shape(
-    previous_image: NgffImage,
-    dim_factors: dict,
-    spatial_dims: tuple,
-    block_input: ArrayLike,
-) -> tuple:
-    """Compute the next block shape based on the previous image and scale factor."""
+def _merge_chunks_below_halo(image: NgffImage, depth: Sequence[int]) -> NgffImage:
+    """Merge the spatial chunks smaller than the halo map_overlap reads with
+    the chunks that follow them, and a last one with the chunk before it.
 
-    shape = []
-    for i, dim in enumerate(previous_image.dims):
-        if dim in spatial_dims:
-            shape.append(int(np.floor(block_input.shape[i] / dim_factors[dim])))
-        else:
-            shape.append(block_input.shape[i])
+    ``depth`` is the halo along the spatial axes of ``image``, in order. A
+    block is downsampled from its first voxel, so it must start where an
+    input chunk starts. map_overlap would instead grow such a chunk at the
+    expense of its neighbour: x chunks of (64, 64, 1) with a halo of 2 become
+    (64, 63, 2), and the last block, starting at 127, samples a grid shifted
+    by one voxel. Merged, they are (64, 65) and map_overlap keeps them.
+    """
+    start = next(i for i, dim in enumerate(image.dims) if dim in _spatial_dims)
+    chunks = list(image.data.chunks)
+    for axis, halo in enumerate(depth, start):
+        merged = []
+        for c in chunks[axis]:
+            if merged and merged[-1] < halo:
+                merged[-1] += c
+            else:
+                merged.append(c)
+        if len(merged) > 1 and merged[-1] < halo:
+            last = merged.pop()
+            merged[-1] += last
+        chunks[axis] = tuple(merged)
+    if tuple(chunks) == image.data.chunks:
+        return image
+    result = copy.copy(image)
+    result.data = image.data.rechunk(tuple(chunks))
+    return result
 
-    return tuple(shape)
+
+def _block_output_chunks(image: NgffImage, dim_factors: dict) -> tuple[int, tuple]:
+    """Index of the first spatial axis of ``image``, and the chunks of the
+    downsampled array from that axis on, each block shrunk on its own."""
+    start = next(i for i, dim in enumerate(image.dims) if dim in _spatial_dims)
+    output_chunks = []
+    for axis, chunks in enumerate(image.data.chunks[start:], start):
+        dim = image.dims[axis]
+        factor = dim_factors[dim] if dim in _spatial_dims else 1
+        output_chunks.append(tuple(c // factor for c in chunks))
+    return start, tuple(output_chunks)
 
 
 def _can_use_map_blocks_fast_path(image: NgffImage, dim_factors: dict) -> bool:

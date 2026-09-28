@@ -10,11 +10,12 @@ from dask.array import map_blocks, map_overlap
 from ..ngff_image import NgffImage
 from ._support import (
     _align_chunks,
+    _block_output_chunks,
     _can_use_map_blocks_fast_path,
     _compute_sigma,
     _dim_scale_factors,
     _get_block,
-    _next_block_shape,
+    _merge_chunks_below_halo,
     _next_scale_metadata,
     _spatial_dims,
     _spatial_dims_last_zyx,
@@ -46,20 +47,14 @@ def _check_wasm_block_size(
 
     A block handed to itkwasm spans the spatial chunk, the channel chunk when
     channels travel as vector components, and the overlap the Gaussian filter
-    reads past the chunk. Chunks smaller than that overlap are merged by
-    map_overlap before the filter runs, so the merged chunks are what count.
-    Integer input to the Gaussian filter is converted to float32 first, which
-    is the size that counts.
+    reads past the chunk. Integer input to the Gaussian filter is converted to
+    float32 first, which is the size that counts.
     """
-    from dask.array.overlap import ensure_minimum_chunksize
-
     numel = 1
     shape = []
     depth = 0 if kernel_radius is None else int(max(kernel_radius))
     for dim, axis_chunks in zip(image.dims, image.data.chunks):
         if dim in _spatial_dims:
-            if depth:
-                axis_chunks = ensure_minimum_chunksize(depth, axis_chunks)
             extent = max(axis_chunks) + 2 * depth
         elif dim == "c" and is_vector:
             extent = max(axis_chunks)
@@ -399,11 +394,7 @@ def _downsample_itkwasm(
             current_image, dim_factors, spatial_dims
         )
 
-        # Blocks 0, ..., N-2 have the same shape
         block_0_input = _get_block(current_image, 0)
-        next_block_0_shape = _next_block_shape(
-            current_image, dim_factors, spatial_dims, block_0_input
-        )
         block_0_size = []
         for dim in spatial_dims:
             if dim in current_image.dims:
@@ -411,12 +402,6 @@ def _downsample_itkwasm(
             else:
                 block_0_size.append(1)
         block_0_size.reverse()
-
-        # Block N-1 may be smaller than preceding blocks
-        block_neg1_input = _get_block(current_image, -1)
-        next_block_neg1_shape = _next_block_shape(
-            current_image, dim_factors, spatial_dims, block_neg1_input
-        )
 
         # Determine if we should use vector mode for multi-channel images.
         # Only use vector mode for small channel counts (≤ _MAX_VECTOR_COMPONENTS)
@@ -436,6 +421,10 @@ def _downsample_itkwasm(
         kernel_radius = gaussian_kernel_radius(size=block_0_size, sigma=sigma_values)
 
         dtype = block_0_input.dtype
+        if smoothing != "bin_shrink":
+            current_image = _merge_chunks_below_halo(
+                current_image, np.flip(kernel_radius)
+            )
         _check_wasm_block_size(
             current_image,
             is_vector,
@@ -443,22 +432,9 @@ def _downsample_itkwasm(
             kernel_radius if smoothing != "bin_shrink" else None,
         )
 
-        output_chunks = list(current_image.data.chunks)
-        output_chunks_start = 0
-        while current_image.dims[output_chunks_start] not in _spatial_dims:
-            output_chunks_start += 1
-        output_chunks = output_chunks[output_chunks_start:]
-        next_block_0_shape = next_block_0_shape[output_chunks_start:]
-        for i, c in enumerate(output_chunks):
-            output_chunks[i] = [
-                next_block_0_shape[i],
-            ] * len(c)
-
-        next_block_neg1_shape = next_block_neg1_shape[output_chunks_start:]
-        for i in range(len(output_chunks)):
-            output_chunks[i][-1] = next_block_neg1_shape[i]
-            output_chunks[i] = tuple(output_chunks[i])
-        output_chunks = tuple(output_chunks)
+        output_chunks_start, output_chunks = _block_output_chunks(
+            current_image, dim_factors
+        )
 
         non_spatial_dims = [d for d in dims if d not in _spatial_dims]
         # Only remove 'c' from non_spatial_dims when using vector mode.

@@ -7,11 +7,12 @@ from dask.array import concatenate, expand_dims, map_blocks, map_overlap, take
 from ..ngff_image import NgffImage
 from ._support import (
     _align_chunks,
+    _block_output_chunks,
     _can_use_map_blocks_fast_path,
     _compute_sigma,
     _dim_scale_factors,
     _get_block,
-    _next_block_shape,
+    _merge_chunks_below_halo,
     _next_scale_metadata,
     _spatial_dims,
     _update_previous_dim_factors,
@@ -208,11 +209,7 @@ def _downsample_itk_bin_shrink(
             previous_image, dim_factors, spatial_dims
         )
 
-        # Blocks 0, ..., N-2 have the same shape
         block_0_input = _get_block(previous_image, 0)
-        next_block_0_shape = _next_block_shape(
-            previous_image, dim_factors, spatial_dims, block_0_input
-        )
         block_0_size = []
         for dim in spatial_dims:
             if dim in previous_image.dims:
@@ -221,32 +218,11 @@ def _downsample_itk_bin_shrink(
                 block_0_size.append(1)
         block_0_size.reverse()
 
-        # Block N-1 may be smaller than preceding blocks
-        block_neg1_input = _get_block(previous_image, -1)
-        next_block_neg1_shape = _next_block_shape(
-            previous_image, dim_factors, spatial_dims, block_neg1_input
-        )
-
         shrink_factors = [dim_factors[sd] for sd in spatial_dims]
 
         dtype = block_0_input.dtype
 
-        output_chunks = list(previous_image.data.chunks)
-        output_chunks_start = 0
-        while previous_image.dims[output_chunks_start] not in _spatial_dims:
-            output_chunks_start += 1
-        output_chunks = output_chunks[output_chunks_start:]
-        next_block_0_shape = next_block_0_shape[output_chunks_start:]
-        for i, c in enumerate(output_chunks):
-            output_chunks[i] = [
-                next_block_0_shape[i],
-            ] * len(c)
-
-        next_block_neg1_shape = next_block_neg1_shape[output_chunks_start:]
-        for i in range(len(output_chunks)):
-            output_chunks[i][-1] = next_block_neg1_shape[i]
-            output_chunks[i] = tuple(output_chunks[i])
-        output_chunks = tuple(output_chunks)
+        _, output_chunks = _block_output_chunks(previous_image, dim_factors)
 
         downscaled_array = map_blocks(
             itk.bin_shrink_image_filter,
@@ -302,11 +278,7 @@ def _downsample_itk_gaussian(
             previous_image, dim_factors, spatial_dims
         )
 
-        # Blocks 0, ..., N-2 have the same shape
         block_0_input = _get_block(previous_image, 0)
-        next_block_0_shape = _next_block_shape(
-            previous_image, dim_factors, spatial_dims, block_0_input
-        )
         block_0_size = []
         for dim in spatial_dims:
             if dim in previous_image.dims:
@@ -314,12 +286,6 @@ def _downsample_itk_gaussian(
             else:
                 block_0_size.append(1)
         block_0_size.reverse()
-
-        # Block N-1 may be smaller than preceding blocks
-        block_neg1_input = _get_block(previous_image, -1)
-        next_block_neg1_shape = _next_block_shape(
-            previous_image, dim_factors, spatial_dims, block_neg1_input
-        )
 
         # pixel units
         # Compute metadata for region splitting
@@ -329,22 +295,10 @@ def _downsample_itk_gaussian(
 
         dtype = block_0_input.dtype
 
-        output_chunks = list(previous_image.data.chunks)
-        output_chunks_start = 0
-        while previous_image.dims[output_chunks_start] not in _spatial_dims:
-            output_chunks_start += 1
-        output_chunks = output_chunks[output_chunks_start:]
-        next_block_0_shape = next_block_0_shape[output_chunks_start:]
-        for i, c in enumerate(output_chunks):
-            output_chunks[i] = [
-                next_block_0_shape[i],
-            ] * len(c)
-
-        next_block_neg1_shape = next_block_neg1_shape[output_chunks_start:]
-        for i in range(len(output_chunks)):
-            output_chunks[i][-1] = next_block_neg1_shape[i]
-            output_chunks[i] = tuple(output_chunks[i])
-        output_chunks = tuple(output_chunks)
+        previous_image = _merge_chunks_below_halo(
+            previous_image, np.flip(kernel_radius)
+        )
+        _, output_chunks = _block_output_chunks(previous_image, dim_factors)
 
         if "t" in previous_image.dims:
             t_index = previous_image.dims.index("t")
