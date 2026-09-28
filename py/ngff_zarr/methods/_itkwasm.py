@@ -495,25 +495,10 @@ def _downsample_itkwasm(
                         chunks=output_chunks,
                     )
                 aggregated_blocks.append(downscaled_sub_block)
-            downscaled_array_shape = non_spatial_shapes + downscaled_sub_block.shape
-            downscaled_array = dask.array.empty(downscaled_array_shape, dtype=dtype)
-            for sub_block_idx, idx in enumerate(
-                product(*(range(s) for s in non_spatial_shapes))
-            ):
-                # Build the slice object for indexing
-                slice_obj = []
-                non_spatial_index = 0
-                for dim in current_image.dims:
-                    if dim in non_spatial_dims:
-                        # Take a single index (like "t=0,1,...") for the non-spatial dimension
-                        slice_obj.append(idx[non_spatial_index])
-                        non_spatial_index += 1
-                    else:
-                        # Keep full slice for spatial/channel dims
-                        slice_obj.append(slice(None))
-
-                slice_obj = tuple(slice_obj)
-                downscaled_array[slice_obj] = aggregated_blocks[sub_block_idx]
+            # Stacked, each output chunk depends only on the blocks it is made of.
+            downscaled_array = dask.array.stack(aggregated_blocks).reshape(
+                non_spatial_shapes + downscaled_sub_block.shape
+            )
         else:
             data = current_image.data
             if smoothing == "bin_shrink":

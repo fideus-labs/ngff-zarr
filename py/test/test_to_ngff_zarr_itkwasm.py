@@ -104,6 +104,33 @@ def test_downsample_tcxyz(tmp_path):
     assert multiscales.images[1].data.shape[2] == 32
 
 
+@pytest.mark.parametrize(
+    "method", [Methods.ITKWASM_GAUSSIAN, Methods.ITKWASM_LABEL_IMAGE]
+)
+@pytest.mark.parametrize("dims", ["zyx", "czyx", "tczyx"])
+def test_an_output_chunk_depends_only_on_its_neighbours(method, dims):
+    """Whatever the axes before z, y, x, one output chunk of a halo method reads
+    the input chunks it covers and their neighbours, not the whole level."""
+    import dask.array as da
+    from dask.core import flatten
+    from dask.optimization import cull
+
+    leading = (1,) * (len(dims) - 3)
+    data = da.zeros(leading + (128,) * 3, chunks=leading + (16,) * 3, dtype=np.uint8)
+    multiscales = to_multiscales(
+        to_ngff_image(data, dims=tuple(dims)),
+        scale_factors=[2],
+        method=method,
+        chunks=16,
+        cache=False,
+    )
+    block = multiscales.images[1].data.blocks[(0,) * len(leading) + (1, 1, 1)]
+    graph, _ = cull(dict(block.__dask_graph__()), list(flatten(block.__dask_keys__())))
+    read = {key for key in graph if isinstance(key, tuple) and key[0] == data.name}
+    # 2 input chunks per axis, and one more on each side for the halo.
+    assert len(read) <= 4**3
+
+
 def test_bin_shrink_tczyx(tmp_path):
     data = (
         np.random.randint(0, 256, 524288).reshape((2, 2, 32, 64, 64)).astype(np.uint8)
