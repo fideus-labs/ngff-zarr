@@ -140,6 +140,14 @@ def _downsample_itk_bin_shrink(
     previous_dim_factors = dict.fromkeys(dims, 1)
     spatial_dims = [dim for dim in dims if dim in _spatial_dims]
     spatial_dims = _image_dims[: len(spatial_dims)]
+    non_spatial = [dim for dim in dims if dim not in _spatial_dims]
+    if non_spatial:
+        # itk.bin_shrink_image_filter takes one spatial volume per block.
+        msg = (
+            f"ITK_BIN_SHRINK downsamples spatial axes only; the image also has {non_spatial}. "
+            "Use ITKWASM_BIN_SHRINK or DASK_BIN_SHRINK."
+        )
+        raise ValueError(msg)
     for scale_factor in scale_factors:
         dim_factors = _dim_scale_factors(dims, scale_factor, previous_dim_factors)
         previous_dim_factors = _update_previous_dim_factors(
