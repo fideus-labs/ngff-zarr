@@ -25,7 +25,7 @@ from ._zarrista_utils import (
 from .config import config
 from .memory_usage import memory_usage
 from .methods import Methods
-from .methods._dask import _downsample_dask_bin_shrink
+from .methods._dask import _downsample_dask_bin_shrink, _downsample_dask_mode
 from .methods._dask_image import _downsample_dask_image
 from .methods._itk import (
     _downsample_itk_bin_shrink,
@@ -624,8 +624,8 @@ def to_multiscales(
             ngff_image, default_chunks, out_chunks, scale_factors, label="nearest"
         )
     elif method is Methods.DASK_IMAGE_MODE:
-        images = _downsample_dask_image(
-            ngff_image, default_chunks, out_chunks, scale_factors, label="mode"
+        images = _downsample_dask_mode(
+            ngff_image, default_chunks, out_chunks, scale_factors
         )
     elif method is Methods.DASK_BIN_SHRINK:
         images = _downsample_dask_bin_shrink(

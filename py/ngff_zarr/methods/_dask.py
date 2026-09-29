@@ -51,6 +51,38 @@ def _bin_shrink_wide_integers(
     return (quotient + rounded).astype(data.dtype)
 
 
+def _mode(data: dask.array.Array, axes: dict[int, int]) -> dask.array.Array:
+    """Most frequent value over ``axes`` windows, remainder trimmed, the smallest on a tie."""
+    if all(factor == 1 for factor in axes.values()):
+        return data
+    return dask.array.coarsen(_block_mode, data, axes, trim_excess=True)
+
+
+def _block_mode(block: np.ndarray, axis: tuple[int, ...] | None = None) -> np.ndarray:
+    """``dask.array.coarsen``'s reduction for a label map.
+
+    Sorted, a window holds its equal values in runs and the first longest run
+    is its mode, so the cost follows the window size whatever the number of
+    labels.
+    """
+    if axis is None:  # coarsen's dtype probe
+        return block
+    kept = [index for index in range(block.ndim) if index not in axis]
+    windows = np.sort(
+        block.transpose(*kept, *axis).reshape(
+            *(block.shape[index] for index in kept), -1
+        ),
+        axis=-1,
+    )
+    position = np.arange(windows.shape[-1], dtype=np.min_scalar_type(windows.shape[-1]))
+    run_starts = np.ones(windows.shape, dtype=bool)
+    np.not_equal(windows[..., 1:], windows[..., :-1], out=run_starts[..., 1:])
+    run_start = np.maximum.accumulate(np.where(run_starts, position, 0), axis=-1)
+    # The first position reaching the longest run ends the longest run of the smallest value.
+    longest = np.argmax(position - run_start, axis=-1)
+    return np.take_along_axis(windows, longest[..., None], axis=-1)[..., 0]
+
+
 def _reaches_target(ngff_image, previous_image, scale_factor, dim_factors) -> bool:
     """Whether shrinking ``previous_image`` by ``dim_factors`` hits the level size."""
     for dim, factor in dim_factors.items():
@@ -70,6 +102,17 @@ def _reaches_target(ngff_image, previous_image, scale_factor, dim_factors) -> bo
 def _downsample_dask_bin_shrink(
     ngff_image: NgffImage, default_chunks, out_chunks, scale_factors
 ):
+    return _downsample_dask_coarsen(ngff_image, out_chunks, scale_factors, _bin_shrink)
+
+
+def _downsample_dask_mode(
+    ngff_image: NgffImage, default_chunks, out_chunks, scale_factors
+):
+    return _downsample_dask_coarsen(ngff_image, out_chunks, scale_factors, _mode)
+
+
+def _downsample_dask_coarsen(ngff_image: NgffImage, out_chunks, scale_factors, reduce):
+    """The levels of ``ngff_image``, each window of each level reduced by ``reduce``."""
     multiscales = [ngff_image]
     dims = tuple(ngff_image.dims)
     spatial_dims = tuple(dim for dim in dims if dim in _spatial_dims)
@@ -93,7 +136,7 @@ def _downsample_dask_bin_shrink(
             index: dim_factors.get(dim, 1) if dim in _spatial_dims else 1
             for index, dim in enumerate(dims)
         }
-        data = _bin_shrink(source_image.data, axes)
+        data = reduce(source_image.data, axes)
         data = data.rechunk(tuple(out_chunks.get(dim, 1) for dim in dims))
 
         translation, scale = _next_scale_metadata(

@@ -155,21 +155,7 @@ def _downsample_dask_image(
         output_scale = _compute_next_scale(previous_image, dim_factors)
         output_translation = _compute_next_translation(previous_image, dim_factors)
 
-        if label == "mode":
-
-            def largest_mode(arr):
-                values, counts = np.unique(arr, return_counts=True)
-                m = counts.argmax()
-                return values[m]
-
-            size = tuple(shrink_factors)
-            blurred_array = dask_image.ndfilters.generic_filter(
-                image=previous_image.data,
-                function=largest_mode,
-                size=size,
-                mode="nearest",
-            )
-        elif label == "nearest":
+        if label == "nearest":
             blurred_array = previous_image.data
         else:
             input_scale_list = []

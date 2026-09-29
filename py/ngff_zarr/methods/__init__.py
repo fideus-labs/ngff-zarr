@@ -51,8 +51,9 @@ class Methods(Enum):
     for intensity images. dask-image implementation based on SciPy."""
 
     DASK_IMAGE_MODE = "dask_image_mode"
-    """Local mode for label images. Fewer artifacts than simple nearest neighbor
-    interpolation, but slower."""
+    """The most frequent label of each block, the smallest on a tie, computed
+    with dask.array.coarsen on the blocks the level describes. For label images:
+    fewer artifacts than nearest neighbor, and no label that is not in the block."""
 
     DASK_IMAGE_NEAREST = "dask_image_nearest"
     """Nearest neighbor for label images. Will have many artifacts for
