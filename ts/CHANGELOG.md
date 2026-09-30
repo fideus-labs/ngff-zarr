@@ -1,3 +1,13 @@
+## ts-v0.34.0 (2026-09-30)
+
+### ✨ Features
+
+- **ts**: bump fizarrita 3 and zarrita 0.7 for sharded reads and writes ([6ef683a](https://github.com/fideus-labs/ngff-zarr/commit/6ef683a4009294779bade73ceeef303f35f5e468))
+
+### 🐛 Bug Fixes
+
+- **ts**: default browser toOmeZarr to OME-Zarr 0.5 ([d52ff0a](https://github.com/fideus-labs/ngff-zarr/commit/d52ff0a22ec4227d6df70195f080cc9e929879be))
+
 ## ts-v0.33.0 (2026-09-18)
 
 ### BREAKING CHANGE
