@@ -40,9 +40,9 @@ async function makeSourceStore(
   const seed: MemoryStore = new Map();
   const seedArray = await zarr.create(zarr.root(seed).resolve("seed"), {
     shape: SHAPE,
-    chunk_shape: CHUNKS,
-    data_type: "uint16" as zarr.DataType,
-    fill_value: 0,
+    chunkShape: CHUNKS,
+    dtype: "uint16" as zarr.DataType,
+    fillValue: 0,
   });
   await zarr.set(seedArray, null, {
     data: fixtureData(),

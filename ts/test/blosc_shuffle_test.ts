@@ -88,9 +88,9 @@ async function makeImage(dtype: string): Promise<NgffImage> {
   const store: MemoryStore = new Map<string, Uint8Array>();
   const zarrArray = await zarr.create(zarr.root(store).resolve("/data"), {
     shape: SHAPE,
-    chunk_shape: SHAPE,
-    data_type: dtype as zarr.DataType,
-    fill_value: 0,
+    chunkShape: SHAPE,
+    dtype: dtype as zarr.DataType,
+    fillValue: 0,
     codecs: defaultCodecs(dtype),
   });
 

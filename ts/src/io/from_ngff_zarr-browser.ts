@@ -12,6 +12,7 @@ import type { Metadata, Omero } from "../types/zarr_metadata.ts";
 import { extractMethodMetadata } from "../utils/parse_metadata.ts";
 import { fromZarrAttrsV06 } from "../utils/from_zarr_attrs.ts";
 import { isV06Version, NgffVersion } from "../types/supported_versions.ts";
+import { ensureRangeReads } from "../utils/sharding.ts";
 
 export type { ChunkCache } from "../utils/worker_pool.ts";
 
@@ -58,11 +59,13 @@ export async function fromOmeZarr(
       "get" in store &&
       typeof (store as zarr.Readable).get === "function"
     ) {
-      // Duck-type check for zarrita Readable stores (e.g. TiffStore, FetchStore, MemoryStore)
-      resolvedStore = store as zarr.Readable;
+      // Duck-type check for zarrita Readable stores (e.g. TiffStore,
+      // FetchStore, MemoryStore). One without range reads, such as a `Map`,
+      // gets them, so its sharded arrays open.
+      resolvedStore = ensureRangeReads(store as zarr.Readable);
     } else if (store instanceof Map || store instanceof zarr.FetchStore) {
       // Defensive fallback for Map/FetchStore (normally caught by duck-type check above)
-      resolvedStore = store;
+      resolvedStore = ensureRangeReads(store);
     } else if (
       typeof store === "string" &&
       (store.startsWith("http://") || store.startsWith("https://"))
@@ -76,11 +79,12 @@ export async function fromOmeZarr(
       );
     }
 
-    // Try to use consolidated metadata for better performance
+    // Try to use consolidated metadata for better performance: the Zarr v3
+    // block in the root `zarr.json`, as the writers emit, or a v2 `.zmetadata`.
     let optimizedStore: zarr.Readable | zarr.Listable<zarr.Readable>;
     try {
-      optimizedStore = await zarr.tryWithConsolidated(
-        resolvedStore as zarr.Readable,
+      optimizedStore = await zarr.withMaybeConsolidatedMetadata(
+        resolvedStore as zarr.AsyncReadable,
       );
     } catch {
       optimizedStore = resolvedStore as zarr.Readable;

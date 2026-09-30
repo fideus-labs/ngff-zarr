@@ -97,64 +97,19 @@ function getWritePool(): WorkerPool {
 }
 
 // ---------------------------------------------------------------------------
-// Early codec detection — skip workers for unsupported codecs
+// Main-thread fallback
 // ---------------------------------------------------------------------------
 
-/** Codec names that fizarrita workers cannot handle. */
-const UNSUPPORTED_CODEC_NAMES = new Set(["sharding_indexed"]);
-
-const _textDecoder = new TextDecoder();
-
 /**
- * Cache: maps `arr.path + store identity` → whether the array uses
- * unsupported codecs.  Uses a WeakMap keyed on the store so entries are
- * GC'd when the store is collected, with a nested Map keyed on the array
- * path string.
- */
-// deno-lint-ignore no-explicit-any
-const _codecCheckCache = new WeakMap<any, Map<string, boolean>>();
-
-/**
- * Check whether a zarr array uses codecs that fizarrita workers cannot
- * handle (e.g. `sharding_indexed`).  Result is cached per store + path.
+ * Whether `err` is one of zarrita's structured errors carrying one of `tags`.
  *
- * Only inspects Zarr v3 `zarr.json`; v2 arrays always return `false`
- * (fizarrita handles all v2 codecs).
+ * Matched on `_tag` rather than with `zarr.isZarritaError`, whose
+ * `instanceof` test fails across module copies: fizarrita raises its errors
+ * from npm:zarrita, while under Deno this package imports jsr:@zarrita/zarrita.
  */
-async function hasUnsupportedCodecs<Store extends Readable>(
-  arr: ZarrArray<DataType, Store>,
-): Promise<boolean> {
-  // Check cache first
-  let pathMap = _codecCheckCache.get(arr.store);
-  if (pathMap?.has(arr.path)) {
-    return pathMap.get(arr.path)!;
-  }
-
-  const zarrJsonPath = (
-    arr.path === "/" ? "/zarr.json" : `${arr.path}/zarr.json`
-  ) as `/${string}`;
-  const bytes = await arr.store.get(zarrJsonPath);
-
-  let result = false;
-  if (bytes) {
-    try {
-      const meta = JSON.parse(_textDecoder.decode(bytes));
-      const codecs: Array<{ name: string }> = meta.codecs ?? [];
-      result = codecs.some((c) => UNSUPPORTED_CODEC_NAMES.has(c.name));
-    } catch {
-      // Malformed metadata — let fizarrita/zarrita deal with it
-      result = false;
-    }
-  }
-
-  // Populate cache
-  if (!pathMap) {
-    pathMap = new Map();
-    _codecCheckCache.set(arr.store, pathMap);
-  }
-  pathMap.set(arr.path, result);
-
-  return result;
+function isZarritaErrorTagged(err: unknown, ...tags: string[]): boolean {
+  return err instanceof Error &&
+    tags.includes((err as { _tag?: unknown })._tag as string);
 }
 
 // ---------------------------------------------------------------------------
@@ -174,9 +129,11 @@ type GetResult<
  *
  * Drop-in replacement for `zarr.get()` that offloads codec decode to Web
  * Workers via a shared WorkerPool. Uses SharedArrayBuffer when available.
+ * Sharded (`sharding_indexed`) arrays decode their inner chunks on the
+ * workers too.
  *
- * Falls back to `zarr.get()` when the array uses codecs not supported by
- * fizarrita (e.g. sharding_indexed).
+ * Falls back to `zarr.get()` when the workers cannot decode the array: a
+ * codec registered only on the main thread, or a capability fizarrita lacks.
  */
 export async function zarrGet<
   D extends DataType,
@@ -187,13 +144,6 @@ export async function zarrGet<
   selection?: Sel | null,
   opts?: Partial<GetWorkerOptions<unknown>>,
 ): Promise<GetResult<D, Sel>> {
-  // Fast-path: skip workers entirely for arrays with unsupported codecs
-  // (e.g. sharding_indexed). Avoids Worker creation that can hang on
-  // some platforms (Windows CI).
-  if (await hasUnsupportedCodecs(arr)) {
-    return (await zarr.get(arr, selection)) as GetResult<D, Sel>;
-  }
-
   try {
     const mergedOpts: GetWorkerOptions<unknown> = {
       pool: getCodecPool(),
@@ -201,19 +151,16 @@ export async function zarrGet<
       useSharedArrayBuffer: USE_SHARED_ARRAY_BUFFER,
       ...opts,
     };
-    // Cast through AnyZarrArray to bridge jsr:zarrita ↔ npm:zarrita types
+    // Cast through AnyZarrArray to bridge jsr:zarrita ↔ npm:zarrita types;
+    // the store options are typed from the (npm) store, so they cross too.
     const result = await getWorker(
       arr as AnyZarrArray,
       selection ?? null,
-      mergedOpts,
+      mergedOpts as AnyZarrArray,
     );
     return result as GetResult<D, Sel>;
   } catch (err) {
-    // Fallback to zarr.get() for unsupported codecs (e.g. sharding_indexed)
-    if (
-      err instanceof Error &&
-      /(?:unsupported|unknown) codec/i.test(err.message)
-    ) {
+    if (isZarritaErrorTagged(err, "UnknownCodecError", "UnsupportedError")) {
       return (await zarr.get(arr, selection)) as GetResult<D, Sel>;
     }
     throw err;
@@ -226,8 +173,16 @@ export async function zarrGet<
  * Drop-in replacement for `zarr.set()` that offloads codec encode/decode to
  * Web Workers via a shared WorkerPool. Uses SharedArrayBuffer when available.
  *
- * Falls back to `zarr.set()` when the array uses codecs not supported by
- * fizarrita (e.g. sharding_indexed).
+ * Unlike `zarr.set()`, this writes sharded (`sharding_indexed`) arrays: each
+ * touched shard is read (only when part of it is kept), reassembled, and
+ * written whole. Concurrent writes to one shard race, the last one winning,
+ * so callers must not write two regions of the same shard at once; writing
+ * whole shards also spares the read.
+ *
+ * Falls back to `zarr.set()` when the workers cannot write the array: a
+ * codec registered only on the main thread, or a data type such as `bool`
+ * that the worker codecs do not handle. When `zarr.set()` cannot either, the
+ * `AggregateError` thrown carries both errors.
  */
 export async function zarrSet<D extends DataType>(
   arr: ZarrArray<D, Mutable>,
@@ -235,12 +190,6 @@ export async function zarrSet<D extends DataType>(
   value: Scalar<D> | Chunk<D>,
   opts?: Partial<SetWorkerOptions>,
 ): Promise<void> {
-  // Fast-path: skip workers entirely for arrays with unsupported codecs
-  if (await hasUnsupportedCodecs(arr)) {
-    await zarr.set(arr, selection, value);
-    return;
-  }
-
   try {
     const mergedOpts: SetWorkerOptions = {
       pool: getCodecPool(),
@@ -256,11 +205,18 @@ export async function zarrSet<D extends DataType>(
       mergedOpts,
     );
   } catch (err) {
-    const isUnsupportedCodecError = err instanceof Error &&
-      /(?:unsupported|unknown) codec/i.test(err.message);
-    if (isUnsupportedCodecError) {
-      // Fallback to zarr.set() for unsupported codecs (e.g. sharding_indexed)
-      await zarr.set(arr, selection, value);
+    if (isZarritaErrorTagged(err, "UnknownCodecError", "UnsupportedError")) {
+      try {
+        await zarr.set(arr, selection, value);
+      } catch (fallbackErr) {
+        // zarr.set() refuses every sharded array, so its error alone would
+        // hide what the workers were actually missing.
+        throw new AggregateError(
+          [err, fallbackErr],
+          "zarrSet: neither the codec workers nor zarr.set() can write the " +
+            "array",
+        );
+      }
       return;
     }
     // Re-throw other errors so real failures aren't masked.

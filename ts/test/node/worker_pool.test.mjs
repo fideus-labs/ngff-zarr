@@ -97,9 +97,9 @@ function bloscCodecs(shuffle, typesize) {
 async function createArray(store, { shape, chunkShape, dataType, codecs }) {
   return await zarr.create(zarr.root(store).resolve("/img"), {
     shape,
-    chunk_shape: chunkShape,
-    data_type: dataType,
-    fill_value: 0,
+    chunkShape,
+    dtype: dataType,
+    fillValue: 0,
     codecs,
   });
 }
@@ -323,7 +323,7 @@ import * as zarr from ${JSON.stringify(zarritaEntryUrl)};
 const shape = [4, 8, 8];
 const store = new Map();
 const arr = await zarr.create(zarr.root(store).resolve("/img"), {
-  shape, chunk_shape: shape, data_type: "uint16", fill_value: 0,
+  shape, chunkShape: shape, dtype: "uint16", fillValue: 0,
   codecs: [
     { name: "bytes", configuration: { endian: "little" } },
     { name: "blosc", configuration: { cname: "zstd", clevel: 5,

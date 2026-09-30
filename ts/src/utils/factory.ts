@@ -29,8 +29,8 @@ async function createTestZarrArray(
   // Create the array using zarrita with correct options
   const array = await zarr.create(root.resolve(name), {
     shape,
-    chunk_shape: chunks,
-    data_type: dtype as zarr.DataType,
+    chunkShape: chunks,
+    dtype: dtype as zarr.DataType,
     codecs: defaultCodecs(dtype),
   });
 

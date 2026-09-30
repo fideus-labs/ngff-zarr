@@ -94,8 +94,8 @@ Deno.test("write omero metadata", async () => {
 
   const zarrArray = await zarr.create(root.resolve("test_image"), {
     shape: [2, 32, 64, 64],
-    chunk_shape: [2, 32, 64, 64],
-    data_type: "uint8",
+    chunkShape: [2, 32, 64, 64],
+    dtype: "uint8",
   });
 
   const image = new NgffImage({
@@ -192,8 +192,8 @@ Deno.test(
 
     const zarrArray = await zarr.create(root.resolve("test_image"), {
       shape: [2, 32, 64, 64],
-      chunk_shape: [2, 32, 64, 64],
-      data_type: "uint8",
+      chunkShape: [2, 32, 64, 64],
+      dtype: "uint8",
     });
 
     const image = new NgffImage({
@@ -287,8 +287,8 @@ Deno.test("write omero metadata v0.5 - omero inside ome namespace", async () => 
 
   const zarrArray = await zarr.create(root.resolve("test_image"), {
     shape: [2, 32, 64, 64],
-    chunk_shape: [2, 32, 64, 64],
-    data_type: "uint8",
+    chunkShape: [2, 32, 64, 64],
+    dtype: "uint8",
   });
 
   const image = new NgffImage({

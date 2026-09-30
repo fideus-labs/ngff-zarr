@@ -7,7 +7,7 @@
 import type { Image } from "itk-wasm";
 import * as zarr from "zarrita";
 // Import the get_strides function from zarrita utilities
-import { _zarrita_internal_get_strides as getStrides } from "zarrita";
+import { _zarrita_internal_getStrides as getStrides } from "zarrita";
 
 import { NgffImage } from "../types/ngff_image.ts";
 import type { AnatomicalOrientation } from "../types/rfc4.ts";
@@ -165,9 +165,9 @@ export async function itkImageToNgffImage(
 
   const zarrArray = await zarr.create(root.resolve(path), {
     shape: shape,
-    chunk_shape: chunkShape,
-    data_type: imageType.componentType as zarr.DataType,
-    fill_value: 0,
+    chunkShape,
+    dtype: imageType.componentType as zarr.DataType,
+    fillValue: 0,
     codecs: defaultCodecs(imageType.componentType),
   });
 

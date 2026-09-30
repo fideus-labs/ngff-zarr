@@ -316,19 +316,9 @@ export async function fromZarrAttrsV04(
   // Open root group for array access
   let optimizedStore: MemoryStore | zarr.FetchStore | zarr.Readable;
   try {
-    const tryWithConsolidated: ((s: unknown) => Promise<unknown>) | undefined =
-      (zarr as unknown as {
-        tryWithConsolidated?: (s: unknown) => Promise<unknown>;
-      })
-        .tryWithConsolidated;
-    if (tryWithConsolidated) {
-      optimizedStore = (await tryWithConsolidated(store)) as
-        | MemoryStore
-        | zarr.FetchStore
-        | zarr.Readable;
-    } else {
-      optimizedStore = store;
-    }
+    optimizedStore = await zarr.withMaybeConsolidatedMetadata(
+      store as zarr.AsyncReadable,
+    );
   } catch {
     optimizedStore = store;
   }
@@ -633,16 +623,9 @@ export async function fromZarrAttrsV06(
   // Open root group for array access (reuse consolidated metadata if present).
   let optimizedStore: MemoryStore | zarr.FetchStore | zarr.Readable;
   try {
-    const tryWithConsolidated: ((s: unknown) => Promise<unknown>) | undefined =
-      (zarr as unknown as {
-        tryWithConsolidated?: (s: unknown) => Promise<unknown>;
-      }).tryWithConsolidated;
-    optimizedStore = tryWithConsolidated
-      ? (await tryWithConsolidated(store)) as
-        | MemoryStore
-        | zarr.FetchStore
-        | zarr.Readable
-      : store;
+    optimizedStore = await zarr.withMaybeConsolidatedMetadata(
+      store as zarr.AsyncReadable,
+    );
   } catch {
     optimizedStore = store;
   }

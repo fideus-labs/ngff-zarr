@@ -25,9 +25,9 @@
     "jsr:@std/streams@^1.0.17": "1.0.17",
     "jsr:@ts-morph/bootstrap@0.27": "0.27.0",
     "jsr:@ts-morph/common@0.27": "0.27.0",
-    "jsr:@zarrita/storage@~0.1.4": "0.1.4",
-    "jsr:@zarrita/zarrita@~0.6.1": "0.6.1",
-    "npm:@fideus-labs/fizarrita@^2.1.0": "2.1.0_zarrita@0.6.1",
+    "jsr:@zarrita/storage@0.2": "0.2.0",
+    "jsr:@zarrita/zarrita@~0.7.5": "0.7.5",
+    "npm:@fideus-labs/fizarrita@3": "3.0.0_zarrita@0.7.5",
     "npm:@fideus-labs/worker-pool@^2.1.0": "2.1.0",
     "npm:@itk-wasm/compare-images@^5.4.1": "5.4.1",
     "npm:@itk-wasm/downsample@^2.0.2": "2.0.2",
@@ -38,8 +38,8 @@
     "npm:microdiff@^1.5.0": "1.5.0",
     "npm:numcodecs@~0.3.2": "0.3.2",
     "npm:reference-spec-reader@0.2": "0.2.0",
-    "npm:unzipit@1.4.3": "1.4.3",
-    "npm:zarrita@~0.6.1": "0.6.1",
+    "npm:unzipit@2.0.0": "2.0.0",
+    "npm:zarrita@~0.7.5": "0.7.5",
     "npm:zod@^4.5.0": "4.5.4"
   },
   "jsr": {
@@ -149,15 +149,15 @@
         "jsr:@std/path@1"
       ]
     },
-    "@zarrita/storage@0.1.4": {
-      "integrity": "2c1b88718ca20493269061e5a5c315c89ebd569a0843b084f44f87c749e585ee",
+    "@zarrita/storage@0.2.0": {
+      "integrity": "2d0f18cb3525a64ff9ae99584828e10103a9342163af69b0d007738a056594fd",
       "dependencies": [
         "npm:reference-spec-reader",
         "npm:unzipit"
       ]
     },
-    "@zarrita/zarrita@0.6.1": {
-      "integrity": "1b8b7f2606dee2cac783f9c9334f01bae094819d8174c0161322ba7ac2aff339",
+    "@zarrita/zarrita@0.7.5": {
+      "integrity": "7f5359307104cb53e8ec1240f425e73bdb89f537f58ad644eaf9394f008ea5bc",
       "dependencies": [
         "jsr:@zarrita/storage",
         "npm:numcodecs"
@@ -171,8 +171,8 @@
         "tslib"
       ]
     },
-    "@fideus-labs/fizarrita@2.1.0_zarrita@0.6.1": {
-      "integrity": "sha512-HWGFW09TwGfj1ZiEmS93z8gchzvaWKKymlF5WTj7KYO5IByvg6P0afHUtmbgszXhzi0bEyyGOIlY83pSKSajng==",
+    "@fideus-labs/fizarrita@3.0.0_zarrita@0.7.5": {
+      "integrity": "sha512-5jDIxmILPq3cADSxnX50HMysGyhAeiI9JqCNFDc+NcyYDhRkTRd5soTqfGzhWPV8N4o4E22R7nAMECFnyPeXtw==",
       "dependencies": [
         "@fideus-labs/worker-pool",
         "zarrita"
@@ -344,8 +344,8 @@
         "uint8arrays"
       ]
     },
-    "@zarrita/storage@0.1.4": {
-      "integrity": "sha512-qURfJAQcQGRfDQ4J9HaCjGaj3jlJKc66bnRk6G/IeLUsM7WKyG7Bzsuf1EZurSXyc0I4LVcu6HaeQQ4d3kZ16g==",
+    "@zarrita/storage@0.2.0": {
+      "integrity": "sha512-855ZXqtnds7spnT8vNvD+MXa3QExP1m2GqShe8yt7uZXHnQLgJHgkpVwFjE1B0KDDRO0ki09hmk6OboTaIfPsQ==",
       "dependencies": [
         "reference-spec-reader",
         "unzipit"
@@ -1218,11 +1218,8 @@
     "universalify@2.0.1": {
       "integrity": "sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw=="
     },
-    "unzipit@1.4.3": {
-      "integrity": "sha512-gsq2PdJIWWGhx5kcdWStvNWit9FVdTewm4SEG7gFskWs+XCVaULt9+BwuoBtJiRE8eo3L1IPAOrbByNLtLtIlg==",
-      "dependencies": [
-        "uzip-module"
-      ]
+    "unzipit@2.0.0": {
+      "integrity": "sha512-DVeVIWUZCAQPNzm5sB0hpsG1GygTTdBnzNtYYEpInkttx5evkyqRgZi6rTczoySqp8hO5jHVKzrH0f23X8FZLg=="
     },
     "util-deprecate@1.0.2": {
       "integrity": "sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw=="
@@ -1264,8 +1261,8 @@
         "fd-slicer"
       ]
     },
-    "zarrita@0.6.1": {
-      "integrity": "sha512-YOMTW8FT55Rz+vadTIZeOFZ/F2h4svKizyldvPtMYSxPgSNcRkOzkxCsWpIWlWzB1I/LmISmi0bEekOhLlI+Zw==",
+    "zarrita@0.7.5": {
+      "integrity": "sha512-ZriOSEne+Wf2iuM0yjDZvUKpHNlug3dO7qJ6mAxXoOgsYV18DPOkAkwB9e0rf21bHcKcOffFuwoZwn5g6pvUeA==",
       "dependencies": [
         "@zarrita/storage",
         "numcodecs"
@@ -1283,9 +1280,9 @@
       "jsr:@std/http@^1.0.24",
       "jsr:@std/path@^1.1.4",
       "jsr:@std/semver@^1.0.5",
-      "jsr:@zarrita/storage@~0.1.4",
-      "jsr:@zarrita/zarrita@~0.6.1",
-      "npm:@fideus-labs/fizarrita@^2.1.0",
+      "jsr:@zarrita/storage@0.2",
+      "jsr:@zarrita/zarrita@~0.7.5",
+      "npm:@fideus-labs/fizarrita@3",
       "npm:@fideus-labs/worker-pool@^2.1.0",
       "npm:@itk-wasm/compare-images@^5.4.1",
       "npm:@itk-wasm/downsample@^2.0.2",

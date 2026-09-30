@@ -47,9 +47,9 @@ async function makeChannelImage(cChunk: number): Promise<NgffImage> {
   const store: MemoryStore = new Map<string, Uint8Array>();
   const arr = await zarr.create(zarr.root(store).resolve("/data"), {
     shape,
-    chunk_shape: [cChunk, HEIGHT, WIDTH],
-    data_type: "uint16",
-    fill_value: 0,
+    chunkShape: [cChunk, HEIGHT, WIDTH],
+    dtype: "uint16",
+    fillValue: 0,
     codecs: defaultCodecs("uint16"),
   });
   await zarrSet(arr, null, {

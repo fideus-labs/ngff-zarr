@@ -288,9 +288,9 @@ async function createTestStore(
   const arrayLocation = root.resolve("0");
   await zarr.create(arrayLocation, {
     shape: [10, 10, 10],
-    data_type: "uint8",
-    chunk_shape: [10, 10, 10],
-    fill_value: 0,
+    dtype: "uint8",
+    chunkShape: [10, 10, 10],
+    fillValue: 0,
   });
 
   return store;

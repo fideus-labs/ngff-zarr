@@ -51,9 +51,9 @@ async function createImageStore(
   for (const dataset of datasets) {
     await zarr.create(root.resolve(dataset.path), {
       shape: [16, 16],
-      data_type: "uint8",
-      chunk_shape: [16, 16],
-      fill_value: 0,
+      dtype: "uint8",
+      chunkShape: [16, 16],
+      fillValue: 0,
     });
   }
   return store;
@@ -103,9 +103,9 @@ async function createImageStoreV05(
   for (const dataset of datasets) {
     await zarr.create(root.resolve(dataset.path), {
       shape: [16, 16],
-      data_type: "uint8",
-      chunk_shape: [16, 16],
-      fill_value: 0,
+      dtype: "uint8",
+      chunkShape: [16, 16],
+      fillValue: 0,
     });
   }
   return store;
@@ -330,9 +330,9 @@ async function createOmeNamespacedStore(
   for (const dataset of entry.datasets as Array<{ path: string }>) {
     await zarr.create(root.resolve(dataset.path), {
       shape,
-      data_type: "uint8",
-      chunk_shape: shape,
-      fill_value: 0,
+      dtype: "uint8",
+      chunkShape: shape,
+      fillValue: 0,
     });
   }
   return store;

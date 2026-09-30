@@ -44,7 +44,7 @@ async function _consolidatedExample() {
 
   try {
     // Try to use consolidated metadata (reduces network requests)
-    const consolidatedStore = await zarr.tryWithConsolidated(store);
+    const consolidatedStore = await zarr.withMaybeConsolidatedMetadata(store);
     const root = zarr.root(consolidatedStore);
 
     // These operations won't require additional metadata requests

@@ -12,11 +12,18 @@ import {
   consolidateMetadata,
   datasetNodePaths,
 } from "../utils/consolidate_metadata.ts";
+import {
+  arrayLayout,
+  type ChunksPerShard,
+  ensureRangeReads,
+  gateShardingVersion,
+} from "../utils/sharding.ts";
 import { createWriteQueue, zarrGet, zarrSet } from "../utils/worker_pool.ts";
 import type { MemoryStore } from "./from_ngff_zarr-browser.ts";
 import { memoryStoreToZip } from "./rfc9_zip.ts";
 import {
   buildRootAttributes,
+  DEFAULT_OZX_CHUNKS_PER_SHARD,
   gateOzxVersion,
   type OzxVersion,
   writeNgffMultiscalesToMemoryStore,
@@ -27,7 +34,13 @@ export { isOzxPath } from "./rfc9_zip.ts";
 export interface ToOmeZarrOptions {
   overwrite?: boolean;
   version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
-  chunksPerShard?: number | number[] | Record<string, number>;
+  /**
+   * Store each block of chunks as one Zarr v3 shard: how many chunks a shard
+   * spans along each axis -- one count for every axis, one per axis in order,
+   * or per axis name (an axis left out spans 1). Requires version 0.5 or
+   * later. Omitted, the arrays are not sharded.
+   */
+  chunksPerShard?: ChunksPerShard;
   /**
    * Custom codec pipeline for array compression. When omitted the default
    * ``blosc(zstd)`` pipeline from {@link defaultCodecs} is used. Use
@@ -46,10 +59,7 @@ export interface ToOmeZarrOptions {
 /** @deprecated Use {@link ToOmeZarrOptions} instead. */
 export type ToNgffZarrOptions = ToOmeZarrOptions;
 
-/**
- * Options for writing to .ozx (RFC-9) format.
- * Note: chunksPerShard is NOT supported for .ozx files and will throw an error.
- */
+/** Options for writing to .ozx (RFC-9) format. */
 export interface ToOmeZarrOzxOptions {
   /**
    * Optional progress callback invoked after each chunk is written.
@@ -73,6 +83,15 @@ export interface ToOmeZarrOzxOptions {
    * is recorded in the archive's ZIP comment as well as in its root metadata.
    */
   version?: OzxVersion | undefined;
+  /**
+   * Store each block of chunks as one Zarr v3 shard: how many chunks a shard
+   * spans along each axis -- one count for every axis, one per axis in order,
+   * or per axis name (an axis left out spans 1). Omitted, a shard spans 2
+   * chunks along every axis, as the Python writer's `.ozx` default. A stored
+   * (uncompressed) archive entry can be range-read, so a reader fetches
+   * single chunks out of a shard.
+   */
+  chunksPerShard?: ChunksPerShard | undefined;
 }
 
 /** @deprecated Use {@link ToOmeZarrOzxOptions} instead. */
@@ -90,6 +109,8 @@ export async function toOmeZarr(
 ): Promise<void> {
   const _overwrite = options.overwrite ?? true;
   const _version = options.version ?? "0.4";
+
+  gateShardingVersion(_version, options.chunksPerShard);
 
   try {
     // Determine the appropriate store type based on the path
@@ -111,8 +132,13 @@ export async function toOmeZarr(
       );
     }
 
-    // Create root location and group with zarrita v0.5.2 API
-    const root = zarr.root(_resolvedStore);
+    // Create root location and group. A sharded array needs range reads,
+    // which an in-memory `Map` lacks.
+    const root = zarr.root(
+      options.chunksPerShard === undefined
+        ? _resolvedStore
+        : ensureRangeReads(_resolvedStore),
+    );
 
     // Build the version-specific root-group metadata (v0.6 RFC-5 coordinate
     // systems, v0.5 `ome`-wrapped axes, or bare v0.4 multiscales). Shared with
@@ -136,6 +162,7 @@ export async function toOmeZarr(
         dataset.path,
         undefined, // onProgress
         options.codecs,
+        options.chunksPerShard,
       );
     }
 
@@ -242,6 +269,7 @@ async function _writeImage(
   arrayPath: string,
   onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
   codecs?: ZarrCodec[],
+  chunksPerShard?: ChunksPerShard,
 ): Promise<void> {
   try {
     const chunks = getChunksFromImage(image);
@@ -252,19 +280,29 @@ async function _writeImage(
     // Create array location
     const arrayLocation = group.resolve(arrayPath);
 
+    // The chunk grid and codecs, wrapped in a shard when requested
+    const layout = arrayLayout(
+      image.data.shape,
+      image.dims,
+      chunks,
+      codecs ?? defaultCodecs(zarrDataType),
+      chunksPerShard,
+    );
+
     // Create the zarr array with proper configuration
     const zarrArray = await zarr.create(arrayLocation, {
       shape: image.data.shape,
-      data_type: zarrDataType,
-      chunk_shape: chunks,
-      fill_value: 0,
-      codecs: codecs ?? defaultCodecs(zarrDataType),
+      dtype: zarrDataType,
+      chunkShape: layout.chunkShape,
+      fillValue: 0,
+      codecs: layout.codecs,
     });
 
     await _writeArrayData(
       zarrArray as zarr.Array<zarr.DataType, MemoryStore>,
       image,
-      onProgress,
+      onProgress ?? null,
+      layout.chunkShape,
     );
   } catch (error) {
     throw new Error(
@@ -287,14 +325,17 @@ function getChunksFromImage(image: NgffImage): number[] {
 async function _writeArrayData(
   zarrArray: zarr.Array<zarr.DataType, MemoryStore>,
   image: NgffImage,
-  onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
+  onProgress: ((completedChunks: number, totalChunks: number) => void) | null,
+  writeShape: number[],
 ): Promise<void> {
   try {
     // Get array shape for chunk calculation - we don't need the full data here
     const shape = image.data.shape;
 
-    // Calculate chunk indices for parallel writing
-    const chunkIndices = calculateChunkIndices(shape, zarrArray.chunks);
+    // Calculate chunk indices for parallel writing. The grid is the array's
+    // outer one: for a sharded array each write is a whole shard, since two
+    // writes into one shard at once would race.
+    const chunkIndices = calculateChunkIndices(shape, writeShape);
 
     // Create a queue for parallel chunk writing
     const writeQueue = createWriteQueue();
@@ -302,7 +343,7 @@ async function _writeArrayData(
     // Queue all chunks for writing
     for (const chunkIndex of chunkIndices) {
       writeQueue.add(async () => {
-        await writeChunkWithGet(zarrArray, image, chunkIndex);
+        await writeChunkWithGet(zarrArray, image, chunkIndex, writeShape);
       });
     }
 
@@ -321,12 +362,13 @@ async function writeChunkWithGet(
   zarrArray: zarr.Array<zarr.DataType, MemoryStore>,
   image: NgffImage,
   chunkIndex: number[],
+  writeShape: number[],
 ): Promise<void> {
   // Calculate the chunk bounds
   const shape = image.data.shape;
-  const chunkStart = chunkIndex.map((idx, dim) => idx * zarrArray.chunks[dim]);
+  const chunkStart = chunkIndex.map((idx, dim) => idx * writeShape[dim]);
   const chunkEnd = chunkStart.map((start, dim) =>
-    Math.min(start + zarrArray.chunks[dim], shape[dim])
+    Math.min(start + writeShape[dim], shape[dim])
   );
 
   // Calculate chunk shape
@@ -516,9 +558,6 @@ function calculateChunkStride(chunkShape: number[]): number[] {
  * the ZIP data as a Uint8Array. This is the browser-compatible version
  * that returns the raw ZIP data for download or further processing.
  *
- * Note: Sharding is NOT supported because zarrita does not currently
- * support writing shards. If you need sharding, use the Python implementation.
- *
  * @param multiscales - NgffMultiscales data to write
  * @param options - Options for writing
  * @returns ZIP file data as Uint8Array
@@ -535,13 +574,24 @@ export async function toOmeZarrOzx(
   const memoryStore: MemoryStore = new Map<string, Uint8Array>();
 
   // Use the shared write function
+  const chunksPerShard = _options.chunksPerShard ??
+    DEFAULT_OZX_CHUNKS_PER_SHARD;
   await writeNgffMultiscalesToMemoryStore(
     memoryStore,
     multiscales,
-    _writeImage,
+    (group, image, path, onImageProgress) =>
+      _writeImage(
+        group,
+        image,
+        path,
+        onImageProgress,
+        undefined,
+        chunksPerShard,
+      ),
     _options.onProgress ?? null,
     _options.consolidateMetadata ?? true,
     version,
+    chunksPerShard,
   );
 
   // Convert the memory store to ZIP data; the ZIP comment records the

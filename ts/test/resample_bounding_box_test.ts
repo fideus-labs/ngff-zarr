@@ -107,9 +107,9 @@ async function geometryImage(
   const arrayShape = dims.map((dim) => shape[dim]);
   const data = await zarr.create(root.resolve("data"), {
     shape: arrayShape,
-    chunk_shape: arrayShape.map((n) => Math.min(n, 32)),
-    data_type: "uint8",
-    fill_value: 0,
+    chunkShape: arrayShape.map((n) => Math.min(n, 32)),
+    dtype: "uint8",
+    fillValue: 0,
   });
   return new NgffImage({
     data,
@@ -448,9 +448,9 @@ Deno.test("pixel data is never read", async () => {
   const root = zarr.root(poison as never);
   const data = await zarr.create(root.resolve("data"), {
     shape: [32, 32],
-    chunk_shape: [8, 8],
-    data_type: "uint8",
-    fill_value: 0,
+    chunkShape: [8, 8],
+    dtype: "uint8",
+    fillValue: 0,
   });
   const image = new NgffImage({
     data,
@@ -1250,9 +1250,9 @@ async function bumpField(
   }
   const data = await zarr.create(zarr.root(new Map()).resolve("warp"), {
     shape,
-    chunk_shape: [dims.length, ...dims.map(() => chunk)],
-    data_type: "float32",
-    fill_value: 0,
+    chunkShape: [dims.length, ...dims.map(() => chunk)],
+    dtype: "float32",
+    fillValue: 0,
   });
   await zarr.set(data, null, {
     data: values,

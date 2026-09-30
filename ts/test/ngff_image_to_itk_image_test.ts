@@ -20,7 +20,7 @@ import { NgffImage } from "../src/types/ngff_image.ts";
 import * as zarr from "zarrita";
 import { defaultCodecs } from "../src/utils/codecs.ts";
 import { zarrSet } from "../src/utils/worker_pool.ts";
-import { _zarrita_internal_get_strides as getStrides } from "zarrita";
+import { _zarrita_internal_getStrides as getStrides } from "zarrita";
 
 // Basic test to verify function is exportable
 Deno.test("ngffImageToItkImage function exports", async () => {
@@ -407,9 +407,9 @@ async function createTestNgffImage(
 
   const zarrArray = await zarr.create(root.resolve("test"), {
     shape,
-    chunk_shape: chunkShape,
-    data_type: "uint8",
-    fill_value: 0,
+    chunkShape,
+    dtype: "uint8",
+    fillValue: 0,
     codecs: defaultCodecs("uint8"),
   });
 

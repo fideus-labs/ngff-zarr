@@ -42,7 +42,7 @@ import { registry } from "zarrita";
 // instances with separate registries. Patch both; in the npm build the two
 // specifiers collapse to one module and the installer's idempotency guard
 // makes the second call a no-op.
-import { registry as npmRegistry } from "npm:zarrita@^0.6.1";
+import { registry as npmRegistry } from "npm:zarrita@^0.7.5";
 
 import { installBloscShuffleNormalization } from "../utils/blosc_registry.ts";
 import type { CodecRegistry } from "../utils/blosc_registry.ts";

@@ -10,8 +10,11 @@
  * with the same cache avoids redundant decompression.
  */
 
-import type { CodecChunkMeta } from "@fideus-labs/fizarrita";
-import { createCacheKey, readArrayMetadata } from "@fideus-labs/fizarrita";
+import {
+  createCacheKey,
+  getMetaId,
+  readArrayMetadata,
+} from "@fideus-labs/fizarrita";
 import type { WorkerLike, WorkerPoolTask } from "@fideus-labs/worker-pool";
 import {
   isNodeRuntime,
@@ -36,7 +39,7 @@ import {
   validateColor,
   validateQuantiles,
 } from "./compute_omero-shared.ts";
-import { getMetaId, workerDecodeAndStats } from "./omero_worker_rpc.ts";
+import { workerDecodeAndStats } from "./omero_worker_rpc.ts";
 
 // Re-export shared utilities for backward compatibility
 export {
@@ -155,9 +158,15 @@ function enumerateChunkCoords(
 const _textDecoder = new TextDecoder();
 
 // ---------------------------------------------------------------------------
-// Codec detection — skip workers for unsupported codecs
+// Codec detection — arrays the per-chunk path cannot read
 // ---------------------------------------------------------------------------
 
+/**
+ * Codecs the per-chunk path below cannot read. It fetches each chunk by its
+ * store key and decodes it whole, but a sharded array's key holds a shard of
+ * inner chunks located through an index. Such an array is read with
+ * `zarrGet` instead, which decodes the inner chunks on the codec workers.
+ */
 const UNSUPPORTED_CODEC_NAMES = new Set(["sharding_indexed"]);
 
 // deno-lint-ignore no-explicit-any
@@ -194,116 +203,6 @@ async function hasUnsupportedCodecs<Store extends Readable>(
   pathMap.set(arr.path, result);
 
   return result;
-}
-
-// ---------------------------------------------------------------------------
-// Chunk key encoding (local fallback for when fizarrita metadata isn't usable)
-// ---------------------------------------------------------------------------
-
-function createChunkKeyEncoder(
-  metadata: {
-    chunk_key_encoding?: {
-      name: string;
-      configuration?: { separator?: string };
-    };
-    dimension_separator?: string;
-  },
-  isV2: boolean,
-): (chunk_coords: number[]) => string {
-  if (isV2) {
-    const separator = metadata.dimension_separator ?? ".";
-    return (chunk_coords) => chunk_coords.join(separator) || "0";
-  }
-  const encoding = metadata.chunk_key_encoding ?? { name: "default" };
-  if (encoding.name === "default") {
-    const separator = encoding.configuration?.separator ?? "/";
-    return (chunk_coords) => ["c", ...chunk_coords].join(separator);
-  }
-  if (encoding.name === "v2") {
-    const separator = encoding.configuration?.separator ?? ".";
-    return (chunk_coords) => chunk_coords.join(separator) || "0";
-  }
-  throw new Error(`Unknown chunk key encoding: ${encoding.name}`);
-}
-
-// ---------------------------------------------------------------------------
-// Read array metadata (local implementation to avoid fizarrita version issues)
-// ---------------------------------------------------------------------------
-
-interface LocalArrayMetadata {
-  codecMeta: CodecChunkMeta;
-  encodeChunkKey: (chunk_coords: number[]) => string;
-}
-
-async function readLocalArrayMetadata<Store extends Readable>(
-  arr: ZarrArray<DataType, Store>,
-): Promise<LocalArrayMetadata> {
-  const store = arr.store;
-
-  // Try v3 first: read zarr.json
-  const v3Path = (
-    arr.path === "/" ? "/zarr.json" : `${arr.path}/zarr.json`
-  ) as `/${string}`;
-  const v3Bytes = await store.get(v3Path);
-  if (v3Bytes) {
-    const metadata = JSON.parse(_textDecoder.decode(v3Bytes));
-    return {
-      codecMeta: {
-        data_type: metadata.data_type,
-        chunk_shape: metadata.chunk_grid.configuration.chunk_shape,
-        codecs: metadata.codecs,
-      },
-      encodeChunkKey: createChunkKeyEncoder(metadata, false),
-    };
-  }
-
-  // Try v2: read .zarray
-  const v2Path = (
-    arr.path === "/" ? "/.zarray" : `${arr.path}/.zarray`
-  ) as `/${string}`;
-  const v2Bytes = await store.get(v2Path);
-  if (v2Bytes) {
-    const metadata = JSON.parse(_textDecoder.decode(v2Bytes));
-    const codecs: Array<{
-      name: string;
-      configuration: Record<string, unknown>;
-    }> = [];
-    if (metadata.order === "F") {
-      codecs.push({ name: "transpose", configuration: { order: "F" } });
-    }
-    if (metadata.compressor) {
-      const { id, ...configuration } = metadata.compressor;
-      codecs.push({ name: id, configuration });
-    }
-    for (const { id, ...configuration } of metadata.filters ?? []) {
-      codecs.push({ name: id, configuration });
-    }
-    return {
-      codecMeta: {
-        data_type: arr.dtype,
-        chunk_shape: arr.chunks,
-        codecs: codecs.length > 0
-          ? codecs
-          : [{ name: "bytes", configuration: { endian: "little" } }],
-      },
-      encodeChunkKey: createChunkKeyEncoder(metadata, true),
-    };
-  }
-
-  // Fallback
-  return {
-    codecMeta: {
-      data_type: arr.dtype,
-      chunk_shape: arr.chunks,
-      codecs: [{ name: "bytes", configuration: { endian: "little" } }],
-    },
-    encodeChunkKey: createChunkKeyEncoder(
-      {
-        chunk_key_encoding: { name: "default" },
-      },
-      false,
-    ),
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -346,7 +245,7 @@ function computeStatsFromDecodedChunk(
 }
 
 // ---------------------------------------------------------------------------
-// Main-thread fallback for full computation (unsupported codecs)
+// Whole-array fallback (codecs the per-chunk path cannot read)
 // ---------------------------------------------------------------------------
 
 async function computeOmeroMainThread(
@@ -439,24 +338,15 @@ export async function computeOmeroFromNgffImage(
     }
   }
 
-  // Fall back to main-thread for unsupported codecs (e.g. sharding)
+  // Sharded arrays: read whole through zarrGet, statistics on this thread.
   if (await hasUnsupportedCodecs(image.data)) {
     return computeOmeroMainThread(image, options);
   }
 
   // Read array metadata for codec pipeline + chunk key encoding
-  let codecMeta: CodecChunkMeta;
-  let encodeChunkKey: (chunk_coords: number[]) => string;
-  try {
-    const metadata = await readArrayMetadata(image.data as AnyZarrArray);
-    codecMeta = metadata.codecMeta;
-    encodeChunkKey = metadata.encodeChunkKey;
-  } catch {
-    // Fall back to local metadata reading if fizarrita's version fails
-    const localMeta = await readLocalArrayMetadata(image.data);
-    codecMeta = localMeta.codecMeta;
-    encodeChunkKey = localMeta.encodeChunkKey;
-  }
+  const { codecMeta, encodeChunkKey } = await readArrayMetadata(
+    image.data as AnyZarrArray,
+  );
 
   const chunkShape = codecMeta.chunk_shape;
   const metaId = getMetaId(codecMeta);

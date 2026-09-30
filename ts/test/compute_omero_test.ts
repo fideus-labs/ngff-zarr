@@ -41,8 +41,8 @@ async function createTestImage(
 
   const zarrArray = await zarr.create(root.resolve("test"), {
     shape,
-    chunk_shape: shape, // Single chunk for simplicity
-    data_type: dtype,
+    chunkShape: shape, // Single chunk for simplicity
+    dtype: dtype,
   });
 
   // Write data to the array with proper format

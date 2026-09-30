@@ -35,6 +35,11 @@ import {
   ValidationError,
 } from "../utils/structural_validation.ts";
 import { pyRepr, pyReprOptional } from "../utils/py_format.ts";
+import {
+  type ChunksPerShard,
+  ensureRangeReads,
+  outerChunkShape,
+} from "../utils/sharding.ts";
 
 /**
  * Every axis list `metadata` will serialize at `version`, paired with its
@@ -250,6 +255,12 @@ export type OzxVersion = "0.5" | "0.6" | "0.9.dev1";
 export const DEFAULT_OZX_VERSION: OzxVersion = "0.5";
 
 /**
+ * Chunks per shard, along every axis, when an `.ozx` write requests none --
+ * the Python writer's default, so the two lay out the same archive.
+ */
+export const DEFAULT_OZX_CHUNKS_PER_SHARD = 2;
+
+/**
  * Refuse a version an RFC-9 archive cannot hold; see {@link OzxVersion}.
  * Accepts `undefined` so a caller can pass an option through as given.
  */
@@ -294,6 +305,8 @@ function getChunksFromImage(image: NgffImage): number[] {
  *   once they are written (default `true`)
  * @param version - OME-Zarr version to write the store at; see
  *   {@link OzxVersion} (default `0.5`)
+ * @param chunksPerShard - Chunks per shard, when `writeImage` shards; the
+ *   progress count is of the writes, which are then whole shards
  */
 export async function writeNgffMultiscalesToMemoryStore(
   store: MemoryStore,
@@ -309,9 +322,13 @@ export async function writeNgffMultiscalesToMemoryStore(
   onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
   consolidate: boolean = true,
   version: OzxVersion = DEFAULT_OZX_VERSION,
+  chunksPerShard?: ChunksPerShard,
 ): Promise<void> {
-  // Create root location and group with zarrita API
-  const root = zarr.root(store);
+  // Create root location and group. A sharded array needs range reads,
+  // which the in-memory `Map` lacks.
+  const root = zarr.root(
+    chunksPerShard === undefined ? store : ensureRangeReads(store),
+  );
 
   // The same version-specific root document the directory writers produce:
   // a zipped store differs from a directory store only in its container.
@@ -324,7 +341,12 @@ export async function writeNgffMultiscalesToMemoryStore(
   if (onProgress) {
     for (const image of multiscales.images) {
       const shape = image.data.shape;
-      const chunks = getChunksFromImage(image);
+      const chunks = outerChunkShape(
+        shape,
+        image.dims,
+        getChunksFromImage(image),
+        chunksPerShard,
+      );
       let imageChunks = 1;
       for (let d = 0; d < shape.length; d++) {
         imageChunks *= Math.ceil(shape[d] / chunks[d]);
@@ -361,7 +383,12 @@ export async function writeNgffMultiscalesToMemoryStore(
     // Update cumulative offset for next image
     if (onProgress) {
       const shape = image.data.shape;
-      const chunks = getChunksFromImage(image);
+      const chunks = outerChunkShape(
+        shape,
+        image.dims,
+        getChunksFromImage(image),
+        chunksPerShard,
+      );
       let imageChunkCount = 1;
       for (let d = 0; d < shape.length; d++) {
         imageChunkCount *= Math.ceil(shape[d] / chunks[d]);

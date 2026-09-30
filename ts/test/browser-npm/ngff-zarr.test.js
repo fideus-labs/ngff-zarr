@@ -884,4 +884,64 @@ test.describe("toNgffZarr Browser Tests", () => {
     // Function should accept (store, multiscales, options?) - 2-3 params
     expect(typesResult.toNgffZarrParamCount).toBeLessThanOrEqual(3);
   });
+
+  test("should write and read back a sharded store", async ({ page }) => {
+    // Shards are encoded and decoded on the codec Web Workers; the in-memory
+    // Map store is given the range reads a sharded array needs.
+    const result = await page.evaluate(async () => {
+      try {
+        const ngffZarr = await import("./ngff-zarr.bundle.js");
+        const shape = [12, 10];
+        const data = new Uint16Array(120).map((_, i) => i * 3);
+        const image = await ngffZarr.createNgffImage(
+          [],
+          shape,
+          "uint16",
+          ["y", "x"],
+          { y: 1, x: 1 },
+          { y: 0, x: 0 },
+        );
+        await ngffZarr.zarrSet(image.data, null, {
+          data,
+          shape,
+          stride: [10, 1],
+        });
+        const metadata = ngffZarr.createMetadata(
+          [
+            ngffZarr.createAxis("y", "space"),
+            ngffZarr.createAxis("x", "space"),
+          ],
+          [ngffZarr.createDataset("0", [1, 1], [0, 0])],
+          "sharded",
+          "0.5",
+        );
+        const multiscales = ngffZarr.createMultiscales([image], metadata);
+
+        const store = new Map();
+        await ngffZarr.toOmeZarr(store, multiscales, {
+          version: "0.5",
+          chunksPerShard: 2,
+        });
+        const arrayMeta = JSON.parse(
+          new TextDecoder().decode(store.get("/0/zarr.json")),
+        );
+
+        const read = await ngffZarr.fromOmeZarr(store);
+        const back = await ngffZarr.zarrGet(read.images[0].data);
+        return {
+          success: true,
+          codec: arrayMeta.codecs[0].name,
+          matches: back.data.length === data.length &&
+            back.data.every((value, i) => value === data[i]),
+        };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.success).toBeTruthy();
+    expect(result.codec).toBe("sharding_indexed");
+    expect(result.matches).toBeTruthy();
+  });
 });

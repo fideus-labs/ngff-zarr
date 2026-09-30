@@ -29,9 +29,9 @@ async function fieldImage(
 ): Promise<NgffImage> {
   const data = await zarr.create(zarr.root(new Map()).resolve("data"), {
     shape,
-    chunk_shape: shape,
-    data_type: "float64",
-    fill_value: 0,
+    chunkShape: shape,
+    dtype: "float64",
+    fillValue: 0,
   });
   return new NgffImage({
     data,

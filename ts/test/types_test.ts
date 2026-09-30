@@ -13,8 +13,8 @@ Deno.test("zarr.Array creation for NgffImage", async () => {
 
   const zarrArray = await zarr.create(root.resolve("test_array"), {
     shape: [256, 256],
-    chunk_shape: [256, 256],
-    data_type: "uint8",
+    chunkShape: [256, 256],
+    dtype: "uint8",
   });
 
   assertEquals(zarrArray.shape, [256, 256]);
@@ -29,8 +29,8 @@ Deno.test("NgffImage creation", async () => {
 
   const zarrArray = await zarr.create(root.resolve("image"), {
     shape: [256, 256],
-    chunk_shape: [64, 64],
-    data_type: "uint8",
+    chunkShape: [64, 64],
+    dtype: "uint8",
   });
 
   const ngffImage = new NgffImage({
@@ -57,8 +57,8 @@ Deno.test("NgffImage with axes units", async () => {
 
   const zarrArray = await zarr.create(root.resolve("volume"), {
     shape: [100, 100, 100],
-    chunk_shape: [50, 50, 50],
-    data_type: "uint16",
+    chunkShape: [50, 50, 50],
+    dtype: "uint16",
   });
 
   const ngffImage = new NgffImage({
@@ -84,8 +84,8 @@ Deno.test("NgffMultiscales creation", async () => {
 
   const zarrArray = await zarr.create(root.resolve("image"), {
     shape: [256, 256],
-    chunk_shape: [64, 64],
-    data_type: "uint8",
+    chunkShape: [64, 64],
+    dtype: "uint8",
   });
 
   const ngffImage = new NgffImage({

@@ -78,9 +78,9 @@ async function frameImage(
   const shape = dims.map(() => 4);
   const data = await zarr.create(zarr.root(new Map()).resolve("frame"), {
     shape,
-    chunk_shape: shape,
-    data_type: "uint8",
-    fill_value: 0,
+    chunkShape: shape,
+    dtype: "uint8",
+    fillValue: 0,
   });
   return new NgffImage({
     data,
