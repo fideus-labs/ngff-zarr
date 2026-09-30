@@ -307,6 +307,24 @@ Deno.test("browser toOmeZarr - chunksPerShard round-trips", async () => {
   await assertReadsBack(read.images[0].data);
 });
 
+Deno.test("toOmeZarr - Node and browser writers both default to 0.5", async () => {
+  for (const write of [toOmeZarr, toOmeZarrBrowser]) {
+    const store = new Map<string, Uint8Array>();
+    // Sharding needs Zarr v3, so it is accepted without an explicit version.
+    await write(store, await multiscales(), { chunksPerShard: 2 });
+
+    assertEquals(store.has("/.zattrs"), false);
+    const rootMeta = JSON.parse(
+      new TextDecoder().decode(store.get("/zarr.json")),
+    );
+    assertEquals(rootMeta.attributes.ome.version, "0.5");
+
+    const read = await fromOmeZarrBrowser(store);
+    assertEquals(read.metadata.version, "0.5");
+    await assertReadsBack(read.images[0].data);
+  }
+});
+
 Deno.test("browser toOmeZarrOzx - shards by default and round-trips", async () => {
   const zipData = await toOmeZarrOzxBrowser(await multiscales());
   const store = ZipFileStore.fromBlob(new Blob([zipData as BlobPart]));
