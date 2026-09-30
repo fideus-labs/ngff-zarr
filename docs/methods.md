@@ -84,6 +84,10 @@ Fast but generates more artifacts than gaussian-based methods.
 
 Appropriate for intensity images.
 
+This method downsamples spatial axes only. Images with non-spatial axes
+such as `t` or `c` are rejected; use `ITKWASM_BIN_SHRINK` or
+`DASK_BIN_SHRINK` for those inputs.
+
 Install required dependencies with:
 
 ```sh
