@@ -33,6 +33,11 @@ export { isOzxPath } from "./rfc9_zip.ts";
 
 export interface ToOmeZarrOptions {
   overwrite?: boolean;
+  /**
+   * OME-Zarr version to write. Defaults to "0.5", as the Node.js/Deno
+   * toOmeZarr does. Version "0.6" writes RFC 5 coordinate systems and
+   * transformations.
+   */
   version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
   /**
    * Store each block of chunks as one Zarr v3 shard: how many chunks a shard
@@ -108,7 +113,7 @@ export async function toOmeZarr(
   options: ToOmeZarrOptions = {},
 ): Promise<void> {
   const _overwrite = options.overwrite ?? true;
-  const _version = options.version ?? "0.4";
+  const _version = options.version ?? "0.5";
 
   gateShardingVersion(_version, options.chunksPerShard);
 
