@@ -10,16 +10,14 @@
  * store it writes -- writing it here is what keeps the two writers' output
  * equivalent.
  *
- * zarrita has no consolidation API: it exports the `withConsolidated` /
- * `tryWithConsolidated` readers and nothing that writes the block, and those
- * readers understand only the Zarr v2 `.zmetadata` sidecar, so `fromOmeZarr`
- * does not yet benefit from what is written here. The block is instead
- * assembled from the documents the writer just wrote, mirroring
+ * zarrita reads the block (`withConsolidatedMetadata`, which `fromOmeZarr`
+ * applies) but has nothing that writes it. The block is instead assembled
+ * from the documents the writer just wrote, mirroring
  * `_zarrista_utils.consolidate_metadata` on the Python side, which in turn
  * matches what `zarr.consolidate_metadata` produces.
  *
- * That v2 sidecar has no counterpart here: the TypeScript writer emits Zarr v3
- * documents only.
+ * The Zarr v2 `.zmetadata` sidecar has no counterpart here: the TypeScript
+ * writer emits Zarr v3 documents only.
  */
 
 /** A store key, which zarrita always spells with a leading slash. */

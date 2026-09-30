@@ -36,9 +36,9 @@ async function createTestZarrArray(
 
   const arr = await zarr.create(arrayLocation, {
     shape,
-    data_type: "uint8",
-    chunk_shape: shape,
-    fill_value: 0,
+    dtype: "uint8",
+    chunkShape: shape,
+    fillValue: 0,
   });
 
   // Fill with test data

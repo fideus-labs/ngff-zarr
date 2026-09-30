@@ -31,15 +31,15 @@ const NPM_DIR = "./npm";
  * never require a version we have not tested.
  */
 export const NPM_DEPENDENCIES: Record<string, string> = {
-  "@fideus-labs/fizarrita": "^2.1.0",
+  "@fideus-labs/fizarrita": "^3.0.0",
   "@fideus-labs/worker-pool": "^2.1.0",
   "@itk-wasm/downsample": "^2.0.0",
   // Floor at b.201: b.200 shipped without its `dist/` directory, which
   // breaks the browser bundle with unresolved "itk-wasm" imports.
   "itk-wasm": "^1.0.0-b.201",
-  "@zarrita/storage": "^0.1.4",
+  "@zarrita/storage": "^0.2.0",
   zod: "^4.5.0",
-  zarrita: "^0.6.1",
+  zarrita: "^0.7.5",
 };
 
 /** Dev dependencies declared in the published package.json. */

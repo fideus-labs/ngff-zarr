@@ -50,6 +50,7 @@ export {
   codecFromName,
   defaultCodecs,
 } from "./utils/codecs.ts";
+export type { ChunksPerShard } from "./utils/sharding.ts";
 export type {
   ComputeOmeroFromMultiscalesOptions,
   ComputeOmeroOptions,

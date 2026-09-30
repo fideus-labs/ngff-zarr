@@ -116,9 +116,9 @@ async function chunkedImage(
   const store: Map<string, Uint8Array> = new Map();
   const array = await zarr.create(zarr.root(store).resolve("/0"), {
     shape,
-    chunk_shape: chunkShape,
-    data_type: dataType,
-    fill_value: 0,
+    chunkShape,
+    dtype: dataType,
+    fillValue: 0,
   });
   const data = dataType === "int64"
     ? BigInt64Array.from({ length: total }, (_, i) => BigInt(i))

@@ -144,9 +144,9 @@ export async function ngffImageToItkImage(
 
     const newArray = await zarr.create(root.resolve("slice"), {
       shape: newShape,
-      chunk_shape: chunkShape,
-      data_type: workingImage.data.dtype,
-      fill_value: 0,
+      chunkShape,
+      dtype: workingImage.data.dtype,
+      fillValue: 0,
       codecs: defaultCodecs(workingImage.data.dtype),
     });
 
@@ -203,9 +203,9 @@ export async function ngffImageToItkImage(
 
     const newArray = await zarr.create(root.resolve("slice"), {
       shape: newShape,
-      chunk_shape: chunkShape,
-      data_type: workingImage.data.dtype,
-      fill_value: 0,
+      chunkShape,
+      dtype: workingImage.data.dtype,
+      fillValue: 0,
       codecs: defaultCodecs(workingImage.data.dtype),
     });
 

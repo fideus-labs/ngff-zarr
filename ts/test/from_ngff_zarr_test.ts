@@ -29,9 +29,9 @@ async function createTestLungSeriesData(): Promise<NgffImage> {
   const root = zarr.root(store);
   const array = await zarr.create(root.resolve("data"), {
     shape,
-    chunk_shape: chunks,
-    data_type: dtype as zarr.DataType,
-    fill_value: 0,
+    chunkShape: chunks,
+    dtype: dtype as zarr.DataType,
+    fillValue: 0,
   });
 
   // Fill with synthetic data
@@ -225,9 +225,9 @@ Deno.test("omero metadata backward compatibility", async () => {
 
   const array = await zarr.create(root.resolve("0"), {
     shape,
-    chunk_shape: chunks,
-    data_type: dtype as zarr.DataType,
-    fill_value: 0,
+    chunkShape: chunks,
+    dtype: dtype as zarr.DataType,
+    fillValue: 0,
   });
 
   // Fill with synthetic data
@@ -322,9 +322,9 @@ Deno.test("omero metadata backward compatibility", async () => {
 
   const array2 = await zarr.create(root2.resolve("0"), {
     shape,
-    chunk_shape: chunks,
-    data_type: dtype as zarr.DataType,
-    fill_value: 0,
+    chunkShape: chunks,
+    dtype: dtype as zarr.DataType,
+    fillValue: 0,
   });
   await zarr.set(
     array2,
@@ -408,9 +408,9 @@ Deno.test("omero metadata backward compatibility", async () => {
 
   const array3 = await zarr.create(root3.resolve("0"), {
     shape,
-    chunk_shape: chunks,
-    data_type: dtype as zarr.DataType,
-    fill_value: 0,
+    chunkShape: chunks,
+    dtype: dtype as zarr.DataType,
+    fillValue: 0,
   });
   await zarr.set(
     array3,
@@ -522,9 +522,9 @@ Deno.test("zarrGet populates cache on read", async () => {
 
   const arr = await zarr.create(root.resolve("test"), {
     shape,
-    chunk_shape: chunks,
-    data_type: "float32" as zarr.DataType,
-    fill_value: 0,
+    chunkShape: chunks,
+    dtype: "float32" as zarr.DataType,
+    fillValue: 0,
   });
 
   // Write known data
@@ -569,9 +569,9 @@ Deno.test("zarrGet cache serves repeated reads", async () => {
 
   const arr = await zarr.create(root.resolve("multi"), {
     shape,
-    chunk_shape: chunks,
-    data_type: "uint16" as zarr.DataType,
-    fill_value: 0,
+    chunkShape: chunks,
+    dtype: "uint16" as zarr.DataType,
+    fillValue: 0,
   });
 
   // Write data

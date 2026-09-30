@@ -155,9 +155,9 @@ export async function toNgffImage(
 
   const zarrArray = await zarr.create(root.resolve("data"), {
     shape,
-    chunk_shape: chunkShape,
-    data_type: dataType,
-    fill_value: 0,
+    chunkShape,
+    dtype: dataType,
+    fillValue: 0,
     codecs: defaultCodecs(dataType),
   });
 

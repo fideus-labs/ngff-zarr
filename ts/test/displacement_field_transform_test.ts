@@ -111,9 +111,9 @@ async function frameImage(
   const shape = dims.map((dim) => size[itkOrder.indexOf(dim)]);
   const data = await zarr.create(zarr.root(new Map()).resolve("data"), {
     shape,
-    chunk_shape: shape,
-    data_type: "uint8",
-    fill_value: 0,
+    chunkShape: shape,
+    dtype: "uint8",
+    fillValue: 0,
   });
   return new NgffImage({
     data,
@@ -552,9 +552,9 @@ async function asCoordinates(
   }
   const data = await zarr.create(zarr.root(new Map()).resolve("coords"), {
     shape,
-    chunk_shape: shape,
-    data_type: "float64",
-    fill_value: 0,
+    chunkShape: shape,
+    dtype: "float64",
+    fillValue: 0,
   });
   await zarr.set(data, null, {
     data: values,

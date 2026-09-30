@@ -468,14 +468,17 @@ Deno.test("dependency ranges are well-formed semver ranges", () => {
   }
 });
 
-Deno.test("first-party @fideus-labs packages stay in lockstep", () => {
-  // fizarrita re-exports worker-pool's types; a split-major pair puts two
-  // incompatible copies in a consumer's tree.
+Deno.test("first-party @fideus-labs packages share one worker-pool", () => {
+  // fizarrita re-exports worker-pool's types and runs its codec tasks on the
+  // pool this package hands it, so two worker-pool copies in a consumer's tree
+  // are incompatible. The packages are versioned independently -- fizarrita 3
+  // still depends on worker-pool 2 -- so what has to hold is not matching
+  // version numbers but a single resolved worker-pool: were fizarrita to need
+  // a worker-pool this package's range excludes, deno.lock would carry both.
   const fizarrita = NPM_DEPENDENCIES["@fideus-labs/fizarrita"];
   const workerPool = NPM_DEPENDENCIES["@fideus-labs/worker-pool"];
 
-  // Assert presence first, so dropping both does not pass as undefined ===
-  // undefined.
+  // Assert presence first, so dropping both does not pass vacuously.
   assertNotEquals(
     fizarrita,
     undefined,
@@ -487,10 +490,26 @@ Deno.test("first-party @fideus-labs packages stay in lockstep", () => {
     "NPM_DEPENDENCIES must declare @fideus-labs/worker-pool",
   );
 
+  // The lock's `npm` section holds every package in the resolved tree,
+  // transitive ones included, keyed "name@version[_peer@version]".
+  const lock = JSON.parse(
+    Deno.readTextFileSync(new URL("../deno.lock", import.meta.url)),
+  ) as { npm?: Record<string, unknown> };
+  const prefix = "@fideus-labs/worker-pool@";
+  // One version can appear under several peer suffixes; count versions.
+  const copies = [
+    ...new Set(
+      Object.keys(lock.npm ?? {})
+        .filter((key) => key.startsWith(prefix))
+        .map((key) => key.slice(prefix.length).split("_")[0]),
+    ),
+  ];
+
   assertEquals(
-    fizarrita,
-    workerPool,
-    `@fideus-labs/fizarrita ("${fizarrita}") and @fideus-labs/worker-pool ` +
-      `("${workerPool}") must be bumped together`,
+    copies.length,
+    1,
+    `deno.lock resolves @fideus-labs/worker-pool at ${copies.join(", ")}; ` +
+      `@fideus-labs/fizarrita ("${fizarrita}") and this package ` +
+      `("${workerPool}") must share one copy`,
   );
 });

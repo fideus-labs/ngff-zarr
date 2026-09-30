@@ -19,7 +19,12 @@ import {
   readOzxJsonFirst,
   readOzxVersion,
 } from "../src/io/rfc9_zip.ts";
-import { toNgffZarr, toNgffZarrOzx } from "../src/io/to_ngff_zarr.ts";
+import {
+  toNgffZarr,
+  toNgffZarrOzx,
+  toOmeZarr,
+  toOmeZarrOzxData,
+} from "../src/io/to_ngff_zarr.ts";
 import { fromOmeZarr } from "../src/io/from_ngff_zarr.ts";
 import { itkImageToNgffImage } from "../src/io/itk_image_to_ngff_image.ts";
 import { toMultiscales } from "../src/process/to_multiscales-node.ts";
@@ -33,6 +38,7 @@ import {
 import { NgffImage } from "../src/types/ngff_image.ts";
 import * as zarr from "zarrita";
 import { ZipFileStore } from "@zarrita/storage";
+import { zarrGet } from "../src/utils/worker_pool.ts";
 
 // Path to Python test data directory
 const TEST_DATA_DIR = join(Deno.cwd(), "..", "py", "test", "data");
@@ -334,9 +340,9 @@ Deno.test("toNgffZarrOzx - creates valid .ozx file", async () => {
 
   const array = await zarr.create(root.resolve("data"), {
     shape,
-    chunk_shape: chunks,
-    data_type: "uint8",
-    fill_value: 0,
+    chunkShape: chunks,
+    dtype: "uint8",
+    fillValue: 0,
   });
 
   // Fill with test data
@@ -409,9 +415,9 @@ Deno.test("toNgffZarr - detects .ozx path and writes correctly", async () => {
 
   const array = await zarr.create(root.resolve("data"), {
     shape,
-    chunk_shape: chunks,
-    data_type: "uint8",
-    fill_value: 0,
+    chunkShape: chunks,
+    dtype: "uint8",
+    fillValue: 0,
   });
 
   const testData = new Uint8Array(shape[0] * shape[1]).fill(42);
@@ -456,9 +462,9 @@ Deno.test("toNgffZarr - rejects the Zarr v2 version 0.4 for .ozx", async () => {
   const root = zarr.root(store);
   const array = await zarr.create(root.resolve("data"), {
     shape: [4, 4],
-    chunk_shape: [4, 4],
-    data_type: "uint8",
-    fill_value: 0,
+    chunkShape: [4, 4],
+    dtype: "uint8",
+    fillValue: 0,
   });
 
   const image = new NgffImage({
@@ -495,9 +501,9 @@ Deno.test("toNgffZarr - allows .ozx without specifying version", async () => {
   const root = zarr.root(store);
   const array = await zarr.create(root.resolve("data"), {
     shape: [4, 4],
-    chunk_shape: [4, 4],
-    data_type: "uint8",
-    fill_value: 0,
+    chunkShape: [4, 4],
+    dtype: "uint8",
+    fillValue: 0,
   });
 
   const testData = new Uint8Array(16).fill(42);
@@ -541,9 +547,9 @@ Deno.test("toNgffZarr - allows .ozx with explicit version 0.5", async () => {
   const root = zarr.root(store);
   const array = await zarr.create(root.resolve("data"), {
     shape: [4, 4],
-    chunk_shape: [4, 4],
-    data_type: "uint8",
-    fill_value: 0,
+    chunkShape: [4, 4],
+    dtype: "uint8",
+    fillValue: 0,
   });
 
   const testData = new Uint8Array(16).fill(42);
@@ -581,15 +587,19 @@ Deno.test("toNgffZarr - allows .ozx with explicit version 0.5", async () => {
   console.log("  Created .ozx file with explicit version 0.5:", ozxPath);
 });
 
-Deno.test("toNgffZarr - throws error on chunksPerShard for .ozx", async () => {
+Deno.test("toOmeZarr - chunksPerShard writes a sharded .ozx", async () => {
+  // 10x12 in 4x4 chunks, two chunks a shard per axis: a 2x2 grid of shards,
+  // the last on each axis partial.
   const store = new Map<string, Uint8Array>();
   const root = zarr.root(store);
   const array = await zarr.create(root.resolve("data"), {
-    shape: [4, 4],
-    chunk_shape: [4, 4],
-    data_type: "uint8",
-    fill_value: 0,
+    shape: [10, 12],
+    chunkShape: [4, 4],
+    dtype: "uint8",
+    fillValue: 0,
   });
+  const data = new Uint8Array(120).map((_, i) => i);
+  await zarr.set(array, null, { data, shape: [10, 12], stride: [12, 1] });
 
   const image = new NgffImage({
     data: array,
@@ -606,19 +616,101 @@ Deno.test("toNgffZarr - throws error on chunksPerShard for .ozx", async () => {
   const metadata = createMetadata(axes, datasets, "test", "0.5");
   const multiscales = createMultiscales([image], metadata);
 
-  const ozxPath = join(OUTPUT_DIR, "test_sharding_error.ozx");
+  const ozxPath = join(OUTPUT_DIR, "test_sharding.ozx");
+  await toOmeZarr(ozxPath, multiscales, {
+    version: "0.5",
+    chunksPerShard: 2,
+  });
 
-  // Should throw error for chunksPerShard
-  await assertRejects(
-    async () => {
-      await toNgffZarr(ozxPath, multiscales, {
-        version: "0.5",
-        chunksPerShard: 2,
-      });
-    },
-    Error,
-    "RFC-9 (.ozx) does not support sharding",
+  const zipData = await Deno.readFile(ozxPath);
+  const shards = getZipFileList(zipData).filter((name) =>
+    name.startsWith("scale0/image/c/")
   );
+  assertEquals(shards.length, 4);
+  // Stored, not deflated: a reader range-reads single chunks out of a shard.
+  for (const shard of shards) {
+    assertEquals(getZipFileCompressionMethod(zipData, shard), 0);
+  }
+
+  const read = await fromOmeZarr(
+    ZipFileStore.fromBlob(new Blob([zipData as BlobPart])),
+  );
+  const readArray = read.images[0].data;
+  assertEquals(readArray.chunks, [4, 4]);
+  assertEquals((await zarrGet(readArray)).data, data);
+  assertEquals((await zarr.get(readArray)).data, data);
+});
+
+Deno.test("toOmeZarrOzxData - progress counts shard writes", async () => {
+  const store = new Map<string, Uint8Array>();
+  const array = await zarr.create(zarr.root(store).resolve("data"), {
+    shape: [10, 12],
+    chunkShape: [4, 4],
+    dtype: "uint8",
+    fillValue: 0,
+  });
+  const image = new NgffImage({
+    data: array,
+    dims: ["y", "x"],
+    scale: { y: 1.0, x: 1.0 },
+    translation: { y: 0.0, x: 0.0 },
+    name: "test",
+    axesUnits: undefined,
+    computedCallbacks: undefined,
+  });
+  const axes = [createAxis("y", "space"), createAxis("x", "space")];
+  const datasets = [createDataset("scale0/image", [1.0, 1.0], [0.0, 0.0])];
+  const multiscales = createMultiscales(
+    [image],
+    createMetadata(axes, datasets, "test", "0.5"),
+  );
+
+  const reports: Array<[number, number]> = [];
+  await toOmeZarrOzxData(multiscales, {
+    chunksPerShard: 2,
+    onProgress: (completed, total) => reports.push([completed, total]),
+  });
+
+  // Four shard writes, not nine chunk writes.
+  assertEquals(reports.at(-1), [4, 4]);
+});
+
+Deno.test("toOmeZarrOzxData - shards two chunks a shard by default", async () => {
+  // The Python writer's `.ozx` default, so the two lay out the same archive.
+  const store = new Map<string, Uint8Array>();
+  const array = await zarr.create(zarr.root(store).resolve("data"), {
+    shape: [10, 12],
+    chunkShape: [4, 4],
+    dtype: "uint8",
+    fillValue: 0,
+  });
+  const image = new NgffImage({
+    data: array,
+    dims: ["y", "x"],
+    scale: { y: 1.0, x: 1.0 },
+    translation: { y: 0.0, x: 0.0 },
+    name: "test",
+    axesUnits: undefined,
+    computedCallbacks: undefined,
+  });
+  const axes = [createAxis("y", "space"), createAxis("x", "space")];
+  const datasets = [createDataset("scale0/image", [1.0, 1.0], [0.0, 0.0])];
+  const multiscales = createMultiscales(
+    [image],
+    createMetadata(axes, datasets, "test", "0.5"),
+  );
+
+  const zipData = await toOmeZarrOzxData(multiscales);
+  const arrayMeta = JSON.parse(
+    new TextDecoder().decode(
+      await ZipFileStore.fromBlob(new Blob([zipData as BlobPart])).get(
+        "/scale0/image/zarr.json",
+      ),
+    ),
+  );
+  assertEquals(arrayMeta.chunk_grid.configuration.chunk_shape, [8, 8]);
+  assertEquals(arrayMeta.codecs[0].name, "sharding_indexed");
+  assertEquals(arrayMeta.codecs[0].configuration.chunk_shape, [4, 4]);
 });
 
 Deno.test("toNgffZarrOzx - writes at the requested version, not metadata.version", async () => {
@@ -630,9 +722,9 @@ Deno.test("toNgffZarrOzx - writes at the requested version, not metadata.version
   const root = zarr.root(store);
   const array = await zarr.create(root.resolve("data"), {
     shape: [4, 4],
-    chunk_shape: [4, 4],
-    data_type: "uint8",
-    fill_value: 0,
+    chunkShape: [4, 4],
+    dtype: "uint8",
+    fillValue: 0,
   });
 
   const image = new NgffImage({
@@ -678,9 +770,9 @@ Deno.test("toNgffZarr - writes a v0.6 .ozx file", async () => {
   const root = zarr.root(store);
   const array = await zarr.create(root.resolve("data"), {
     shape: [4, 4],
-    chunk_shape: [4, 4],
-    data_type: "uint8",
-    fill_value: 0,
+    chunkShape: [4, 4],
+    dtype: "uint8",
+    fillValue: 0,
   });
 
   const image = new NgffImage({

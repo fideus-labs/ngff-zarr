@@ -80,9 +80,9 @@ export async function canonicalAxisOrder(
   const store: Map<string, Uint8Array> = new Map();
   const array = await zarr.create(zarr.root(store).resolve("/0"), {
     shape,
-    chunk_shape: chunkShape,
-    data_type: image.data.dtype,
-    fill_value: 0,
+    chunkShape,
+    dtype: image.data.dtype,
+    fillValue: 0,
     codecs: codecs ?? defaultCodecs(image.data.dtype),
   });
 

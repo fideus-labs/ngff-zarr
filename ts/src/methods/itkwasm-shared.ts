@@ -639,9 +639,9 @@ export async function itkImageToZarr(
 
   const array = await zarr.create(root.resolve(path), {
     shape: zarrShape,
-    chunk_shape: zarrChunkShape,
-    data_type: dataType,
-    fill_value: 0,
+    chunkShape: zarrChunkShape,
+    dtype: dataType,
+    fillValue: 0,
     codecs: codecs ?? defaultCodecs(dataType),
   });
 

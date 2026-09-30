@@ -6,7 +6,8 @@
  *
  * Follows the same persistent-dispatcher pattern as fizarrita's worker-rpc.ts:
  *   - One message listener per worker, routed by request ID
- *   - Meta-init protocol: codec metadata sent once per worker per array config
+ *   - Meta-init protocol: codec metadata sent once per worker per array config,
+ *     under fizarrita's own `getMetaId` numbering
  *   - Zero-copy buffer transfer where possible
  *
  * Adds the `workerDecodeAndStats` function for the decode_and_stats message.
@@ -119,29 +120,6 @@ function getDispatcher(worker: WorkerLike): WorkerDispatcher {
 }
 
 // ---------------------------------------------------------------------------
-// Meta ID registry — assigns stable IDs to unique codec metadata
-// ---------------------------------------------------------------------------
-
-let nextMetaId = 0;
-const metaKeyToId = new Map<string, number>();
-const metaIdToMeta = new Map<number, CodecChunkMeta>();
-
-/**
- * Get or create a stable metaId for the given codec metadata.
- * Uses JSON.stringify as the dedup key — called once per unique array config.
- */
-export function getMetaId(meta: CodecChunkMeta): number {
-  const key = JSON.stringify(meta);
-  let id = metaKeyToId.get(key);
-  if (id === undefined) {
-    id = nextMetaId++;
-    metaKeyToId.set(key, id);
-    metaIdToMeta.set(id, meta);
-  }
-  return id;
-}
-
-// ---------------------------------------------------------------------------
 // Request ID
 // ---------------------------------------------------------------------------
 
@@ -167,9 +145,9 @@ function prepareTransferBuffer(
 async function ensureMeta(
   dispatcher: WorkerDispatcher,
   metaId: number,
+  meta: CodecChunkMeta,
 ): Promise<void> {
   if (dispatcher.hasMeta(metaId)) return;
-  const meta = metaIdToMeta.get(metaId)!;
   const id = nextRequestId++;
   await dispatcher.send(id, { type: "init", id, metaId, meta }, []);
   dispatcher.markMeta(metaId);
@@ -193,7 +171,8 @@ interface DecodeAndStatsResponse {
  *
  * @param worker - The Web Worker to send the message to
  * @param bytes - Raw encoded chunk bytes from the store
- * @param metaId - Stable ID for the codec metadata
+ * @param metaId - Stable ID for the codec metadata, from fizarrita's
+ *   `getMetaId(meta)`
  * @param meta - Codec metadata for this array
  * @param nChannels - Number of channels in the image
  * @param cIndex - Index of the channel dimension (-1 if no channel dim)
@@ -215,7 +194,7 @@ export async function workerDecodeAndStats<D extends DataType>(
   accumulators: ChannelStatisticsAccumulator[];
 }> {
   const dispatcher = getDispatcher(worker);
-  await ensureMeta(dispatcher, metaId);
+  await ensureMeta(dispatcher, metaId, meta);
 
   const id = nextRequestId++;
   const transferBuffer = prepareTransferBuffer(

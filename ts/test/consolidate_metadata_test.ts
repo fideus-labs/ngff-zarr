@@ -49,9 +49,9 @@ async function fixture(
     const shape = SHAPE.map((size) => size >> level);
     const array = await zarr.create(zarr.root(seed).resolve(`seed${level}`), {
       shape,
-      chunk_shape: shape,
-      data_type: "uint16" as zarr.DataType,
-      fill_value: 0,
+      chunkShape: shape,
+      dtype: "uint16" as zarr.DataType,
+      fillValue: 0,
     });
     const scale = 1 << level;
     images.push(
@@ -163,6 +163,22 @@ Deno.test("an unconsolidated store still reads back", async () => {
   const read = await fromOmeZarr(store);
   assertEquals(read.images.length, 2);
   assertEquals(read.images[0].data.shape, SHAPE);
+});
+
+Deno.test("fromOmeZarr resolves the arrays from the consolidated block", async () => {
+  const multiscales = await fixture();
+  const store: MemoryStore = new Map();
+  await toOmeZarr(store, multiscales, { version: "0.5" });
+
+  // Only the root document is left to describe the hierarchy: the arrays open
+  // at all only if the reader takes their metadata from its block.
+  store.delete("/scale0/zarr.json");
+  store.delete("/scale1/zarr.json");
+
+  const read = await fromOmeZarr(store);
+  assertEquals(read.images.length, 2);
+  assertEquals(read.images[0].data.shape, SHAPE);
+  assertEquals(read.images[1].data.shape, SHAPE.map((size) => size >> 1));
 });
 
 // A Zarr v3 write replaces the root document wholesale, so re-writing a
@@ -338,9 +354,9 @@ Deno.test("consolidation skips an ancestor the writer never materialized", async
   const seed: MemoryStore = new Map();
   const array = await zarr.create(zarr.root(seed).resolve("seed"), {
     shape: SHAPE,
-    chunk_shape: SHAPE,
-    data_type: "uint16" as zarr.DataType,
-    fill_value: 0,
+    chunkShape: SHAPE,
+    dtype: "uint16" as zarr.DataType,
+    fillValue: 0,
   });
   const image = new NgffImage({
     data: array,

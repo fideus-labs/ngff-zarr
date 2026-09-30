@@ -156,9 +156,9 @@ async function itkImageToZarr(
 
   const array = await zarr.create(root.resolve(path), {
     shape: shape,
-    chunk_shape: chunkShape,
-    data_type: dataType,
-    fill_value: 0,
+    chunkShape,
+    dtype: dataType,
+    fillValue: 0,
   });
 
   // Write data - preserve the actual data type

@@ -104,9 +104,9 @@ async function downsampleGaussian(
 
       const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
         shape: sliceShape,
-        chunk_shape: sliceChunkShape,
-        data_type: image.data.dtype,
-        fill_value: 0,
+        chunkShape: sliceChunkShape,
+        dtype: image.data.dtype,
+        fillValue: 0,
         codecs: codecs ?? defaultCodecs(image.data.dtype),
       });
 
@@ -160,9 +160,9 @@ async function downsampleGaussian(
     const combinedRoot = zarr.root(combinedStore);
     const combinedArray = await zarr.create(combinedRoot.resolve("combined"), {
       shape: combinedShape,
-      chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
-      data_type: image.data.dtype,
-      fill_value: 0,
+      chunkShape: computeChunkShape(combinedShape, chunks, image.dims),
+      dtype: image.data.dtype,
+      fillValue: 0,
       codecs: codecs ?? defaultCodecs(image.data.dtype),
     });
 
@@ -229,9 +229,9 @@ async function downsampleGaussian(
 
       const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
         shape: sliceShape,
-        chunk_shape: sliceChunkShape,
-        data_type: image.data.dtype,
-        fill_value: 0,
+        chunkShape: sliceChunkShape,
+        dtype: image.data.dtype,
+        fillValue: 0,
         codecs: codecs ?? defaultCodecs(image.data.dtype),
       });
 
@@ -285,9 +285,9 @@ async function downsampleGaussian(
     const combinedRoot = zarr.root(combinedStore);
     const combinedArray = await zarr.create(combinedRoot.resolve("combined"), {
       shape: combinedShape,
-      chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
-      data_type: image.data.dtype,
-      fill_value: 0,
+      chunkShape: computeChunkShape(combinedShape, chunks, image.dims),
+      dtype: image.data.dtype,
+      fillValue: 0,
       codecs: codecs ?? defaultCodecs(image.data.dtype),
     });
 
@@ -420,9 +420,9 @@ async function downsampleBinShrinkImpl(
 
       const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
         shape: sliceShape,
-        chunk_shape: sliceChunkShape,
-        data_type: image.data.dtype,
-        fill_value: 0,
+        chunkShape: sliceChunkShape,
+        dtype: image.data.dtype,
+        fillValue: 0,
         codecs: codecs ?? defaultCodecs(image.data.dtype),
       });
 
@@ -476,9 +476,9 @@ async function downsampleBinShrinkImpl(
     const combinedRoot = zarr.root(combinedStore);
     const combinedArray = await zarr.create(combinedRoot.resolve("combined"), {
       shape: combinedShape,
-      chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
-      data_type: image.data.dtype,
-      fill_value: 0,
+      chunkShape: computeChunkShape(combinedShape, chunks, image.dims),
+      dtype: image.data.dtype,
+      fillValue: 0,
       codecs: codecs ?? defaultCodecs(image.data.dtype),
     });
 
@@ -545,9 +545,9 @@ async function downsampleBinShrinkImpl(
 
       const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
         shape: sliceShape,
-        chunk_shape: sliceChunkShape,
-        data_type: image.data.dtype,
-        fill_value: 0,
+        chunkShape: sliceChunkShape,
+        dtype: image.data.dtype,
+        fillValue: 0,
         codecs: codecs ?? defaultCodecs(image.data.dtype),
       });
 
@@ -601,9 +601,9 @@ async function downsampleBinShrinkImpl(
     const combinedRoot = zarr.root(combinedStore);
     const combinedArray = await zarr.create(combinedRoot.resolve("combined"), {
       shape: combinedShape,
-      chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
-      data_type: image.data.dtype,
-      fill_value: 0,
+      chunkShape: computeChunkShape(combinedShape, chunks, image.dims),
+      dtype: image.data.dtype,
+      fillValue: 0,
       codecs: codecs ?? defaultCodecs(image.data.dtype),
     });
 
@@ -721,9 +721,9 @@ async function downsampleLabelImageImpl(
 
       const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
         shape: sliceShape,
-        chunk_shape: sliceChunkShape,
-        data_type: image.data.dtype,
-        fill_value: 0,
+        chunkShape: sliceChunkShape,
+        dtype: image.data.dtype,
+        fillValue: 0,
         codecs: codecs ?? defaultCodecs(image.data.dtype),
       });
 
@@ -777,9 +777,9 @@ async function downsampleLabelImageImpl(
     const combinedRoot = zarr.root(combinedStore);
     const combinedArray = await zarr.create(combinedRoot.resolve("combined"), {
       shape: combinedShape,
-      chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
-      data_type: image.data.dtype,
-      fill_value: 0,
+      chunkShape: computeChunkShape(combinedShape, chunks, image.dims),
+      dtype: image.data.dtype,
+      fillValue: 0,
       codecs: codecs ?? defaultCodecs(image.data.dtype),
     });
 
@@ -846,9 +846,9 @@ async function downsampleLabelImageImpl(
 
       const sliceArray = await zarr.create(sliceRoot.resolve("slice"), {
         shape: sliceShape,
-        chunk_shape: sliceChunkShape,
-        data_type: image.data.dtype,
-        fill_value: 0,
+        chunkShape: sliceChunkShape,
+        dtype: image.data.dtype,
+        fillValue: 0,
         codecs: codecs ?? defaultCodecs(image.data.dtype),
       });
 
@@ -902,9 +902,9 @@ async function downsampleLabelImageImpl(
     const combinedRoot = zarr.root(combinedStore);
     const combinedArray = await zarr.create(combinedRoot.resolve("combined"), {
       shape: combinedShape,
-      chunk_shape: computeChunkShape(combinedShape, chunks, image.dims),
-      data_type: image.data.dtype,
-      fill_value: 0,
+      chunkShape: computeChunkShape(combinedShape, chunks, image.dims),
+      dtype: image.data.dtype,
+      fillValue: 0,
       codecs: codecs ?? defaultCodecs(image.data.dtype),
     });
 

@@ -443,8 +443,11 @@ async function toNgffZarr(
 - `multiscales`: NgffMultiscales object to write
 - `options.version`: OME-Zarr version (default: "0.5"). For a `.ozx` path
   it must be a version stored in Zarr v3 -- "0.5", "0.6" or "0.9.dev1"
-- `options.chunksPerShard`: Sharding configuration (v0.5 and later; not
-  available for `.ozx`)
+- `options.chunksPerShard`: Store each block of chunks as one Zarr v3 shard --
+  how many chunks a shard spans: one count for every axis, one per axis in
+  order, or per axis name (an axis left out spans 1). v0.5 and later. Omitted,
+  a directory store is not sharded, while a `.ozx` path is sharded 2 chunks a
+  shard along every axis
 - `options.consolidateMetadata`: Inline every array's metadata into the root
   `zarr.json` (default: `true`)
 
@@ -463,15 +466,23 @@ await toNgffZarr("output.ome.zarr", multiscales, {
 });
 ```
 
+**Sharding.** A shard spans `chunksPerShard` chunks along each axis, held to
+the fewest whole chunks that cover the axis -- the same grid the Python writer
+lays out for the same request. The chunks keep their codecs inside the
+`sharding_indexed` codec, whose index is checksummed with `crc32c` as
+zarr-python and zarrs write it. Shards are encoded on the codec workers, a
+whole shard per write. `fromOmeZarr` reads sharded stores back through the
+same workers, fetching a shard's index and then only the chunks a selection
+touches; an in-memory `Map` store works too.
+
 **Consolidated metadata.** By default the writer finishes by inlining every
 array's `zarr.json` into the root group's own `zarr.json`. A reader that
 understands the block resolves the whole hierarchy from that one document
 instead of one request per scale level, which matters most over HTTP and for
 RFC-9 archives. zarr-python is such a reader, and so is the Python package,
 which consolidates every store it writes -- writing the block keeps the two
-implementations' output equivalent. `fromOmeZarr` does not yet exploit it:
-zarrita's consolidated reader currently understands only the Zarr v2
-`.zmetadata` sidecar, which this writer never emits.
+implementations' output equivalent. `fromOmeZarr` is one as well: it
+resolves every scale level's array from the root document.
 
 Some backends run their own consolidation and reject the block -- Icechunk is
 the motivating case -- so it can be turned off:
@@ -497,7 +508,10 @@ RFC-9 is defined on Zarr v3, so any version stored in Zarr v3 can be zipped --
 "0.5" (the default), "0.6" or "0.9.dev1" -- while "0.4" (Zarr v2) throws. The
 archive carries the same root document a directory store at that version
 would, so a v0.6 archive keeps its RFC-5 coordinate systems and transforms.
-Sharding is not available for `.ozx` output.
+`chunksPerShard` shards an archive's arrays as it does a directory store's;
+its entries are stored uncompressed, so a reader range-reads single chunks out
+of a shard. As in the Python writer, an archive is sharded by default: a shard
+spans 2 chunks along every axis unless `chunksPerShard` says otherwise.
 
 ```typescript
 // v0.5 archive (default)
