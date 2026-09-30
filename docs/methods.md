@@ -105,11 +105,13 @@ pip install "ngff-zarr[dask-image]"
 
 ## `DASK_IMAGE_MODE`
 
-Local mode for label images.
+The most frequent label of each block the level describes, the smallest label on
+a tie, for label images. A block of one label keeps that label, and no level
+holds a label its block does not.
 
 Fewer artifacts than simple nearest neighbor interpolation.
 
-Slower.
+Computed with `dask.array.coarsen`: no dependency beyond dask.
 
 ## `DASK_IMAGE_NEAREST`
 

@@ -80,9 +80,9 @@ _METHOD_INFO: dict[str, dict[str, str]] = {
         "method": "dask_image.ndfilters.gaussian_filter",
     },
     "DASK_IMAGE_MODE": {
-        "description": "Local mode for label images. Fewer artifacts than simple nearest neighbor interpolation. Slower.",
-        "package": "dask-image",
-        "method": "dask_image.ndfilters.generic_filter",
+        "description": "The most frequent label of each block, the smallest on a tie, computed with dask.array.coarsen. For label images.",
+        "package": "dask",
+        "method": "dask.array.coarsen",
     },
     "DASK_IMAGE_NEAREST": {
         "description": "Nearest neighbor for label images. Will have many artifacts for high-frequency content and/or multiple scales.",
