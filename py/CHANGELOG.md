@@ -1,3 +1,12 @@
+## py-v0.48.0 (2026-09-30)
+
+### 🐛 Bug Fixes
+
+- **py**: take DASK_IMAGE_MODE's mode over the blocks the level describes ([b8899b3](https://github.com/fideus-labs/ngff-zarr/commit/b8899b34f122ae712df57fc33dc1623fc74572d3))
+- **py**: refuse a non-spatial axis in ITK_BIN_SHRINK by name ([b84c28c](https://github.com/fideus-labs/ngff-zarr/commit/b84c28cadc155236960650d7bc2840e6fe0f91d9))
+- **py**: stack itkwasm levels computed per leading index ([7b8ab40](https://github.com/fideus-labs/ngff-zarr/commit/7b8ab4031f658d6eaed6ca10ddf032e9cdb64e5e))
+- **py**: keep the blocks map_overlap downsamples on the level's grid ([3b16fd0](https://github.com/fideus-labs/ngff-zarr/commit/3b16fd065f8702047fb4a2680a6ab78e7322f6af))
+
 ## py-v0.47.0 (2026-09-18)
 
 ### BREAKING CHANGE
