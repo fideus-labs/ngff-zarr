@@ -29,12 +29,12 @@ jobs:
 
       - name: Run linting
         working-directory: ./mcp
-        run: pixi run -e ${{ matrix.environment }} lint
+        run: pixi run --frozen -e ${{ matrix.environment }} lint
 
       - name: Run type checking
         working-directory: ./mcp
-        run: pixi run -e ${{ matrix.environment }} typecheck
+        run: pixi run --frozen -e ${{ matrix.environment }} typecheck
 
       - name: Run tests
         working-directory: ./mcp
-        run: pixi run -e ${{ matrix.environment }} test-cov
+        run: pixi run --frozen -e ${{ matrix.environment }} test-cov
