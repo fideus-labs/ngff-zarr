@@ -158,3 +158,22 @@ def test_gaussian_isotropic_scale_factors(input_images):
 #     multiscale = to_multiscale(image, scale_factors, method=Methods.DASK_IMAGE_MODE)
 #     baseline_name = "x2y4_x1y2/DASK_IMAGE_MODE"
 #     verify_against_baseline(dataset_name, baseline_name, multiscale)
+
+
+@pytest.mark.parametrize("leading", ["t", "c"])
+@pytest.mark.parametrize("chunks", [(1, 15, 15, 15), (2, 16, 16, 16)])
+def test_bin_shrink_refuses_a_non_spatial_axis_by_name(leading, chunks):
+    """Blocks that do not divide by the factor failed deep in dask, on chunks of the
+    wrong rank; blocks that do were refused by the fast path. Both are refused alike."""
+    pytest.importorskip("itk")
+    import numpy as np
+
+    image = to_ngff_image(
+        np.zeros((2, 33, 34, 35), np.float32), dims=[leading, "z", "y", "x"]
+    )
+    with pytest.raises(
+        ValueError, match="ITK_BIN_SHRINK downsamples spatial axes only"
+    ):
+        to_multiscales(
+            image, [2], method=Methods.ITK_BIN_SHRINK, chunks=chunks, cache=False
+        )
