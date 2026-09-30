@@ -66,13 +66,13 @@ For direct browser usage via CDN:
 Read an OME-Zarr file and access the multiscale data:
 
 ```typescript
-import { fromNgffZarr } from "@fideus-labs/ngff-zarr";
+import { fromOmeZarr } from "@fideus-labs/ngff-zarr";
 
 // Read from a local file (Deno/Node.js)
-const multiscales = await fromNgffZarr("path/to/image.ome.zarr");
+const multiscales = await fromOmeZarr("path/to/image.ome.zarr");
 
 // Read from a remote URL (works in all environments)
-const remoteMultiscales = await fromNgffZarr(
+const remoteMultiscales = await fromOmeZarr(
   "https://example.com/data.ome.zarr"
 );
 
@@ -91,15 +91,15 @@ console.log(`Version: ${multiscales.metadata.version}`);
 Enable validation to ensure OME-Zarr files conform to the specification:
 
 ```typescript
-import { fromNgffZarr } from "@fideus-labs/ngff-zarr";
+import { fromOmeZarr } from "@fideus-labs/ngff-zarr";
 
 // Validate during reading
-const multiscales = await fromNgffZarr("image.ome.zarr", {
+const multiscales = await fromOmeZarr("image.ome.zarr", {
   validate: true,
 });
 
 // Specify expected version
-const multiscalesV6 = await fromNgffZarr("image.ome.zarr", {
+const multiscalesV6 = await fromOmeZarr("image.ome.zarr", {
   validate: true,
   version: "0.6",
 });
@@ -116,7 +116,7 @@ import {
   createMetadata,
   createMultiscales,
   createNgffImage,
-  toNgffZarr,
+  toOmeZarr,
 } from "@fideus-labs/ngff-zarr";
 
 // Create image data (256x256 grayscale)
@@ -155,7 +155,7 @@ const metadata = createMetadata(axes, datasets, "my_image");
 const multiscales = createMultiscales([image], metadata);
 
 // Write to OME-Zarr
-await toNgffZarr("output.ome.zarr", multiscales);
+await toOmeZarr("output.ome.zarr", multiscales);
 ```
 
 ### Generating Multiscale Pyramids
@@ -166,7 +166,7 @@ Create multiscale image pyramids with downsampling:
 import {
   createNgffImage,
   toMultiscales,
-  toNgffZarr,
+  toOmeZarr,
   Methods,
 } from "@fideus-labs/ngff-zarr";
 
@@ -189,7 +189,7 @@ const multiscales = await toMultiscales(image, {
 });
 
 // Write the pyramid
-await toNgffZarr("pyramid.ome.zarr", multiscales);
+await toOmeZarr("pyramid.ome.zarr", multiscales);
 ```
 
 ### Displacement and coordinate fields (v0.6)
@@ -206,7 +206,7 @@ its axis type:
 import {
   createNgffImage,
   toMultiscales,
-  toNgffZarr,
+  toOmeZarr,
 } from "@fideus-labs/ngff-zarr";
 
 // A 2-component displacement field over a yx image: the "c" dimension holds the
@@ -224,7 +224,7 @@ const field = await createNgffImage(
 );
 
 const multiscales = await toMultiscales(field);
-await toNgffZarr("displacement.ome.zarr", multiscales, { version: "0.6" });
+await toOmeZarr("displacement.ome.zarr", multiscales, { version: "0.6" });
 ```
 
 The axis type round-trips through reading and writing.
@@ -244,7 +244,7 @@ import { declareFieldTransform } from "@fideus-labs/ngff-zarr";
 // The standalone store -- the artifact a registration emits: the field maps a
 // spatial coordinate system onto itself through its own level-0 array.
 const declared = declareFieldTransform(multiscales);
-await toNgffZarr("displacement.ome.zarr", declared, { version: "0.6" });
+await toOmeZarr("displacement.ome.zarr", declared, { version: "0.6" });
 ```
 
 For a field written beside the image it displaces, declare the entry on the
@@ -264,7 +264,7 @@ Full native support with TypeScript:
 ```typescript
 import * as ngffZarr from "@fideus-labs/ngff-zarr";
 
-const multiscales = await ngffZarr.fromNgffZarr("./data.ome.zarr");
+const multiscales = await ngffZarr.fromOmeZarr("./data.ome.zarr");
 ```
 
 ### Node.js
@@ -273,10 +273,10 @@ Compatible with Node.js 18+ (ESM and CommonJS):
 
 ```typescript
 // ESM
-import { fromNgffZarr } from "@fideus-labs/ngff-zarr";
+import { fromOmeZarr } from "@fideus-labs/ngff-zarr";
 
 // CommonJS
-const { fromNgffZarr } = require("@fideus-labs/ngff-zarr");
+const { fromOmeZarr } = require("@fideus-labs/ngff-zarr");
 ```
 
 ### Browser
@@ -291,10 +291,10 @@ Works in modern browsers with ES modules:
 </head>
 <body>
   <script type="module">
-    import { fromNgffZarr } from "https://esm.sh/@fideus-labs/ngff-zarr";
+    import { fromOmeZarr } from "https://esm.sh/@fideus-labs/ngff-zarr";
 
     // Load from remote URL
-    const multiscales = await fromNgffZarr(
+    const multiscales = await fromOmeZarr(
       "https://example.com/data.ome.zarr"
     );
 
@@ -386,12 +386,12 @@ interface Axis {
 
 ### I/O Functions
 
-#### `fromNgffZarr()`
+#### `fromOmeZarr()`
 
 Read an OME-Zarr file:
 
 ```typescript
-async function fromNgffZarr(
+async function fromOmeZarr(
   store: string | MemoryStore | FetchStore,
   options?: {
     validate?: boolean;
@@ -410,24 +410,24 @@ async function fromNgffZarr(
 **Example:**
 ```typescript
 // Basic reading
-const ms = await fromNgffZarr("data.ome.zarr");
+const ms = await fromOmeZarr("data.ome.zarr");
 
 // With validation
-const validatedMs = await fromNgffZarr("data.ome.zarr", {
+const validatedMs = await fromOmeZarr("data.ome.zarr", {
   validate: true,
   version: "0.6",
 });
 
 // From URL
-const remoteMs = await fromNgffZarr("https://example.com/data.ome.zarr");
+const remoteMs = await fromOmeZarr("https://example.com/data.ome.zarr");
 ```
 
-#### `toNgffZarr()`
+#### `toOmeZarr()`
 
 Write an NgffMultiscales object to OME-Zarr:
 
 ```typescript
-async function toNgffZarr(
+async function toOmeZarr(
   store: string,
   multiscales: NgffMultiscales,
   options?: {
@@ -454,13 +454,13 @@ async function toNgffZarr(
 **Example:**
 ```typescript
 // Basic writing
-await toNgffZarr("output.ome.zarr", multiscales);
+await toOmeZarr("output.ome.zarr", multiscales);
 
 // With version specification
-await toNgffZarr("output.ome.zarr", multiscales, { version: "0.6" });
+await toOmeZarr("output.ome.zarr", multiscales, { version: "0.6" });
 
 // With sharding (v0.5)
-await toNgffZarr("output.ome.zarr", multiscales, {
+await toOmeZarr("output.ome.zarr", multiscales, {
   version: "0.5",
   chunksPerShard: { z: 2, y: 2, x: 2 },
 });
@@ -710,7 +710,7 @@ Read an image and convert to OME-Zarr:
 import {
   itkImageToNgffImage,
   toMultiscales,
-  toNgffZarr,
+  toOmeZarr,
 } from "@fideus-labs/ngff-zarr";
 
 // Load image using itk-wasm
@@ -723,7 +723,7 @@ const ngffImage = await itkImageToNgffImage(itkImage);
 const multiscales = await toMultiscales(ngffImage);
 
 // Write to OME-Zarr
-await toNgffZarr("output.ome.zarr", multiscales);
+await toOmeZarr("output.ome.zarr", multiscales);
 ```
 
 ### Example 2: Process Remote Data
@@ -731,10 +731,10 @@ await toNgffZarr("output.ome.zarr", multiscales);
 Work with remote OME-Zarr files:
 
 ```typescript
-import { fromNgffZarr } from "@fideus-labs/ngff-zarr";
+import { fromOmeZarr } from "@fideus-labs/ngff-zarr";
 
 // Read from S3 or other HTTP-accessible storage
-const multiscales = await fromNgffZarr(
+const multiscales = await fromOmeZarr(
   "https://s3.amazonaws.com/bucket/data.ome.zarr"
 );
 
@@ -753,9 +753,9 @@ console.log(`Low-res shape: ${lowRes.data.shape}`);
 Examine OME-Zarr metadata:
 
 ```typescript
-import { fromNgffZarr } from "@fideus-labs/ngff-zarr";
+import { fromOmeZarr } from "@fideus-labs/ngff-zarr";
 
-const multiscales = await fromNgffZarr("data.ome.zarr");
+const multiscales = await fromOmeZarr("data.ome.zarr");
 
 // Inspect axes
 multiscales.metadata.axes.forEach(axis => {
@@ -784,7 +784,7 @@ Control chunking for optimal performance:
 import {
   createNgffImage,
   toMultiscales,
-  toNgffZarr,
+  toOmeZarr,
 } from "@fideus-labs/ngff-zarr";
 
 const image = createNgffImage(
@@ -802,7 +802,7 @@ const multiscales = await toMultiscales(image, {
   scaleFactors: [2, 4, 8],
 });
 
-await toNgffZarr("large_volume.ome.zarr", multiscales);
+await toOmeZarr("large_volume.ome.zarr", multiscales);
 ```
 
 ### Example 5: TypeScript Type Safety
@@ -816,11 +816,11 @@ import type {
   Metadata,
   Axis,
 } from "@fideus-labs/ngff-zarr";
-import { fromNgffZarr, validateMetadata } from "@fideus-labs/ngff-zarr";
+import { fromOmeZarr, validateMetadata } from "@fideus-labs/ngff-zarr";
 
 // Type-safe function
 async function processImage(path: string): Promise<NgffMultiscales> {
-  const multiscales: NgffMultiscales = await fromNgffZarr(path);
+  const multiscales: NgffMultiscales = await fromOmeZarr(path);
 
   // TypeScript knows the structure
   const axes: Axis[] = multiscales.metadata.axes;
@@ -841,10 +841,10 @@ Pure JavaScript usage without TypeScript:
 
 ```javascript
 // JavaScript (Node.js or browser)
-import { fromNgffZarr, toNgffZarr, createNgffImage } from "@fideus-labs/ngff-zarr";
+import { fromOmeZarr, toOmeZarr, createNgffImage } from "@fideus-labs/ngff-zarr";
 
 // Read OME-Zarr
-const multiscales = await fromNgffZarr("data.ome.zarr");
+const multiscales = await fromOmeZarr("data.ome.zarr");
 
 // Create new image
 const data = new Uint8Array(100 * 100);
@@ -858,7 +858,7 @@ const image = createNgffImage(
 );
 
 // Write to OME-Zarr
-await toNgffZarr("output.ome.zarr", image);
+await toOmeZarr("output.ome.zarr", image);
 ```
 
 ## 🔧 Advanced Usage
@@ -867,34 +867,34 @@ await toNgffZarr("output.ome.zarr", image);
 
 ```typescript
 import * as zarr from "zarrita";
-import { fromNgffZarr } from "@fideus-labs/ngff-zarr";
+import { fromOmeZarr } from "@fideus-labs/ngff-zarr";
 
 // Memory store
 const memoryStore = new Map<string, Uint8Array>();
-const ms1 = await fromNgffZarr(memoryStore);
+const ms1 = await fromOmeZarr(memoryStore);
 
 // Fetch store (HTTP/HTTPS)
 const fetchStore = new zarr.FetchStore("https://example.com/data.ome.zarr");
-const ms2 = await fromNgffZarr(fetchStore);
+const ms2 = await fromOmeZarr(fetchStore);
 
 // File system store (Node.js/Deno only)
 import { FileSystemStore } from "@zarrita/storage";
 const fsStore = new FileSystemStore("/path/to/data.ome.zarr");
-const ms3 = await fromNgffZarr(fsStore);
+const ms3 = await fromOmeZarr(fsStore);
 ```
 
 ### Converting Between OME-Zarr Versions
 
 ```typescript
-import { fromNgffZarr, toNgffZarr } from "@fideus-labs/ngff-zarr";
+import { fromOmeZarr, toOmeZarr } from "@fideus-labs/ngff-zarr";
 
 // Convert from v0.4 to v0.5
-const multiscales = await fromNgffZarr("data_v04.ome.zarr");
-await toNgffZarr("data_v05.ome.zarr", multiscales, { version: "0.5" });
+const multiscales = await fromOmeZarr("data_v04.ome.zarr");
+await toOmeZarr("data_v05.ome.zarr", multiscales, { version: "0.5" });
 
 // Convert from v0.5 to v0.4
-const multiscalesV5 = await fromNgffZarr("data_v05.ome.zarr");
-await toNgffZarr("data_v04.ome.zarr", multiscalesV5, { version: "0.4" });
+const multiscalesV5 = await fromOmeZarr("data_v05.ome.zarr");
+await toOmeZarr("data_v04.ome.zarr", multiscalesV5, { version: "0.4" });
 ```
 
 ### Upgrading OME-Zarr Store Versions
@@ -1007,8 +1007,8 @@ The TypeScript API closely mirrors the Python interface:
 
 | Python | TypeScript |
 |--------|-----------|
-| `from_ngff_zarr()` | `fromNgffZarr()` |
-| `to_ngff_zarr()` | `toNgffZarr()` |
+| `from_ome_zarr()` | `fromOmeZarr()` |
+| `to_ome_zarr()` | `toOmeZarr()` |
 | `to_multiscales()` | `toMultiscales()` |
 | `to_ngff_image()` | `createNgffImage()` |
 | `NgffImage` dataclass | `NgffImage` interface |
@@ -1030,7 +1030,7 @@ When accessing remote OME-Zarr files in the browser, ensure CORS headers are set
 
 ```typescript
 // This may fail due to CORS
-const ms = await fromNgffZarr("https://example.com/data.ome.zarr");
+const ms = await fromOmeZarr("https://example.com/data.ome.zarr");
 
 // Solution: Ensure server sends proper CORS headers
 // Access-Control-Allow-Origin: *
@@ -1042,10 +1042,10 @@ Browsers cannot access local filesystem:
 
 ```typescript
 // ❌ Won't work in browser
-const ms = await fromNgffZarr("/path/to/local/file.ome.zarr");
+const ms = await fromOmeZarr("/path/to/local/file.ome.zarr");
 
 // ✅ Use HTTP URLs instead
-const ms = await fromNgffZarr("http://localhost:8000/file.ome.zarr");
+const ms = await fromOmeZarr("http://localhost:8000/file.ome.zarr");
 ```
 
 ### Memory Management
@@ -1054,7 +1054,7 @@ For large datasets, zarrita handles lazy loading automatically:
 
 ```typescript
 // Data is loaded lazily - metadata read immediately
-const multiscales = await fromNgffZarr("large_file.ome.zarr");
+const multiscales = await fromOmeZarr("large_file.ome.zarr");
 
 // Actual array data loaded on access
 const shape = multiscales.images[0].data.shape; // Fast
