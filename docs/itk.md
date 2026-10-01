@@ -220,6 +220,12 @@ the transformed corners -- so the whole grid boundary is walked instead. Cost is
 proportional to the boundary, not the pixel count, and per block that boundary
 is small.
 
+The walk is exact for a transform that is continuous and does not fold the
+grid. Two things inside a block escape it: a fold, and the edge of a
+displacement stage's domain, past which ITK displaces nothing. Registration
+results rarely do either; a fixed grid that reaches past a B-spline's domain is
+the case to watch for.
+
 Displacement-field transforms work directly:
 
 ```python
