@@ -233,6 +233,10 @@ Displacement-field transforms work directly:
 ...     displacement_field_transform, fixed, moving)
 ```
 
+A block reads only the part of the field its points land in, so each block
+hands ITK that window of the field rather than the whole of it. The cost of a
+block then follows the block, not the size of the field.
+
 ### Registration transforms from Elastix
 
 Transforms produced by a registration library can be passed directly, including
