@@ -4,6 +4,7 @@
 
 import functools
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
 import numpy as np
@@ -57,6 +58,11 @@ _INTERPOLATOR_PADDING = {
 #: float64 resolves the prefilter perturbation further out than float32 does,
 #: so ``b_spline`` needs twice the padding to stay exact on float64 images.
 _FLOAT64_INTERPOLATOR_PADDING = {"b_spline": 32}
+
+#: Threads computing the blocks' regions while the graph is built. Each region
+#: is one pipeline call; past eight the calls contend for the interpreter while
+#: they marshal their arguments and the build stops getting faster.
+_REGION_THREADS = 8
 
 
 def _default_padding(interpolator: str, dtype) -> int:
@@ -541,13 +547,30 @@ def resample(
     # cross the wire once per block.
     transform_key = f"{name}-transform"
     graph = {transform_key: transform_list}
+    grids = {}
     for index in np.ndindex(*[len(sizes) for sizes in out_chunks]):
         starts = {
             dim: int(out_offsets[axis][index[axis]])
             for axis, dim in enumerate(fixed.dims)
         }
         shape = tuple(int(out_chunks[axis][index[axis]]) for axis in range(len(index)))
-        grid = _block_grid(fixed, starts, shape)
+        grids[index] = _block_grid(fixed, starts, shape)
+    if field is None:
+        # One pipeline call per block, each independent of the others.
+        with ThreadPoolExecutor(_REGION_THREADS) as pool:
+            regions = dict(
+                zip(
+                    grids,
+                    pool.map(
+                        lambda grid: resample_bounding_box(
+                            transform_list, grid, moving, padding=padding
+                        ),
+                        grids.values(),
+                    ),
+                )
+            )
+    for index, grid in grids.items():
+        shape = grid.data.shape
         block_transform = transform_key
         if field is not None:
             window, outside = field_window(
@@ -559,9 +582,7 @@ def resample(
                 moving,
             )
         else:
-            region = resample_bounding_box(
-                transform_list, grid, moving, padding=padding
-            )
+            region = regions[index]
         if region.is_empty:
             graph[(name, *index)] = (np.full, shape, default_value, dtype)
             continue
