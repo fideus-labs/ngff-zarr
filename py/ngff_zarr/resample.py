@@ -9,6 +9,7 @@ from dataclasses import replace
 import numpy as np
 
 from .displacement_field_transform import field_window
+from .itk_transform_to_ngff_transform import _parameterization_name
 from .ngff_image import NgffImage
 from .ngff_transform_to_itk_transform import ngff_transform_to_itk_transform
 from .resample_bounding_box import (
@@ -23,6 +24,7 @@ from .resample_bounding_box import (
     _metadata_only_itk_image,
     _shifted_translation,
     _spatial_dims,
+    _windowed_fields,
     resample_bounding_box,
 )
 from .v06.zarr_metadata import Coordinates, Displacements
@@ -232,6 +234,7 @@ def _resample_block(
     interpolator: str,
     default_value: float,
     out_dtype,
+    window_fields: bool = False,
 ):
     """Resample one output block from the moving chunks its region touches.
 
@@ -240,7 +243,9 @@ def _resample_block(
     the first of them in the moving image and ``bounds`` the region itself.
     ``transform_list`` arrives as a task argument rather than bound into the
     callable, so the graph carries it once for every block instead of once per
-    block: see where the tasks are built.
+    block: see where the tasks are built. With ``window_fields`` it is an ITK
+    list holding a whole displacement field, which is cut here to the window
+    this block reads so that only the window reaches ITK.
     """
     from itkwasm_downsample import resample_to_reference
 
@@ -274,6 +279,8 @@ def _resample_block(
     )
     itk_dims = list(reversed(_spatial_dims(grid)))
     reference = _metadata_only_itk_image(grid, itk_dims, _itk_direction(grid, itk_dims))
+    if window_fields:
+        transform_list = _windowed_fields(transform_list, reference)
     # resample_to_reference reads only the reference geometry, but it aborts
     # when the component type disagrees with the moving image, so align it.
     reference.imageType.componentType = _component_type(out_dtype)
@@ -457,6 +464,7 @@ def resample(
     out_orientations = fixed.axes_orientations
     field = None
     field_bound = None
+    window_fields = False
     if _is_ngff_transform(transform):
         if isinstance(transform, (Coordinates, Displacements)):
             # The blocks divide the grid, so the grid's own window is the
@@ -481,6 +489,10 @@ def resample(
         moving = replace(moving, axes_orientations=None)
     else:
         transform_list = _as_itk_transform_list(transform)
+        window_fields = any(
+            _parameterization_name(entry.transformType) == "DisplacementField"
+            for entry in transform_list
+        )
 
     out_chunks = fixed.data.chunks
     out_offsets = _chunk_offsets(out_chunks)
@@ -599,6 +611,7 @@ def resample(
                 interpolator=interpolator,
                 default_value=default_value,
                 out_dtype=dtype,
+                window_fields=window_fields,
             ),
             chunk_keys,
             block_transform,

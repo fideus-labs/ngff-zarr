@@ -14,6 +14,7 @@
  */
 
 import {
+  assert,
   assertAlmostEquals,
   assertEquals,
   assertRejects,
@@ -37,7 +38,11 @@ import {
   resampleBoundingBox,
 } from "../src/mod.ts";
 import { ngffTransformToItkMatrix } from "../src/utils/ngff_transform_to_itk_transform.ts";
-import { resampleBoundingBoxShared } from "../src/io/resample_bounding_box-shared.ts";
+import { resampleBoundingBoxNode } from "@itk-wasm/downsample";
+import {
+  metadataOnlyItkImage,
+  resampleBoundingBoxShared,
+} from "../src/io/resample_bounding_box-shared.ts";
 import { RAS } from "../src/types/rfc4.ts";
 import type { AnatomicalOrientation } from "../src/types/rfc4.ts";
 
@@ -1446,4 +1451,79 @@ Deno.test("an oriented field is refused by the bounding box", async () => {
     Error,
     "anatomical orientation",
   );
+});
+
+Deno.test("an ITK displacement field reaches the pipeline as the grid's window", async () => {
+  const fixed = await geometryImage(["y", "x"], { y: 16, x: 16 }, {
+    y: 1,
+    x: 1,
+  }, { y: 20, x: 30 });
+  const moving = await geometryImage(["y", "x"], { y: 64, x: 64 }, {
+    y: 1,
+    x: 1,
+  }, { y: 0, x: 0 });
+
+  // A 64 x 64 field in ITK layout: one (x, y) vector per point, x fastest. It
+  // varies by less than a pixel per pixel, so it does not fold.
+  const parameters = new Float64Array(2 * 64 * 64);
+  for (let y = 0; y < 64; y++) {
+    for (let x = 0; x < 64; x++) {
+      parameters[2 * (y * 64 + x)] = 3 * Math.sin(y / 5);
+      parameters[2 * (y * 64 + x) + 1] = 2 * Math.cos(x / 7);
+    }
+  }
+  const whole = [{
+    transformType: {
+      transformParameterization: "DisplacementField",
+      parametersValueType: "float64",
+      inputDimension: 2,
+      outputDimension: 2,
+    },
+    name: "DisplacementFieldTransform",
+    inputSpaceName: "",
+    outputSpaceName: "",
+    numberOfFixedParameters: 10,
+    numberOfParameters: parameters.length,
+    fixedParameters: new Float64Array([64, 64, 0, 0, 1, 1, 1, 0, 0, 1]),
+    parameters,
+    metadata: new Map(),
+  }];
+
+  const received: number[] = [];
+  const recording: Parameters<typeof resampleBoundingBoxShared>[0] = (
+    transform,
+    ...rest
+  ) => {
+    received.push(transform[0].numberOfParameters);
+    return resampleBoundingBoxNode(transform, ...rest);
+  };
+  const cut = await resampleBoundingBoxShared(
+    recording,
+    whole as never,
+    fixed,
+    moving,
+  );
+
+  // The identity that finds the window, then the window itself: sixteen
+  // samples, the three pixels the field moves them by at most, and a sample
+  // of margin on either side.
+  assertEquals(received.length, 2);
+  assert(received[1] <= 2 * 24 * 24, `the pipeline received ${received[1]}`);
+
+  const direction = new Float64Array([1, 0, 0, 1]);
+  const { boundingBox } = await resampleBoundingBoxNode(
+    whole as never,
+    metadataOnlyItkImage(fixed, ["x", "y"], direction),
+    metadataOnlyItkImage(moving, ["x", "y"], direction),
+    { padding: 1 },
+  );
+  const uncut = boundingBox as {
+    paddedStartIndex: number[];
+    paddedSize: number[];
+  };
+  assertEquals(cut.startIndex, {
+    y: uncut.paddedStartIndex[1],
+    x: uncut.paddedStartIndex[0],
+  });
+  assertEquals(cut.size, { y: uncut.paddedSize[1], x: uncut.paddedSize[0] });
 });

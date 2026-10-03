@@ -553,6 +553,90 @@ def _identity_transform_list(dims: Sequence[str]) -> list:
     return ngff_transform_to_itk_transform(Identity(), dims)
 
 
+def _windowed_fields(transform_list: list, grid) -> list:
+    """``transform_list`` with each displacement field cut to what ``grid`` reads.
+
+    The pipeline copies a transform's parameters into WebAssembly on every
+    call, and the parameters of a ``DisplacementField`` stage are the whole
+    field. A grid reads only the part of the field its points land in, so
+    each such stage is cut to that window first: the region the stages
+    applied before the field send the grid to, in the field's own index
+    space, with one sample of margin on every side. ITK applies the last
+    entry of a list first, so those stages are the entries after the field.
+    ITK displaces nothing beyond a field's lattice, so a grid that misses
+    the field takes the identity in its place.
+
+    :param grid: The grid as a metadata-only ITK-Wasm image.
+    """
+    from itkwasm import Image
+    from itkwasm_downsample import resample_bounding_box as itkwasm_bounding_box
+
+    from .itk_transform_to_ngff_transform import _parameterization_name
+
+    dimension = grid.imageType.dimension
+    axes = ("x", "y", "z")[:dimension]
+    identity = _identity_transform_list(axes[::-1])
+    windowed = list(transform_list)
+    # Innermost first: a field's window depends on the stages after it, and
+    # those are walked as already cut.
+    for position in reversed(range(len(windowed))):
+        entry = windowed[position]
+        if _parameterization_name(entry.transformType) != "DisplacementField":
+            continue
+        lattice = np.asarray(
+            [] if entry.fixedParameters is None else entry.fixedParameters,
+            dtype=float,
+        )
+        if entry.parameters is None or lattice.size != dimension * (3 + dimension):
+            continue
+        size = lattice[:dimension].astype(int)
+        origin = lattice[dimension : 2 * dimension]
+        spacing = lattice[2 * dimension : 3 * dimension]
+        direction = lattice[3 * dimension :].reshape(dimension, dimension)
+        result = itkwasm_bounding_box(
+            windowed[position + 1 :] or identity,
+            grid,
+            Image(
+                imageType=grid.imageType,
+                origin=origin.tolist(),
+                spacing=spacing.tolist(),
+                direction=direction,
+                size=size.tolist(),
+                metadata={},
+                data=np.empty((0,), dtype=np.uint8),
+            ),
+            padding=1,
+        )
+        _check_index_arrays(result, axes)
+        first = np.asarray(result["paddedStartIndex"], dtype=int)
+        start = np.clip(first, 0, size)
+        stop = np.clip(first + np.asarray(result["paddedSize"], dtype=int), 0, size)
+        if np.any(stop <= start):
+            windowed[position] = identity[0]
+            continue
+        if np.all(start == 0) and np.all(stop == size):
+            continue
+        # The parameters are one vector per lattice point, x fastest.
+        values = np.asarray(entry.parameters).reshape(*size[::-1], dimension)
+        window = values[
+            tuple(slice(*bounds) for bounds in zip(start[::-1], stop[::-1]))
+        ]
+        windowed[position] = replace(
+            entry,
+            numberOfParameters=window.size,
+            parameters=np.ascontiguousarray(window).reshape(-1),
+            fixedParameters=np.concatenate(
+                [
+                    stop - start,
+                    origin + direction @ (start * spacing),
+                    spacing,
+                    lattice[3 * dimension :],
+                ]
+            ),
+        )
+    return windowed
+
+
 def resample_bounding_box(
     transform,
     fixed: NgffImage,
@@ -715,9 +799,12 @@ def resample_bounding_box(
         fixed_direction = np.eye(len(itk_dims))
         moving_direction = np.eye(len(itk_dims))
     else:
-        transform_list = _as_itk_transform_list(transform)
         fixed_direction = _itk_direction(fixed, itk_dims)
         moving_direction = _itk_direction(moving, itk_dims)
+        transform_list = _windowed_fields(
+            _as_itk_transform_list(transform),
+            _metadata_only_itk_image(fixed, itk_dims, fixed_direction),
+        )
 
     result = itkwasm_bounding_box(
         transform_list,

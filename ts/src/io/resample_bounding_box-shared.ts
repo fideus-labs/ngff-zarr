@@ -404,9 +404,13 @@ export async function resampleBoundingBoxShared(
   if (Array.isArray(transform)) {
     // An ITK transform list acts on ITK physical space, so the geometry is
     // built the way ngffImageToItkImage builds it, direction included.
-    transformList = transform;
     fixedDirection = itkDirection(fixed, itkDims);
     movingDirection = itkDirection(moving, itkDims);
+    transformList = await windowedFields(
+      pipeline,
+      transform,
+      metadataOnlyItkImage(fixed, itkDims, fixedDirection),
+    );
   } else if (isV06Transform(transform)) {
     if (
       transform.type === "displacements" || transform.type === "coordinates"
@@ -489,6 +493,126 @@ export async function resampleBoundingBoxShared(
   return fieldRange === undefined
     ? region
     : grown(region, fieldRange, fixedSpatial, moving, movingShape);
+}
+
+/**
+ * `transformList` with each displacement field cut to what `grid` reads.
+ *
+ * The pipeline copies a transform's parameters into WebAssembly on every
+ * call, and the parameters of a `DisplacementField` stage are the whole
+ * field. A grid reads only the part of the field its points land in, so each
+ * such stage is cut to that window first: the region the stages applied
+ * before the field send the grid to, in the field's own index space, with
+ * one sample of margin on every side. ITK applies the last entry of a list
+ * first, so those stages are the entries after the field. ITK displaces
+ * nothing beyond a field's lattice, so a grid that misses the field takes
+ * the identity in its place.
+ */
+async function windowedFields(
+  pipeline: Parameters<typeof resampleBoundingBoxShared>[0],
+  transformList: TransformList,
+  grid: Image,
+): Promise<TransformList> {
+  const dimension = grid.imageType.dimension;
+  const axes = SPATIAL_DIMS.slice(0, dimension);
+  const identity = ngffTransformToItkTransform({ type: "identity" }, axes);
+  const windowed = [...transformList];
+  // Innermost first: a field's window depends on the stages after it, and
+  // those are walked as already cut.
+  for (let position = windowed.length - 1; position >= 0; position--) {
+    const entry = windowed[position];
+    const lattice = Array.from(entry.fixedParameters ?? [], Number);
+    if (
+      entry.transformType.transformParameterization !== "DisplacementField" ||
+      !entry.parameters || lattice.length !== dimension * (3 + dimension)
+    ) {
+      continue;
+    }
+    const size = lattice.slice(0, dimension);
+    const origin = lattice.slice(dimension, 2 * dimension);
+    const spacing = lattice.slice(2 * dimension, 3 * dimension);
+    const direction = Float64Array.from(lattice.slice(3 * dimension));
+    const inner = windowed.slice(position + 1);
+    const { boundingBox } = await pipeline(
+      inner.length > 0 ? inner : identity,
+      grid,
+      {
+        imageType: grid.imageType,
+        name: "",
+        origin,
+        spacing,
+        direction,
+        size,
+        metadata: new Map(),
+        data: new Uint8Array(0),
+      },
+      { padding: 1 },
+    );
+    const raw = boundingBox as RawBoundingBox;
+    checkIndexArrays(raw, axes);
+    const clip = (value: number, axis: number) =>
+      Math.min(Math.max(value, 0), size[axis]);
+    const start = raw.paddedStartIndex.map(clip);
+    const stop = raw.paddedStartIndex.map((first, axis) =>
+      clip(first + raw.paddedSize[axis], axis)
+    );
+    if (stop.some((value, axis) => value <= start[axis])) {
+      windowed[position] = identity[0];
+      continue;
+    }
+    if (
+      stop.every((value, axis) => start[axis] === 0 && value === size[axis])
+    ) {
+      continue;
+    }
+
+    // The parameters are one vector per lattice point, x fastest, so a row
+    // along x is contiguous and the window is copied a row at a time.
+    const count = stop.map((value, axis) => value - start[axis]);
+    const strides = size.map((_, axis) =>
+      size.slice(0, axis).reduce(
+        (product, extent) => product * extent,
+        dimension,
+      )
+    );
+    const row = count[0] * dimension;
+    const rows = count.slice(1).reduce(
+      (product, extent) => product * extent,
+      1,
+    );
+    const parameters = entry.parameters.slice(0, rows * row);
+    for (let index = 0; index < rows; index++) {
+      let source = start[0] * strides[0];
+      let rest = index;
+      for (let axis = 1; axis < dimension; axis++) {
+        source += (start[axis] + rest % count[axis]) * strides[axis];
+        rest = Math.floor(rest / count[axis]);
+      }
+      parameters.set(
+        entry.parameters.subarray(source, source + row) as never,
+        index * row,
+      );
+    }
+    const shifted = origin.map((value, component) =>
+      start.reduce(
+        (sum, first, axis) =>
+          sum + direction[component * dimension + axis] * first * spacing[axis],
+        value,
+      )
+    );
+    windowed[position] = {
+      ...entry,
+      numberOfParameters: parameters.length,
+      parameters,
+      fixedParameters: Float64Array.from([
+        ...count,
+        ...shifted,
+        ...spacing,
+        ...direction,
+      ]),
+    };
+  }
+  return windowed;
 }
 
 /**
