@@ -224,7 +224,8 @@ The walk is exact for a transform that is continuous and does not fold the
 grid. Two things inside a block escape it: a fold, and the edge of a
 displacement stage's domain, past which ITK displaces nothing. Registration
 results rarely do either; a fixed grid that reaches past a B-spline's domain is
-the case to watch for.
+the case to watch for. An RFC-5 `displacements` or `coordinates` field is sized
+by the same walk, read off the field's own samples.
 
 Displacement-field transforms work directly:
 
