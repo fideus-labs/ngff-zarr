@@ -41,9 +41,12 @@ Grid direction
 
 from __future__ import annotations
 
+import bisect
+import collections
+import functools
+import itertools
 import warnings
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 
 import numpy as np
 
@@ -55,6 +58,10 @@ from .v06.zarr_metadata import Coordinates, Displacements
 #: axis after a time axis and before the spatial ones, with
 #: ``type: "displacement"``.
 _COMPONENT_DIM = "c"
+
+#: How far from a whole field index, in samples, a grid point may compute to
+#: and still count as lying on the sample.
+_ON_LATTICE = 1e-6
 
 
 def _check_dims(dims: Sequence[str]) -> tuple[str, ...]:
@@ -657,110 +664,68 @@ def check_unoriented_field(field: NgffImage, dims: Sequence[str]) -> None:
     raise ValueError(msg)
 
 
-@dataclass(frozen=True)
-class FieldBound:
-    """The range of displacement each chunk of a field can produce.
+def _chunk_reach(chunk, *, start, pieces, translation, scale, coordinates):
+    """Where the samples of one chunk land, for each window that crosses it.
 
-    A field is read through a kernel that is non-negative and sums to one, so
-    a displacement anywhere in a chunk is a convex combination of that chunk's
-    values and lies between their smallest and largest. That makes the range
-    a bound on every interpolated displacement, not a sample of one: walking
-    the boundary of a region instead misses a bump the region encloses.
+    ``start`` is the chunk's first index per spatial axis and ``pieces`` the
+    windows that cross it, each a key and ``(start, stop)`` per spatial axis
+    in field indices. A sample lands at its own position plus its
+    displacement, or, in a coordinates field, at the position it holds. A
+    window is copied to add the positions, so it is meant to be thin, as a
+    face of a grid is.
 
-    The range is kept rather than its magnitude, so a field that shifts every
-    point the same way moves the region it bounds instead of widening it.
-
-    The granularity is the field's own chunking, since that is what a read
-    costs. A field stored in one chunk therefore reports one range for the
-    whole volume, which is also the case where the field fits in memory.
+    :return: ``(key, low, high)`` per window, one position per spatial axis.
     """
-
-    #: Spatial dimension names, in the field's (RFC-5) order.
-    dims: tuple[str, ...]
-    #: Smallest and largest displacement per component, per chunk:
-    #: ``(len(dims), *chunk counts)`` each, components ordered like ``dims``.
-    low: np.ndarray
-    high: np.ndarray
-    #: Index of the first element of each chunk, per spatial axis.
-    offsets: tuple[np.ndarray, ...]
-
-    def over(
-        self, window: Sequence[tuple[int, int]], outside: bool = False
-    ) -> dict[str, tuple[float, float]]:
-        """The displacement range over the chunks ``window`` touches.
-
-        :param window: ``(start, stop)`` per spatial axis, in field index
-            space and in ``dims`` order.
-        :type  window: Sequence[tuple[int, int]]
-        :param outside: Whether the grid the window came from also has points
-            beyond the field. ITK displaces those by nothing, so zero belongs
-            in the range as much as the values do; leaving it out lets a
-            field that displaces every point it covers one way carry the
-            region away from the points it does not cover.
-        :type  outside: bool
-        :return: ``{dim: (low, high)}`` per component, keyed by dimension.
-            Zero for an empty window, where the field displaces nothing.
-        :rtype: dict[str, tuple[float, float]]
-        """
-        if any(stop <= start for start, stop in window):
-            return dict.fromkeys(self.dims, (0.0, 0.0))
-        selection = []
-        for axis, (start, stop) in enumerate(window):
-            offsets = self.offsets[axis]
-            first = int(np.searchsorted(offsets, start, side="right") - 1)
-            last = int(np.searchsorted(offsets, stop - 1, side="right"))
-            selection.append(slice(max(0, first), last))
-        index = (slice(None), *selection)
-        low = self.low[index].reshape(len(self.dims), -1).min(axis=1)
-        high = self.high[index].reshape(len(self.dims), -1).max(axis=1)
-        if outside:
-            low = np.minimum(low, 0.0)
-            high = np.maximum(high, 0.0)
-        return {
-            dim: (float(low[axis]), float(high[axis]))
-            for axis, dim in enumerate(self.dims)
-        }
+    values = np.asarray(chunk)
+    ndim = values.ndim - 1
+    # Where each sample of the chunk sits, as one line per axis that
+    # broadcasts against the others.
+    lines = [
+        (translation[axis] + scale[axis] * (start[axis] + np.arange(size))).reshape(
+            [-1 if other == axis else 1 for other in range(ndim)]
+        )
+        for axis, size in enumerate(values.shape[1:])
+    ]
+    reach = []
+    for key, window in pieces:
+        local = tuple(
+            slice(max(0, low - first), high - first)
+            for (low, high), first in zip(window, start)
+        )
+        landing = values[(slice(None), *local)]
+        if not coordinates:
+            landing = landing.astype(np.float64)
+            for axis, line in enumerate(lines):
+                landing[axis] += line[
+                    tuple(
+                        span if other == axis else slice(None)
+                        for other, span in enumerate(local)
+                    )
+                ]
+        landing = landing.reshape(ndim, -1)
+        reach.append((key, landing.min(axis=1), landing.max(axis=1)))
+    return reach
 
 
-def _block_extrema(block, block_info=None, *, origin=None, spacing=None, offset=None):
-    """Smallest and largest displacement per component over one block.
-
-    Comes back as one array of twice the components, the minima before the
-    maxima, so a single pass over the field answers both. ``offset`` is where
-    the array this block came from starts in the field, since the block is
-    located against its own array rather than the field.
-    """
-    values = np.asarray(block, dtype=np.float64)
-    if origin is not None:
-        # A coordinates field holds the output position of each grid point
-        # rather than the offset from it, so the grid point comes off first.
-        if values is block:
-            values = values.copy()
-        location = block_info[0]["array-location"][1:]
-        for axis, (start, stop) in enumerate(location):
-            shape = [1] * (values.ndim - 1)
-            shape[axis] = -1
-            grid = origin[axis] + spacing[axis] * np.arange(
-                start + offset[axis], stop + offset[axis], dtype=np.float64
-            )
-            values[axis] -= grid.reshape(shape)
-    flat = values.reshape(values.shape[0], -1)
-    extrema = np.concatenate([flat.min(axis=1), flat.max(axis=1)])
-    return extrema.reshape((2 * values.shape[0],) + (1,) * (values.ndim - 1))
-
-
-def field_displacement_bound(
+def field_reach(
     transform: Displacements | Coordinates,
     field: NgffImage,
     dims: Sequence[str],
-    window: Sequence[tuple[int, int]] | None = None,
-) -> FieldBound:
-    """Bound the displacement of every chunk of ``field``, one chunk at a time.
+    windows: Mapping,
+) -> dict:
+    """Where a field transform sends the samples of each set of windows.
 
-    One pass over the field, reading a chunk and keeping two numbers per
-    component. The values are not held: what comes back is a few floats per
-    chunk, which is what lets a caller size its reads against a field that
-    does not fit in memory.
+    A field is read through a kernel that is non-negative and sums to one, so
+    a point between samples lands between where the samples around it land.
+    The box around the landing positions of a window's samples therefore
+    holds the image of every point the window brackets. Given the slabs
+    :func:`field_boundary` names, that is where the boundary of a grid goes,
+    which is what the ITK-Wasm pipeline sizes a moving read from.
+
+    One pass over the field, one task per chunk a window crosses, each
+    answering for every window that crosses it. The values are not held:
+    what comes back is two positions per axis and key, so a field that does
+    not fit in memory is read a chunk at a time.
 
     :param transform: The ``displacements`` or ``coordinates`` transform the
         field belongs to.
@@ -773,78 +738,74 @@ def field_displacement_bound(
         RFC-5 (Zarr) order.
     :type  dims: Sequence[str]
 
-    :param window: The field indices a caller will ask about, as
-        :func:`field_window` returns them. The pass then covers the chunks
-        that window touches and no others, which is what a grid smaller than
-        the field it is defined on saves. Defaults to the whole field.
-    :type  window: Sequence[tuple[int, int]] | None
-    :return: The per-chunk range, keyed by the field's own indices.
-    :rtype: FieldBound
+    :param windows: The windows to answer for, keyed freely: for each key,
+        one or more windows of ``(start, stop)`` per spatial axis in field
+        indices, as :func:`field_boundary` returns them.
+    :type  windows: Mapping
+
+    :return: ``{key: {dim: (low, high)}}`` in physical coordinates. A key
+        whose windows hold no sample is left out.
+    :rtype: dict
     """
     dims = tuple(dims)
-    data = field.data
-    origin = spacing = None
-    if transform.type == "coordinates":
-        origin = np.array([float(field.translation[dim]) for dim in dims])
-        spacing = np.array([float(field.scale[dim]) for dim in dims])
-
-    if not hasattr(data, "chunks") or data.chunks is None:
-        values = np.asarray(data)
-        info = [{"array-location": [(0, size) for size in values.shape]}]
-        extrema = _block_extrema(
-            values, info, origin=origin, spacing=spacing, offset=(0,) * len(dims)
-        )
-        offsets = tuple(np.array([0]) for _ in dims)
-    else:
-        import dask.array as da
-
-        # The component axis is bounded as a whole: a block holding a subset
-        # of the components would report a range for the wrong ones.
-        data = data.rechunk({0: -1})
-        # Cut on chunk borders, so the pass drops whole chunks rather than
-        # reading one to use part of it, and every kept chunk keeps its own
-        # first index.
-        starts = [
-            np.concatenate([[0], np.cumsum(sizes)[:-1]]) for sizes in data.chunks[1:]
-        ]
-        if window is None:
-            window = [(0, int(size)) for size in data.shape[1:]]
-        keep = []
-        offsets = []
-        for axis, (begin, end) in enumerate(window):
-            first = max(0, int(np.searchsorted(starts[axis], begin, side="right") - 1))
-            last = int(np.searchsorted(starts[axis], max(begin, end - 1), side="right"))
-            high = int(
-                starts[axis][last] if last < len(starts[axis]) else data.shape[1 + axis]
-            )
-            keep.append(slice(int(starts[axis][first]), high))
-            offsets.append(starts[axis][first:last])
-        offset = tuple(int(kept[0]) for kept in offsets)
-        offsets = tuple(offsets)
-        # Full slices are normalized away, so an unrestricted pass is the same
-        # array and the same one code path.
-        data = data[(slice(None), *keep)]
-        counts = tuple((1,) * len(sizes) for sizes in data.chunks[1:])
-        extrema = np.asarray(
-            da.map_blocks(
-                _block_extrema,
-                data,
-                origin=origin,
-                spacing=spacing,
-                offset=offset,
-                dtype=np.float64,
-                chunks=((2 * data.shape[0],), *counts),
-                # The reductions have no identity on the zero-size block the
-                # meta probe hands in; naming the meta skips the probe.
-                meta=np.empty((0,) * data.ndim, dtype=np.float64),
-            ).compute()
-        )
-    return FieldBound(
-        dims=dims,
-        low=extrema[: len(dims)],
-        high=extrema[len(dims) :],
-        offsets=offsets,
+    land = functools.partial(
+        _chunk_reach,
+        translation=[float(field.translation[dim]) for dim in dims],
+        scale=[float(field.scale[dim]) for dim in dims],
+        coordinates=transform.type == "coordinates",
     )
+    pieces = [
+        (key, window)
+        for key, group in windows.items()
+        for window in group
+        if all(stop > start for start, stop in window)
+    ]
+    data = field.data
+    if not hasattr(data, "chunks") or data.chunks is None:
+        parts = [land(data, start=(0,) * len(dims), pieces=pieces)]
+    else:
+        import dask
+
+        # A chunk holding a subset of the components would answer for the
+        # wrong axes.
+        chunks = data.rechunk({0: -1}).to_delayed()[0]
+        starts = [[0, *itertools.accumulate(sizes[:-1])] for sizes in data.chunks[1:]]
+        crossing = collections.defaultdict(list)
+        for key, window in pieces:
+            spans = [
+                range(
+                    bisect.bisect_right(starts[axis], begin) - 1,
+                    bisect.bisect_right(starts[axis], end - 1),
+                )
+                for axis, (begin, end) in enumerate(window)
+            ]
+            for chunk in itertools.product(*spans):
+                crossing[chunk].append((key, window))
+        parts = dask.compute(
+            *[
+                dask.delayed(
+                    functools.partial(
+                        land,
+                        start=[starts[axis][at] for axis, at in enumerate(chunk)],
+                        pieces=crossed,
+                    )
+                )(chunks[chunk])
+                for chunk, crossed in crossing.items()
+            ]
+        )
+
+    reach = {}
+    for key, low, high in itertools.chain.from_iterable(parts):
+        if key in reach:
+            low = np.minimum(reach[key][0], low)
+            high = np.maximum(reach[key][1], high)
+        reach[key] = (low, high)
+    return {
+        key: {
+            dim: (float(low[axis]), float(high[axis])) for axis, dim in enumerate(dims)
+        }
+        for key, (low, high) in reach.items()
+    }
 
 
 def field_window(
@@ -860,7 +821,7 @@ def field_window(
     The field is evaluated at the grid's own points, so the window is that
     grid's extent expressed in field indices, whatever the displacement is:
     what a displacement sizes is the *moving* read, which
-    :class:`FieldBound` answers.
+    :func:`field_reach` answers.
 
     :param field: The field image.
     :type  field: NgffImage
@@ -879,12 +840,13 @@ def field_window(
 
     :param margin: Lattice points kept beyond the bracketing pair, so that
         linear interpolation at a point on the boundary reads the same values
-        it reads from the whole field.
+        it reads from the whole field. Zero keeps the samples that bracket
+        the grid's points and no others, which is what a region is sized
+        from.
     :type  margin: int
     :return: ``(start, stop)`` per axis, in ``dims`` order, clamped to the
-        field, and whether the grid also has points beyond the field, which
-        ITK displaces by nothing. :meth:`FieldBound.over` takes the second as
-        its ``outside``.
+        field, and whether the grid also has points beyond the field's
+        lattice.
     :rtype: tuple[tuple[tuple[int, int], ...], bool]
     """
     window = []
@@ -894,17 +856,76 @@ def field_window(
         if shape[axis] == 0:
             window.append((0, 0))
             continue
-        corners = [
-            (translation[dim] + scale[dim] * index - field.translation[dim])
-            / field.scale[dim]
-            for index in (0, shape[axis] - 1)
-        ]
-        if min(corners) < 0 or max(corners) > extent - 1:
+        first, last = _grid_span(field, dim, translation, scale, shape[axis])
+        # A grid on the field's own lattice computes to within rounding of
+        # whole indices; without the tolerance each side would pick up a
+        # sample the grid does not read.
+        if first + _ON_LATTICE < 0 or last - _ON_LATTICE > extent - 1:
             outside = True
-        low = int(np.floor(min(corners))) - margin
-        high = int(np.ceil(max(corners))) + margin + 1
+        low = int(np.floor(first + _ON_LATTICE)) - margin
+        high = int(np.ceil(last - _ON_LATTICE)) + margin + 1
         window.append((max(0, min(low, extent)), max(0, min(high, extent))))
     return tuple(window), outside
+
+
+def _grid_span(field: NgffImage, dim: str, translation, scale, count: int):
+    """The field indices of a grid's first and last sample along ``dim``."""
+    corners = [
+        (translation[dim] + scale[dim] * index - field.translation[dim])
+        / field.scale[dim]
+        for index in (0, count - 1)
+    ]
+    return min(corners), max(corners)
+
+
+def field_boundary(
+    field: NgffImage,
+    dims: Sequence[str],
+    translation: Mapping[str, float],
+    scale: Mapping[str, float],
+    shape: Sequence[int],
+) -> tuple[tuple[tuple[tuple[int, int], ...], ...], bool]:
+    """The field samples the boundary of a grid lies between.
+
+    The ITK-Wasm pipeline sizes a region from the boundary of a grid, and
+    this names the same points in the field: one slab of samples per face of
+    the grid, one sample thick where the face lies on the field's lattice and
+    two where it falls between samples.
+
+    :param field: The field image.
+    :type  field: NgffImage
+
+    :param dims: The spatial axis names, in RFC-5 order.
+    :type  dims: Sequence[str]
+
+    :param translation: The grid's translation, keyed by dimension.
+    :type  translation: Mapping[str, float]
+
+    :param scale: The grid's scale, keyed by dimension.
+    :type  scale: Mapping[str, float]
+
+    :param shape: The grid's extent, in ``dims`` order.
+    :type  shape: Sequence[int]
+
+    :return: The slabs, each ``(start, stop)`` per axis in ``dims`` order,
+        clamped to the field, and whether the grid also has points beyond
+        the field's lattice. No slab for a grid that touches no sample.
+    :rtype: tuple[tuple[tuple[tuple[int, int], ...], ...], bool]
+    """
+    window, outside = field_window(field, dims, translation, scale, shape, margin=0)
+    if any(stop <= start for start, stop in window):
+        return (), outside
+    slabs = {}
+    for axis, dim in enumerate(dims):
+        extent = int(field.data.shape[1 + axis])
+        for face in _grid_span(field, dim, translation, scale, shape[axis]):
+            start = max(0, int(np.floor(face + _ON_LATTICE)))
+            stop = min(extent, int(np.ceil(face - _ON_LATTICE)) + 1)
+            if stop > start:
+                slab = list(window)
+                slab[axis] = (start, stop)
+                slabs[tuple(slab)] = None
+    return tuple(slabs), outside
 
 
 def ngff_displacement_field_to_itk_transform(

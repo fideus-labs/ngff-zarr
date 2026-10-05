@@ -8,6 +8,8 @@ the streaming changes is what has to be in memory to reach it, and what a
 region of the grid is allowed to displace onto.
 """
 
+import itertools
+
 import dask.array as da
 import numpy as np
 import pytest
@@ -15,9 +17,10 @@ from ngff_zarr import (
     NgffImage,
     ngff_transform_to_itk_transform,
     resample,
+    resample_bounding_box,
     to_multiscales,
 )
-from ngff_zarr.displacement_field_transform import field_displacement_bound
+from ngff_zarr.displacement_field_transform import field_boundary, field_reach
 from ngff_zarr.v06.zarr_metadata import Coordinates, Displacements
 
 from .test_resample import _whole_image_reference
@@ -205,7 +208,7 @@ def test_a_grid_beyond_the_field_takes_the_identity():
     np.testing.assert_array_equal(np.asarray(result.data), expected)
 
 
-def test_the_bound_pass_reads_only_the_chunks_the_grid_touches():
+def test_the_region_pass_reads_only_the_chunks_the_grid_touches():
     """A grid smaller than the field it is defined on pays for its own part."""
     read = []
 
@@ -227,15 +230,16 @@ def test_the_bound_pass_reads_only_the_chunks_the_grid_touches():
     resample(Displacements(path="warp"), fixed, moving, fields={"warp": field})
 
     assert int(np.prod([len(sizes) for sizes in raw.chunks])) == 64
-    assert len(set(read)) == 4
+    # The grid lies on the field's lattice, inside its first chunk.
+    assert set(read) == {(0, 0, 0)}
 
 
 @pytest.mark.parametrize("absolute", [False, True])
-def test_a_restricted_bound_is_the_bound_over_the_same_window(absolute):
-    """Reading fewer chunks has to give the same range, and a real range.
+def test_the_reach_of_a_window_is_where_its_samples_land(absolute):
+    """The box around each sample's own position plus its displacement.
 
-    Random windows against uneven chunks, since the pass cuts on chunk
-    borders and an off-border window is where an index offset goes wrong.
+    Random windows against uneven chunks, since the pass answers a chunk at a
+    time and an off-border window is where an index offset goes wrong.
     """
     rng = np.random.default_rng(0)
     for _ in range(12):
@@ -243,11 +247,12 @@ def test_a_restricted_bound_is_the_bound_over_the_same_window(absolute):
         borders = np.linspace(0, extent, int(rng.integers(3, 7))).astype(int)
         chunks = tuple(int(size) for size in np.diff(borders) if size > 0)
         values = (rng.random((2, extent, extent)) * 20 - 10).astype(np.float32)
-        stored = values
-        if absolute:
-            stored = values + np.mgrid[0:extent, 0:extent].astype(np.float32)
+        landing = values + np.mgrid[0:extent, 0:extent]
         field = NgffImage(
-            data=da.from_array(stored, chunks=(2, chunks, chunks)),
+            data=da.from_array(
+                landing.astype(np.float32) if absolute else values,
+                chunks=(2, chunks, chunks),
+            ),
             dims=("c", "y", "x"),
             scale=dict.fromkeys(("c", "y", "x"), 1.0),
             translation=dict.fromkeys(("c", "y", "x"), 0.0),
@@ -259,21 +264,25 @@ def test_a_restricted_bound_is_the_bound_over_the_same_window(absolute):
             for low in rng.integers(0, extent, size=2)
         )
 
-        restricted = field_displacement_bound(transform, field, ("y", "x"), window)
-        whole = field_displacement_bound(transform, field, ("y", "x"))
+        reach = field_reach(transform, field, ("y", "x"), {"block": [window]})["block"]
 
-        ranges = restricted.over(window)
-        assert ranges.keys() == whole.over(window).keys()
-        for dim, (low, high) in ranges.items():
-            reference = whole.over(window)[dim]
-            np.testing.assert_allclose((low, high), reference, atol=1e-4)
-        inside = values[
+        inside = landing[
             :, window[0][0] : window[0][1], window[1][0] : window[1][1]
         ].reshape(2, -1)
         for axis, dim in enumerate(("y", "x")):
-            low, high = ranges[dim]
-            assert low <= inside[axis].min() + 1e-4
-            assert high >= inside[axis].max() - 1e-4
+            np.testing.assert_allclose(
+                reach[dim], (inside[axis].min(), inside[axis].max()), atol=1e-4
+            )
+
+
+def test_an_empty_window_has_no_reach():
+    field = _field(np.zeros((2, 8, 8), dtype=np.float32), "yx", (2, 4, 4))
+
+    reach = field_reach(
+        Displacements(path="w"), field, ("y", "x"), {"block": [((3, 3), (0, 8))]}
+    )
+
+    assert reach == {}
 
 
 def test_a_grid_reaching_past_the_field_keeps_the_points_it_displaces_nothing():
@@ -300,3 +309,62 @@ def test_a_grid_reaching_past_the_field_keeps_the_points_it_displaces_nothing():
     # The half beyond the field is the half at stake, so it has to carry
     # something for this to be a test.
     assert float(np.abs(result[32:, 32:]).max()) > 0.0
+
+
+def test_the_boundary_of_a_grid_is_one_slab_of_samples_per_face():
+    field = _field(np.zeros((2, 40, 40), dtype=np.float32), "yx", (2, 40, 40))
+    unit = {"y": 1.0, "x": 1.0}
+
+    on_lattice, outside = field_boundary(
+        field, ("y", "x"), {"y": 8.0, "x": 4.0}, unit, (16, 24)
+    )
+    assert not outside
+    assert set(on_lattice) == {
+        ((8, 9), (4, 28)),
+        ((23, 24), (4, 28)),
+        ((8, 24), (4, 5)),
+        ((8, 24), (27, 28)),
+    }
+
+    # A face between two samples takes both, since a point on it is read
+    # from the two of them.
+    between, _outside = field_boundary(
+        field, ("y", "x"), {"y": 8.5, "x": 4.0}, unit, (16, 24)
+    )
+    assert ((8, 10), (4, 28)) in between
+    assert ((23, 25), (4, 28)) in between
+
+    # A grid past the field keeps the faces that touch it.
+    past, outside = field_boundary(
+        field, ("y", "x"), {"y": 30.0, "x": 4.0}, unit, (16, 24)
+    )
+    assert outside
+    assert ((30, 31), (4, 28)) in past
+    assert all(stop <= 40 for slab in past for _start, stop in slab)
+
+    assert field_boundary(field, ("y", "x"), {"y": 90.0, "x": 4.0}, unit, (4, 4)) == (
+        (),
+        True,
+    )
+
+
+def test_a_field_region_is_the_one_its_itk_transform_walks():
+    """A field that does not fold: its samples and the boundary walk agree."""
+    rows, columns = np.mgrid[0:96, 0:96].astype(np.float32)
+    values = np.stack([3.0 * np.sin(columns / 9.0), 2.0 * np.cos(rows / 7.0)])
+    field = _field(values, "yx", (2, 32, 32))
+    transform = Displacements(path="warp")
+    moving = _grid("yx", (96, 96))
+    walked = _as_itk(transform, field, ("y", "x"))
+
+    for start in itertools.product((0, 24, 48, 72), repeat=2):
+        block = NgffImage(
+            data=da.zeros((24, 24), chunks=(24, 24), dtype=np.float32),
+            dims=("y", "x"),
+            scale={"y": 1.0, "x": 1.0},
+            translation={"y": float(start[0]), "x": float(start[1])},
+        )
+        region = resample_bounding_box(transform, block, moving, fields={"warp": field})
+        expected = resample_bounding_box(walked, block, moving)
+        assert region.start_index == expected.start_index
+        assert region.size == expected.size

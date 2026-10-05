@@ -113,55 +113,6 @@ class ResampleBoundingBox:
         )
 
 
-def _grown(
-    region: "ResampleBoundingBox",
-    bound: Mapping[str, tuple[float, float]],
-    moving: NgffImage,
-) -> "ResampleBoundingBox":
-    """``region`` moved and widened by a per-axis displacement range.
-
-    The pipeline walks the boundary of the transformed grid, which reports
-    where a *linear* map sends the grid exactly and misses whatever a
-    displacement does strictly inside it. A point ``p`` of the region reaches
-    ``p + d`` with ``d`` in ``bound``, so the region's image lies between the
-    two ends of that range: a field that shifts every point the same way moves
-    the region, and only what varies widens it.
-    """
-    start = dict(region.start_index)
-    size = dict(region.size)
-    corners_min = dict(region.corners_min)
-    corners_max = dict(region.corners_max)
-    padded_min = dict(region.padded_corners_min)
-    padded_max = dict(region.padded_corners_max)
-    for dim in region.dims:
-        low, high = bound.get(dim, (0.0, 0.0))
-        if low == 0.0 and high == 0.0:
-            continue
-        scale = float(moving.scale[dim])
-        first = math.floor(min(low / scale, high / scale))
-        last = math.ceil(max(low / scale, high / scale))
-        start[dim] += first
-        size[dim] += last - first
-        # The reported corners hold a first and a last index position, which
-        # swap when an axis direction is negative; move the span either way.
-        for begin, stop in ((corners_min, corners_max), (padded_min, padded_max)):
-            if begin[dim] <= stop[dim]:
-                begin[dim] += low
-                stop[dim] += high
-            else:
-                begin[dim] += high
-                stop[dim] += low
-    return replace(
-        region,
-        start_index=start,
-        size=size,
-        corners_min=corners_min,
-        corners_max=corners_max,
-        padded_corners_min=padded_min,
-        padded_corners_max=padded_max,
-    )
-
-
 def _spatial_dims(ngff_image: NgffImage) -> list[str]:
     return [dim for dim in ngff_image.dims if dim in _SPATIAL_DIMS]
 
@@ -440,24 +391,28 @@ def _transform_from_dict(entry: dict):
     return ItkTransform(**entry)
 
 
-def _identity_region(
-    grid: NgffImage, moving: NgffImage, padding: int
-) -> "ResampleBoundingBox":
-    """The region the pipeline reports for the identity, computed directly.
-
-    A field transform's linear part is the identity, so its ungrown region is
-    plain arithmetic: the grid's own physical extent, read off in the moving
-    image's index space, floored and ceiled, padded. Equality with the
-    pipeline is pinned by ``test_the_identity_region_is_the_pipelines`` over
-    randomized geometry. Only :func:`~ngff_zarr.resample`'s per-block loop
-    uses it, where the pipeline round trip measured as three quarters of the
-    graph build; :func:`resample_bounding_box` itself stays on the pipeline.
-
-    ``grid`` must have at least one sample per spatial axis, which
-    :func:`resample_bounding_box` establishes before reaching a transform.
-    """
-    spatial = _spatial_dims(grid)
+def _grid_extent(grid: NgffImage) -> dict[str, tuple[float, float]]:
+    """The physical positions of a grid's first and last sample, per axis."""
     grid_dims = tuple(grid.dims)
+    extent = {}
+    for dim in _spatial_dims(grid):
+        first = float(grid.translation[dim])
+        last = first + (int(grid.data.shape[grid_dims.index(dim)]) - 1) * float(
+            grid.scale[dim]
+        )
+        extent[dim] = (min(first, last), max(first, last))
+    return extent
+
+
+def _extent_region(
+    extent: Mapping[str, tuple[float, float]], moving: NgffImage, padding: int
+) -> "ResampleBoundingBox":
+    """The region of ``moving`` that holds a physical ``extent``.
+
+    The arithmetic the pipeline applies to the points it walks: the extent in
+    the moving image's index space, floored and ceiled, padded. Equality with
+    the pipeline is pinned by ``test_the_extent_region_is_the_pipelines``.
+    """
     moving_dims = tuple(moving.dims)
     start_index = {}
     size = {}
@@ -465,25 +420,22 @@ def _identity_region(
     corners_max = {}
     padded_min = {}
     padded_max = {}
-    for dim in spatial:
-        extent = int(grid.data.shape[grid_dims.index(dim)])
-        first = float(grid.translation[dim])
-        last = first + (extent - 1) * float(grid.scale[dim])
+    for dim, (first, last) in extent.items():
         scale = float(moving.scale[dim])
         translation = float(moving.translation[dim])
-        low = (min(first, last) - translation) / scale
-        high = (max(first, last) - translation) / scale
+        low = (first - translation) / scale
+        high = (last - translation) / scale
         low, high = min(low, high), max(low, high)
         start = math.floor(low) - padding
         count = math.ceil(high) + padding - start + 1
         start_index[dim] = start
         size[dim] = count
-        corners_min[dim] = min(first, last)
-        corners_max[dim] = max(first, last)
+        corners_min[dim] = first
+        corners_max[dim] = last
         padded_min[dim] = translation + start * scale
         padded_max[dim] = translation + (start + count - 1) * scale
     return ResampleBoundingBox(
-        dims=tuple(spatial),
+        dims=tuple(extent),
         start_index=start_index,
         size=size,
         corners_min=corners_min,
@@ -491,42 +443,82 @@ def _identity_region(
         padded_corners_min=padded_min,
         padded_corners_max=padded_max,
         moving_shape={
-            dim: int(moving.data.shape[moving_dims.index(dim)]) for dim in spatial
+            dim: int(moving.data.shape[moving_dims.index(dim)]) for dim in extent
         },
     )
 
 
-def _field_stream(
+def _field_regions(
     transform,
-    fields: Mapping[str, object] | None,
-    fixed: NgffImage,
-    spatial: Sequence[str],
-    extent: Mapping[str, int],
-):
-    """The field a field transform names, its per-chunk range, and its window.
+    field: NgffImage,
+    grids: Mapping,
+    moving: NgffImage,
+    padding: int,
+) -> dict:
+    """The region a field transform makes each of ``grids`` read.
 
-    A ``displacements`` or ``coordinates`` transform is the identity plus a
-    displacement, so a region is the grid's own image moved and widened by
-    what the field can displace there. The range comes from the field's
-    values, read one chunk at a time and kept as two numbers per chunk, so a
-    field larger than memory is bounded without being held.
+    The walk the pipeline makes over the boundary of a grid, read off the
+    field samples that boundary lies between, in one pass over the field for
+    all the grids. A grid that touches no sample reads its own extent. One
+    that also has points beyond the field's lattice reads half a sample
+    further and its own extent as well: ITK displaces a point up to half a
+    sample beyond the lattice by what the nearest sample holds, and any
+    further point by nothing.
+    """
+    from .displacement_field_transform import field_boundary, field_reach
 
-    The field comes back carrying the axis type its component axis has, which
-    a field read from a multiscales keeps in the metadata rather than on the
-    image, so a crop of it is typed without consulting the transform again.
+    spatial = tuple(field.dims[1:])
+    boundaries = {
+        key: field_boundary(
+            field,
+            spatial,
+            grid.translation,
+            grid.scale,
+            [grid.data.shape[grid.dims.index(dim)] for dim in spatial],
+        )
+        for key, grid in grids.items()
+    }
+    reach = field_reach(
+        transform,
+        field,
+        spatial,
+        {key: slabs for key, (slabs, _outside) in boundaries.items()},
+    )
+    regions = {}
+    for key, grid in grids.items():
+        extent = _grid_extent(grid)
+        if key in reach:
+            outside = boundaries[key][1]
+            for dim, (first, last) in extent.items():
+                low, high = reach[key][dim]
+                if outside:
+                    half = abs(float(field.scale[dim])) / 2
+                    low = min(first, low - half)
+                    high = max(last, high + half)
+                extent[dim] = (low, high)
+        regions[key] = _extent_region(extent, moving, padding)
+    return regions
+
+
+def _typed_field(
+    transform, fields: Mapping[str, object] | None, spatial: Sequence[str]
+) -> NgffImage:
+    """The field a field transform names, carrying its component axis type.
+
+    A field read from a multiscales keeps that type in the metadata rather
+    than on the image, so it is set here and a crop of the field is typed
+    without consulting the transform again.
     """
     from .displacement_field_transform import (
         _fields_entry,
         check_unoriented_field,
-        field_displacement_bound,
         field_image,
-        field_window,
     )
 
     spatial = tuple(spatial)
     field = field_image(transform, _fields_entry(transform, fields), spatial)
     check_unoriented_field(field, spatial)
-    field = replace(
+    return replace(
         field,
         axes_types={
             **(field.axes_types or {}),
@@ -535,15 +527,6 @@ def _field_stream(
             ),
         },
     )
-    window, outside = field_window(
-        field,
-        spatial,
-        fixed.translation,
-        fixed.scale,
-        [extent[dim] for dim in spatial],
-    )
-    bound = field_displacement_bound(transform, field, spatial, window)
-    return field, bound, window, outside
 
 
 def _identity_transform_list(dims: Sequence[str]) -> list:
@@ -674,11 +657,12 @@ def resample_bounding_box(
     or a ``displacements`` or ``coordinates`` transformation whose field is
     passed in ``fields``.
 
-    A field transform is the identity plus a displacement, and the region it
-    reports is the grid's own image moved and widened by the range that
-    displacement takes. The range is read from the field one chunk at a time,
-    so a field larger than memory is never held; a field that shifts every
-    point the same way moves the region rather than widening it.
+    A field transform holds where each sample of its lattice goes, so its
+    region is the same boundary walk, read off the samples the boundary of
+    the grid lies between rather than made by the pipeline. It reports what
+    the pipeline reports for the field as an ITK transform, with the limits
+    named below, and the field is read one chunk at a time, so a field
+    larger than memory is never held.
 
     An ITK transform is measured by walking every boundary pixel of the
     grid through it. A transform that is continuous and does not fold
@@ -779,21 +763,15 @@ def resample_bounding_box(
             moving_shape=moving_shape,
         )
 
-    field_bound = None
     if _is_ngff_transform(transform):
         if isinstance(transform, (Coordinates, Displacements)):
-            # A field transform is the identity plus a displacement: the
-            # pipeline measures the identity, and the displacement widens the
-            # result through the range read off the field.
-            _field, bound, window, outside = _field_stream(
-                transform, fields, fixed, fixed_spatial, fixed_extent
-            )
-            field_bound = bound.over(window, outside)
-            transform_list = _identity_transform_list(fixed.dims)
-        else:
-            transform_list = ngff_transform_to_itk_transform(
-                transform, fixed.dims, fields=fields
-            )
+            field = _typed_field(transform, fields, fixed_spatial)
+            return _field_regions(transform, field, {None: fixed}, moving, padding)[
+                None
+            ]
+        transform_list = ngff_transform_to_itk_transform(
+            transform, fixed.dims, fields=fields
+        )
         # An RFC-5 transformation is defined on the intrinsic coordinate
         # system, which carries no direction matrix.
         fixed_direction = np.eye(len(itk_dims))
@@ -823,7 +801,7 @@ def resample_bounding_box(
         indexed = dict(zip(itk_dims, values))
         return {dim: indexed[dim] for dim in fixed_spatial}
 
-    region = ResampleBoundingBox(
+    return ResampleBoundingBox(
         dims=tuple(fixed_spatial),
         start_index={k: int(v) for k, v in by_dim(result["paddedStartIndex"]).items()},
         size={k: int(v) for k, v in by_dim(result["paddedSize"]).items()},
@@ -837,6 +815,3 @@ def resample_bounding_box(
         },
         moving_shape=moving_shape,
     )
-    if field_bound is None:
-        return region
-    return _grown(region, field_bound, moving)

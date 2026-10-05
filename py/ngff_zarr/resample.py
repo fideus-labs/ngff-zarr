@@ -16,15 +16,14 @@ from .ngff_transform_to_itk_transform import ngff_transform_to_itk_transform
 from .resample_bounding_box import (
     _as_itk_transform_list,
     _check_geometry,
-    _field_stream,
-    _grown,
-    _identity_region,
+    _field_regions,
     _identity_transform_list,
     _is_ngff_transform,
     _itk_direction,
     _metadata_only_itk_image,
     _shifted_translation,
     _spatial_dims,
+    _typed_field,
     _windowed_fields,
     resample_bounding_box,
 )
@@ -365,10 +364,10 @@ def resample(
     An RFC-5 ``displacements`` or ``coordinates`` field is streamed the same
     way. A block reads the window of the field its own points fall in, and
     that window becomes the block's ITK transform; what sizes the block's
-    moving read is the range of displacement that window holds. The field is
-    passed over once when the graph is built, a chunk at a time, to learn that
-    range per chunk. Neither the moving image nor the field has to fit in
-    memory.
+    moving read is where the field sends the samples on the block's boundary.
+    The field is passed over once when the graph is built, a chunk at a time,
+    to learn that for every block. Neither the moving image nor the field has
+    to fit in memory.
 
     A window declares its own origin, and on a float64 moving image that
     changes the last bits of the continuous index ITK computes from it, so
@@ -469,19 +468,10 @@ def resample(
     dtype = moving.data.dtype
     out_orientations = fixed.axes_orientations
     field = None
-    field_bound = None
     window_fields = False
     if _is_ngff_transform(transform):
         if isinstance(transform, (Coordinates, Displacements)):
-            # The blocks divide the grid, so the grid's own window is the
-            # union of theirs: the pass reads no chunk no block asks about.
-            field, field_bound, _window, _outside = _field_stream(
-                transform,
-                fields,
-                fixed,
-                fixed_spatial,
-                dict(zip(fixed.dims, fixed.data.shape)),
-            )
+            field = _typed_field(transform, fields, fixed_spatial)
             transform_list = _identity_transform_list(fixed.dims)
         else:
             transform_list = ngff_transform_to_itk_transform(
@@ -555,7 +545,9 @@ def resample(
         }
         shape = tuple(int(out_chunks[axis][index[axis]]) for axis in range(len(index)))
         grids[index] = _block_grid(fixed, starts, shape)
-    if field is None:
+    if field is not None:
+        regions = _field_regions(transform, field, grids, moving, padding)
+    else:
         # One pipeline call per block, each independent of the others.
         with ThreadPoolExecutor(_REGION_THREADS) as pool:
             regions = dict(
@@ -572,17 +564,11 @@ def resample(
     for index, grid in grids.items():
         shape = grid.data.shape
         block_transform = transform_key
+        region = regions[index]
         if field is not None:
-            window, outside = field_window(
+            window, _outside = field_window(
                 field, tuple(fixed.dims), grid.translation, grid.scale, shape
             )
-            region = _grown(
-                _identity_region(grid, moving, padding),
-                field_bound.over(window, outside),
-                moving,
-            )
-        else:
-            region = regions[index]
         if region.is_empty:
             graph[(name, *index)] = (np.full, shape, default_value, dtype)
             continue
