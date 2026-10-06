@@ -136,6 +136,87 @@ export function gateAxisViews(
 }
 
 /**
+ * Refuse a scale or translation whose vector does not span the axes it
+ * applies to: `transform`'s own vectors, then those of its sequence members,
+ * which span what the sequence spans. `systems` maps a coordinate system
+ * name to its axis count, so a transform naming one spans that count;
+ * otherwise it spans `inherited`. Mirrors the Python `_gate_spans`.
+ */
+export function gateSpans(
+  transform: unknown,
+  where: string,
+  systems: Map<string, number>,
+  inherited: Set<number>,
+): void {
+  const record = transform as Record<string, unknown>;
+  const named = new Set<number>();
+  for (const side of ["input", "output"]) {
+    const reference = record[side] as { name?: unknown } | undefined;
+    const count = typeof reference?.name === "string"
+      ? systems.get(reference.name)
+      : undefined;
+    if (count !== undefined) {
+      named.add(count);
+    }
+  }
+  const spans = named.size > 0 ? named : inherited;
+  for (const kind of ["scale", "translation"]) {
+    const vector = record[kind];
+    if (Array.isArray(vector) && !spans.has(vector.length)) {
+      const axes = [...spans].sort((a, b) => a - b).join(" or ");
+      throw new Error(
+        `${where} (${record.type}) gives ${vector.length} ${kind} values ` +
+          `for the ${axes} axes it applies to; a transform that does not ` +
+          "span its axes cannot be applied by a reader.",
+      );
+    }
+  }
+  const members = record.transformations;
+  if (Array.isArray(members)) {
+    members.forEach((member, position) =>
+      gateSpans(member, `${where}.transformations[${position}]`, systems, spans)
+    );
+  }
+}
+
+/**
+ * Refuse a scale or translation whose vector does not span the axes it
+ * applies to, at the multiscales level and the dataset level alike. A
+ * transform naming a coordinate system spans that system's axes; any other
+ * spans the intrinsic axes. Mirrors the Python `_gate_transform_arity`.
+ */
+function gateTransformArity(metadata: MetadataInterface): void {
+  const systems = new Map(
+    (metadata.coordinateSystems ?? []).map((
+      system,
+    ) => [system.name, system.axes.length]),
+  );
+  const intrinsic = metadata.axes.length;
+  if (intrinsic === 0) {
+    return;
+  }
+  const levels: Array<[string, unknown[]]> = [
+    ["the multiscales", metadata.coordinateTransformations ?? []],
+  ];
+  for (const dataset of metadata.datasets) {
+    levels.push([
+      `dataset '${dataset.path}'`,
+      dataset.coordinateTransformations ?? [],
+    ]);
+  }
+  for (const [where, transforms] of levels) {
+    transforms.forEach((transform, index) =>
+      gateSpans(
+        transform,
+        `${where} coordinateTransformations[${index}]`,
+        systems,
+        new Set([intrinsic]),
+      )
+    );
+  }
+}
+
+/**
  * Process axes for serialization.
  * Anatomical orientation (RFC 4) is included whenever an axis carries it;
  * axes without orientation simply omit the field.
@@ -192,6 +273,7 @@ export function buildRootAttributes(
   version: "0.4" | "0.5" | "0.6" | "0.9.dev1",
 ): Record<string, unknown> {
   gateAxisModel(metadata, version);
+  gateTransformArity(metadata);
 
   // Process axes (orientation included when present).
   const processedAxes = processAxes(metadata.axes);

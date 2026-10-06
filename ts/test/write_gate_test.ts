@@ -204,6 +204,54 @@ Deno.test("write gate - message bytes match the Python port", () => {
   assertEquals(sixAxis.message, CANONICAL_GATE_MESSAGE_AXIS_COUNT);
 });
 
+/** The Python port's message for a two-value scale over three axes. */
+const CANONICAL_GATE_MESSAGE_SPAN =
+  "the multiscales coordinateTransformations[0] (scale) gives 2 scale " +
+  "values for the 3 axes it applies to; a transform that does not span its " +
+  "axes cannot be applied by a reader.";
+
+for (const values of [[2.0, 2.0], [2.0, 2.0, 2.0, 2.0]]) {
+  Deno.test(`a transform of ${values.length} values over 3 axes is refused`, () => {
+    // The 0.4 and 0.5 models validate nothing of their own and the schemas
+    // constrain what these vectors hold, not how many. Short and long both.
+    const metadata = buildMetadata([space("z"), space("y"), space("x")]);
+    metadata.coordinateTransformations = [createScale(values)];
+    const error = assertThrows(
+      () => buildRootAttributes(metadata, "0.4"),
+      Error,
+      "span its axes",
+    );
+    if (values.length === 2) {
+      assertEquals(error.message, CANONICAL_GATE_MESSAGE_SPAN);
+    }
+  });
+}
+
+Deno.test("a dataset-level transform is checked too", () => {
+  const metadata = buildMetadata([space("z"), space("y"), space("x")]);
+  metadata.datasets[0].coordinateTransformations = [createScale([2.0, 2.0])];
+  assertThrows(
+    () => buildRootAttributes(metadata, "0.4"),
+    Error,
+    "dataset '0' coordinateTransformations[0] (scale) gives 2 scale values",
+  );
+});
+
+Deno.test("a transform naming a coordinate system spans that system", () => {
+  const metadata = buildMetadata([space("y"), space("x")]);
+  metadata.coordinateSystems = [
+    { name: "intrinsic", axes: metadata.axes },
+    { name: "volume", axes: [space("z"), space("y"), space("x")] },
+  ];
+  metadata.coordinateTransformations = [{
+    type: "scale",
+    scale: [1.0, 1.0, 1.0],
+    input: { name: "volume" },
+    output: { name: "volume" },
+  }];
+  buildRootAttributes(metadata, "0.6");
+});
+
 Deno.test("the browser reader routes a 0.9.dev1 store through the v0.6 reader", async () => {
   // The browser build dispatched on `isV06Version` alone, which does not cover
   // 0.9.dev1, so a store this package's own 0.9 writer produced fell through to

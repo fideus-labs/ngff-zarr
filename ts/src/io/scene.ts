@@ -39,7 +39,7 @@ import {
 import type { ChunkCache } from "../utils/worker_pool.ts";
 import { fromOmeZarr } from "./from_ngff_zarr.ts";
 import { toOmeZarr } from "./to_ngff_zarr.ts";
-import { gateAxisViews } from "./to_ngff_zarr_ozx_common.ts";
+import { gateAxisViews, gateSpans } from "./to_ngff_zarr_ozx_common.ts";
 
 /** The versions whose metadata model defines scenes. */
 export const SCENE_VERSIONS: readonly string[] = [
@@ -169,38 +169,6 @@ function fieldPaths(transforms: V06Transform[]): Set<string> {
   return paths;
 }
 
-/**
- * Refuse a scale or translation whose vector does not span the axes it
- * applies to; a member of a sequence spans what the sequence spans.
- */
-function checkSpans(
-  transform: V06Transform,
-  where: string,
-  spans: Set<number>,
-): void {
-  for (const kind of ["scale", "translation"] as const) {
-    const vector = (transform as unknown as Record<string, unknown>)[kind];
-    if (Array.isArray(vector) && !spans.has(vector.length)) {
-      const axes = [...spans].sort((a, b) => a - b).join(" or ");
-      throw new Error(
-        `${where} (${transform.type}) gives ${vector.length} ${kind} values ` +
-          `for the ${axes} axes it applies to; a transform that does not ` +
-          "span its axes cannot be applied by a reader.",
-      );
-    }
-  }
-  const members = (transform as { transformations?: unknown }).transformations;
-  if (Array.isArray(members)) {
-    members.forEach((member, position) =>
-      checkSpans(
-        member as V06Transform,
-        `${where}.transformations[${position}]`,
-        spans,
-      )
-    );
-  }
-}
-
 type Node = ["scene" | "image", string];
 
 /**
@@ -314,7 +282,12 @@ export function checkScene(scene: NgffScene, version: string = "0.6"): void {
     }
 
     const where = `coordinateTransformations[${index}]`;
-    checkSpans(transform, where, new Set(systems.map((s) => s.axes.length)));
+    gateSpans(
+      transform,
+      where,
+      new Map(),
+      new Set(systems.map((s) => s.axes.length)),
+    );
     // The reader's own checks, against the two systems the transformation
     // joins. They resolve a reference by name, so the probe names its ends
     // apart when both refer to systems that share a name.
