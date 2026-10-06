@@ -75,7 +75,8 @@ implementation details.
 - **RFC-4**: [Anatomical orientation support](./rfc4.md), allowing images to
   include metadata about their anatomical orientation.
 - **RFC-5**: [Coordinate systems and transformations](./rfc5.md) for OME-Zarr
-  v0.6, including affine transforms and displacement/coordinate fields.
+  v0.6, including affine transforms, displacement/coordinate fields, and
+  scenes.
 - **RFC-9**: [OME-Zarr Zip (.ozx) format support](https://ngff.openmicroscopy.org/rfc/9/index.html),
   enabling single-file distribution of OME-Zarr datasets.
 

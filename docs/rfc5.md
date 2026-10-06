@@ -314,6 +314,99 @@ and `resample` resamples the grid block by block through the same
 transformation. See [Out-of-core resampling](./itk.md#out-of-core-resampling)
 and [Converting transforms](./itk.md#converting-transforms).
 
+## Scenes
+
+A **scene** is the group above a set of images that share a spatial
+relationship: the tiles of one sample, or the same sample imaged by two
+instruments. Its `ome.scene` metadata holds the `coordinateTransformations`
+between the images' coordinate systems and, optionally, `coordinateSystems` of
+its own, such as a common world system the images map into. Each end of a
+transformation is a `CoordinateSystemIdentifier`: with a `path` it names a
+coordinate system of the image at that path, without one a system the scene
+declares. The images are ordinary multiscales groups below the scene:
+
+```
+scene.ome.zarr
+├── zarr.json      # ome.scene: the transformations between the images
+├── tile_0
+│   └── zarr.json  # ome.multiscales, declares the "intrinsic" system
+└── tile_1
+    └── zarr.json
+```
+
+`to_scene_zarr` writes the scene metadata and every image in one call, and
+`from_scene_zarr` reads the scene back with the images its transformations
+reference:
+
+```python
+import numpy as np
+import ngff_zarr as nz
+from ngff_zarr import CoordinateSystem, CoordinateSystemIdentifier, NgffScene
+from ngff_zarr.v06.zarr_metadata import Axis, Translation
+
+
+def tile(seed):
+    rng = np.random.default_rng(seed)
+    image = nz.to_ngff_image(
+        rng.integers(0, 255, (256, 256), dtype=np.uint8),
+        dims=["y", "x"],
+        scale={"y": 0.5, "x": 0.5},
+        axes_units={"y": "micrometer", "x": "micrometer"},
+    )
+    return nz.to_multiscales(image, scale_factors=[2])
+
+
+world = CoordinateSystem(
+    name="world",
+    axes=[
+        Axis(name="y", type="space", unit="micrometer"),
+        Axis(name="x", type="space", unit="micrometer"),
+    ],
+)
+
+
+def to_world(path, offset):
+    # "intrinsic" is the coordinate system to_multiscales declares on an image.
+    return Translation(
+        translation=offset,
+        input=CoordinateSystemIdentifier(path=path, name="intrinsic"),
+        output=CoordinateSystemIdentifier(name="world"),
+    )
+
+
+scene = NgffScene(
+    images={"tile_0": tile(0), "tile_1": tile(1)},
+    coordinateSystems=[world],
+    coordinateTransformations=[
+        to_world("tile_0", [0.0, 0.0]),
+        to_world("tile_1", [0.0, 128.0]),
+    ],
+)
+nz.to_scene_zarr("scene.ome.zarr", scene, version="0.6")
+
+scene = nz.from_scene_zarr("scene.ome.zarr")
+scene.images["tile_1"]  # an NgffMultiscales, its pixels read lazily
+scene.coordinateTransformations[1].translation  # [0.0, 128.0]
+```
+
+Before anything is written, every transformation end has to resolve, to a
+system the scene declares or to one the image at its path declares, and the
+scene's coordinate systems and images have to form one connected graph; a
+scene that fails either check raises `ValueError`. `from_scene_zarr(store,
+validate=True)` runs the same checks on a store, after validating its root
+metadata against the `scene` schema and each image against the `image`
+schema. The first scene coordinate system is the reference a viewer displays
+by default, so declare the common system first. A scene reads from a local
+directory, a remote URL or an `.ozx` archive, and `to_scene_zarr` passes its
+other keyword arguments, such as `chunks_per_shard`, to `to_ome_zarr` for
+every image.
+
+A transformation whose parameters are an array, such as a `displacements`
+field between two images, references the array by `path` as the
+[section above](#write-an-image-and-its-transformation-into-one-store)
+describes; the spec keeps those arrays in a `coordinateTransformations` group
+beside the images.
+
 ## TypeScript
 
 The TypeScript package (`@fideus-labs/ngff-zarr`) mirrors the Python API. Field
