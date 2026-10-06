@@ -466,6 +466,63 @@ const field2 = await fromOmeZarr(`${store}/${(transform as { path: string }).pat
 });
 ```
 
+A scene is written and read the same way, with `toSceneZarr` and
+`fromSceneZarr` mirroring the Python functions:
+
+```typescript
+import {
+  fromSceneZarr,
+  type NgffScene,
+  toMultiscales,
+  toNgffImage,
+  toSceneZarr,
+} from "@fideus-labs/ngff-zarr";
+
+async function tile(seed: number) {
+  const data = new Uint8Array(256 * 256).map((_, i) => (i * 31 + seed) % 256);
+  const image = await toNgffImage(data, {
+    dims: ["y", "x"],
+    shape: [256, 256],
+    scale: { y: 0.5, x: 0.5 },
+  });
+  return toMultiscales(image, { scaleFactors: [2] });
+}
+
+const scene: NgffScene = {
+  images: { tile_0: await tile(0), tile_1: await tile(1) },
+  coordinateSystems: [{
+    name: "world",
+    axes: [
+      { name: "y", type: "space", unit: "micrometer" },
+      { name: "x", type: "space", unit: "micrometer" },
+    ],
+  }],
+  coordinateTransformations: [
+    {
+      type: "translation",
+      translation: [0, 0],
+      input: { path: "tile_0", name: "intrinsic" },
+      output: { name: "world" },
+    },
+    {
+      type: "translation",
+      translation: [0, 128],
+      input: { path: "tile_1", name: "intrinsic" },
+      output: { name: "world" },
+    },
+  ],
+};
+await toSceneZarr("scene.ome.zarr", scene, { version: "0.6" });
+
+const read = await fromSceneZarr("scene.ome.zarr", { validate: true });
+read.images.tile_1; // an NgffMultiscales, its pixels read lazily
+```
+
+The same checks run as in Python: every transformation end has to resolve
+and the coordinate systems and images have to form one connected graph,
+before anything is written and, with `validate: true`, after reading. A
+scene reads from a local directory or an HTTP(S) URL.
+
 ## Compatibility
 
 The v0.6 data model requires a Zarr v3 store; the zarrista-backed writer
