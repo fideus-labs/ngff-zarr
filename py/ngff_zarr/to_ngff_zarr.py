@@ -485,6 +485,11 @@ def _gate_axis_model(metadata, version) -> None:
     the datasets reference -- so a model refused at 0.6 may be accepted at 0.4
     with the other systems silently discarded.
     """
+    _gate_axis_views(_axis_views(metadata), version)
+
+
+def _gate_axis_views(views: list[tuple[str, _AxisView]], version) -> None:
+    """Apply the axis rules of ``version`` to each ``(location, view)`` pair."""
     from .structural_validation import (
         SpecRule,
         ValidationError,
@@ -502,7 +507,7 @@ def _gate_axis_model(metadata, version) -> None:
         validate_spatial_axis_order,
         validate_axis_names_unique,
     )
-    for location, view in _axis_views(metadata):
+    for location, view in views:
         for rule in rules:
             try:
                 rule(view, version)

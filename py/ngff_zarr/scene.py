@@ -13,11 +13,14 @@ https://ngff.openmicroscopy.org/0.6/#scene-md.
 
 from __future__ import annotations
 
+import copy
 import os
 import posixpath
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from ._store_types import StoreLike
 from ._supported_versions import V06_ONDISK_VERSION, NgffVersion
@@ -54,39 +57,85 @@ class NgffScene:
 
 
 def _check_image_path(path: object) -> None:
-    """Reject an image path that is not a plain path below the scene group."""
-    if not isinstance(path, str) or not path:
-        raise ValueError(
-            f"Image path {path!r} must be a relative path below the scene group."
-        )
-    if any(part in ("", ".", "..") for part in path.split("/")):
-        raise ValueError(
-            f"Image path {path!r} must be a relative path below the scene group."
-        )
+    """Reject an image path that is not a plain path below the scene group.
 
-
-def _image_system_names(multiscales: NgffMultiscales) -> set[str]:
-    """The coordinate system names the image carries once written at 0.6."""
-    return {
-        system.name
-        for system in multiscales.metadata.to_version("0.6").coordinateSystems
-    }
-
-
-def _check_scene(scene: NgffScene) -> None:
-    """Raise ``ValueError`` unless every reference resolves and the graph is connected.
-
-    The coordinate systems of the scene and of its images are the nodes of a
-    graph whose edges are the transformations, and the spec requires that
-    graph to be connected. An image's own systems are connected through its
-    multiscales already, so each image counts as one node.
+    The path is joined to the store, so a backslash counts as a separator
+    (Windows does) and a percent-encoded part is read as a URL store does.
     """
+    parts = re.split(r"[\\/]", path) if isinstance(path, str) else [""]
+    if any(unquote(part) in ("", ".", "..") for part in parts):
+        raise ValueError(
+            f"Image path {path!r} must be a relative path below the scene group."
+        )
+
+
+def _image_systems(multiscales: NgffMultiscales) -> list[CoordinateSystem]:
+    """The coordinate systems the image carries once written at 0.6."""
+    return list(multiscales.metadata.to_version("0.6").coordinateSystems)
+
+
+def _field_paths(transforms: list[Transform]) -> set[str]:
+    """The paths of the arrays and field groups the transformations reference."""
+    paths: set[str] = set()
+    for transform in transforms:
+        path = getattr(transform, "path", None)
+        if isinstance(path, str):
+            paths.add(path)
+        paths |= _field_paths(
+            [
+                item.transformation if hasattr(item, "transformation") else item
+                for item in getattr(transform, "transformations", None) or ()
+            ]
+        )
+        paths |= _field_paths(
+            [
+                nested
+                for nested in (
+                    getattr(transform, "forward", None),
+                    getattr(transform, "inverse", None),
+                )
+                if nested is not None
+            ]
+        )
+    return paths
+
+
+def _check_scene(scene: NgffScene, version: str = "0.6") -> None:
+    """Raise ``ValueError`` unless the scene is one OME-Zarr ``version`` can express.
+
+    Every image path stays below the scene group; the scene's coordinate
+    systems carry unique names and an axis model the version allows; every
+    transformation names its ends, they resolve, to a system the scene
+    declares or to one of the image at its path, and the transformation holds
+    for the two systems it joins; and the coordinate systems and images form
+    one connected graph, as the spec requires. An image's own systems are
+    connected through its multiscales already, so each image counts as one
+    node.
+    """
+    from .to_ngff_zarr import _AxisView, _gate_axis_views, _gate_spans
+    from .v06.zarr_metadata import validate_transform
+
     for path in scene.images:
         _check_image_path(path)
     if not scene.coordinateTransformations:
         raise ValueError("A scene declares at least one coordinate transformation.")
 
-    local = {system.name for system in scene.coordinateSystems or []}
+    local: dict[str, CoordinateSystem] = {}
+    for system in scene.coordinateSystems or []:
+        if not system.name or system.name in local:
+            raise ValueError(
+                "Scene coordinateSystems names must be non-empty and unique; "
+                f"got {[s.name for s in scene.coordinateSystems]}."
+            )
+        local[system.name] = system
+    _gate_axis_views(
+        [
+            (f"scene.coordinateSystems[{index}].axes", _AxisView(list(system.axes)))
+            for index, system in enumerate(scene.coordinateSystems or [])
+        ],
+        version,
+    )
+
     nodes = {("scene", name) for name in local}
     nodes |= {("image", path) for path in scene.images}
     parent = dict(zip(nodes, nodes))
@@ -99,6 +148,7 @@ def _check_scene(scene: NgffScene) -> None:
 
     for index, transform in enumerate(scene.coordinateTransformations):
         ends = []
+        systems = []
         for side in ("input", "output"):
             where = f"coordinateTransformations[{index}].{side}"
             reference = getattr(transform, side, None)
@@ -117,6 +167,7 @@ def _check_scene(scene: NgffScene) -> None:
                         "the image that declares it."
                     )
                 ends.append(("scene", reference.name))
+                systems.append(local[reference.name])
                 continue
             image = scene.images.get(reference.path)
             if image is None:
@@ -125,13 +176,41 @@ def _check_scene(scene: NgffScene) -> None:
                     f"scene does not contain; its images are "
                     f"{sorted(scene.images)}."
                 )
-            names = _image_system_names(image)
-            if reference.name not in names:
+            declared = {system.name: system for system in _image_systems(image)}
+            if reference.name not in declared:
                 raise ValueError(
                     f"{where} names coordinate system {reference.name!r} of "
-                    f"image {reference.path!r}, which declares {sorted(names)}."
+                    f"image {reference.path!r}, which declares "
+                    f"{sorted(declared)}."
                 )
             ends.append(("image", reference.path))
+            systems.append(declared[reference.name])
+
+        where = f"coordinateTransformations[{index}]"
+        _gate_spans(transform, where, {}, {len(system.axes) for system in systems})
+        # The reader's own checks, against the two systems the transformation
+        # joins. They resolve a reference by name, so the probe names its
+        # ends apart when both refer to systems that share a name.
+        names = [transform.input.name, transform.output.name]
+        if names[0] == names[1] and systems[0] is not systems[1]:
+            names = ["input", "output"]
+        probe = copy.copy(transform)
+        probe.input = CoordinateSystemIdentifier(name=names[0])
+        probe.output = CoordinateSystemIdentifier(name=names[1])
+        try:
+            validate_transform(
+                probe,
+                [
+                    CoordinateSystem(name=names[0], axes=systems[0].axes),
+                    CoordinateSystem(name=names[1], axes=systems[1].axes),
+                ],
+                version,
+            )
+        except ValueError as invalid:
+            raise ValueError(
+                f"{where} ({transform.type}) would be written as a transform "
+                f"this package cannot read back: {invalid}"
+            ) from invalid
         parent[find(ends[0])] = find(ends[1])
 
     groups: dict[tuple, list[str]] = {}
@@ -231,7 +310,10 @@ def to_scene_zarr(
 
     :param overwrite: If True, delete any pre-existing data in ``store`` first.
         If False, keep the root group's other attributes and any other content;
-        the images are written over whatever their paths hold.
+        the images are written over whatever their paths hold. A transformation
+        that references an array or a field group by ``path``, such as a
+        ``displacements`` field, needs that node written first, below the
+        scene's store, and the scene written with ``overwrite=False``.
     :type  overwrite: bool, optional
 
     :param consolidate_metadata: If True (default), write consolidated metadata
@@ -253,11 +335,34 @@ def to_scene_zarr(
         raise ValueError(
             f"Scene metadata is defined from OME-Zarr 0.6; got version {version!r}."
         )
-    _check_scene(scene)
-    ondisk = V06_ONDISK_VERSION.value if version == "0.6" else version
+    _check_scene(scene, version)
     store_path = normalize_store(store)
+    # An array-backed transformation points at a node of the store, which
+    # the scene writer does not produce: it has to be there already, so it is
+    # written first and the scene keeps it.
+    fields = sorted(_field_paths(scene.coordinateTransformations))
+    for path in fields:
+        _check_image_path(path)
+    if fields and overwrite:
+        raise ValueError(
+            f"The scene's transformations reference the nodes {fields}; write "
+            "those first with to_ome_zarr() below the scene's store, then the "
+            "scene with overwrite=False so they are kept."
+        )
+    for path in fields:
+        if not (store_path.joinpath(*path.split("/")) / "zarr.json").exists():
+            raise ValueError(
+                f"The scene's transformations reference {path!r}, which the "
+                "store does not hold; write it first with to_ome_zarr() below "
+                "the scene's store, then the scene with overwrite=False."
+            )
+    ondisk = V06_ONDISK_VERSION.value if version == "0.6" else version
     root_attrs = {"ome": {"version": ondisk, "scene": _scene_to_dict(scene)}}
     create_zarrista_group(store_path, root_attrs, 3, overwrite=overwrite)
+    for path in fields:
+        parent = posixpath.dirname(path)
+        if parent:
+            create_zarrista_subgroup(store_path, parent, None, 3)
     for path, multiscales in scene.images.items():
         parent = posixpath.dirname(path)
         if parent:
@@ -355,5 +460,5 @@ def from_scene_zarr(
         coordinateSystems=systems,
     )
     if validate:
-        _check_scene(scene)
+        _check_scene(scene, version)
     return scene

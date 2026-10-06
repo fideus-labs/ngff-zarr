@@ -11,6 +11,7 @@ import {
   type Bijection,
   type CoordinateSystem,
   type Displacements,
+  fromOmeZarr,
   fromSceneZarr,
   type NgffMultiscales,
   type NgffScene,
@@ -228,6 +229,130 @@ for (const [label, transforms, message] of REFUSALS) {
   });
 }
 
+Deno.test("write refuses duplicate or empty system names", async () => {
+  await withTempDir(async (dir) => {
+    const { scene } = await tilesScene();
+    scene.coordinateSystems = [world(), world()];
+    await assertRejects(
+      () => toSceneZarr(`${dir}/tiles.ome.zarr`, scene),
+      Error,
+      "non-empty and unique",
+    );
+  });
+});
+
+Deno.test("scene axis model follows the version", async () => {
+  await withTempDir(async (dir) => {
+    const { scene } = await tilesScene();
+    scene.coordinateSystems![0].axes = [..."abcdef"].map((name) => ({
+      name,
+      type: "space",
+      unit: undefined,
+    }));
+    await assertRejects(
+      () => toSceneZarr(`${dir}/v06.ome.zarr`, scene),
+      Error,
+      "scene.coordinateSystems[0].axes",
+    );
+    await toSceneZarr(`${dir}/dev1.ome.zarr`, scene, { version: "0.9.dev1" });
+    const read = await fromSceneZarr(`${dir}/dev1.ome.zarr`, {
+      validate: true,
+    });
+    assertEquals(
+      read.coordinateSystems![0].axes.map((axis) => axis.name),
+      [..."abcdef"],
+    );
+  });
+});
+
+Deno.test("write refuses vectors that do not span their systems", async () => {
+  await withTempDir(async (dir) => {
+    const { scene } = await tilesScene();
+    (scene.coordinateTransformations[0] as Translation).translation = [0, 0, 0];
+    await assertRejects(
+      () => toSceneZarr(`${dir}/tiles.ome.zarr`, scene),
+      Error,
+      "3 translation values for the 2 axes",
+    );
+  });
+});
+
+Deno.test("write refuses transforms the reader rejects", async () => {
+  await withTempDir(async (dir) => {
+    const { scene } = await tilesScene();
+    scene.coordinateTransformations[0] = {
+      type: "mapAxis",
+      mapAxis: [0, 1, 2],
+      input: { path: "tile_0", name: "intrinsic" },
+      output: { name: "world" },
+    };
+    await assertRejects(
+      () => toSceneZarr(`${dir}/tiles.ome.zarr`, scene),
+      Error,
+      "cannot read back",
+    );
+  });
+});
+
+Deno.test("scene with a displacement field between two images", async () => {
+  await withTempDir(async (dir) => {
+    const { scene } = await tilesScene();
+    const fieldPath = "coordinateTransformations/dfield";
+    const warp: Displacements = {
+      type: "displacements",
+      path: fieldPath,
+      interpolation: "linear",
+      input: { path: "tile_0", name: "intrinsic" },
+      output: { path: "tile_1", name: "intrinsic" },
+    };
+    scene.coordinateTransformations.push(warp);
+    const store = `${dir}/registered.ome.zarr`;
+
+    await assertRejects(
+      () => toSceneZarr(store, scene),
+      Error,
+      "write those first",
+    );
+    await assertRejects(
+      () => toSceneZarr(store, scene, { overwrite: false }),
+      Error,
+      "which the store does not hold",
+    );
+    await assertRejects(() => Deno.stat(store), Deno.errors.NotFound);
+
+    const field = await toNgffImage(new Float32Array(2 * 16 * 16), {
+      dims: ["c", "y", "x"],
+      shape: [2, 16, 16],
+      scale: { c: 1, y: 0.5, x: 0.5 },
+      translation: { c: 0, y: 0, x: 0 },
+      axesTypes: { c: "displacement" },
+    });
+    await toOmeZarr(
+      `${store}/${fieldPath}`,
+      await toMultiscales(field, {
+        scaleFactors: [],
+      }),
+      { version: "0.6" },
+    );
+    await toSceneZarr(store, scene, { overwrite: false });
+    const consolidated = (await rootDocument(store)).consolidated_metadata as {
+      metadata: Record<string, unknown>;
+    };
+    assertEquals("coordinateTransformations" in consolidated.metadata, true);
+    assertEquals(fieldPath in consolidated.metadata, true);
+
+    const read = await fromSceneZarr(store, { validate: true });
+    assertEquals(read.coordinateTransformations[2], warp);
+    const fieldRead = await fromOmeZarr(`${store}/${fieldPath}`, {
+      version: "0.6",
+    });
+    assertEquals(
+      fieldRead.metadata.coordinateSystems![0].axes.map((axis) => axis.type),
+      ["displacement", "space", "space"],
+    );
+  });
+});
+
 Deno.test("write refuses paths outside the scene", async () => {
   await withTempDir(async (dir) => {
     const { scene } = await tilesScene(["../tile_0", "tile_1"]);
@@ -276,27 +401,27 @@ Deno.test("read validates references against the store", async () => {
   });
 });
 
-Deno.test("read refuses image paths outside the scene", async () => {
-  await withTempDir(async (dir) => {
-    const { scene } = await tilesScene();
-    const store = `${dir}/tiles.ome.zarr`;
-    await toSceneZarr(store, scene, { consolidateMetadata: false });
-    const document = await rootDocument(store);
-    const ome = (document.attributes as Record<string, unknown>).ome as Record<
-      string,
-      unknown
-    >;
-    const transforms = (ome.scene as Record<string, unknown>)
-      .coordinateTransformations as Array<{ input: { path: string } }>;
-    transforms[0].input.path = "../tile_0";
-    await Deno.writeTextFile(`${store}/zarr.json`, JSON.stringify(document));
-    await assertRejects(
-      () => fromSceneZarr(store),
-      Error,
-      "relative path below the scene group",
-    );
+for (const path of ["../tile_0", "..\\tile_0", "%2e%2e/tile_0", "/tile_0"]) {
+  Deno.test(`read refuses the image path ${path} outside the scene`, async () => {
+    await withTempDir(async (dir) => {
+      const { scene } = await tilesScene();
+      const store = `${dir}/tiles.ome.zarr`;
+      await toSceneZarr(store, scene, { consolidateMetadata: false });
+      const document = await rootDocument(store);
+      const ome = (document.attributes as Record<string, unknown>)
+        .ome as Record<string, unknown>;
+      const transforms = (ome.scene as Record<string, unknown>)
+        .coordinateTransformations as Array<{ input: { path: string } }>;
+      transforms[0].input.path = path;
+      await Deno.writeTextFile(`${store}/zarr.json`, JSON.stringify(document));
+      await assertRejects(
+        () => fromSceneZarr(store),
+        Error,
+        "relative path below the scene group",
+      );
+    });
   });
-});
+}
 
 Deno.test("read refuses an image store", async () => {
   await withTempDir(async (dir) => {

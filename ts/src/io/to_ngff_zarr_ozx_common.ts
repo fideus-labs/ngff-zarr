@@ -89,6 +89,14 @@ function gateAxisModel(
   metadata: MetadataInterface,
   version: string,
 ): void {
+  gateAxisViews(axisViews(metadata, version), version);
+}
+
+/** Apply the axis rules of `version` to each `{ location, axes }` view. */
+export function gateAxisViews(
+  views: Array<{ location: string; axes: Axis[] }>,
+  version: string,
+): void {
   const rules = [
     validateAxisCount,
     validateAxisType,
@@ -96,7 +104,7 @@ function gateAxisModel(
     validateSpatialAxisOrder,
     validateAxisNamesUnique,
   ];
-  for (const view of axisViews(metadata, version)) {
+  for (const view of views) {
     for (const rule of rules) {
       try {
         rule({ axes: view.axes }, version);

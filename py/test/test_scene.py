@@ -26,6 +26,7 @@ from ngff_zarr.v06.zarr_metadata import (
     Axis,
     Bijection,
     Displacements,
+    MapAxis,
     TransformSequence,
     Translation,
 )
@@ -193,6 +194,92 @@ def test_write_refuses_unresolved_or_disconnected_scenes(tmp_path, transforms, m
     assert not store.exists()
 
 
+def test_write_refuses_duplicate_or_empty_system_names(tmp_path):
+    _, scene = _tiles_scene()
+    scene.coordinateSystems = [_world(), _world()]
+    with pytest.raises(ValueError, match="non-empty and unique"):
+        to_scene_zarr(tmp_path / "tiles.ome.zarr", scene)
+
+
+def test_scene_axis_model_follows_the_version(tmp_path):
+    _, scene = _tiles_scene()
+    scene.coordinateSystems[0].axes = [Axis(name=n, type="space") for n in "abcdef"]
+    with pytest.raises(ValueError, match=r"scene.coordinateSystems\[0\].axes"):
+        to_scene_zarr(tmp_path / "v06.ome.zarr", scene)
+    to_scene_zarr(tmp_path / "dev1.ome.zarr", scene, version="0.9.dev1")
+    read = from_scene_zarr(tmp_path / "dev1.ome.zarr", validate=True)
+    assert [axis.name for axis in read.coordinateSystems[0].axes] == list("abcdef")
+
+
+def test_write_refuses_vectors_that_do_not_span_their_systems(tmp_path):
+    _, scene = _tiles_scene()
+    scene.coordinateTransformations[0].translation = [0.0, 0.0, 0.0]
+    with pytest.raises(ValueError, match="3 translation values for the 2 axes"):
+        to_scene_zarr(tmp_path / "tiles.ome.zarr", scene)
+
+
+def test_write_refuses_transforms_the_reader_rejects(tmp_path):
+    _, scene = _tiles_scene()
+    scene.coordinateTransformations[0] = MapAxis(
+        mapAxis=[0, 1, 2],
+        input=CoordinateSystemIdentifier(path="tile_0", name="intrinsic"),
+        output=CoordinateSystemIdentifier(name="world"),
+    )
+    with pytest.raises(ValueError, match="cannot read back.*mapAxis length 3"):
+        to_scene_zarr(tmp_path / "tiles.ome.zarr", scene)
+
+
+def _displacement_field():
+    import dask.array as da
+    from ngff_zarr import AxisType, NgffImage
+
+    field = NgffImage(
+        data=da.zeros((2, 16, 16), dtype=np.float32),
+        dims=("c", "y", "x"),
+        scale={"c": 1.0, "y": 0.5, "x": 0.5},
+        translation={"c": 0.0, "y": 0.0, "x": 0.0},
+        axes_types={"c": AxisType.Displacement},
+    )
+    return to_multiscales(field, scale_factors=[])
+
+
+def test_scene_with_a_displacement_field_between_two_images(tmp_path):
+    from ngff_zarr import from_ome_zarr
+
+    _, scene = _tiles_scene()
+    field_path = "coordinateTransformations/dfield"
+    warp = Displacements(
+        path=field_path,
+        interpolation="linear",
+        input=CoordinateSystemIdentifier(path="tile_0", name="intrinsic"),
+        output=CoordinateSystemIdentifier(path="tile_1", name="intrinsic"),
+    )
+    scene.coordinateTransformations.append(warp)
+    store = tmp_path / "registered.ome.zarr"
+
+    with pytest.raises(ValueError, match="write those first"):
+        to_scene_zarr(store, scene)
+    with pytest.raises(ValueError, match="which the store does not hold"):
+        to_scene_zarr(store, scene, overwrite=False)
+    assert not store.exists()
+
+    to_ome_zarr(store / field_path, _displacement_field(), version="0.6")
+    to_scene_zarr(store, scene, overwrite=False)
+    document = _root_document(store)
+    consolidated = document["consolidated_metadata"]["metadata"]
+    assert "coordinateTransformations" in consolidated
+    assert f"{field_path}/scale0/image" in consolidated
+
+    read = from_scene_zarr(store, validate=True)
+    assert read.coordinateTransformations[2] == warp
+    field = from_ome_zarr(store / read.coordinateTransformations[2].path)
+    assert [axis.type for axis in field.metadata.coordinateSystems[0].axes] == [
+        "displacement",
+        "space",
+        "space",
+    ]
+
+
 def test_write_refuses_paths_outside_the_scene(tmp_path):
     _, scene = _tiles_scene(("../tile_0", "tile_1"))
     with pytest.raises(ValueError, match="relative path below the scene group"):
@@ -224,13 +311,16 @@ def test_read_validates_references_against_the_store(tmp_path):
         from_scene_zarr(store, validate=True)
 
 
-def test_read_refuses_image_paths_outside_the_scene(tmp_path):
+@pytest.mark.parametrize(
+    "path", ["../tile_0", "..\\tile_0", "%2e%2e/tile_0", "/tile_0"]
+)
+def test_read_refuses_image_paths_outside_the_scene(tmp_path, path):
     _, scene = _tiles_scene()
     store = tmp_path / "tiles.ome.zarr"
     to_scene_zarr(store, scene, consolidate_metadata=False)
     document = _root_document(store)
     transforms = document["attributes"]["ome"]["scene"]["coordinateTransformations"]
-    transforms[0]["input"]["path"] = "../tile_0"
+    transforms[0]["input"]["path"] = path
     (store / "zarr.json").write_text(json.dumps(document))
     with pytest.raises(ValueError, match="relative path below the scene group"):
         from_scene_zarr(store)

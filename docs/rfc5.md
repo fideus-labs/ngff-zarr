@@ -389,23 +389,48 @@ scene.images["tile_1"]  # an NgffMultiscales, its pixels read lazily
 scene.coordinateTransformations[1].translation  # [0.0, 128.0]
 ```
 
-Before anything is written, every transformation end has to resolve, to a
-system the scene declares or to one the image at its path declares, and the
-scene's coordinate systems and images have to form one connected graph; a
-scene that fails either check raises `ValueError`. `from_scene_zarr(store,
-validate=True)` runs the same checks on a store, after validating its root
-metadata against the `scene` schema and each image against the `image`
-schema. The first scene coordinate system is the reference a viewer displays
-by default, so declare the common system first. A scene reads from a local
-directory, a remote URL or an `.ozx` archive, and `to_scene_zarr` passes its
-other keyword arguments, such as `chunks_per_shard`, to `to_ome_zarr` for
-every image.
+Before anything is written, the scene is checked against the spec: the
+scene's coordinate systems carry unique names and an axis model the version
+allows (five axes at most at 0.6, any at 0.9.dev1); every transformation end
+names a system, which resolves to one the scene declares or to one the image
+at its path declares; each transformation holds for the two systems it joins,
+so a translation spans their axes and a `mapAxis` permutes them; and the
+coordinate systems and images form one connected graph. A scene that fails a
+check raises `ValueError`. `from_scene_zarr(store, validate=True)` runs the
+same checks on a store, after validating its root metadata against the
+`scene` schema and each image against the `image` schema. The first scene
+coordinate system is the reference a viewer displays by default, so declare
+the common system first. A scene reads from a local directory, a remote URL
+or an `.ozx` archive, and `to_scene_zarr` passes its other keyword arguments,
+such as `chunks_per_shard`, to `to_ome_zarr` for every image.
 
 A transformation whose parameters are an array, such as a `displacements`
-field between two images, references the array by `path` as the
-[section above](#write-an-image-and-its-transformation-into-one-store)
-describes; the spec keeps those arrays in a `coordinateTransformations` group
-beside the images.
+field between two images, references it by `path`. The field is an OME-Zarr
+image of its own, which the spec keeps in a `coordinateTransformations` group
+beside the images, and the scene writer does not produce it: write it first,
+below the scene's store, then the scene with `overwrite=False` so it is kept.
+The writer checks that every referenced node is there, gives it the group
+documents of its ancestors, and includes it in the consolidated metadata.
+
+```python
+from ngff_zarr.v06.zarr_metadata import Displacements
+
+field_path = "coordinateTransformations/dfield"
+nz.to_ome_zarr(f"scene.ome.zarr/{field_path}", field_multiscales, version="0.6")
+
+scene.coordinateTransformations.append(
+    Displacements(
+        path=field_path,
+        interpolation="linear",
+        input=CoordinateSystemIdentifier(path="tile_0", name="intrinsic"),
+        output=CoordinateSystemIdentifier(path="tile_1", name="intrinsic"),
+    )
+)
+nz.to_scene_zarr("scene.ome.zarr", scene, overwrite=False)
+
+scene = nz.from_scene_zarr("scene.ome.zarr")
+field = nz.from_ome_zarr(f"scene.ome.zarr/{scene.coordinateTransformations[2].path}")
+```
 
 ## TypeScript
 
@@ -518,10 +543,10 @@ const read = await fromSceneZarr("scene.ome.zarr", { validate: true });
 read.images.tile_1; // an NgffMultiscales, its pixels read lazily
 ```
 
-The same checks run as in Python: every transformation end has to resolve
-and the coordinate systems and images have to form one connected graph,
-before anything is written and, with `validate: true`, after reading. A
-scene reads from a local directory or an HTTP(S) URL.
+The same checks run as in Python, before anything is written and, with
+`validate: true`, after reading. A scene reads from a local directory or an
+HTTP(S) URL. A field a transformation references by `path` is written first
+with `toOmeZarr`, then the scene with `{ overwrite: false }`.
 
 ## Compatibility
 

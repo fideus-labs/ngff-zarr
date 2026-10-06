@@ -34,10 +34,12 @@ import type { ChunksPerShard } from "../utils/sharding.ts";
 import {
   parseV06Transforms,
   serializeV06Transform,
+  validateV06Transform,
 } from "../utils/v06_metadata.ts";
 import type { ChunkCache } from "../utils/worker_pool.ts";
 import { fromOmeZarr } from "./from_ngff_zarr.ts";
 import { toOmeZarr } from "./to_ngff_zarr.ts";
+import { gateAxisViews } from "./to_ngff_zarr_ozx_common.ts";
 
 /** The versions whose metadata model defines scenes. */
 export const SCENE_VERSIONS: readonly string[] = [
@@ -70,7 +72,10 @@ export interface ToSceneZarrOptions {
    * With the default `true`, the root group's attributes are the scene's
    * alone. With `false`, the attributes an existing root group carries are
    * kept beside the scene metadata. The images are written over whatever
-   * their paths hold either way.
+   * their paths hold either way. A transformation that references an array
+   * or a field group by `path`, such as a `displacements` field, needs that
+   * node written first, below the scene's store, and the scene written with
+   * `overwrite: false`.
    */
   overwrite?: boolean;
   /**
@@ -101,12 +106,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Reject an image path that is not a plain path below the scene group. */
+/**
+ * Reject an image path that is not a plain path below the scene group.
+ *
+ * The path is joined to the store, so a backslash counts as a separator
+ * (Windows does) and a percent-encoded part is read as a URL store does.
+ */
 function checkImagePath(path: unknown): asserts path is string {
+  const decode = (part: string): string => {
+    try {
+      return decodeURIComponent(part);
+    } catch {
+      return part;
+    }
+  };
   if (
     typeof path !== "string" ||
-    path === "" ||
-    path.split("/").some((part) => part === "" || part === "." || part === "..")
+    path.split(/[\\/]/).some((part) => ["", ".", ".."].includes(decode(part)))
   ) {
     throw new Error(
       `Image path '${
@@ -116,27 +132,90 @@ function checkImagePath(path: unknown): asserts path is string {
   }
 }
 
-/** The coordinate system names the image carries once written at 0.6. */
-function imageSystemNames(multiscales: NgffMultiscales): string[] {
+/** The coordinate systems the image carries once written at 0.6. */
+function imageSystems(multiscales: NgffMultiscales): CoordinateSystem[] {
   const systems = multiscales.metadata.coordinateSystems;
   // The 0.6 writer declares the intrinsic system on an image that carries
   // no coordinate systems of its own.
-  return systems !== undefined && systems.length > 0
-    ? systems.map((system) => system.name)
-    : [INTRINSIC_COORDINATE_SYSTEM_NAME];
+  return systems !== undefined && systems.length > 0 ? systems : [{
+    name: INTRINSIC_COORDINATE_SYSTEM_NAME,
+    axes: multiscales.metadata.axes,
+  }];
+}
+
+/** The paths of the arrays and field groups the transformations reference. */
+function fieldPaths(transforms: V06Transform[]): Set<string> {
+  const paths = new Set<string>();
+  for (const transform of transforms) {
+    const path = (transform as { path?: unknown }).path;
+    if (typeof path === "string") {
+      paths.add(path);
+    }
+    const nested: V06Transform[] = [];
+    if ("transformations" in transform) {
+      for (const member of transform.transformations) {
+        nested.push(
+          "transformation" in member ? member.transformation : member,
+        );
+      }
+    }
+    if (transform.type === "bijection") {
+      nested.push(transform.forward, transform.inverse);
+    }
+    for (const path of fieldPaths(nested)) {
+      paths.add(path);
+    }
+  }
+  return paths;
+}
+
+/**
+ * Refuse a scale or translation whose vector does not span the axes it
+ * applies to; a member of a sequence spans what the sequence spans.
+ */
+function checkSpans(
+  transform: V06Transform,
+  where: string,
+  spans: Set<number>,
+): void {
+  for (const kind of ["scale", "translation"] as const) {
+    const vector = (transform as unknown as Record<string, unknown>)[kind];
+    if (Array.isArray(vector) && !spans.has(vector.length)) {
+      const axes = [...spans].sort((a, b) => a - b).join(" or ");
+      throw new Error(
+        `${where} (${transform.type}) gives ${vector.length} ${kind} values ` +
+          `for the ${axes} axes it applies to; a transform that does not ` +
+          "span its axes cannot be applied by a reader.",
+      );
+    }
+  }
+  const members = (transform as { transformations?: unknown }).transformations;
+  if (Array.isArray(members)) {
+    members.forEach((member, position) =>
+      checkSpans(
+        member as V06Transform,
+        `${where}.transformations[${position}]`,
+        spans,
+      )
+    );
+  }
 }
 
 type Node = ["scene" | "image", string];
 
 /**
- * Throw unless every reference resolves and the graph is connected.
+ * Throw unless the scene is one OME-Zarr `version` can express.
  *
- * The coordinate systems of the scene and of its images are the nodes of a
- * graph whose edges are the transformations, and the spec requires that
- * graph to be connected. An image's own systems are connected through its
- * multiscales already, so each image counts as one node.
+ * Every image path stays below the scene group; the scene's coordinate
+ * systems carry unique names and an axis model the version allows; every
+ * transformation names its ends, they resolve, to a system the scene
+ * declares or to one of the image at its path, and the transformation holds
+ * for the two systems it joins; and the coordinate systems and images form
+ * one connected graph, as the spec requires. An image's own systems are
+ * connected through its multiscales already, so each image counts as one
+ * node.
  */
-export function checkScene(scene: NgffScene): void {
+export function checkScene(scene: NgffScene, version: string = "0.6"): void {
   for (const path of Object.keys(scene.images)) {
     checkImagePath(path);
   }
@@ -144,11 +223,28 @@ export function checkScene(scene: NgffScene): void {
     throw new Error("A scene declares at least one coordinate transformation.");
   }
 
-  const local = new Set((scene.coordinateSystems ?? []).map((s) => s.name));
+  const local = new Map<string, CoordinateSystem>();
+  for (const system of scene.coordinateSystems ?? []) {
+    if (system.name === "" || local.has(system.name)) {
+      throw new Error(
+        "Scene coordinateSystems names must be non-empty and unique; got " +
+          `${JSON.stringify(scene.coordinateSystems!.map((s) => s.name))}.`,
+      );
+    }
+    local.set(system.name, system);
+  }
+  gateAxisViews(
+    (scene.coordinateSystems ?? []).map((system, index) => ({
+      location: `scene.coordinateSystems[${index}].axes`,
+      axes: system.axes,
+    })),
+    version,
+  );
+
   const key = ([kind, name]: Node): string => `${kind}\0${name}`;
   const parent = new Map<string, string>();
   const labels = new Map<string, string>();
-  for (const name of local) {
+  for (const name of local.keys()) {
     parent.set(key(["scene", name]), key(["scene", name]));
     labels.set(key(["scene", name]), `coordinate system '${name}'`);
   }
@@ -168,6 +264,7 @@ export function checkScene(scene: NgffScene): void {
 
   scene.coordinateTransformations.forEach((transform, index) => {
     const ends: string[] = [];
+    const systems: CoordinateSystem[] = [];
     for (const side of ["input", "output"] as const) {
       const where = `coordinateTransformations[${index}].${side}`;
       const reference = transform[side];
@@ -179,7 +276,8 @@ export function checkScene(scene: NgffScene): void {
         );
       }
       if (reference.path === undefined) {
-        if (!local.has(reference.name)) {
+        const system = local.get(reference.name);
+        if (system === undefined) {
           throw new Error(
             `${where} names coordinate system '${reference.name}', which ` +
               "the scene does not declare. Declare it in coordinateSystems, " +
@@ -187,6 +285,7 @@ export function checkScene(scene: NgffScene): void {
           );
         }
         ends.push(key(["scene", reference.name]));
+        systems.push(system);
         continue;
       }
       const image = Object.hasOwn(scene.images, reference.path)
@@ -200,16 +299,46 @@ export function checkScene(scene: NgffScene): void {
             }.`,
         );
       }
-      const names = imageSystemNames(image);
-      if (!names.includes(reference.name)) {
+      const declared = imageSystems(image);
+      const system = declared.find((s) => s.name === reference.name);
+      if (system === undefined) {
         throw new Error(
           `${where} names coordinate system '${reference.name}' of image ` +
             `'${reference.path}', which declares ${
-              JSON.stringify([...names].sort())
+              JSON.stringify(declared.map((s) => s.name).sort())
             }.`,
         );
       }
       ends.push(key(["image", reference.path]));
+      systems.push(system);
+    }
+
+    const where = `coordinateTransformations[${index}]`;
+    checkSpans(transform, where, new Set(systems.map((s) => s.axes.length)));
+    // The reader's own checks, against the two systems the transformation
+    // joins. They resolve a reference by name, so the probe names its ends
+    // apart when both refer to systems that share a name.
+    let names = [transform.input!.name!, transform.output!.name!];
+    if (names[0] === names[1] && systems[0] !== systems[1]) {
+      names = ["input", "output"];
+    }
+    const probe = {
+      ...transform,
+      input: { name: names[0] },
+      output: { name: names[1] },
+    } as V06Transform;
+    try {
+      validateV06Transform(probe, [
+        { name: names[0], axes: systems[0].axes },
+        { name: names[1], axes: systems[1].axes },
+      ], version);
+    } catch (invalid) {
+      throw new Error(
+        `${where} (${transform.type}) would be written as a transform this ` +
+          `package cannot read back: ${
+            invalid instanceof Error ? invalid.message : String(invalid)
+          }`,
+      );
     }
     parent.set(find(ends[0]), find(ends[1]));
   });
@@ -334,7 +463,7 @@ export async function toSceneZarr(
       `Scene metadata is defined from OME-Zarr 0.6; got version '${version}'.`,
     );
   }
-  checkScene(scene);
+  checkScene(scene, version);
   if (store.startsWith("http://") || store.startsWith("https://")) {
     throw new Error(
       "HTTP/HTTPS URLs are read-only and cannot be used for writing. Use a local file path instead.",
@@ -343,6 +472,30 @@ export async function toSceneZarr(
 
   const fsStore = await localStore(store);
   const root = zarr.root(fsStore);
+  // An array-backed transformation points at a node of the store, which the
+  // scene writer does not produce: it has to be there already, so it is
+  // written first and the scene keeps it.
+  const fields = [...fieldPaths(scene.coordinateTransformations)].sort();
+  for (const path of fields) {
+    checkImagePath(path);
+  }
+  if (fields.length > 0 && (options.overwrite ?? true)) {
+    throw new Error(
+      `The scene's transformations reference the nodes ${
+        JSON.stringify(fields)
+      }; write those first with toOmeZarr() below the scene's store, then ` +
+        "the scene with overwrite: false so they are kept.",
+    );
+  }
+  for (const path of fields) {
+    if ((await fsStore.get(`/${path}/zarr.json`)) === undefined) {
+      throw new Error(
+        `The scene's transformations reference '${path}', which the store ` +
+          "does not hold; write it first with toOmeZarr() below the scene's " +
+          "store, then the scene with overwrite: false.",
+      );
+    }
+  }
   let attributes: Record<string, unknown> = {};
   if (options.overwrite === false) {
     try {
@@ -357,7 +510,7 @@ export async function toSceneZarr(
   await zarr.create(root, { attributes });
 
   const nodePaths = new Set<string>();
-  for (const [path, multiscales] of Object.entries(scene.images)) {
+  const ensureAncestors = async (path: string): Promise<void> => {
     const segments = path.split("/");
     for (let end = 1; end < segments.length; end++) {
       const ancestor = segments.slice(0, end).join("/");
@@ -369,6 +522,12 @@ export async function toSceneZarr(
       }
     }
     nodePaths.add(path);
+  };
+  for (const path of fields) {
+    await ensureAncestors(path);
+  }
+  for (const [path, multiscales] of Object.entries(scene.images)) {
+    await ensureAncestors(path);
     await toOmeZarr(childStore(store, path), multiscales, {
       version,
       consolidateMetadata: false,
@@ -445,7 +604,7 @@ export async function fromSceneZarr(
     ...(coordinateSystems !== undefined && { coordinateSystems }),
   };
   if (validate) {
-    checkScene(scene);
+    checkScene(scene, version);
   }
   return scene;
 }
