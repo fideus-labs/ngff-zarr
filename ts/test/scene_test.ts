@@ -276,6 +276,28 @@ Deno.test("read validates references against the store", async () => {
   });
 });
 
+Deno.test("read refuses image paths outside the scene", async () => {
+  await withTempDir(async (dir) => {
+    const { scene } = await tilesScene();
+    const store = `${dir}/tiles.ome.zarr`;
+    await toSceneZarr(store, scene, { consolidateMetadata: false });
+    const document = await rootDocument(store);
+    const ome = (document.attributes as Record<string, unknown>).ome as Record<
+      string,
+      unknown
+    >;
+    const transforms = (ome.scene as Record<string, unknown>)
+      .coordinateTransformations as Array<{ input: { path: string } }>;
+    transforms[0].input.path = "../tile_0";
+    await Deno.writeTextFile(`${store}/zarr.json`, JSON.stringify(document));
+    await assertRejects(
+      () => fromSceneZarr(store),
+      Error,
+      "relative path below the scene group",
+    );
+  });
+});
+
 Deno.test("read refuses an image store", async () => {
   await withTempDir(async (dir) => {
     const { multiscales } = await tile(0);

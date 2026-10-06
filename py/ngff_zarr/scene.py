@@ -53,7 +53,20 @@ class NgffScene:
     coordinateSystems: list[CoordinateSystem] | None = None
 
 
+def _check_image_path(path: object) -> None:
+    """Reject an image path that is not a plain path below the scene group."""
+    if not isinstance(path, str) or not path:
+        raise ValueError(
+            f"Image path {path!r} must be a relative path below the scene group."
+        )
+    if any(part in ("", ".", "..") for part in path.split("/")):
+        raise ValueError(
+            f"Image path {path!r} must be a relative path below the scene group."
+        )
+
+
 def _image_system_names(multiscales: NgffMultiscales) -> set[str]:
+    """The coordinate system names the image carries once written at 0.6."""
     return {
         system.name
         for system in multiscales.metadata.to_version("0.6").coordinateSystems
@@ -69,10 +82,7 @@ def _check_scene(scene: NgffScene) -> None:
     multiscales already, so each image counts as one node.
     """
     for path in scene.images:
-        if not path or any(part in ("", ".", "..") for part in path.split("/")):
-            raise ValueError(
-                f"Image path {path!r} must be a relative path below the scene group."
-            )
+        _check_image_path(path)
     if not scene.coordinateTransformations:
         raise ValueError("A scene declares at least one coordinate transformation.")
 
@@ -137,6 +147,7 @@ def _check_scene(scene: NgffScene) -> None:
 
 
 def _scene_to_dict(scene: NgffScene) -> dict[str, Any]:
+    """Serialize the scene's metadata to its ``ome.scene`` object."""
     from .to_ngff_zarr import _remove_none_values
 
     document: dict[str, Any] = {}
@@ -154,6 +165,7 @@ def _scene_to_dict(scene: NgffScene) -> dict[str, Any]:
 def _scene_from_dict(
     document: dict[str, Any], version: str | None
 ) -> tuple[list[CoordinateSystem] | None, list[Transform]]:
+    """Parse an ``ome.scene`` object into its coordinate systems and transformations."""
     systems = None
     if document.get("coordinateSystems") is not None:
         systems = [
@@ -182,6 +194,7 @@ def _scene_from_dict(
 
 
 def _child_store(store: StoreLike, path: str) -> str:
+    """The store of the image at ``path`` below the scene group."""
     if not isinstance(store, (str, os.PathLike)):
         raise TypeError(
             "A scene is read from a local directory path, a remote URL or an "
@@ -328,6 +341,9 @@ def from_scene_zarr(
         for reference in (transform.input, transform.output):
             path = getattr(reference, "path", None)
             if path is not None and path not in images:
+                # The path comes from the store's own metadata and is joined
+                # to the store, so it must not reach outside the scene group.
+                _check_image_path(path)
                 images[path] = from_ome_zarr(
                     _child_store(store, path),
                     validate=validate,

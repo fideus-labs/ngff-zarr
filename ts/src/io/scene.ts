@@ -96,10 +96,27 @@ export interface FromSceneZarrOptions {
   cache?: ChunkCache;
 }
 
+/** Whether `value` is a plain JSON object. */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Reject an image path that is not a plain path below the scene group. */
+function checkImagePath(path: unknown): asserts path is string {
+  if (
+    typeof path !== "string" ||
+    path === "" ||
+    path.split("/").some((part) => part === "" || part === "." || part === "..")
+  ) {
+    throw new Error(
+      `Image path '${
+        String(path)
+      }' must be a relative path below the scene group.`,
+    );
+  }
+}
+
+/** The coordinate system names the image carries once written at 0.6. */
 function imageSystemNames(multiscales: NgffMultiscales): string[] {
   const systems = multiscales.metadata.coordinateSystems;
   // The 0.6 writer declares the intrinsic system on an image that carries
@@ -121,16 +138,7 @@ type Node = ["scene" | "image", string];
  */
 export function checkScene(scene: NgffScene): void {
   for (const path of Object.keys(scene.images)) {
-    if (
-      path === "" ||
-      path.split("/").some((part) =>
-        part === "" || part === "." || part === ".."
-      )
-    ) {
-      throw new Error(
-        `Image path '${path}' must be a relative path below the scene group.`,
-      );
-    }
+    checkImagePath(path);
   }
   if (scene.coordinateTransformations.length === 0) {
     throw new Error("A scene declares at least one coordinate transformation.");
@@ -283,10 +291,12 @@ export function sceneFromOmeValue(
   };
 }
 
+/** The store of the image at `path` below the scene group. */
 function childStore(store: string, path: string): string {
   return `${store.replace(/\/+$/, "")}/${path}`;
 }
 
+/** The file system store at `store`, in Node.js and Deno. */
 async function localStore(store: string): Promise<zarr.Mutable> {
   if (typeof window !== "undefined") {
     throw new Error(
@@ -419,6 +429,9 @@ export async function fromSceneZarr(
     for (const reference of [transform.input, transform.output]) {
       const path = reference?.path;
       if (path !== undefined && !Object.hasOwn(images, path)) {
+        // The path comes from the store's own metadata and is joined to
+        // the store, so it must not reach outside the scene group.
+        checkImagePath(path);
         images[path] = await fromOmeZarr(childStore(store, path), {
           validate,
           ...(options.cache !== undefined && { cache: options.cache }),

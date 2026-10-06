@@ -224,6 +224,18 @@ def test_read_validates_references_against_the_store(tmp_path):
         from_scene_zarr(store, validate=True)
 
 
+def test_read_refuses_image_paths_outside_the_scene(tmp_path):
+    _, scene = _tiles_scene()
+    store = tmp_path / "tiles.ome.zarr"
+    to_scene_zarr(store, scene, consolidate_metadata=False)
+    document = _root_document(store)
+    transforms = document["attributes"]["ome"]["scene"]["coordinateTransformations"]
+    transforms[0]["input"]["path"] = "../tile_0"
+    (store / "zarr.json").write_text(json.dumps(document))
+    with pytest.raises(ValueError, match="relative path below the scene group"):
+        from_scene_zarr(store)
+
+
 def test_read_refuses_an_image_store(tmp_path):
     _, multiscales = _tile(0)
     store = tmp_path / "image.ome.zarr"
