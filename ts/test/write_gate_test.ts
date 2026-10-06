@@ -252,6 +252,27 @@ Deno.test("a transform naming a coordinate system spans that system", () => {
   buildRootAttributes(metadata, "0.6");
 });
 
+Deno.test("the first system spans the axes the writer serializes", () => {
+  // `buildV06MultiscalesEntry` writes the first coordinate system from
+  // `metadata.axes`, so a vector is checked against those axes, not against
+  // the axes the system declares.
+  const metadata = buildMetadata([space("y"), space("x")]);
+  metadata.coordinateSystems = [
+    { name: "intrinsic", axes: [space("z"), space("y"), space("x")] },
+  ];
+  metadata.coordinateTransformations = [{
+    type: "scale",
+    scale: [1.0, 1.0, 1.0],
+    input: { name: "intrinsic" },
+    output: { name: "intrinsic" },
+  }];
+  assertThrows(
+    () => buildRootAttributes(metadata, "0.6"),
+    Error,
+    "gives 3 scale values for the 2 axes",
+  );
+});
+
 Deno.test("the browser reader routes a 0.9.dev1 store through the v0.6 reader", async () => {
   // The browser build dispatched on `isV06Version` alone, which does not cover
   // 0.9.dev1, so a store this package's own 0.9 writer produced fell through to

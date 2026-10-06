@@ -182,15 +182,24 @@ export function gateSpans(
 /**
  * Refuse a scale or translation whose vector does not span the axes it
  * applies to, at the multiscales level and the dataset level alike. A
- * transform naming a coordinate system spans that system's axes; any other
+ * transform naming a coordinate system spans the axes the target `version`
+ * writes for it (see {@link axisViews}: the first system is written from
+ * `metadata.axes`, and a 0.4/0.5 target writes no system at all); any other
  * spans the intrinsic axes. Mirrors the Python `_gate_transform_arity`.
  */
-function gateTransformArity(metadata: MetadataInterface): void {
-  const systems = new Map(
-    (metadata.coordinateSystems ?? []).map((
-      system,
-    ) => [system.name, system.axes.length]),
-  );
+function gateTransformArity(
+  metadata: MetadataInterface,
+  version: string,
+): void {
+  const systems = new Map<string, number>();
+  if (version === "0.6" || version === NgffVersion.V09dev1) {
+    (metadata.coordinateSystems ?? []).forEach((system, index) => {
+      systems.set(
+        system.name,
+        index === 0 ? metadata.axes.length : system.axes.length,
+      );
+    });
+  }
   const intrinsic = metadata.axes.length;
   if (intrinsic === 0) {
     return;
@@ -273,7 +282,7 @@ export function buildRootAttributes(
   version: "0.4" | "0.5" | "0.6" | "0.9.dev1",
 ): Record<string, unknown> {
   gateAxisModel(metadata, version);
-  gateTransformArity(metadata);
+  gateTransformArity(metadata, version);
 
   // Process axes (orientation included when present).
   const processedAxes = processAxes(metadata.axes);
