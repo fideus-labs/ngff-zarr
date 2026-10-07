@@ -3,6 +3,13 @@
 import * as zarr from "zarrita";
 
 import { NgffMultiscales } from "../types/multiscales.ts";
+import type { NgffScene } from "../types/scene.ts";
+import { hasSceneMetadata, readScene } from "./scene_common.ts";
+import {
+  hasTransformationMetadata,
+  readTransformation,
+} from "./transformation_common.ts";
+import type { V06Transform } from "../types/zarr_metadata.ts";
 import { isV06Version, NgffVersion } from "../types/supported_versions.ts";
 import {
   fromZarrAttrsV04,
@@ -19,6 +26,13 @@ import { ensureRangeReads } from "../utils/sharding.ts";
 export type { ChunkCache } from "../utils/worker_pool.ts";
 
 export interface FromOmeZarrOptions {
+  /**
+   * What the store holds, like zarrita's `open`: a multiscales image (the
+   * default), a scene ({@link NgffScene}, with the images it references), or
+   * a transformation on its own ({@link V06Transform}). A store that holds
+   * another kind throws.
+   */
+  kind?: "multiscales" | "scene" | "transformation";
   /** Enable schema validation of OME-Zarr metadata. */
   validate?: boolean;
   /** Expected OME-Zarr version. */
@@ -39,11 +53,23 @@ export type FromNgffZarrOptions = FromOmeZarrOptions;
 
 export type MemoryStore = Map<string, Uint8Array>;
 
+export function fromOmeZarr(
+  store: string | MemoryStore | zarr.FetchStore | zarr.Readable,
+  options: FromOmeZarrOptions & { kind: "scene" },
+): Promise<NgffScene>;
+export function fromOmeZarr(
+  store: string | MemoryStore | zarr.FetchStore | zarr.Readable,
+  options: FromOmeZarrOptions & { kind: "transformation" },
+): Promise<V06Transform>;
+export function fromOmeZarr(
+  store: string | MemoryStore | zarr.FetchStore | zarr.Readable,
+  options?: FromOmeZarrOptions & { kind?: "multiscales" },
+): Promise<NgffMultiscales>;
 export async function fromOmeZarr(
   // Also accepts FileSystemStore, ZipFileStore, or any zarrita Readable store
   store: string | MemoryStore | zarr.FetchStore | zarr.Readable,
   options: FromOmeZarrOptions = {},
-): Promise<NgffMultiscales> {
+): Promise<NgffMultiscales | NgffScene | V06Transform> {
   const validate = options.validate ?? false;
   const requestedVersion = options.version;
 
@@ -117,6 +143,40 @@ export async function fromOmeZarr(
     });
     const attrs = root.attrs as unknown;
     const rootAttrs = attrs as Record<string, unknown>;
+
+    // A scene group is read with the images its transformations reference,
+    // each below the path or URL the caller passed.
+    if (hasSceneMetadata(rootAttrs)) {
+      if (options.kind !== "scene") {
+        throw new Error(
+          `'${store}' holds a scene; read it with fromOmeZarr(store, { kind: "scene" }).`,
+        );
+      }
+      if (typeof store !== "string") {
+        throw new Error(
+          "A scene is read from a directory path or a URL; got a store object.",
+        );
+      }
+      return await readScene(store, rootAttrs, fromOmeZarr, options);
+    }
+    if (hasTransformationMetadata(rootAttrs)) {
+      if (options.kind !== "transformation") {
+        throw new Error(
+          `'${store}' holds a transformation; read it with fromOmeZarr(store, { kind: "transformation" }).`,
+        );
+      }
+      return readTransformation(rootAttrs, options);
+    }
+    if (options.kind === "scene") {
+      throw new Error(
+        `'${store}' holds no scene: the root group carries no 'ome.scene' entry.`,
+      );
+    }
+    if (options.kind === "transformation") {
+      throw new Error(
+        `'${store}' holds no transformation: the root group carries no 'ome.coordinateTransformations' entry of its own.`,
+      );
+    }
 
     // Handle both v0.4 (multiscales at root) and v0.5 (multiscales under "ome")
     const hasOmeWrapper = "ome" in rootAttrs;

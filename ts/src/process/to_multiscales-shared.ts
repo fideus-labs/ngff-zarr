@@ -209,10 +209,12 @@ export async function toMultiscalesCore(
 
   // Create datasets for all images
   const datasets = images.map((img, index) => {
+    // A dimension the image carries no scale or translation for, such as a
+    // channel axis, spans one unit from zero, as in the Python port.
     return createDataset(
       `scale${index}`,
-      img.dims.map((dim) => img.scale[dim]),
-      img.dims.map((dim) => img.translation[dim]),
+      img.dims.map((dim) => img.scale[dim] ?? 1.0),
+      img.dims.map((dim) => img.translation[dim] ?? 0.0),
     );
   });
 

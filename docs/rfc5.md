@@ -364,6 +364,153 @@ and `resample` resamples the grid block by block through the same
 transformation. See [Out-of-core resampling](./itk.md#out-of-core-resampling)
 and [Converting transforms](./itk.md#converting-transforms).
 
+## Scenes
+
+A **scene** groups images that share a space: the tiles of one sample, or
+the same sample imaged twice. Its `ome.scene` metadata lists the
+transformations between the images' coordinate systems, and may declare
+coordinate systems of its own, such as a `world` system the images map into.
+Each end of a transformation is a `CoordinateSystemIdentifier`: `path` points
+to an image, `name` picks one of its coordinate systems.
+
+The images are ordinary multiscales groups below the scene:
+
+```
+scene.ome.zarr
+├── zarr.json      # ome.scene: the transformations between the images
+├── tile_0
+│   └── zarr.json  # ome.multiscales, declares the "intrinsic" system
+└── tile_1
+    └── zarr.json
+```
+
+`to_ome_zarr` writes the scene and its images. `from_ome_zarr` with
+`kind="scene"` reads them back:
+
+```python
+import numpy as np
+import ngff_zarr as nz
+from ngff_zarr import CoordinateSystem, CoordinateSystemIdentifier, NgffScene
+from ngff_zarr.v06.zarr_metadata import Axis, Translation
+
+
+def tile(seed):
+    rng = np.random.default_rng(seed)
+    image = nz.to_ngff_image(
+        rng.integers(0, 255, (256, 256), dtype=np.uint8),
+        dims=["y", "x"],
+        scale={"y": 0.5, "x": 0.5},
+        axes_units={"y": "micrometer", "x": "micrometer"},
+    )
+    return nz.to_multiscales(image, scale_factors=[2])
+
+
+world = CoordinateSystem(
+    name="world",
+    axes=[
+        Axis(name="y", type="space", unit="micrometer"),
+        Axis(name="x", type="space", unit="micrometer"),
+    ],
+)
+
+
+def to_world(path, offset):
+    # "intrinsic" is the coordinate system to_multiscales gives an image.
+    return Translation(
+        translation=offset,
+        input=CoordinateSystemIdentifier(path=path, name="intrinsic"),
+        output=CoordinateSystemIdentifier(name="world"),
+    )
+
+
+scene = NgffScene(
+    images={"tile_0": tile(0), "tile_1": tile(1)},
+    coordinateSystems=[world],
+    coordinateTransformations=[
+        to_world("tile_0", [0.0, 0.0]),
+        to_world("tile_1", [0.0, 128.0]),
+    ],
+)
+nz.to_ome_zarr("scene.ome.zarr", scene)
+
+scene = nz.from_ome_zarr("scene.ome.zarr", kind="scene")
+scene.images["tile_1"]  # an NgffMultiscales, its pixels read lazily
+scene.coordinateTransformations[1].translation  # [0.0, 128.0]
+```
+
+The writer checks the scene before writing anything:
+
+- coordinate system names are unique, and their axes follow the version's
+  rules (five axes at most at 0.6, any number at 0.9.dev1);
+- every transformation names both ends, each found in the scene or in the
+  image at its `path`;
+- a transformation fits the systems it joins: one translation value per axis,
+  a `mapAxis` that permutes them;
+- coordinate systems and images form one connected graph;
+- every node referenced by `path` exists in the store.
+
+A scene that fails a check raises `ValueError`. `validate=True` runs the same
+checks after reading. Put the common coordinate system first: viewers use it
+as the default. A scene reads from a local directory, a URL or an `.ozx`
+archive, and `to_ome_zarr` passes options such as `chunks_per_shard` on to
+each image.
+
+`kind` says what a store holds, like zarrita's `open`. Without it,
+`from_ome_zarr` reads multiscales images only. `NgffScene.from_ome_zarr` is a
+shortcut for `kind="scene"`, and a path into one of the scene's images reads
+that image.
+
+An example with a displacement field:
+
+```python
+from ngff_zarr.v06.zarr_metadata import Displacements
+
+# The field is an image of its own: write it first, below the scene, then
+# the scene with overwrite=False to keep it.
+field_path = "coordinateTransformations/dfield"
+nz.to_ome_zarr(f"scene.ome.zarr/{field_path}", field_multiscales, version="0.6")
+
+scene.coordinateTransformations.append(
+    Displacements(
+        path=field_path,
+        interpolation="linear",
+        input=CoordinateSystemIdentifier(path="tile_0", name="intrinsic"),
+        output=CoordinateSystemIdentifier(path="tile_1", name="intrinsic"),
+    )
+)
+nz.to_ome_zarr("scene.ome.zarr", scene, overwrite=False)
+
+scene = nz.from_ome_zarr("scene.ome.zarr", kind="scene")
+field = nz.from_ome_zarr(f"scene.ome.zarr/{scene.coordinateTransformations[2].path}")
+```
+
+## A transformation on its own
+
+A transformation can be stored without an image or a scene. The root
+group's `ome.coordinateTransformations` holds it, as in the spec's standalone
+examples. `to_ome_zarr` takes the transformation object, and `from_ome_zarr`
+with `kind="transformation"` reads it back as written:
+
+```python
+import ngff_zarr as nz
+from ngff_zarr import CoordinateSystemIdentifier
+from ngff_zarr.v06.zarr_metadata import Affine
+
+registration = Affine(
+    affine=[[1.0, 0.0, 12.5], [0.0, 1.0, -3.0]],
+    input=CoordinateSystemIdentifier(name="moving"),
+    output=CoordinateSystemIdentifier(name="fixed"),
+)
+nz.to_ome_zarr("registration.ome.zarr", registration)
+
+transform = nz.from_ome_zarr("registration.ome.zarr", kind="transformation")
+nz.ngff_transform_to_itk_transform(transform, dims=["y", "x"])
+```
+
+A transformation stored as an array, such as a `displacements` field, points
+to it by `path`. Write the field first, below the store, then the
+transformation with `overwrite=False`, as for a scene.
+
 ## TypeScript
 
 The TypeScript package (`@fideus-labs/ngff-zarr`) mirrors the Python API. Field
@@ -422,6 +569,69 @@ const field2 = await fromOmeZarr(`${store}/${(transform as { path: string }).pat
   version: "0.6",
 });
 ```
+
+A scene is written and read the same way. `kind: "scene"` types the result
+as an `NgffScene`:
+
+```typescript
+import {
+  fromOmeZarr,
+  NgffScene,
+  toMultiscales,
+  toNgffImage,
+  toOmeZarr,
+} from "@fideus-labs/ngff-zarr";
+
+async function tile(seed: number) {
+  const data = new Uint8Array(256 * 256).map((_, i) => (i * 31 + seed) % 256);
+  const image = await toNgffImage(data, {
+    dims: ["y", "x"],
+    shape: [256, 256],
+    scale: { y: 0.5, x: 0.5 },
+  });
+  return toMultiscales(image, { scaleFactors: [2] });
+}
+
+const scene = new NgffScene({
+  images: { tile_0: await tile(0), tile_1: await tile(1) },
+  coordinateSystems: [{
+    name: "world",
+    axes: [
+      { name: "y", type: "space", unit: "micrometer" },
+      { name: "x", type: "space", unit: "micrometer" },
+    ],
+  }],
+  coordinateTransformations: [
+    {
+      type: "translation",
+      translation: [0, 0],
+      input: { path: "tile_0", name: "intrinsic" },
+      output: { name: "world" },
+    },
+    {
+      type: "translation",
+      translation: [0, 128],
+      input: { path: "tile_1", name: "intrinsic" },
+      output: { name: "world" },
+    },
+  ],
+});
+await toOmeZarr("scene.ome.zarr", scene);
+
+const read = await fromOmeZarr("scene.ome.zarr", {
+  kind: "scene",
+  validate: true,
+});
+read.images.tile_1; // an NgffMultiscales, its pixels read lazily
+```
+
+The same checks run as in Python. A scene reads from a local directory or an
+HTTP(S) URL. Without `kind: "scene"`, `fromOmeZarr` keeps its
+`NgffMultiscales` result type and refuses a scene store. A field is written
+first with `toOmeZarr`, then the scene with `{ overwrite: false }`. A
+transformation on its own works the same way: `toOmeZarr(store, transform)`
+writes it, to a directory or a `MemoryStore`, and
+`fromOmeZarr(store, { kind: "transformation" })` reads it back.
 
 ## Compatibility
 

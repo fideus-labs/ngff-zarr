@@ -47,9 +47,12 @@ from .methods._support import _dim_scale_factors
 from .multiscales import NgffMultiscales
 from .rfc9_zip import is_ozx_path, write_store_to_zip
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
+from .scene import NgffScene, _write_scene
 from .to_multiscales import to_multiscales
+from .transformation import _write_transformation
 from .v04.zarr_metadata import Metadata as Metadata_v04
 from .v05.zarr_metadata import Metadata as Metadata_v05
+from .v06.zarr_metadata import BaseTransform, Transform
 
 ScaleStrategy = Literal["pad", "exact"]
 
@@ -491,6 +494,11 @@ def _gate_axis_model(metadata, version) -> None:
     the datasets reference -- so a model refused at 0.6 may be accepted at 0.4
     with the other systems silently discarded.
     """
+    _gate_axis_views(_axis_views(metadata), version)
+
+
+def _gate_axis_views(views: list[tuple[str, _AxisView]], version) -> None:
+    """Apply the axis rules of ``version`` to each ``(location, view)`` pair."""
     from .structural_validation import (
         SpecRule,
         ValidationError,
@@ -508,7 +516,7 @@ def _gate_axis_model(metadata, version) -> None:
         validate_spatial_axis_order,
         validate_axis_names_unique,
     )
-    for location, view in _axis_views(metadata):
+    for location, view in views:
         for rule in rules:
             try:
                 rule(view, version)
@@ -1551,8 +1559,8 @@ def _prepare_next_scale(
 
 def to_ome_zarr(
     store: StoreLike,
-    multiscales: NgffMultiscales,
-    version: str = "0.5",
+    multiscales: NgffMultiscales | NgffScene | Transform,
+    version: str | None = None,
     overwrite: bool = True,
     use_tensorstore: bool = False,
     chunk_store: StoreLike | None = None,
@@ -1573,9 +1581,16 @@ def to_ome_zarr(
 
     :param multiscales: NgffMultiscales OME-NGFF image pixel data and metadata. Can be generated with ngff_zarr.to_multiscales.
         Its ``root_attributes`` are written beside the OME metadata at the root of the store.
-    :type  multiscales: NgffMultiscales
+        Or an :class:`~ngff_zarr.NgffScene`, written to a directory path at version 0.6 or
+        later: the scene metadata goes to the root group and each image below its path.
+        Or a transformation (:class:`~ngff_zarr.v06.zarr_metadata.Transform`), stored on
+        its own in the root group's ``ome.coordinateTransformations``; a field it
+        references by ``path`` is written first, then the transformation with
+        ``overwrite=False``.
+    :type  multiscales: NgffMultiscales | NgffScene | Transform
 
-    :param version: OME-Zarr specification version. For .ozx files, a version stored in Zarr v3
+    :param version: OME-Zarr specification version. Defaults to 0.5 for a multiscales image and
+        to 0.6 for a scene or a transformation. For .ozx files, a version stored in Zarr v3
         (0.5 or later) is required.
     :type  version: str, optional
 
@@ -1673,6 +1688,40 @@ def to_ome_zarr(
             "with to_multiscales(..., chunks=...), or rechunk NgffImage.data "
             "before writing. Pass chunks_per_shard for sharding."
         )
+
+    if isinstance(multiscales, NgffScene):
+        if isinstance(store, (str, Path)) and is_ozx_path(store):
+            raise ValueError(
+                "A scene is written to a directory path; zip it afterwards "
+                "with write_store_to_zip()."
+            )
+        if start_level:
+            raise ValueError("start_level is not available for a scene.")
+        _write_scene(
+            store,
+            multiscales,
+            version=version or "0.6",
+            overwrite=overwrite,
+            consolidate_metadata=consolidate_metadata,
+            progress=progress,
+            chunks_per_shard=chunks_per_shard,
+            scale_strategy=scale_strategy,
+            metadata_only=metadata_only,
+            **kwargs,
+        )
+        return
+    if isinstance(multiscales, BaseTransform):
+        if isinstance(store, (str, Path)) and is_ozx_path(store):
+            raise ValueError(
+                "A transformation is written to a directory path; zip it "
+                "afterwards with write_store_to_zip()."
+            )
+        _write_transformation(
+            store, multiscales, version=version or "0.6", overwrite=overwrite
+        )
+        return
+    if version is None:
+        version = "0.5"
 
     # RFC-9: Handle .ozx (zipped OME-Zarr) files
     if isinstance(store, (str, Path)) and is_ozx_path(store):

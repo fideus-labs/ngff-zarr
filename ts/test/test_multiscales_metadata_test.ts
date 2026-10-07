@@ -281,3 +281,20 @@ Deno.test("can handle metadata being undefined", async () => {
 });
 
 console.log("✅ All metadata field tests completed!");
+
+Deno.test("a dimension without a scale spans one unit from zero", async () => {
+  const { toMultiscales, toNgffImage } = await import("../src/mod.ts");
+  const image = await toNgffImage(new Float32Array(2 * 4 * 4), {
+    dims: ["c", "y", "x"],
+    shape: [2, 4, 4],
+    scale: { y: 0.5, x: 0.5 },
+  });
+  const multiscales = await toMultiscales(image, { scaleFactors: [] });
+  const [scale, translation] =
+    multiscales.metadata.datasets[0].coordinateTransformations;
+  assertEquals((scale as { scale: number[] }).scale, [1, 0.5, 0.5]);
+  assertEquals(
+    (translation as { translation: number[] }).translation,
+    [0, 0, 0],
+  );
+});

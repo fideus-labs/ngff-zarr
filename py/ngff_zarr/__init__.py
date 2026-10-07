@@ -85,6 +85,7 @@ from .rfc9_zip import (
     read_ozx_version,
     write_store_to_zip,
 )
+from .scene import NgffScene
 from .structural_validation import (
     SpecRule,
     ValidateOptions,
@@ -176,6 +177,8 @@ __all__ = [
     "CoordinateSystemIdentifier",
     "Coordinates",
     "Displacements",
+    # RFC 5 - Scenes
+    "NgffScene",
     # Out-of-core resampling
     "resample",
     "resample_bounding_box",
