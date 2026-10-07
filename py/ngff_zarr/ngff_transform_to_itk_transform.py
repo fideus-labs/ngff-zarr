@@ -245,11 +245,11 @@ def _as_matrix(values, path: str | None, field: str) -> np.ndarray:
     if values is None or len(values) == 0:
         if path is not None:
             msg = (
-                f"{field} transformation stores its parameters at '{path}'. "
-                "Reading matrix parameters from a Zarr array is not supported; "
-                f"supply the '{field}' values inline."
+                f"{field} transformation names the array at '{path}' but holds "
+                "no matrix values. from_ome_zarr loads them from that array; "
+                f"otherwise supply the '{field}' values."
             )
-            raise NotImplementedError(msg)
+            raise ValueError(msg)
         msg = f"{field} transformation has no parameters"
         raise ValueError(msg)
     return np.asarray(values, dtype=float)
