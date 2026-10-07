@@ -12,12 +12,12 @@ import zarr
 from ngff_zarr import (
     CoordinateSystem,
     CoordinateSystemIdentifier,
+    NgffMultiscales,
     NgffScene,
-    from_scene_zarr,
+    from_ome_zarr,
     to_multiscales,
     to_ngff_image,
     to_ome_zarr,
-    to_scene_zarr,
 )
 from ngff_zarr._zarrista_utils import create_zarrista_group
 from ngff_zarr.rfc9_zip import write_store_to_zip
@@ -90,7 +90,7 @@ def _root_document(store: Path) -> dict:
 def test_scene_round_trip(tmp_path):
     pixels, scene = _tiles_scene()
     store = tmp_path / "tiles.ome.zarr"
-    to_scene_zarr(store, scene, version="0.6")
+    scene.to_ome_zarr(store)
 
     document = _root_document(store)
     ome = document["attributes"]["ome"]
@@ -106,7 +106,7 @@ def test_scene_round_trip(tmp_path):
     validate_ngff(document["attributes"], version="0.6", model="scene")
     assert "tile_0/scale0/image" in document["consolidated_metadata"]["metadata"]
 
-    read = from_scene_zarr(store, validate=True)
+    read = NgffScene.from_ome_zarr(store, validate=True)
     assert list(read.images) == ["tile_0", "tile_1"]
     for path, data in pixels.items():
         np.testing.assert_array_equal(read.images[path].images[0].data, data)
@@ -122,7 +122,7 @@ def test_scene_round_trip(tmp_path):
 def test_nested_image_paths_open_with_zarr_python(tmp_path):
     pixels, scene = _tiles_scene(("sample/instrument1", "sample/instrument2"))
     store = tmp_path / "scene.ome.zarr"
-    to_scene_zarr(store, scene)
+    to_ome_zarr(store, scene)
 
     group = zarr.open_group(store, mode="r")
     assert isinstance(group["sample"], zarr.Group)
@@ -130,17 +130,19 @@ def test_nested_image_paths_open_with_zarr_python(tmp_path):
     np.testing.assert_array_equal(
         group["sample/instrument1/scale0/image"][:], pixels["sample/instrument1"]
     )
-    assert list(from_scene_zarr(store).images) == list(pixels)
+    assert list(from_ome_zarr(store).images) == list(pixels)
 
 
 def test_scene_in_ozx_archive_reads(tmp_path):
     pixels, scene = _tiles_scene()
     store = tmp_path / "tiles.ome.zarr"
-    to_scene_zarr(store, scene)
+    to_ome_zarr(store, scene)
     archive = tmp_path / "tiles.ozx"
+    with pytest.raises(ValueError, match="written to a directory path"):
+        to_ome_zarr(archive, scene)
     write_store_to_zip(store, archive, version="0.6")
 
-    read = from_scene_zarr(archive)
+    read = from_ome_zarr(archive)
     np.testing.assert_array_equal(
         read.images["tile_1"].images[0].data, pixels["tile_1"]
     )
@@ -151,7 +153,7 @@ def test_overwrite_false_keeps_root_attributes(tmp_path):
     _, scene = _tiles_scene()
     store = tmp_path / "tiles.ome.zarr"
     create_zarrista_group(store, {"myorg:note": "kept"}, 3)
-    to_scene_zarr(store, scene, overwrite=False)
+    to_ome_zarr(store, scene, overwrite=False)
     attrs = _root_document(store)["attributes"]
     assert attrs["myorg:note"] == "kept"
     assert "scene" in attrs["ome"]
@@ -190,7 +192,7 @@ def test_write_refuses_unresolved_or_disconnected_scenes(tmp_path, transforms, m
     scene.coordinateTransformations = transforms
     store = tmp_path / "tiles.ome.zarr"
     with pytest.raises(ValueError, match=match):
-        to_scene_zarr(store, scene)
+        to_ome_zarr(store, scene)
     assert not store.exists()
 
 
@@ -198,16 +200,16 @@ def test_write_refuses_duplicate_or_empty_system_names(tmp_path):
     _, scene = _tiles_scene()
     scene.coordinateSystems = [_world(), _world()]
     with pytest.raises(ValueError, match="non-empty and unique"):
-        to_scene_zarr(tmp_path / "tiles.ome.zarr", scene)
+        to_ome_zarr(tmp_path / "tiles.ome.zarr", scene)
 
 
 def test_scene_axis_model_follows_the_version(tmp_path):
     _, scene = _tiles_scene()
     scene.coordinateSystems[0].axes = [Axis(name=n, type="space") for n in "abcdef"]
     with pytest.raises(ValueError, match=r"scene.coordinateSystems\[0\].axes"):
-        to_scene_zarr(tmp_path / "v06.ome.zarr", scene)
-    to_scene_zarr(tmp_path / "dev1.ome.zarr", scene, version="0.9.dev1")
-    read = from_scene_zarr(tmp_path / "dev1.ome.zarr", validate=True)
+        to_ome_zarr(tmp_path / "v06.ome.zarr", scene)
+    to_ome_zarr(tmp_path / "dev1.ome.zarr", scene, version="0.9.dev1")
+    read = from_ome_zarr(tmp_path / "dev1.ome.zarr", validate=True)
     assert [axis.name for axis in read.coordinateSystems[0].axes] == list("abcdef")
 
 
@@ -215,7 +217,7 @@ def test_write_refuses_vectors_that_do_not_span_their_systems(tmp_path):
     _, scene = _tiles_scene()
     scene.coordinateTransformations[0].translation = [0.0, 0.0, 0.0]
     with pytest.raises(ValueError, match="3 translation values for the 2 axes"):
-        to_scene_zarr(tmp_path / "tiles.ome.zarr", scene)
+        to_ome_zarr(tmp_path / "tiles.ome.zarr", scene)
 
 
 def test_write_refuses_transforms_the_reader_rejects(tmp_path):
@@ -226,7 +228,7 @@ def test_write_refuses_transforms_the_reader_rejects(tmp_path):
         output=CoordinateSystemIdentifier(name="world"),
     )
     with pytest.raises(ValueError, match="cannot read back.*mapAxis length 3"):
-        to_scene_zarr(tmp_path / "tiles.ome.zarr", scene)
+        to_ome_zarr(tmp_path / "tiles.ome.zarr", scene)
 
 
 def _displacement_field():
@@ -258,19 +260,19 @@ def test_scene_with_a_displacement_field_between_two_images(tmp_path):
     store = tmp_path / "registered.ome.zarr"
 
     with pytest.raises(ValueError, match="write those first"):
-        to_scene_zarr(store, scene)
+        to_ome_zarr(store, scene)
     with pytest.raises(ValueError, match="which the store does not hold"):
-        to_scene_zarr(store, scene, overwrite=False)
+        to_ome_zarr(store, scene, overwrite=False)
     assert not store.exists()
 
     to_ome_zarr(store / field_path, _displacement_field(), version="0.6")
-    to_scene_zarr(store, scene, overwrite=False)
+    to_ome_zarr(store, scene, overwrite=False)
     document = _root_document(store)
     consolidated = document["consolidated_metadata"]["metadata"]
     assert "coordinateTransformations" in consolidated
     assert f"{field_path}/scale0/image" in consolidated
 
-    read = from_scene_zarr(store, validate=True)
+    read = from_ome_zarr(store, validate=True)
     assert read.coordinateTransformations[2] == warp
     field = from_ome_zarr(store / read.coordinateTransformations[2].path)
     assert [axis.type for axis in field.metadata.coordinateSystems[0].axes] == [
@@ -283,32 +285,32 @@ def test_scene_with_a_displacement_field_between_two_images(tmp_path):
 def test_write_refuses_paths_outside_the_scene(tmp_path):
     _, scene = _tiles_scene(("../tile_0", "tile_1"))
     with pytest.raises(ValueError, match="relative path below the scene group"):
-        to_scene_zarr(tmp_path / "tiles.ome.zarr", scene)
+        to_ome_zarr(tmp_path / "tiles.ome.zarr", scene)
 
 
 def test_write_refuses_versions_before_0_6(tmp_path):
     _, scene = _tiles_scene()
     with pytest.raises(ValueError, match="0.6"):
-        to_scene_zarr(tmp_path / "tiles.ome.zarr", scene, version="0.5")
+        to_ome_zarr(tmp_path / "tiles.ome.zarr", scene, version="0.5")
 
 
 def test_read_validates_references_against_the_store(tmp_path):
     _, scene = _tiles_scene()
     store = tmp_path / "tiles.ome.zarr"
-    to_scene_zarr(store, scene, consolidate_metadata=False)
+    to_ome_zarr(store, scene, consolidate_metadata=False)
     document = _root_document(store)
     del document["attributes"]["ome"]["scene"]["coordinateSystems"]
     (store / "zarr.json").write_text(json.dumps(document))
 
-    read = from_scene_zarr(store)
+    read = from_ome_zarr(store)
     assert read.coordinateSystems is None
     with pytest.raises(ValueError, match="does not declare"):
-        from_scene_zarr(store, validate=True)
+        from_ome_zarr(store, validate=True)
 
     document["attributes"]["ome"]["scene"]["coordinateTransformations"] = []
     (store / "zarr.json").write_text(json.dumps(document))
     with pytest.raises(ValidationError):
-        from_scene_zarr(store, validate=True)
+        from_ome_zarr(store, validate=True)
 
 
 @pytest.mark.parametrize(
@@ -317,21 +319,40 @@ def test_read_validates_references_against_the_store(tmp_path):
 def test_read_refuses_image_paths_outside_the_scene(tmp_path, path):
     _, scene = _tiles_scene()
     store = tmp_path / "tiles.ome.zarr"
-    to_scene_zarr(store, scene, consolidate_metadata=False)
+    to_ome_zarr(store, scene, consolidate_metadata=False)
     document = _root_document(store)
     transforms = document["attributes"]["ome"]["scene"]["coordinateTransformations"]
     transforms[0]["input"]["path"] = path
     (store / "zarr.json").write_text(json.dumps(document))
     with pytest.raises(ValueError, match="relative path below the scene group"):
-        from_scene_zarr(store)
+        from_ome_zarr(store)
 
 
-def test_read_refuses_an_image_store(tmp_path):
+def test_the_kind_option_selects_what_a_store_holds(tmp_path):
     _, multiscales = _tile(0)
-    store = tmp_path / "image.ome.zarr"
-    to_ome_zarr(store, multiscales, version="0.6")
-    with pytest.raises(ValueError, match="from_ome_zarr"):
-        from_scene_zarr(store)
+    image = tmp_path / "image.ome.zarr"
+    to_ome_zarr(image, multiscales, version="0.6")
+    assert isinstance(from_ome_zarr(image), NgffMultiscales)
+    assert isinstance(from_ome_zarr(image, kind="multiscales"), NgffMultiscales)
+    with pytest.raises(ValueError, match="holds no scene"):
+        NgffScene.from_ome_zarr(image)
+
+    _, scene = _tiles_scene()
+    store = tmp_path / "tiles.ome.zarr"
+    to_ome_zarr(store, scene)
+    assert isinstance(from_ome_zarr(store), NgffScene)
+    assert isinstance(from_ome_zarr(store, kind="scene"), NgffScene)
+    with pytest.raises(ValueError, match="holds a scene"):
+        from_ome_zarr(store, kind="multiscales")
+
+
+def test_a_path_into_a_scene_reads_that_image(tmp_path):
+    pixels, scene = _tiles_scene()
+    store = tmp_path / "tiles.ome.zarr"
+    to_ome_zarr(store, scene)
+    image = from_ome_zarr(store / "tile_1")
+    assert isinstance(image, NgffMultiscales)
+    np.testing.assert_array_equal(image.images[0].data, pixels["tile_1"])
 
 
 def _upstream(name: str) -> dict:

@@ -5,6 +5,7 @@
 import * as zarr from "zarrita";
 
 import type { NgffMultiscales } from "../types/multiscales.ts";
+import { NgffScene } from "../types/scene.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { ZarrCodec } from "../utils/codecs.ts";
 import { defaultCodecs } from "../utils/codecs.ts";
@@ -109,9 +110,15 @@ export type ToNgffZarrOzxOptions = ToOmeZarrOzxOptions;
  */
 export async function toOmeZarr(
   store: string | MemoryStore | zarr.FetchStore,
-  multiscales: NgffMultiscales,
+  multiscales: NgffMultiscales | NgffScene,
   options: ToOmeZarrOptions = {},
 ): Promise<void> {
+  if (multiscales instanceof NgffScene) {
+    throw new Error(
+      "A scene is written to a directory path, which the browser writer " +
+        "has no access to; write it with the Node.js module.",
+    );
+  }
   const _overwrite = options.overwrite ?? true;
   const _version = options.version ?? "0.5";
 

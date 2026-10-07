@@ -6,6 +6,8 @@ import * as zarr from "zarrita";
 
 import { MetadataSchema } from "../schemas/zarr_metadata.ts";
 import { NgffMultiscales } from "../types/multiscales.ts";
+import type { NgffScene } from "../types/scene.ts";
+import { hasSceneMetadata, readScene } from "./scene.ts";
 import { NgffImage } from "../types/ngff_image.ts";
 import type { AxisUnit } from "../types/units.ts";
 import type { Metadata, Omero } from "../types/zarr_metadata.ts";
@@ -17,6 +19,13 @@ import { ensureRangeReads } from "../utils/sharding.ts";
 export type { ChunkCache } from "../utils/worker_pool.ts";
 
 export interface FromOmeZarrOptions {
+  /**
+   * What the store holds, as zarrita's `open` takes a `kind`: a multiscales
+   * image (the default), or a scene, read as an {@link NgffScene} with the
+   * images its transformations reference. A store that holds the other kind
+   * throws.
+   */
+  kind?: "multiscales" | "scene";
   /** Enable schema validation of OME-Zarr metadata. */
   validate?: boolean;
   /** Expected OME-Zarr version. */
@@ -43,10 +52,18 @@ export type MemoryStore = Map<string, Uint8Array>;
  * zarrita-compatible Readable store (e.g. TiffStore from @fideus-labs/fiff).
  * Does NOT support local file paths (use the full version in Node.js/Deno).
  */
+export function fromOmeZarr(
+  store: string | MemoryStore | zarr.FetchStore | zarr.Readable,
+  options: FromOmeZarrOptions & { kind: "scene" },
+): Promise<NgffScene>;
+export function fromOmeZarr(
+  store: string | MemoryStore | zarr.FetchStore | zarr.Readable,
+  options?: FromOmeZarrOptions & { kind?: "multiscales" },
+): Promise<NgffMultiscales>;
 export async function fromOmeZarr(
   store: string | MemoryStore | zarr.FetchStore | zarr.Readable,
   options: FromOmeZarrOptions = {},
-): Promise<NgffMultiscales> {
+): Promise<NgffMultiscales | NgffScene> {
   const validate = options.validate ?? false;
   const version = options.version;
 
@@ -99,6 +116,25 @@ export async function fromOmeZarr(
     // per-dataset sequence transforms) than the inline v0.4/v0.5 parser below,
     // so delegate to the shared, environment-agnostic v0.6 reader.
     const rootAttrsForVersion = attrs as Record<string, unknown>;
+
+    // A scene group is read with the images its transformations reference,
+    // each below the URL the caller passed.
+    if (hasSceneMetadata(rootAttrsForVersion)) {
+      if (options.kind !== "scene") {
+        throw new Error(
+          `'${store}' holds a scene; read it with fromOmeZarr(store, { kind: "scene" }).`,
+        );
+      }
+      if (typeof store !== "string") {
+        throw new Error("A scene is read from a URL; got a store object.");
+      }
+      return await readScene(store, rootAttrsForVersion, fromOmeZarr, options);
+    }
+    if (options.kind === "scene") {
+      throw new Error(
+        `'${store}' holds no scene: the root group carries no 'ome.scene' entry.`,
+      );
+    }
     const omeForVersion = rootAttrsForVersion.ome as
       | Record<string, unknown>
       | undefined;

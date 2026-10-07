@@ -3,6 +3,8 @@
 import * as zarr from "zarrita";
 
 import type { NgffMultiscales } from "../types/multiscales.ts";
+import { NgffScene } from "../types/scene.ts";
+import { writeScene } from "./scene.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { ZarrCodec } from "../utils/codecs.ts";
 import { defaultCodecs } from "../utils/codecs.ts";
@@ -112,7 +114,10 @@ export type ToNgffZarrOzxOptions = ToOmeZarrOzxOptions;
  * - Version 0.4 (Zarr v2) cannot be zipped; requesting it throws
  *
  * @param store - File path, MemoryStore, or FetchStore to write to
- * @param multiscales - NgffMultiscales data to write
+ * @param multiscales - NgffMultiscales data to write, or an {@link NgffScene}:
+ *   its metadata lands in the root group's `ome.scene` and each of its images
+ *   is written below its path, after the scene is checked against the spec; a
+ *   scene is written to a directory path, at version 0.6 unless given
  * @param options - Writing options
  *
  * @example
@@ -132,9 +137,27 @@ export type ToNgffZarrOzxOptions = ToOmeZarrOzxOptions;
  */
 export async function toOmeZarr(
   store: string | MemoryStore | zarr.FetchStore,
-  multiscales: NgffMultiscales,
+  multiscales: NgffMultiscales | NgffScene,
   options: ToOmeZarrOptions = {},
 ): Promise<void> {
+  if (multiscales instanceof NgffScene) {
+    if (typeof store !== "string") {
+      throw new Error(
+        "A scene is written to a directory path; got a store object.",
+      );
+    }
+    if (isOzxPath(store)) {
+      throw new Error(
+        "A scene is written to a directory path; zip it afterwards with " +
+          "memoryStoreToZip().",
+      );
+    }
+    await writeScene(store, multiscales, {
+      ...options,
+      version: options.version ?? "0.6",
+    });
+    return;
+  }
   const _overwrite = options.overwrite ?? true;
   const _version = options.version ?? "0.5";
 

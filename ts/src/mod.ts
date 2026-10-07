@@ -4,7 +4,6 @@
 export { config, setWorkerPoolSize } from "./config.ts";
 export * from "./io/from_ngff_zarr.ts";
 export * from "./io/hcs.ts";
-export * from "./io/scene.ts";
 export * from "./io/itk_image_to_ngff_image.ts";
 export * from "./io/resample_bounding_box.ts";
 export * from "./io/ngff_image_to_itk_image.ts";
@@ -39,6 +38,7 @@ export * from "./types/array_interface.ts";
 export * from "./types/hcs.ts";
 export * from "./types/methods.ts";
 export * from "./types/multiscales.ts";
+export * from "./types/scene.ts";
 export * from "./types/ngff_image.ts";
 export * from "./types/rfc4.ts";
 export * from "./types/supported_versions.ts";

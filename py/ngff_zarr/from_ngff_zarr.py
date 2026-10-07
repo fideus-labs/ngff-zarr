@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 from pathlib import Path
+from typing import Literal
 
 import packaging.version
 
@@ -19,6 +20,7 @@ from ._zarrista_utils import (
 )
 from .multiscales import NgffMultiscales
 from .rfc9_zip import is_ozx_path, read_ozx_version
+from .scene import NgffScene, _read_scene
 
 # Supported remote URL schemes for storage
 REMOTE_URL_SCHEMES = ("s3://", "gs://", "azure://", "http://", "https://")
@@ -181,9 +183,14 @@ def from_ome_zarr(
     validate: bool = False,
     version: str | None = None,
     storage_options: dict | None = None,
-) -> NgffMultiscales:
+    kind: Literal["multiscales", "scene"] | None = None,
+) -> NgffMultiscales | NgffScene:
     """
     Read an OME-Zarr NGFF multiscales data structure (NgffMultiscales) from a Zarr store.
+
+    A store whose root group carries ``ome.scene`` is read as an
+    :class:`~ngff_zarr.NgffScene` instead, with the images its transformations
+    reference by path; a path into one of those images reads that image.
 
     store : StoreLike
         Store or path to directory in file system. Can be a string URL
@@ -206,6 +213,11 @@ def from_ome_zarr(
     version : string, optional
         OME-Zarr version, if known. For .ozx files, the version will be
         read from the ZIP comment if not provided.
+
+    kind : "multiscales" or "scene", optional
+        What the store holds, as the TypeScript port's ``fromOmeZarr`` takes
+        it: a multiscales image or a scene. Omitted, the store's own metadata
+        decides; given, a store that holds the other kind raises ``ValueError``.
 
     storage_options : dict, optional
         Storage options to pass to the store if store is a string URL.
@@ -265,6 +277,25 @@ def from_ome_zarr(
 
     # Check root-level attributes first to see if this is an HCS plate
     root_attrs_initial = root.attrs.asdict()
+    ome_initial = root_attrs_initial.get("ome")
+    if not subpath and isinstance(ome_initial, dict) and "scene" in ome_initial:
+        if kind == "multiscales":
+            raise ValueError(
+                f"'{original_store}' holds a scene; read it with kind='scene' "
+                "or without kind."
+            )
+        return _read_scene(
+            original_store,
+            root_attrs_initial,
+            validate=validate,
+            version=version,
+            storage_options=storage_options,
+        )
+    if kind == "scene":
+        raise ValueError(
+            f"'{original_store}' holds no scene: the root group carries no "
+            "'ome.scene' entry."
+        )
     is_hcs_plate_root = _is_hcs_plate(root_attrs_initial)
 
     # If this is an HCS plate and no subpath was provided, error with guidance

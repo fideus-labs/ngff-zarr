@@ -84,6 +84,7 @@ export * from "./schemas/zarr_metadata.ts";
 export * from "./types/array_interface.ts";
 export * from "./types/methods.ts";
 export * from "./types/multiscales.ts";
+export * from "./types/scene.ts";
 export * from "./types/ngff_image.ts";
 export * from "./types/units.ts";
 export * from "./types/zarr_metadata.ts";

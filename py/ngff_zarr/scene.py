@@ -18,7 +18,6 @@ import os
 import posixpath
 import re
 from dataclasses import asdict, dataclass
-from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
@@ -54,6 +53,27 @@ class NgffScene:
     images: dict[str, NgffMultiscales]
     coordinateTransformations: list[Transform]
     coordinateSystems: list[CoordinateSystem] | None = None
+
+    def to_ome_zarr(self, store: StoreLike, **kwargs: Any) -> None:
+        """Write this scene and its images to an OME-Zarr store.
+
+        Convenience method that delegates to :func:`ngff_zarr.to_ome_zarr`.
+        See that function for full parameter documentation.
+        """
+        from .to_ngff_zarr import to_ome_zarr
+
+        to_ome_zarr(store, self, **kwargs)
+
+    @classmethod
+    def from_ome_zarr(cls, store: StoreLike, **kwargs: Any) -> NgffScene:
+        """Read an OME-Zarr scene store into an NgffScene.
+
+        Convenience classmethod that delegates to :func:`ngff_zarr.from_ome_zarr`
+        with ``kind="scene"``, which refuses a store that holds no scene.
+        """
+        from .from_ngff_zarr import from_ome_zarr
+
+        return from_ome_zarr(store, kind="scene", **kwargs)
 
 
 def _check_image_path(path: object) -> None:
@@ -282,46 +302,24 @@ def _child_store(store: StoreLike, path: str) -> str:
     return f"{os.fspath(store).rstrip('/')}/{path}"
 
 
-def to_scene_zarr(
+def _write_scene(
     store: StoreLike,
     scene: NgffScene,
-    version: str = "0.6",
-    overwrite: bool = True,
-    consolidate_metadata: bool = True,
+    version: str,
+    overwrite: bool,
+    consolidate_metadata: bool,
     **kwargs: Any,
 ) -> None:
-    """Write a scene and its images to an OME-Zarr store.
+    """Write a scene and its images to a directory store; see ``to_ome_zarr``.
 
     The scene metadata lands in the root group's ``ome.scene`` and each image
     is written below its path with :func:`~ngff_zarr.to_ome_zarr`, at
-    ``version``. Every transformation end has to resolve, to a coordinate
-    system the scene declares or to one of the image at its path, and the
-    coordinate systems and images have to form one connected graph; otherwise
-    ``ValueError`` is raised and nothing is written.
-
-    :param store: Path to a directory in the file system.
-    :type  store: StoreLike
-
-    :param scene: The scene to write.
-    :type  scene: NgffScene
-
-    :param version: OME-Zarr specification version, 0.6 or later.
-    :type  version: str, optional
-
-    :param overwrite: If True, delete any pre-existing data in ``store`` first.
-        If False, keep the root group's other attributes and any other content;
-        the images are written over whatever their paths hold. A transformation
-        that references an array or a field group by ``path``, such as a
-        ``displacements`` field, needs that node written first, below the
-        scene's store, and the scene written with ``overwrite=False``.
-    :type  overwrite: bool, optional
-
-    :param consolidate_metadata: If True (default), write consolidated metadata
-        for the whole store at the root once the images are written.
-    :type  consolidate_metadata: bool, optional
-
-    :param kwargs: Passed to :func:`~ngff_zarr.to_ome_zarr` for every image,
-        such as ``chunks_per_shard`` or ``progress``.
+    ``version``, with ``kwargs``. The scene is checked against the spec
+    first (see :func:`_check_scene`); nothing is written when it fails. A
+    transformation that references an array or a field group by ``path``,
+    such as a ``displacements`` field, needs that node written first, below
+    the scene's store, and the scene written with ``overwrite=False``, which
+    also keeps the root group's other attributes.
     """
     from ._zarrista_utils import consolidate_metadata as _consolidate_metadata
     from ._zarrista_utils import (
@@ -379,60 +377,27 @@ def to_scene_zarr(
         _consolidate_metadata(store_path, 3)
 
 
-def from_scene_zarr(
+def _read_scene(
     store: StoreLike,
-    validate: bool = False,
-    version: str | None = None,
-    storage_options: dict | None = None,
+    root_attrs: dict[str, Any],
+    validate: bool,
+    version: str | None,
+    storage_options: dict | None,
 ) -> NgffScene:
-    """Read a scene and the images its transformations reference.
+    """Read the scene ``root_attrs`` declares, with the images it references.
 
-    :param store: Path to a directory in the file system, a remote URL, or
-        the path of an .ozx file.
-    :type  store: StoreLike
-
-    :param validate: If True, validate the scene metadata against the schema,
-        check that every transformation end resolves and that the coordinate
-        systems and images form one connected graph, and validate each image.
-    :type  validate: bool, optional
-
-    :param version: OME-Zarr version, if known.
-    :type  version: str, optional
-
-    :param storage_options: Storage options for a remote URL, as for
-        :func:`~ngff_zarr.from_ome_zarr`.
-    :type  storage_options: dict, optional
-
-    :return: The scene, with the images its transformations reference by path.
-        Pixel data is read lazily.
-    :rtype: NgffScene
+    ``store`` is what the caller passed to ``from_ome_zarr``: a local directory
+    path, a remote URL or an ``.ozx`` path, below which each referenced image is
+    read with :func:`~ngff_zarr.from_ome_zarr`. ``validate`` checks the root
+    against the bundled ``scene`` schema, validates each image, and runs the
+    spec checks of :func:`_check_scene` on the result.
     """
-    from ._remote_reader import RemoteZarrStore, remote_read_available
-    from ._zarrista_utils import open_ozx_store
-    from .from_ngff_zarr import (
-        REMOTE_URL_SCHEMES,
-        _open_root_node,
-        _remote_backend_import_error,
-        from_ome_zarr,
-    )
+    from .from_ngff_zarr import from_ome_zarr
     from .parse_metadata import _detect_version
-    from .rfc9_zip import is_ozx_path
 
-    root_store = store
-    if isinstance(store, (str, Path)) and is_ozx_path(store):
-        root_store = open_ozx_store(store)
-    elif isinstance(store, str) and store.startswith(REMOTE_URL_SCHEMES):
-        if not remote_read_available():
-            raise _remote_backend_import_error(store, None)
-        root_store = RemoteZarrStore(store, storage_options=storage_options)
-    root_attrs = _open_root_node(root_store, version).attrs.asdict()
-    ome = root_attrs.get("ome")
-    document = ome.get("scene") if isinstance(ome, dict) else None
+    document = root_attrs["ome"]["scene"]
     if not isinstance(document, dict):
-        raise ValueError(
-            f"No scene metadata at '{store}': the root group carries no "
-            "'ome.scene' entry. An image store is read with from_ome_zarr()."
-        )
+        raise ValueError(f"The 'ome.scene' entry must be an object; got {document!r}.")
     if version is None:
         version = _detect_version(root_attrs).value
     if validate:
@@ -449,11 +414,17 @@ def from_scene_zarr(
                 # The path comes from the store's own metadata and is joined
                 # to the store, so it must not reach outside the scene group.
                 _check_image_path(path)
-                images[path] = from_ome_zarr(
+                image = from_ome_zarr(
                     _child_store(store, path),
                     validate=validate,
                     storage_options=storage_options,
                 )
+                if not isinstance(image, NgffMultiscales):
+                    raise ValueError(
+                        f"The scene references image {path!r}, but that node "
+                        "holds a scene rather than a multiscales image."
+                    )
+                images[path] = image
     scene = NgffScene(
         images=images,
         coordinateTransformations=transforms,

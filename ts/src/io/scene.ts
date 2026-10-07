@@ -12,6 +12,7 @@
  */
 import * as zarr from "zarrita";
 import type { NgffMultiscales } from "../types/multiscales.ts";
+import { NgffScene } from "../types/scene.ts";
 import {
   NgffVersion,
   V06_ONDISK_VERSION,
@@ -37,7 +38,6 @@ import {
   validateV06Transform,
 } from "../utils/v06_metadata.ts";
 import type { ChunkCache } from "../utils/worker_pool.ts";
-import { fromOmeZarr } from "./from_ngff_zarr.ts";
 import { toOmeZarr } from "./to_ngff_zarr.ts";
 import { gateAxisViews, gateSpans } from "./to_ngff_zarr_ozx_common.ts";
 
@@ -47,27 +47,10 @@ export const SCENE_VERSIONS: readonly string[] = [
   NgffVersion.V09dev1,
 ];
 
-/**
- * Images that share a spatial relationship, and the transformations between
- * them.
- *
- * `images` maps each image's path below the scene group to its multiscales.
- * `coordinateTransformations` relate the images' coordinate systems to each
- * other and to `coordinateSystems`, the systems the scene declares itself.
- * Each end of a transformation is a {@link CoordinateSystemIdentifier}: with
- * a `path` it names a coordinate system of that image, without one a system
- * of the scene. The first scene coordinate system is the reference a viewer
- * displays by default.
- */
-export interface NgffScene {
-  images: Record<string, NgffMultiscales>;
-  coordinateTransformations: V06Transform[];
-  coordinateSystems?: CoordinateSystem[];
-}
-
-export interface ToSceneZarrOptions {
+/** The scene subset of `ToOmeZarrOptions`, forwarded by `toOmeZarr`. */
+export interface WriteSceneOptions {
   /** OME-Zarr specification version, 0.6 (the default) or later. */
-  version?: "0.6" | "0.9.dev1";
+  version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
   /**
    * With the default `true`, the root group's attributes are the scene's
    * alone. With `false`, the attributes an existing root group carries are
@@ -89,17 +72,24 @@ export interface ToSceneZarrOptions {
   codecs?: ZarrCodec[];
 }
 
-export interface FromSceneZarrOptions {
+/** The scene subset of `FromOmeZarrOptions`, forwarded by `fromOmeZarr`. */
+export interface ReadSceneOptions {
   /**
    * Check that every transformation end resolves and that the coordinate
    * systems and images form one connected graph, and validate each image.
    */
   validate?: boolean;
   /** OME-Zarr version, if known. */
-  version?: "0.6" | "0.9.dev1";
-  /** Passed to {@link fromOmeZarr} for every image. */
+  version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
+  /** Passed to the image reader for every image. */
   cache?: ChunkCache;
 }
+
+/** Reads the image at a child store path; the port's `fromOmeZarr`. */
+export type ImageReader = (
+  store: string,
+  options: { validate: boolean; cache?: ChunkCache },
+) => Promise<NgffMultiscales>;
 
 /** Whether `value` is a plain JSON object. */
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -412,23 +402,20 @@ async function localStore(store: string): Promise<zarr.Mutable> {
 }
 
 /**
- * Write a scene and its images to an OME-Zarr store.
+ * Write a scene and its images to a directory store; `toOmeZarr` calls this.
  *
  * The scene metadata lands in the root group's `ome.scene` and each image is
- * written below its path with {@link toOmeZarr}, at `options.version`. Every
- * transformation end has to resolve, to a coordinate system the scene
- * declares or to one of the image at its path, and the coordinate systems and
- * images have to form one connected graph; otherwise an error is thrown and
- * nothing is written.
- *
- * @param store - Path to a directory in the file system
- * @param scene - The scene to write
- * @param options - Writing options
+ * written below its path with {@link toOmeZarr}, at `options.version`. The
+ * scene is checked against the spec first ({@link checkScene}); nothing is
+ * written when it fails. A transformation that references an array or a
+ * field group by `path`, such as a `displacements` field, needs that node
+ * written first, below the scene's store, and the scene written with
+ * `overwrite: false`, which also keeps the root group's other attributes.
  */
-export async function toSceneZarr(
+export async function writeScene(
   store: string,
   scene: NgffScene,
-  options: ToSceneZarrOptions = {},
+  options: WriteSceneOptions = {},
 ): Promise<void> {
   const version = options.version ?? "0.6";
   if (!SCENE_VERSIONS.includes(version)) {
@@ -525,30 +512,24 @@ export async function toSceneZarr(
 }
 
 /**
- * Read a scene and the images its transformations reference.
- *
- * @param store - Path to a directory in the file system, or an HTTP(S) URL
- * @param options - Reading options
- * @returns The scene, with the images its transformations reference by path;
- *   pixel data is read lazily
+ * Read the scene `rootAttrs` declares, with the images it references;
+ * `fromOmeZarr` calls this. `store` is the path or URL the caller passed,
+ * below which `readImage` reads each referenced image. `validate` validates
+ * each image and runs the spec checks of {@link checkScene} on the result.
  */
-export async function fromSceneZarr(
+export async function readScene(
   store: string,
-  options: FromSceneZarrOptions = {},
+  rootAttrs: Record<string, unknown>,
+  readImage: ImageReader,
+  options: ReadSceneOptions = {},
 ): Promise<NgffScene> {
   const validate = options.validate ?? false;
-  const resolvedStore =
-    store.startsWith("http://") || store.startsWith("https://")
-      ? new zarr.FetchStore(store)
-      : await localStore(store);
-  const root = await zarr.open(zarr.root(resolvedStore), { kind: "group" });
-  const rootAttrs = root.attrs as Record<string, unknown>;
-  const ome = rootAttrs.ome;
-  const document = isRecord(ome) ? ome.scene : undefined;
+  const document = (rootAttrs.ome as Record<string, unknown>).scene;
   if (!isRecord(document)) {
     throw new Error(
-      `No scene metadata at '${store}': the root group carries no ` +
-        "'ome.scene' entry. An image store is read with fromOmeZarr().",
+      `The 'ome.scene' entry must be an object; got ${
+        JSON.stringify(document)
+      }.`,
     );
   }
   const version = options.version ?? detectVersion(rootAttrs);
@@ -564,20 +545,25 @@ export async function fromSceneZarr(
         // The path comes from the store's own metadata and is joined to
         // the store, so it must not reach outside the scene group.
         checkImagePath(path);
-        images[path] = await fromOmeZarr(childStore(store, path), {
+        images[path] = await readImage(childStore(store, path), {
           validate,
           ...(options.cache !== undefined && { cache: options.cache }),
         });
       }
     }
   }
-  const scene: NgffScene = {
+  const scene = new NgffScene({
     images,
     coordinateTransformations,
     ...(coordinateSystems !== undefined && { coordinateSystems }),
-  };
+  });
   if (validate) {
     checkScene(scene, version);
   }
   return scene;
+}
+
+/** Whether `rootAttrs` is the root document of a scene group. */
+export function hasSceneMetadata(rootAttrs: Record<string, unknown>): boolean {
+  return isRecord(rootAttrs.ome) && "scene" in rootAttrs.ome;
 }

@@ -3,6 +3,8 @@
 import * as zarr from "zarrita";
 
 import { NgffMultiscales } from "../types/multiscales.ts";
+import type { NgffScene } from "../types/scene.ts";
+import { hasSceneMetadata, readScene } from "./scene.ts";
 import { isV06Version, NgffVersion } from "../types/supported_versions.ts";
 import {
   fromZarrAttrsV04,
@@ -19,6 +21,13 @@ import { ensureRangeReads } from "../utils/sharding.ts";
 export type { ChunkCache } from "../utils/worker_pool.ts";
 
 export interface FromOmeZarrOptions {
+  /**
+   * What the store holds, as zarrita's `open` takes a `kind`: a multiscales
+   * image (the default), or a scene, read as an {@link NgffScene} with the
+   * images its transformations reference. A store that holds the other kind
+   * throws.
+   */
+  kind?: "multiscales" | "scene";
   /** Enable schema validation of OME-Zarr metadata. */
   validate?: boolean;
   /** Expected OME-Zarr version. */
@@ -39,11 +48,19 @@ export type FromNgffZarrOptions = FromOmeZarrOptions;
 
 export type MemoryStore = Map<string, Uint8Array>;
 
+export function fromOmeZarr(
+  store: string | MemoryStore | zarr.FetchStore | zarr.Readable,
+  options: FromOmeZarrOptions & { kind: "scene" },
+): Promise<NgffScene>;
+export function fromOmeZarr(
+  store: string | MemoryStore | zarr.FetchStore | zarr.Readable,
+  options?: FromOmeZarrOptions & { kind?: "multiscales" },
+): Promise<NgffMultiscales>;
 export async function fromOmeZarr(
   // Also accepts FileSystemStore, ZipFileStore, or any zarrita Readable store
   store: string | MemoryStore | zarr.FetchStore | zarr.Readable,
   options: FromOmeZarrOptions = {},
-): Promise<NgffMultiscales> {
+): Promise<NgffMultiscales | NgffScene> {
   const validate = options.validate ?? false;
   const requestedVersion = options.version;
 
@@ -117,6 +134,27 @@ export async function fromOmeZarr(
     });
     const attrs = root.attrs as unknown;
     const rootAttrs = attrs as Record<string, unknown>;
+
+    // A scene group is read with the images its transformations reference,
+    // each below the path or URL the caller passed.
+    if (hasSceneMetadata(rootAttrs)) {
+      if (options.kind !== "scene") {
+        throw new Error(
+          `'${store}' holds a scene; read it with fromOmeZarr(store, { kind: "scene" }).`,
+        );
+      }
+      if (typeof store !== "string") {
+        throw new Error(
+          "A scene is read from a directory path or a URL; got a store object.",
+        );
+      }
+      return await readScene(store, rootAttrs, fromOmeZarr, options);
+    }
+    if (options.kind === "scene") {
+      throw new Error(
+        `'${store}' holds no scene: the root group carries no 'ome.scene' entry.`,
+      );
+    }
 
     // Handle both v0.4 (multiscales at root) and v0.5 (multiscales under "ome")
     const hasOmeWrapper = "ome" in rootAttrs;

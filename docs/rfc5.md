@@ -334,8 +334,8 @@ scene.ome.zarr
     └── zarr.json
 ```
 
-`to_scene_zarr` writes the scene metadata and every image in one call, and
-`from_scene_zarr` reads the scene back with the images its transformations
+`to_ome_zarr` writes the scene metadata and every image in one call, and
+`from_ome_zarr` reads the scene back with the images its transformations
 reference:
 
 ```python
@@ -382,9 +382,9 @@ scene = NgffScene(
         to_world("tile_1", [0.0, 128.0]),
     ],
 )
-nz.to_scene_zarr("scene.ome.zarr", scene, version="0.6")
+nz.to_ome_zarr("scene.ome.zarr", scene)
 
-scene = nz.from_scene_zarr("scene.ome.zarr")
+scene = nz.from_ome_zarr("scene.ome.zarr")
 scene.images["tile_1"]  # an NgffMultiscales, its pixels read lazily
 scene.coordinateTransformations[1].translation  # [0.0, 128.0]
 ```
@@ -396,13 +396,16 @@ names a system, which resolves to one the scene declares or to one the image
 at its path declares; each transformation holds for the two systems it joins,
 so a translation spans their axes and a `mapAxis` permutes them; and the
 coordinate systems and images form one connected graph. A scene that fails a
-check raises `ValueError`. `from_scene_zarr(store, validate=True)` runs the
-same checks on a store, after validating its root metadata against the
+check raises `ValueError`. `from_ome_zarr(store, validate=True)` runs the
+same checks on a scene store, after validating its root metadata against the
 `scene` schema and each image against the `image` schema. The first scene
 coordinate system is the reference a viewer displays by default, so declare
 the common system first. A scene reads from a local directory, a remote URL
-or an `.ozx` archive, and `to_scene_zarr` passes its other keyword arguments,
-such as `chunks_per_shard`, to `to_ome_zarr` for every image.
+or an `.ozx` archive; `from_ome_zarr(store, kind="scene")` refuses a store
+that holds an image, and a path into one of the scene's images reads that
+image. `to_ome_zarr` writes a scene at version 0.6 unless told otherwise and
+passes its other keyword arguments, such as `chunks_per_shard`, to the write
+of every image.
 
 A transformation whose parameters are an array, such as a `displacements`
 field between two images, references it by `path`. The field is an OME-Zarr
@@ -426,9 +429,9 @@ scene.coordinateTransformations.append(
         output=CoordinateSystemIdentifier(path="tile_1", name="intrinsic"),
     )
 )
-nz.to_scene_zarr("scene.ome.zarr", scene, overwrite=False)
+nz.to_ome_zarr("scene.ome.zarr", scene, overwrite=False)
 
-scene = nz.from_scene_zarr("scene.ome.zarr")
+scene = nz.from_ome_zarr("scene.ome.zarr")
 field = nz.from_ome_zarr(f"scene.ome.zarr/{scene.coordinateTransformations[2].path}")
 ```
 
@@ -491,16 +494,17 @@ const field2 = await fromOmeZarr(`${store}/${(transform as { path: string }).pat
 });
 ```
 
-A scene is written and read the same way, with `toSceneZarr` and
-`fromSceneZarr` mirroring the Python functions:
+A scene is written and read the same way, through `toOmeZarr` and
+`fromOmeZarr`; `kind: "scene"` types the result as an `NgffScene`, as
+zarrita's `open` takes a `kind`:
 
 ```typescript
 import {
-  fromSceneZarr,
-  type NgffScene,
+  fromOmeZarr,
+  NgffScene,
   toMultiscales,
   toNgffImage,
-  toSceneZarr,
+  toOmeZarr,
 } from "@fideus-labs/ngff-zarr";
 
 async function tile(seed: number) {
@@ -513,7 +517,7 @@ async function tile(seed: number) {
   return toMultiscales(image, { scaleFactors: [2] });
 }
 
-const scene: NgffScene = {
+const scene = new NgffScene({
   images: { tile_0: await tile(0), tile_1: await tile(1) },
   coordinateSystems: [{
     name: "world",
@@ -536,17 +540,22 @@ const scene: NgffScene = {
       output: { name: "world" },
     },
   ],
-};
-await toSceneZarr("scene.ome.zarr", scene, { version: "0.6" });
+});
+await toOmeZarr("scene.ome.zarr", scene);
 
-const read = await fromSceneZarr("scene.ome.zarr", { validate: true });
+const read = await fromOmeZarr("scene.ome.zarr", {
+  kind: "scene",
+  validate: true,
+});
 read.images.tile_1; // an NgffMultiscales, its pixels read lazily
 ```
 
 The same checks run as in Python, before anything is written and, with
 `validate: true`, after reading. A scene reads from a local directory or an
-HTTP(S) URL. A field a transformation references by `path` is written first
-with `toOmeZarr`, then the scene with `{ overwrite: false }`.
+HTTP(S) URL; without `kind: "scene"`, `fromOmeZarr` keeps its `NgffMultiscales`
+result type and refuses a scene store. A field a transformation references
+by `path` is written first with `toOmeZarr`, then the scene with
+`{ overwrite: false }`.
 
 ## Compatibility
 
