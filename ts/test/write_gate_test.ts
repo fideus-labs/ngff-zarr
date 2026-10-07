@@ -218,7 +218,7 @@ for (const values of [[2.0, 2.0], [2.0, 2.0, 2.0, 2.0]]) {
     const metadata = buildMetadata([space("z"), space("y"), space("x")]);
     metadata.coordinateTransformations = [createScale(values)];
     const error = assertThrows(
-      () => buildRootAttributes(metadata, "0.4"),
+      () => buildRootDocument(metadata, "0.4"),
       Error,
       "span its axes",
     );
@@ -232,7 +232,7 @@ Deno.test("a dataset-level transform is checked too", () => {
   const metadata = buildMetadata([space("z"), space("y"), space("x")]);
   metadata.datasets[0].coordinateTransformations = [createScale([2.0, 2.0])];
   assertThrows(
-    () => buildRootAttributes(metadata, "0.4"),
+    () => buildRootDocument(metadata, "0.4"),
     Error,
     "dataset '0' coordinateTransformations[0] (scale) gives 2 scale values",
   );
@@ -250,7 +250,7 @@ Deno.test("a transform naming a coordinate system spans that system", () => {
     input: { name: "volume" },
     output: { name: "volume" },
   }];
-  buildRootAttributes(metadata, "0.6");
+  buildRootDocument(metadata, "0.6");
 });
 
 Deno.test("the first system spans the axes the writer serializes", () => {
@@ -268,7 +268,7 @@ Deno.test("the first system spans the axes the writer serializes", () => {
     output: { name: "intrinsic" },
   }];
   assertThrows(
-    () => buildRootAttributes(metadata, "0.6"),
+    () => buildRootDocument(metadata, "0.6"),
     Error,
     "gives 3 scale values for the 2 axes",
   );
