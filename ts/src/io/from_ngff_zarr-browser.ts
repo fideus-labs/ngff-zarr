@@ -25,10 +25,10 @@ export type { ChunkCache } from "../utils/worker_pool.ts";
 
 export interface FromOmeZarrOptions {
   /**
-   * What the store holds, as zarrita's `open` takes a `kind`: a multiscales
-   * image (the default), a scene, read as an {@link NgffScene} with the
-   * images its transformations reference, or a transformation on its own,
-   * read as a {@link V06Transform}. A store that holds another kind throws.
+   * What the store holds, like zarrita's `open`: a multiscales image (the
+   * default), a scene ({@link NgffScene}, with the images it references), or
+   * a transformation on its own ({@link V06Transform}). A store that holds
+   * another kind throws.
    */
   kind?: "multiscales" | "scene" | "transformation";
   /** Enable schema validation of OME-Zarr metadata. */

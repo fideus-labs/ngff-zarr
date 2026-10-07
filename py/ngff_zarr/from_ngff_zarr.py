@@ -222,12 +222,11 @@ def from_ome_zarr(
     """
     Read an OME-Zarr NGFF multiscales data structure (NgffMultiscales) from a Zarr store.
 
-    With ``kind="scene"``, a store whose root group carries ``ome.scene`` is
-    read as an :class:`~ngff_zarr.NgffScene` instead, with the images its
-    transformations reference by path; a path into one of those images reads
-    that image. With ``kind="transformation"``, a store whose root group
-    carries ``ome.coordinateTransformations`` alone is read as that
-    transformation, references and ``path`` kept as written.
+    With ``kind="scene"``, a scene store is read as an
+    :class:`~ngff_zarr.NgffScene` with the images it references; a path into
+    one of those images reads that image. With ``kind="transformation"``, a
+    store that holds a transformation on its own is read as that
+    transformation, as written.
 
     store : StoreLike
         Store or path to directory in file system. Can be a string URL
@@ -252,9 +251,9 @@ def from_ome_zarr(
         read from the ZIP comment if not provided.
 
     kind : "multiscales", "scene" or "transformation", optional
-        What the store holds, as zarrita's ``open`` takes a ``kind``: a
-        multiscales image (the default), a scene, or a transformation on its
-        own. A store that holds another kind raises ``ValueError``.
+        What the store holds, like zarrita's ``open``: a multiscales image
+        (the default), a scene, or a transformation on its own. A store that
+        holds another kind raises ``ValueError``.
 
     storage_options : dict, optional
         Storage options to pass to the store if store is a string URL.

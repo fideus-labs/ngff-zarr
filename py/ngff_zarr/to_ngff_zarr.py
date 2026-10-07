@@ -1575,14 +1575,12 @@ def to_ome_zarr(
 
     :param multiscales: NgffMultiscales OME-NGFF image pixel data and metadata. Can be generated with ngff_zarr.to_multiscales.
         Its ``root_attributes`` are written beside the OME metadata at the root of the store.
-        Or an :class:`~ngff_zarr.NgffScene`: its metadata lands in the root group's ``ome.scene``
-        and each of its images is written below its path, after the scene is checked against the
-        spec; a scene is written to a directory path, at version 0.6 or later.
-        Or a transformation (an :class:`~ngff_zarr.v06.zarr_metadata.Transform`):
-        it lands in the root group's ``ome.coordinateTransformations`` as the
-        store's only transformation, at version 0.6 or later; a node it
-        references by ``path``, such as a ``displacements`` field, is written
-        below the store first and the transformation with ``overwrite=False``.
+        Or an :class:`~ngff_zarr.NgffScene`, written to a directory path at version 0.6 or
+        later: the scene metadata goes to the root group and each image below its path.
+        Or a transformation (:class:`~ngff_zarr.v06.zarr_metadata.Transform`), stored on
+        its own in the root group's ``ome.coordinateTransformations``; a field it
+        references by ``path`` is written first, then the transformation with
+        ``overwrite=False``.
     :type  multiscales: NgffMultiscales | NgffScene | Transform
 
     :param version: OME-Zarr specification version. Defaults to 0.5 for a multiscales image and

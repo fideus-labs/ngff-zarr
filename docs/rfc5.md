@@ -316,12 +316,12 @@ and [Converting transforms](./itk.md#converting-transforms).
 
 ## Scenes
 
-A **scene** is the group above a set of images that share a spatial
-relationship: the tiles of one sample, or the same sample imaged by two
-instruments. Its `ome.scene` metadata holds the `coordinateTransformations`
-between the images' coordinate systems and, optionally, `coordinateSystems` of
-its own, such as a common world system the images map into. Each end of a
-transformation is a `CoordinateSystemIdentifier`.
+A **scene** groups images that share a space: the tiles of one sample, or
+the same sample imaged twice. Its `ome.scene` metadata lists the
+transformations between the images' coordinate systems, and may declare
+coordinate systems of its own, such as a `world` system the images map into.
+Each end of a transformation is a `CoordinateSystemIdentifier`: `path` points
+to an image, `name` picks one of its coordinate systems.
 
 The images are ordinary multiscales groups below the scene:
 
@@ -334,9 +334,8 @@ scene.ome.zarr
     └── zarr.json
 ```
 
-`to_ome_zarr` writes the scene metadata and every image in one call, and
-`from_ome_zarr` reads the scene back with the images its transformations
-reference:
+`to_ome_zarr` writes the scene and its images. `from_ome_zarr` with
+`kind="scene"` reads them back:
 
 ```python
 import numpy as np
@@ -366,7 +365,7 @@ world = CoordinateSystem(
 
 
 def to_world(path, offset):
-    # "intrinsic" is the coordinate system to_multiscales declares on an image.
+    # "intrinsic" is the coordinate system to_multiscales gives an image.
     return Translation(
         translation=offset,
         input=CoordinateSystemIdentifier(path=path, name="intrinsic"),
@@ -389,35 +388,35 @@ scene.images["tile_1"]  # an NgffMultiscales, its pixels read lazily
 scene.coordinateTransformations[1].translation  # [0.0, 128.0]
 ```
 
-Before anything is written, the scene is checked against the spec:
+The writer checks the scene before writing anything:
 
-- the scene's coordinate systems have unique names and an axis model the
-  version allows (five axes at most at 0.6, any at 0.9.dev1);
-- every transformation names its two ends, and each resolves to a system the
-  scene declares or to a system of the image at its `path`;
-- each transformation fits the two systems it joins: a translation has one
-  value per axis, a `mapAxis` permutes them;
-- the coordinate systems and images form one connected graph;
-- every node a transformation references by `path` is already in the store.
+- coordinate system names are unique, and their axes follow the version's
+  rules (five axes at most at 0.6, any number at 0.9.dev1);
+- every transformation names both ends, each found in the scene or in the
+  image at its `path`;
+- a transformation fits the systems it joins: one translation value per axis,
+  a `mapAxis` that permutes them;
+- coordinate systems and images form one connected graph;
+- every node referenced by `path` exists in the store.
 
-A scene that fails a check raises `ValueError`, and `validate=True` runs the
-same checks after reading. `kind="scene"` selects what the store holds, as
-zarrita's `open` takes a `kind`; without it, `from_ome_zarr` reads multiscales
-images only. `NgffScene.from_ome_zarr` is the same read, and a path into one
-of the scene's images reads that image. The first scene coordinate system is
-the reference a viewer displays by default, so declare the common system
-first. A scene reads from a local directory, a remote URL or an `.ozx`
-archive. `to_ome_zarr` writes a scene at version 0.6 unless told otherwise
-and passes its other keyword arguments, such as `chunks_per_shard`, to the
-write of every image.
+A scene that fails a check raises `ValueError`. `validate=True` runs the same
+checks after reading. Put the common coordinate system first: viewers use it
+as the default. A scene reads from a local directory, a URL or an `.ozx`
+archive, and `to_ome_zarr` passes options such as `chunks_per_shard` on to
+each image.
+
+`kind` says what a store holds, like zarrita's `open`. Without it,
+`from_ome_zarr` reads multiscales images only. `NgffScene.from_ome_zarr` is a
+shortcut for `kind="scene"`, and a path into one of the scene's images reads
+that image.
 
 An example with a displacement field:
 
 ```python
 from ngff_zarr.v06.zarr_metadata import Displacements
 
-# The field is an image of its own, written first below the scene's store;
-# `overwrite=False` then keeps it.
+# The field is an image of its own: write it first, below the scene, then
+# the scene with overwrite=False to keep it.
 field_path = "coordinateTransformations/dfield"
 nz.to_ome_zarr(f"scene.ome.zarr/{field_path}", field_multiscales, version="0.6")
 
@@ -437,11 +436,10 @@ field = nz.from_ome_zarr(f"scene.ome.zarr/{scene.coordinateTransformations[2].pa
 
 ## A transformation on its own
 
-A transformation can be stored by itself, without an image or a scene: the
-root group's `ome.coordinateTransformations` holds it, the shape of the
-spec's standalone transformation examples. `to_ome_zarr` takes a
-transformation object and `from_ome_zarr(store, kind="transformation")`
-reads it back, references and `path` kept as written:
+A transformation can be stored without an image or a scene. The root
+group's `ome.coordinateTransformations` holds it, as in the spec's standalone
+examples. `to_ome_zarr` takes the transformation object, and `from_ome_zarr`
+with `kind="transformation"` reads it back as written:
 
 ```python
 import ngff_zarr as nz
@@ -459,9 +457,9 @@ transform = nz.from_ome_zarr("registration.ome.zarr", kind="transformation")
 nz.ngff_transform_to_itk_transform(transform)
 ```
 
-A transformation whose parameters are an array, such as a `displacements`
-field, references it by `path`: write the field first, below the store, then
-the transformation with `overwrite=False`, as for a scene.
+A transformation stored as an array, such as a `displacements` field, points
+to it by `path`. Write the field first, below the store, then the
+transformation with `overwrite=False`, as for a scene.
 
 ## TypeScript
 
@@ -522,9 +520,8 @@ const field2 = await fromOmeZarr(`${store}/${(transform as { path: string }).pat
 });
 ```
 
-A scene is written and read the same way, through `toOmeZarr` and
-`fromOmeZarr`; `kind: "scene"` types the result as an `NgffScene`, as
-zarrita's `open` takes a `kind`:
+A scene is written and read the same way. `kind: "scene"` types the result
+as an `NgffScene`:
 
 ```typescript
 import {
@@ -578,14 +575,13 @@ const read = await fromOmeZarr("scene.ome.zarr", {
 read.images.tile_1; // an NgffMultiscales, its pixels read lazily
 ```
 
-The same checks run as in Python, before anything is written and, with
-`validate: true`, after reading. A scene reads from a local directory or an
-HTTP(S) URL; without `kind: "scene"`, `fromOmeZarr` keeps its `NgffMultiscales`
-result type and refuses a scene store. A field a transformation references
-by `path` is written first with `toOmeZarr`, then the scene with
-`{ overwrite: false }`. A transformation on its own is written the same way,
-`toOmeZarr(store, transform)`, to a directory path or a `MemoryStore`, and
-read back with `fromOmeZarr(store, { kind: "transformation" })`.
+The same checks run as in Python. A scene reads from a local directory or an
+HTTP(S) URL. Without `kind: "scene"`, `fromOmeZarr` keeps its
+`NgffMultiscales` result type and refuses a scene store. A field is written
+first with `toOmeZarr`, then the scene with `{ overwrite: false }`. A
+transformation on its own works the same way: `toOmeZarr(store, transform)`
+writes it, to a directory or a `MemoryStore`, and
+`fromOmeZarr(store, { kind: "transformation" })` reads it back.
 
 ## Compatibility
 
