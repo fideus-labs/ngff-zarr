@@ -1,3 +1,22 @@
+## py-v0.49.0 (2026-10-07)
+
+### ♻️ Refactoring
+
+- **py,ts**: read and write scenes through to_ome_zarr and from_ome_zarr ([2753c80](https://github.com/fideus-labs/ngff-zarr/commit/2753c809e3065bf574e04c33f37f77653b005e50))
+
+### ✨ Features
+
+- **py,ts**: write and read a transformation on its own with kind="transformation" ([0bf9b17](https://github.com/fideus-labs/ngff-zarr/commit/0bf9b1703378200698761eec595633b1907a0d7d))
+- **py,ts**: check a scene against the spec before writing it ([822b8ea](https://github.com/fideus-labs/ngff-zarr/commit/822b8ea9b735f4f170035d82d07f0285a567c6a3))
+- **py**: read and write OME-Zarr 0.6 scenes ([b09b2fe](https://github.com/fideus-labs/ngff-zarr/commit/b09b2feb3f4cac6cd464085a00d0ebe73fc7066d))
+- **py**: write rotation and affine matrices as Zarr arrays ([83fc1f2](https://github.com/fideus-labs/ngff-zarr/commit/83fc1f27884154a8d7a638907ce2f693bb519b3f))
+
+### 🐛 Bug Fixes
+
+- **py,ts**: type the scene read with kind overloads and keep the browser module Node-free ([0d0d32b](https://github.com/fideus-labs/ngff-zarr/commit/0d0d32bc9031a217dc62ef5b481de4770c8b1eea))
+- **py,ts**: check image paths read from scene metadata ([a3042d8](https://github.com/fideus-labs/ngff-zarr/commit/a3042d8d3bc6e343a46c0d68d0550a42d30ed99a))
+- **py**: refuse matrix array paths that collide with stored nodes ([5c0bf72](https://github.com/fideus-labs/ngff-zarr/commit/5c0bf72fc49cc73399aed53bb5e7152eeed6b5db))
+
 ## py-v0.48.0 (2026-09-30)
 
 ### 🐛 Bug Fixes
