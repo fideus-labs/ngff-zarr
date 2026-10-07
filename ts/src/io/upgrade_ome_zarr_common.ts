@@ -22,12 +22,17 @@ import {
   isV06Version,
   V06_ONDISK_VERSION,
 } from "../types/supported_versions.ts";
-import { buildRootAttributes } from "./to_ngff_zarr_ozx_common.ts";
+import { buildRootDocument } from "./to_ngff_zarr_ozx_common.ts";
 import {
   consolidatedNodePaths,
   consolidateMetadata,
   datasetNodePaths,
 } from "../utils/consolidate_metadata.ts";
+import {
+  checkMatrixDestinations,
+  namedMatrixPaths,
+  writeMatrixArrays,
+} from "../utils/matrix_transform_arrays.ts";
 
 /** Stores/paths `upgradeOmeZarr` can read from. */
 export type UpgradeInput =
@@ -247,7 +252,8 @@ export async function upgradeOmeZarrImpl(
   // metadata. `fromOmeZarr` reads the metadata and opens the arrays lazily (no
   // chunk data is read), and `zarr.create` overwrites the root `zarr.json`
   // alone — every array `zarr.json` and chunk file is left byte-for-byte
-  // untouched. This is the fix for issue #219.
+  // untouched. This is the fix for issue #219. The one other write is the
+  // array of a rotation or affine matrix the source held inline.
   //
   // Read before the rewrite: `zarr.create` replaces the root document
   // wholesale, and the fresh one carries no consolidated block. Restoring it
@@ -257,8 +263,22 @@ export async function upgradeOmeZarrImpl(
   // to worry about, and stale consolidation is impossible either way.
   const consolidatedBefore = await consolidatedNodePaths(store);
   const multiscales = await deps.fromOmeZarr(store, { validate });
-  const attributes = buildRootAttributes(multiscales.metadata, version);
+  // The reader loaded each matrix that names a path from that array in this
+  // store, so only the matrices the source held inline need writing.
+  const inStore = namedMatrixPaths(
+    multiscales.metadata.coordinateTransformations,
+  );
+  const { attributes, matrixArrays } = buildRootDocument(
+    multiscales.metadata,
+    version,
+  );
+  for (const path of inStore) {
+    matrixArrays.delete(path);
+  }
+  // Each path left is new to the store's metadata, so nothing may sit there.
+  await checkMatrixDestinations(location, matrixArrays.keys(), new Set());
   await zarr.create(location, { attributes });
+  await writeMatrixArrays(location, matrixArrays);
   if (consolidatedBefore !== undefined) {
     // Union, not replace. A store holds nodes the multiscales metadata never
     // names -- an OME-Zarr `labels` group is the everyday case -- and a
@@ -270,9 +290,10 @@ export async function upgradeOmeZarrImpl(
     // carrying a stale one over costs nothing.
     const nodePaths = new Set([
       ...consolidatedBefore,
-      ...datasetNodePaths(
-        multiscales.metadata.datasets.map((dataset) => dataset.path),
-      ),
+      ...datasetNodePaths([
+        ...multiscales.metadata.datasets.map((dataset) => dataset.path),
+        ...matrixArrays.keys(),
+      ]),
     ]);
     await consolidateMetadata(store, [...nodePaths].sort());
   }

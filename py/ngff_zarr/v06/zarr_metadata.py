@@ -848,6 +848,7 @@ class Metadata:
         import posixpath
         import sys
 
+        from .._matrix_transform_arrays import resolve_matrix_transforms
         from .._zarrista_utils import open_lazy_array
         from ..ngff_image import NgffImage, non_default_axes_types
         from ..parse_metadata import _parse_omero
@@ -993,7 +994,9 @@ class Metadata:
         additionalTransformations = root_attrs.get("coordinateTransformations", None)
         if additionalTransformations is not None:
             additionalTransformations = cls._parse_transforms(
-                additionalTransformations, coordinate_systems, declared_version
+                resolve_matrix_transforms(additionalTransformations, store, subpath),
+                coordinate_systems,
+                declared_version,
             )
 
         metadata = cls(

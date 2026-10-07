@@ -21,8 +21,8 @@ a dataset (the per-scale scale/translation) or at the top level of the
 multiscales (an affine, a displacement field, a sequence, ...), mapping the
 image into another coordinate system.
 
-Two of these transformations reference their parameters as an array stored in
-the Zarr hierarchy rather than inline:
+Two of these transformations are defined by a field image stored in the Zarr
+hierarchy:
 
 - **`displacements`** — a vector field added to each coordinate.
 - **`coordinates`** — a vector field of absolute output coordinates.
@@ -46,8 +46,8 @@ releases; it is reachable by its import path but not re-exported from the packag
 | `Identity` | `identity` | — |
 | `Scale` | `scale` | `scale: list[float]` |
 | `Translation` | `translation` | `translation: list[float]` |
-| `Rotation` | `rotation` | `rotation: list[list[float]]` |
-| `Affine` | `affine` | `affine: list[list[float]]` |
+| `Rotation` | `rotation` | `rotation: list[list[float]]`, `path: str` (optional) |
+| `Affine` | `affine` | `affine: list[list[float]]`, `path: str` (optional) |
 | `Displacements` | `displacements` | `path: str`, `interpolation: str` |
 | `Coordinates` | `coordinates` | `path: str`, `interpolation: str` |
 | `TransformSequence` | `sequence` | `transformations: list[Transform]` |
@@ -83,11 +83,14 @@ depend on the resolved input and output coordinate systems are checked on read, 
 Every transform has an `input` and `output`, each a
 `CoordinateSystemIdentifier` naming a coordinate system (`name=`) or referencing
 a dataset (`path=`). `Displacements`/`Coordinates` additionally carry a `path`
-pointing at the field array within the store.
+pointing at the field array within the store, and `Rotation`/`Affine` one
+pointing at the array that holds their matrix (see
+[Matrix parameters in Zarr arrays](#matrix-parameters-in-zarr-arrays)).
 
-Inline transforms (affine, rotation, scale, ...) are stored directly in the
-multiscales metadata, so a single `to_ome_zarr` call writes both the image
-pixel data and the transformation:
+Scale, translation and the other transforms with vector or index parameters
+are stored inline in the multiscales metadata. Rotation and affine matrices go
+to small arrays in the same store, so a single `to_ome_zarr` call writes the
+image pixel data and the transformation together:
 
 ```python
 import numpy as np
@@ -127,6 +130,53 @@ multiscales.metadata.coordinateTransformations = [affine]
 
 nz.to_ome_zarr("affine.ome.zarr", multiscales, version="0.6")
 ```
+
+### Matrix parameters in Zarr arrays
+
+RFC-5 lets a `rotation` or `affine` carry its matrix either inline, as nested
+JSON arrays, or in a 2D Zarr array the transform names by `path`; the schema
+accepts one form or the other, never both. `to_ome_zarr` always writes the
+array form. A JSON number is decimal text, kept only to the precision of every
+tool that parses and re-serializes the document, while a float64 array holds
+each matrix entry bit for bit.
+
+The example above writes the transform into the root `zarr.json` as
+
+```json
+{
+  "type": "affine",
+  "name": "to_output",
+  "path": "coordinateTransformations/to_output",
+  "input": { "name": "intrinsic" },
+  "output": { "name": "output" }
+}
+```
+
+and the matrix into `coordinateTransformations/to_output`: a `3 x 4` float64
+array in a single uncompressed chunk, its first dimension indexing rows.
+
+The array path is relative to the multiscales group. A transform that already
+names a `path` keeps it. Otherwise the path is `coordinateTransformations/<name>`,
+with the transform type (`rotation` or `affine`) standing in for a name that is
+absent or not a valid Zarr node name, and a `_1`, `_2`, ... suffix when an
+earlier transform took the path. Matrices nested in a `sequence`, `bijection`
+or `byDimension` are written the same way. Before it touches the store, the
+writer refuses a `path` that is absolute, has `.` or `..` segments, or overlaps
+one of the image's own dataset arrays. A write that keeps what the store holds
+-- `overwrite=False`, an append with `start_level`, or an in-place
+`upgrade_ome_zarr` -- also refuses to put a matrix where the store already
+holds a node, unless the store's current metadata names that node as a matrix
+array.
+
+`from_ome_zarr` loads each array back into the `rotation` or `affine` field and
+keeps `path`, so the in-memory transform holds its values, converts to ITK as
+is, and is rewritten to the same path. A matrix that another tool stored only
+in an array reads the same way. A store an earlier release wrote with inline
+matrices gets arrays when it is read and written out with `to_ome_zarr`, or
+upgraded in place to a newer version with `upgrade_ome_zarr`.
+
+The TypeScript package's `toOmeZarr`, `fromOmeZarr` and `upgradeOmeZarr` write
+and read the same layout, so either package reads the matrices the other wrote.
 
 ## Displacement and coordinate fields
 

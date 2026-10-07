@@ -173,8 +173,9 @@ def test_transform_serialization(transform):
 def test_affine_image_single_store_roundtrip():
     """An image and its affine transform live in one store; values round-trip.
 
-    The affine parameters are inline metadata, so a single ``to_ome_zarr``
-    call writes both the image pixel data and the transformation.
+    The affine matrix is written to an array in the image's own store, so a
+    single ``to_ome_zarr`` call writes both the pixel data and the
+    transformation.
     """
     array = rng.random(size=(8, 8, 8), dtype=np.float32)
     input_image = nz.to_ngff_image(

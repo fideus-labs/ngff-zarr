@@ -163,7 +163,7 @@ export const AffineTransformationSchema: z.ZodType<{
 // Rotation transformation
 export const RotationTransformationSchema: z.ZodType<{
   type: "rotation";
-  rotation?: number[] | undefined;
+  rotation?: number[][] | undefined;
   path?: string | undefined;
   input?: string | string[] | undefined;
   output?: string | string[] | undefined;
@@ -171,14 +171,14 @@ export const RotationTransformationSchema: z.ZodType<{
 }> = z
   .object({
     type: z.literal("rotation"),
-    rotation: z.array(z.number()).optional(),
+    rotation: z.array(z.array(z.number())).optional(), // 2D array for matrix
     path: z.string().optional(), // For binary data
     input: z.union([z.string(), z.array(z.string())]).optional(),
     output: z.union([z.string(), z.array(z.string())]).optional(),
     name: z.string().optional(),
   })
   .refine((data) => data.rotation !== undefined || data.path !== undefined, {
-    message: "Either rotation array or path must be provided",
+    message: "Either rotation matrix or path must be provided",
   });
 
 // Coordinates transformation referencing a coordinate field array
@@ -265,7 +265,7 @@ export type CoordinateTransformation =
   | (
     & {
       type: "rotation";
-      rotation?: number[] | undefined;
+      rotation?: number[][] | undefined;
       path?: string | undefined;
     }
     & TransformationCommon

@@ -45,6 +45,12 @@ from dataclasses import asdict
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
+from ._matrix_transform_arrays import (
+    check_matrix_destinations,
+    externalize_matrix_transforms,
+    named_matrix_paths,
+    write_matrix_arrays,
+)
 from ._remote_reader import RemoteZarrStore, remote_read_available
 from ._store_types import StoreLike
 from ._supported_versions import (
@@ -248,7 +254,9 @@ def _upgrade_in_place(
     The root group document is updated through the zarrista compat layer,
     refreshing any consolidated metadata alongside it. Calling
     ``to_ome_zarr(..., overwrite=True)`` on the source instead would erase
-    those arrays.
+    those arrays. The one other write is a small array for each rotation and
+    affine matrix the source holds inline, since the writer stores matrices
+    outside the JSON metadata.
     """
     # Convert the already-read metadata to the target version, preserving the
     # existing ``type``/``metadata``/``omero`` fields. ``_prepare_metadata`` is
@@ -259,6 +267,20 @@ def _upgrade_in_place(
     metadata_dict = asdict(new_metadata)
     metadata_dict = _pop_metadata_optionals(metadata_dict)
     metadata_dict["@type"] = "ngff:Image"
+    transforms = metadata_dict.get("coordinateTransformations")
+    # The reader loaded each matrix that names a path from that array in this
+    # store, so only the matrices the source held inline need writing.
+    in_store = named_matrix_paths(transforms)
+    matrix_arrays = {
+        path: matrix
+        for path, matrix in externalize_matrix_transforms(
+            transforms,
+            reserved=[dataset["path"] for dataset in metadata_dict["datasets"]],
+        ).items()
+        if path not in in_store
+    }
+    # Each path left is new to the store's metadata, so nothing may sit there.
+    check_matrix_destinations(store, matrix_arrays, replaceable=set())
 
     refresh_consolidated = has_consolidated_metadata(store, target_zarr_format)
     create_zarrista_group(
@@ -266,6 +288,7 @@ def _upgrade_in_place(
         _root_ome_attrs(metadata_dict, target_version),
         target_zarr_format,
     )
+    write_matrix_arrays(store, matrix_arrays)
     if refresh_consolidated:
         _zarrista_consolidate_metadata(store, target_zarr_format)
 

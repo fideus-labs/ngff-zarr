@@ -14,6 +14,12 @@ import dask.array
 import numpy as np
 from itkwasm import array_like_to_numpy_array
 
+from ._matrix_transform_arrays import (
+    check_matrix_destinations,
+    externalize_matrix_transforms,
+    stored_matrix_paths,
+    write_matrix_arrays,
+)
 from ._store_types import StoreLike
 from ._supported_versions import (
     V06_ONDISK_VERSION,
@@ -1800,9 +1806,21 @@ def _to_ngff_zarr_impl(
     metadata_dict = asdict(metadata)
     metadata_dict = _pop_metadata_optionals(metadata_dict)
     metadata_dict["@type"] = "ngff:Image"
+    matrix_arrays = externalize_matrix_transforms(
+        metadata_dict.get("coordinateTransformations"),
+        reserved=[dataset["path"] for dataset in metadata_dict["datasets"]],
+    )
 
     # Format parameters
     zarr_format = 2 if version == "0.4" else 3
+    if not overwrite:
+        # The store keeps what it holds: a matrix may only replace an array the
+        # current root already names as one.
+        check_matrix_destinations(
+            store_path,
+            matrix_arrays,
+            stored_matrix_paths(read_group_attributes(store, zarr_format=zarr_format)),
+        )
 
     # A zarr v2 store keeps consolidated metadata in a separate .zmetadata
     # sidecar. An in-place write (overwrite=False) rewrites only the group
@@ -1833,12 +1851,17 @@ def _to_ngff_zarr_impl(
         kept = copy.deepcopy(metadata_dict)
         kept["datasets"] = kept["datasets"][:start_level]
         _create_zarr_root(store, version, overwrite, kept, root_attributes)
+        # The kept root names the matrix arrays; write them before it is
+        # consolidated, so an interrupted append still lists them.
+        write_matrix_arrays(store_path, matrix_arrays)
         # Restore consolidation for the kept levels only when the final write
         # will re-consolidate; otherwise this partial block would go stale.
         if was_consolidated and consolidate_metadata:
             _zarrista_consolidate_metadata(store, zarr_format)
     else:
         _create_zarr_root(store, version, overwrite, metadata_dict, root_attributes)
+        # After the root: an overwrite clears the store when it creates it.
+        write_matrix_arrays(store_path, matrix_arrays)
 
     if version == "0.4" and kwargs.get("compressors") is not None:
         raise ValueError(

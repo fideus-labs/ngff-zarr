@@ -11,6 +11,7 @@ import {
   consolidateMetadata,
   datasetNodePaths,
 } from "../utils/consolidate_metadata.ts";
+import { writeMatrixArrays } from "../utils/matrix_transform_arrays.ts";
 import {
   arrayLayout,
   type ChunksPerShard,
@@ -21,7 +22,7 @@ import { createWriteQueue, zarrGet, zarrSet } from "../utils/worker_pool.ts";
 import type { MemoryStore } from "./from_ngff_zarr.ts";
 import { isOzxPath, memoryStoreToZip } from "./rfc9_zip.ts";
 import {
-  buildRootAttributes,
+  buildRootDocument,
   DEFAULT_OZX_CHUNKS_PER_SHARD,
   gateOzxVersion,
   type OzxVersion,
@@ -199,9 +200,13 @@ export async function toOmeZarr(
     // Build the version-specific root-group metadata (v0.6 RFC-5 coordinate
     // systems, v0.5 `ome`-wrapped axes, or bare v0.4 multiscales). Shared with
     // the browser writer and the in-place `upgradeOmeZarr` rewrite.
-    const attributes = buildRootAttributes(multiscales.metadata, _version);
+    const { attributes, matrixArrays } = buildRootDocument(
+      multiscales.metadata,
+      _version,
+    );
 
     const rootGroup = await zarr.create(root, { attributes });
+    await writeMatrixArrays(root, matrixArrays);
 
     // Write each image in the multiscales
     for (let i = 0; i < multiscales.images.length; i++) {
@@ -230,9 +235,10 @@ export async function toOmeZarr(
     if (options.consolidateMetadata ?? true) {
       await consolidateMetadata(
         _resolvedStore as ConsolidatableStore,
-        datasetNodePaths(
-          multiscales.metadata.datasets.map((dataset) => dataset.path),
-        ),
+        datasetNodePaths([
+          ...multiscales.metadata.datasets.map((dataset) => dataset.path),
+          ...matrixArrays.keys(),
+        ]),
       );
     }
   } catch (error) {

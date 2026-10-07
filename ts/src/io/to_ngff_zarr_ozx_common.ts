@@ -22,6 +22,11 @@ import {
   legacyTopLevelTransforms,
 } from "../utils/v06_metadata.ts";
 import {
+  externalizeMatrixTransforms,
+  type MatrixArrays,
+  writeMatrixArrays,
+} from "../utils/matrix_transform_arrays.ts";
+import {
   NgffVersion,
   V06_ONDISK_VERSION,
 } from "../types/supported_versions.ts";
@@ -163,6 +168,16 @@ export function processAxes(
   });
 }
 
+/** The root-group attributes and the matrix arrays they reference. */
+export interface RootDocument {
+  attributes: Record<string, unknown>;
+  /**
+   * The rotation and affine matrices the attributes name by `path`, to write
+   * as arrays beside them; see {@link externalizeMatrixTransforms}.
+   */
+  matrixArrays: MatrixArrays;
+}
+
 /**
  * Build the root-group attributes for an OME-Zarr store at a given spec version
  * from the version-agnostic in-memory metadata. This is the single source of
@@ -171,7 +186,9 @@ export function processAxes(
  *
  * - **0.6 (RFC 5):** coordinate systems + per-dataset `sequence` transforms,
  *   wrapped under the `ome` namespace and tagged {@link V06_ONDISK_VERSION}
- *   (`0.6`).
+ *   (`0.6`). Each rotation and affine names its matrix by `path`; the matrices
+ *   come back in `matrixArrays` for the caller to write with
+ *   {@link writeMatrixArrays}.
  * - **0.5:** axes carried directly on the multiscale entry, wrapped under `ome`.
  * - **0.4:** axes carried directly on the multiscale entry at the root (no
  *   `ome` wrapper).
@@ -179,10 +196,10 @@ export function processAxes(
  * Richer v0.6-only top-level transforms are reduced to the simple
  * scale/translation subset for 0.4/0.5 via {@link legacyTopLevelTransforms}.
  */
-export function buildRootAttributes(
+export function buildRootDocument(
   metadata: MetadataInterface,
   version: "0.4" | "0.5" | "0.6" | "0.9.dev1",
-): Record<string, unknown> {
+): RootDocument {
   gateAxisModel(metadata, version);
 
   // Process axes (orientation included when present).
@@ -191,25 +208,39 @@ export function buildRootAttributes(
   if (version === "0.9.dev1") {
     // "0.9.dev1" is already the on-disk string.
     const v09Entry = buildV06MultiscalesEntry(metadata, processedAxes);
+    const matrixArrays = externalizeMatrixTransforms(
+      v09Entry.coordinateTransformations,
+      metadata.datasets.map((dataset) => dataset.path),
+    );
     return {
-      ome: {
-        version: NgffVersion.V09dev1,
-        multiscales: [v09Entry],
-        ...(metadata.omero && { omero: metadata.omero }),
+      attributes: {
+        ome: {
+          version: NgffVersion.V09dev1,
+          multiscales: [v09Entry],
+          ...(metadata.omero && { omero: metadata.omero }),
+        },
       },
+      matrixArrays,
     };
   }
 
   if (version === "0.6") {
     const v06Entry = buildV06MultiscalesEntry(metadata, processedAxes);
+    const matrixArrays = externalizeMatrixTransforms(
+      v06Entry.coordinateTransformations,
+      metadata.datasets.map((dataset) => dataset.path),
+    );
     return {
-      ome: {
-        // Tag the store with V06_ONDISK_VERSION, which is `0.6` since the
-        // release; the constant stays the single place the tag lives.
-        version: V06_ONDISK_VERSION,
-        multiscales: [v06Entry],
-        ...(metadata.omero && { omero: metadata.omero }),
+      attributes: {
+        ome: {
+          // Tag the store with V06_ONDISK_VERSION, which is `0.6` since the
+          // release; the constant stays the single place the tag lives.
+          version: V06_ONDISK_VERSION,
+          multiscales: [v06Entry],
+          ...(metadata.omero && { omero: metadata.omero }),
+        },
       },
+      matrixArrays,
     };
   }
 
@@ -228,7 +259,8 @@ export function buildRootAttributes(
     ...(metadata.metadata && { metadata: metadata.metadata }),
   };
 
-  return version === "0.5"
+  // Neither version carries a rotation or an affine, so no matrix arrays.
+  const attributes = version === "0.5"
     ? {
       ome: {
         version,
@@ -240,6 +272,7 @@ export function buildRootAttributes(
       multiscales: [multiscalesMetadata],
       ...(metadata.omero && { omero: metadata.omero }),
     };
+  return { attributes, matrixArrays: new Map() };
 }
 
 /**
@@ -332,9 +365,13 @@ export async function writeNgffMultiscalesToMemoryStore(
 
   // The same version-specific root document the directory writers produce:
   // a zipped store differs from a directory store only in its container.
-  const attributes = buildRootAttributes(multiscales.metadata, version);
+  const { attributes, matrixArrays } = buildRootDocument(
+    multiscales.metadata,
+    version,
+  );
 
   const rootGroup = await zarr.create(root, { attributes });
+  await writeMatrixArrays(root, matrixArrays);
 
   // Pre-calculate total chunk count across all images for cumulative progress
   let totalChunks = 0;
@@ -403,9 +440,10 @@ export async function writeNgffMultiscalesToMemoryStore(
   if (consolidate) {
     await consolidateMetadata(
       store,
-      datasetNodePaths(
-        multiscales.metadata.datasets.map((dataset) => dataset.path),
-      ),
+      datasetNodePaths([
+        ...multiscales.metadata.datasets.map((dataset) => dataset.path),
+        ...matrixArrays.keys(),
+      ]),
     );
   }
 }
