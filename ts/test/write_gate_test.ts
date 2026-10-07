@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 /**
- * Tests for the RFC-3 write gate in `buildRootAttributes`, the single function
+ * Tests for the RFC-3 write gate in `buildRootDocument`, the single function
  * behind every TypeScript writer.
  *
  * An RFC-3 axis model can only be serialized at OME-Zarr 0.9.dev1; targeting
@@ -9,7 +9,7 @@
  */
 
 import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
-import { buildRootAttributes } from "../src/io/to_ngff_zarr_ozx_common.ts";
+import { buildRootDocument } from "../src/io/to_ngff_zarr_ozx_common.ts";
 import {
   type Axis,
   createScale,
@@ -56,7 +56,7 @@ Deno.test("write gate - refuses RFC-3 axis models below 0.9.dev1", () => {
   for (const [label, axes] of RFC3_SHAPES) {
     for (const version of PRE_RFC3) {
       const error = assertThrows(
-        () => buildRootAttributes(buildMetadata(axes), version),
+        () => buildRootDocument(buildMetadata(axes), version),
         Error,
         undefined,
         `${label} should be refused at ${version}`,
@@ -69,9 +69,10 @@ Deno.test("write gate - refuses RFC-3 axis models below 0.9.dev1", () => {
 
 Deno.test("write gate - accepts RFC-3 axis models at 0.9.dev1", () => {
   for (const [, axes] of RFC3_SHAPES) {
-    const attrs = buildRootAttributes(buildMetadata(axes), "0.9.dev1") as {
-      ome: { version: string };
-    };
+    const attrs = buildRootDocument(buildMetadata(axes), "0.9.dev1")
+      .attributes as {
+        ome: { version: string };
+      };
     assertEquals(attrs.ome.version, "0.9.dev1");
   }
 });
@@ -79,7 +80,7 @@ Deno.test("write gate - accepts RFC-3 axis models at 0.9.dev1", () => {
 Deno.test("write gate - conventional axes still write at every version", () => {
   const axes = ["z", "y", "x"].map(space);
   for (const version of [...PRE_RFC3, "0.9.dev1"] as TargetVersion[]) {
-    buildRootAttributes(buildMetadata(axes), version);
+    buildRootDocument(buildMetadata(axes), version);
   }
 });
 
@@ -94,13 +95,13 @@ Deno.test("write gate - a non-canonical class order is refused below 0.9.dev1", 
   ]);
   for (const version of PRE_RFC3) {
     const error = assertThrows(
-      () => buildRootAttributes(channelLast, version),
+      () => buildRootDocument(channelLast, version),
       Error,
     );
     assertStringIncludes(error.message, "axis-order");
   }
   // RFC-3 lifts the ordering rule, so the same model writes at 0.9.dev1.
-  buildRootAttributes(channelLast, "0.9.dev1");
+  buildRootDocument(channelLast, "0.9.dev1");
 });
 
 Deno.test("write gate - repeated axis names are refused at every version", () => {
@@ -109,7 +110,7 @@ Deno.test("write gate - repeated axis names are refused at every version", () =>
   const axes = [space("y"), space("y"), space("x")];
   for (const version of [...PRE_RFC3, "0.9.dev1"] as TargetVersion[]) {
     const error = assertThrows(
-      () => buildRootAttributes(buildMetadata(axes), version),
+      () => buildRootDocument(buildMetadata(axes), version),
       Error,
     );
     assertStringIncludes(error.message, "Cannot write OME-Zarr");
@@ -136,7 +137,7 @@ Deno.test("the gate reads the axes the writer serializes", () => {
     },
   ];
   assertThrows(
-    () => buildRootAttributes(metadata, "0.9.dev1"),
+    () => buildRootDocument(metadata, "0.9.dev1"),
     Error,
     "axis names must be unique",
   );
@@ -153,11 +154,11 @@ Deno.test("the gate skips coordinate systems the target version drops", () => {
   ];
 
   for (const version of ["0.4", "0.5"] as TargetVersion[]) {
-    buildRootAttributes(metadata, version);
+    buildRootDocument(metadata, version);
   }
   // 0.6 writes both systems, so there the six-axis one is refused.
   const error = assertThrows(
-    () => buildRootAttributes(metadata, "0.6"),
+    () => buildRootDocument(metadata, "0.6"),
     Error,
   );
   assertStringIncludes(
@@ -185,7 +186,7 @@ const CANONICAL_GATE_MESSAGE_AXIS_COUNT =
 Deno.test("write gate - message bytes match the Python port", () => {
   const repeated = assertThrows(
     () =>
-      buildRootAttributes(
+      buildRootDocument(
         buildMetadata([space("z"), space("z"), space("x")]),
         "0.9.dev1",
       ),
@@ -195,7 +196,7 @@ Deno.test("write gate - message bytes match the Python port", () => {
 
   const sixAxis = assertThrows(
     () =>
-      buildRootAttributes(
+      buildRootDocument(
         buildMetadata(["a", "b", "c", "d", "e", "f"].map(space)),
         "0.4",
       ),

@@ -96,9 +96,9 @@ function assertMatrix(
   if (values === undefined || values.length === 0) {
     if (path !== undefined) {
       throw new Error(
-        `${field} transformation stores its parameters at '${path}'. Reading ` +
-          `matrix parameters from a Zarr array is not supported; supply the ` +
-          `'${field}' values inline.`,
+        `${field} transformation names the array at '${path}' but holds no ` +
+          "matrix values. fromOmeZarr loads them from that array; otherwise " +
+          `supply the '${field}' values.`,
       );
     }
     throw new Error(`${field} transformation has no parameters`);

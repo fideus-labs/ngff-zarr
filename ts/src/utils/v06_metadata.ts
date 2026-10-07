@@ -132,7 +132,13 @@ export function buildV06MultiscalesEntry(
   return entry;
 }
 
-/** Serialize a single v0.6 transformation to its on-disk dictionary form. */
+/**
+ * Serialize a single v0.6 transformation to its on-disk dictionary form.
+ *
+ * A rotation or affine keeps its inline matrix beside any `path`;
+ * `externalizeMatrixTransforms` moves the matrix into an array before the
+ * document is written, as the schema allows only one of the two.
+ */
 export function serializeV06Transform(
   transform: V06Transform,
 ): Record<string, unknown> {

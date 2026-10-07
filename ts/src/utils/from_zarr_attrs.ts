@@ -20,6 +20,7 @@ import type {
 } from "../types/zarr_metadata.ts";
 import { SUPPORTED_DIMS } from "../types/zarr_metadata.ts";
 import { extractScaleTranslation, parseV06Transforms } from "./v06_metadata.ts";
+import { resolveMatrixTransforms } from "./matrix_transform_arrays.ts";
 import { NgffImage } from "../types/ngff_image.ts";
 import type { AxesType, AxisUnit, SupportedDims } from "../types/units.ts";
 import { parseOmero } from "./parse_metadata.ts";
@@ -709,7 +710,10 @@ export async function fromZarrAttrsV06(
       );
     }
     coordinateTransformations = parseV06Transforms(
-      entry.coordinateTransformations as Array<Record<string, unknown>>,
+      await resolveMatrixTransforms(
+        entry.coordinateTransformations as Array<Record<string, unknown>>,
+        root,
+      ),
       coordinateSystemNames,
       coordinateSystems,
       declaredVersion,
