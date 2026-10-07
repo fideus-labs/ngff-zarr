@@ -611,6 +611,63 @@ Deno.test("an in-place upgrade moves inline matrices into arrays", async () => {
   assertEquals(bits(readRotation.rotation), bits(ROTATION));
 });
 
+Deno.test("an in-place upgrade refuses an occupied matrix path", async () => {
+  // An unrelated array at the generated path is neither replaced nor lost.
+  const inline = createAffine(AFFINE);
+  inline.name = "inline";
+  const store: MemoryStore = new Map();
+  await toOmeZarr(store, await buildMultiscales([inline]), { version: "0.6" });
+  deleteNode(store, "coordinateTransformations/inline");
+  const root = readJson(store, "/zarr.json");
+  const written = rootEntry(root).coordinateTransformations as Array<
+    Record<string, unknown>
+  >;
+  delete written[0].path;
+  written[0].affine = AFFINE;
+  writeJson(store, "/zarr.json", root);
+  await writeMatrixArrays(
+    zarr.root(store),
+    new Map([["coordinateTransformations/inline", {
+      shape: [2, 2] as [number, number],
+      data: Float64Array.from([1, 0, 0, 1]),
+    }]]),
+  );
+  const rootBefore = store.get("/zarr.json");
+
+  await assertRejects(
+    () => upgradeOmeZarr(store, { version: "0.9.dev1" }),
+    Error,
+    "node at 'coordinateTransformations/inline'",
+  );
+
+  assert(store.get("/zarr.json") === rootBefore);
+  assertEquals(
+    await storedValues(store, "coordinateTransformations/inline"),
+    [[1, 0], [0, 1]],
+  );
+});
+
+Deno.test("a matrix path overlapping a dataset is refused", async () => {
+  const dataset = (await buildMultiscales([])).metadata.datasets[0].path;
+  const paths = [dataset, `${dataset}/m`];
+  if (dataset.includes("/")) {
+    paths.push(dataset.split("/")[0]);
+  }
+  for (const path of paths) {
+    const affine = createAffine(AFFINE);
+    affine.path = path;
+    const multiscales = await buildMultiscales([affine]);
+    const store: MemoryStore = new Map();
+
+    await assertRejects(
+      () => toOmeZarr(store, multiscales, { version: "0.6" }),
+      Error,
+      `overlaps the dataset array '${dataset}'`,
+    );
+    assertEquals(store.size, 0);
+  }
+});
+
 Deno.test("byDimension items are externalized", async () => {
   const byDimension = createByDimension([
     {

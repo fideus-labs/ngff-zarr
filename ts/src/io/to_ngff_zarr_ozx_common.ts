@@ -210,6 +210,7 @@ export function buildRootDocument(
     const v09Entry = buildV06MultiscalesEntry(metadata, processedAxes);
     const matrixArrays = externalizeMatrixTransforms(
       v09Entry.coordinateTransformations,
+      metadata.datasets.map((dataset) => dataset.path),
     );
     return {
       attributes: {
@@ -227,6 +228,7 @@ export function buildRootDocument(
     const v06Entry = buildV06MultiscalesEntry(metadata, processedAxes);
     const matrixArrays = externalizeMatrixTransforms(
       v06Entry.coordinateTransformations,
+      metadata.datasets.map((dataset) => dataset.path),
     );
     return {
       attributes: {

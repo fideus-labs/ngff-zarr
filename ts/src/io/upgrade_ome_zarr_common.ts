@@ -29,6 +29,7 @@ import {
   datasetNodePaths,
 } from "../utils/consolidate_metadata.ts";
 import {
+  checkMatrixDestinations,
   namedMatrixPaths,
   writeMatrixArrays,
 } from "../utils/matrix_transform_arrays.ts";
@@ -274,6 +275,8 @@ export async function upgradeOmeZarrImpl(
   for (const path of inStore) {
     matrixArrays.delete(path);
   }
+  // Each path left is new to the store's metadata, so nothing may sit there.
+  await checkMatrixDestinations(location, matrixArrays.keys(), new Set());
   await zarr.create(location, { attributes });
   await writeMatrixArrays(location, matrixArrays);
   if (consolidatedBefore !== undefined) {

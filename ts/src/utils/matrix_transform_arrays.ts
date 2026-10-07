@@ -208,15 +208,34 @@ export function namedMatrixPaths(transforms: unknown): Set<string> {
  * added when an earlier transform claimed the path. A transform that names a
  * `path` but holds no matrix refers to an array already in the store and is
  * left as it is.
+ *
+ * `reserved` holds the paths the same write uses for other arrays, the
+ * datasets: no matrix path may equal one, or be its ancestor or descendant.
  */
-export function externalizeMatrixTransforms(transforms: unknown): MatrixArrays {
+export function externalizeMatrixTransforms(
+  transforms: unknown,
+  reserved: Iterable<string> = [],
+): MatrixArrays {
+  const datasets = new Set(reserved);
   const matrices = [...iterMatrixTransforms(transforms)];
-  const claimed = new Set<string>();
+  const claimed = new Set(datasets);
   for (const transform of matrices) {
     const path = namedPath(transform);
-    if (path !== undefined) {
-      claimed.add(checkedPath(path, transform));
+    if (path === undefined) {
+      continue;
     }
+    checkedPath(path, transform);
+    const overlapped = [...datasets]
+      .filter((dataset) => isClaimed(path, new Set([dataset])))
+      .sort();
+    if (overlapped.length > 0) {
+      throw new Error(
+        `${describe(transform)} names the array path '${path}', which ` +
+          `overlaps the dataset array '${overlapped[0]}' of the same ` +
+          "multiscales",
+      );
+    }
+    claimed.add(path);
   }
   const arrays: MatrixArrays = new Map();
   for (const transform of matrices) {
@@ -252,6 +271,64 @@ export function externalizeMatrixTransforms(transforms: unknown): MatrixArrays {
     arrays.set(path, matrix);
   }
   return arrays;
+}
+
+/** The type of the node stored at `location`, if any. */
+async function storedNodeType(
+  location: zarr.Location<zarr.Readable>,
+): Promise<"array" | "group" | undefined> {
+  const document = await location.store.get(
+    location.resolve("zarr.json").path,
+  );
+  if (document !== undefined) {
+    const nodeType = JSON.parse(new TextDecoder().decode(document)).node_type;
+    return nodeType === "array" ? "array" : "group";
+  }
+  if (await location.store.get(location.resolve(".zarray").path)) {
+    return "array";
+  }
+  if (await location.store.get(location.resolve(".zgroup").path)) {
+    return "group";
+  }
+  return undefined;
+}
+
+/**
+ * Refuse to write a matrix over a node the store holds for something else.
+ *
+ * For a write that keeps what the store holds. A destination is free when
+ * nothing is stored there, or when it is in `replaceable`: the matrix arrays
+ * the store's current metadata names. Its ancestors may be groups, which the
+ * write keeps, but not arrays, which it would turn into groups.
+ */
+export async function checkMatrixDestinations(
+  root: zarr.Location<zarr.Readable>,
+  paths: Iterable<string>,
+  replaceable: Set<string>,
+): Promise<void> {
+  for (const path of paths) {
+    const segments = path.split("/");
+    const occupied: string[] = [];
+    for (let end = 1; end < segments.length; end++) {
+      const ancestor = segments.slice(0, end).join("/");
+      if (await storedNodeType(root.resolve(ancestor)) === "array") {
+        occupied.push(ancestor);
+      }
+    }
+    if (
+      !replaceable.has(path) &&
+      await storedNodeType(root.resolve(path)) !== undefined
+    ) {
+      occupied.push(path);
+    }
+    if (occupied.length > 0) {
+      throw new Error(
+        `Cannot write the matrix array at '${path}': the store holds a node ` +
+          `at '${occupied[0]}' that its metadata does not name as a matrix ` +
+          "array. Remove that node, or give the transform a different path.",
+      );
+    }
+  }
 }
 
 /**
