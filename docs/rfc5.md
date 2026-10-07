@@ -384,7 +384,7 @@ scene = NgffScene(
 )
 nz.to_ome_zarr("scene.ome.zarr", scene)
 
-scene = nz.from_ome_zarr("scene.ome.zarr")
+scene = nz.from_ome_zarr("scene.ome.zarr", kind="scene")
 scene.images["tile_1"]  # an NgffMultiscales, its pixels read lazily
 scene.coordinateTransformations[1].translation  # [0.0, 128.0]
 ```
@@ -396,14 +396,16 @@ names a system, which resolves to one the scene declares or to one the image
 at its path declares; each transformation holds for the two systems it joins,
 so a translation spans their axes and a `mapAxis` permutes them; and the
 coordinate systems and images form one connected graph. A scene that fails a
-check raises `ValueError`. `from_ome_zarr(store, validate=True)` runs the
-same checks on a scene store, after validating its root metadata against the
+check raises `ValueError`. `from_ome_zarr(store, kind="scene", validate=True)`
+runs the same checks on a scene store, after validating its root metadata against the
 `scene` schema and each image against the `image` schema. The first scene
 coordinate system is the reference a viewer displays by default, so declare
 the common system first. A scene reads from a local directory, a remote URL
-or an `.ozx` archive; `from_ome_zarr(store, kind="scene")` refuses a store
-that holds an image, and a path into one of the scene's images reads that
-image. `to_ome_zarr` writes a scene at version 0.6 unless told otherwise and
+or an `.ozx` archive. `kind="scene"` selects what the store holds, as zarrita's
+`open` takes a `kind`: without it `from_ome_zarr` reads multiscales images
+only and refuses a scene store, and with it a store that holds an image is
+refused; `NgffScene.from_ome_zarr` is the same read. A path into one of the
+scene's images reads that image. `to_ome_zarr` writes a scene at version 0.6 unless told otherwise and
 passes its other keyword arguments, such as `chunks_per_shard`, to the write
 of every image.
 
@@ -431,7 +433,7 @@ scene.coordinateTransformations.append(
 )
 nz.to_ome_zarr("scene.ome.zarr", scene, overwrite=False)
 
-scene = nz.from_ome_zarr("scene.ome.zarr")
+scene = nz.from_ome_zarr("scene.ome.zarr", kind="scene")
 field = nz.from_ome_zarr(f"scene.ome.zarr/{scene.coordinateTransformations[2].path}")
 ```
 

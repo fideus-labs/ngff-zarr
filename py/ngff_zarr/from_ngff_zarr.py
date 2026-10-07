@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 from pathlib import Path
-from typing import Literal
+from typing import Literal, overload
 
 import packaging.version
 
@@ -178,6 +178,27 @@ def _open_root_node(store, version: str | None):
     )
 
 
+@overload
+def from_ome_zarr(
+    store: StoreLike,
+    validate: bool = ...,
+    version: str | None = ...,
+    storage_options: dict | None = ...,
+    *,
+    kind: Literal["scene"],
+) -> NgffScene: ...
+
+
+@overload
+def from_ome_zarr(
+    store: StoreLike,
+    validate: bool = ...,
+    version: str | None = ...,
+    storage_options: dict | None = ...,
+    kind: Literal["multiscales"] | None = ...,
+) -> NgffMultiscales: ...
+
+
 def from_ome_zarr(
     store: StoreLike,
     validate: bool = False,
@@ -188,9 +209,10 @@ def from_ome_zarr(
     """
     Read an OME-Zarr NGFF multiscales data structure (NgffMultiscales) from a Zarr store.
 
-    A store whose root group carries ``ome.scene`` is read as an
-    :class:`~ngff_zarr.NgffScene` instead, with the images its transformations
-    reference by path; a path into one of those images reads that image.
+    With ``kind="scene"``, a store whose root group carries ``ome.scene`` is
+    read as an :class:`~ngff_zarr.NgffScene` instead, with the images its
+    transformations reference by path; a path into one of those images reads
+    that image.
 
     store : StoreLike
         Store or path to directory in file system. Can be a string URL
@@ -215,9 +237,9 @@ def from_ome_zarr(
         read from the ZIP comment if not provided.
 
     kind : "multiscales" or "scene", optional
-        What the store holds, as the TypeScript port's ``fromOmeZarr`` takes
-        it: a multiscales image or a scene. Omitted, the store's own metadata
-        decides; given, a store that holds the other kind raises ``ValueError``.
+        What the store holds, as zarrita's ``open`` takes a ``kind``: a
+        multiscales image (the default) or a scene. A store that holds the
+        other kind raises ``ValueError``.
 
     storage_options : dict, optional
         Storage options to pass to the store if store is a string URL.
@@ -279,10 +301,10 @@ def from_ome_zarr(
     root_attrs_initial = root.attrs.asdict()
     ome_initial = root_attrs_initial.get("ome")
     if not subpath and isinstance(ome_initial, dict) and "scene" in ome_initial:
-        if kind == "multiscales":
+        if kind != "scene":
             raise ValueError(
-                f"'{original_store}' holds a scene; read it with kind='scene' "
-                "or without kind."
+                f"'{original_store}' holds a scene; read it with "
+                "from_ome_zarr(store, kind='scene')."
             )
         return _read_scene(
             original_store,

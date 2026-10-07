@@ -130,7 +130,7 @@ def test_nested_image_paths_open_with_zarr_python(tmp_path):
     np.testing.assert_array_equal(
         group["sample/instrument1/scale0/image"][:], pixels["sample/instrument1"]
     )
-    assert list(from_ome_zarr(store).images) == list(pixels)
+    assert list(from_ome_zarr(store, kind="scene").images) == list(pixels)
 
 
 def test_scene_in_ozx_archive_reads(tmp_path):
@@ -142,7 +142,7 @@ def test_scene_in_ozx_archive_reads(tmp_path):
         to_ome_zarr(archive, scene)
     write_store_to_zip(store, archive, version="0.6")
 
-    read = from_ome_zarr(archive)
+    read = from_ome_zarr(archive, kind="scene")
     np.testing.assert_array_equal(
         read.images["tile_1"].images[0].data, pixels["tile_1"]
     )
@@ -209,7 +209,7 @@ def test_scene_axis_model_follows_the_version(tmp_path):
     with pytest.raises(ValueError, match=r"scene.coordinateSystems\[0\].axes"):
         to_ome_zarr(tmp_path / "v06.ome.zarr", scene)
     to_ome_zarr(tmp_path / "dev1.ome.zarr", scene, version="0.9.dev1")
-    read = from_ome_zarr(tmp_path / "dev1.ome.zarr", validate=True)
+    read = from_ome_zarr(tmp_path / "dev1.ome.zarr", kind="scene", validate=True)
     assert [axis.name for axis in read.coordinateSystems[0].axes] == list("abcdef")
 
 
@@ -272,7 +272,7 @@ def test_scene_with_a_displacement_field_between_two_images(tmp_path):
     assert "coordinateTransformations" in consolidated
     assert f"{field_path}/scale0/image" in consolidated
 
-    read = from_ome_zarr(store, validate=True)
+    read = from_ome_zarr(store, kind="scene", validate=True)
     assert read.coordinateTransformations[2] == warp
     field = from_ome_zarr(store / read.coordinateTransformations[2].path)
     assert [axis.type for axis in field.metadata.coordinateSystems[0].axes] == [
@@ -302,15 +302,15 @@ def test_read_validates_references_against_the_store(tmp_path):
     del document["attributes"]["ome"]["scene"]["coordinateSystems"]
     (store / "zarr.json").write_text(json.dumps(document))
 
-    read = from_ome_zarr(store)
+    read = from_ome_zarr(store, kind="scene")
     assert read.coordinateSystems is None
     with pytest.raises(ValueError, match="does not declare"):
-        from_ome_zarr(store, validate=True)
+        from_ome_zarr(store, kind="scene", validate=True)
 
     document["attributes"]["ome"]["scene"]["coordinateTransformations"] = []
     (store / "zarr.json").write_text(json.dumps(document))
     with pytest.raises(ValidationError):
-        from_ome_zarr(store, validate=True)
+        from_ome_zarr(store, kind="scene", validate=True)
 
 
 @pytest.mark.parametrize(
@@ -325,7 +325,7 @@ def test_read_refuses_image_paths_outside_the_scene(tmp_path, path):
     transforms[0]["input"]["path"] = path
     (store / "zarr.json").write_text(json.dumps(document))
     with pytest.raises(ValueError, match="relative path below the scene group"):
-        from_ome_zarr(store)
+        from_ome_zarr(store, kind="scene")
 
 
 def test_the_kind_option_selects_what_a_store_holds(tmp_path):
@@ -340,9 +340,10 @@ def test_the_kind_option_selects_what_a_store_holds(tmp_path):
     _, scene = _tiles_scene()
     store = tmp_path / "tiles.ome.zarr"
     to_ome_zarr(store, scene)
-    assert isinstance(from_ome_zarr(store), NgffScene)
     assert isinstance(from_ome_zarr(store, kind="scene"), NgffScene)
-    with pytest.raises(ValueError, match="holds a scene"):
+    with pytest.raises(ValueError, match="kind='scene'"):
+        from_ome_zarr(store)
+    with pytest.raises(ValueError, match="kind='scene'"):
         from_ome_zarr(store, kind="multiscales")
 
 

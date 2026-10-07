@@ -4,7 +4,7 @@ import * as zarr from "zarrita";
 
 import { NgffMultiscales } from "../types/multiscales.ts";
 import type { NgffScene } from "../types/scene.ts";
-import { hasSceneMetadata, readScene } from "./scene.ts";
+import { hasSceneMetadata, readScene } from "./scene_common.ts";
 import { isV06Version, NgffVersion } from "../types/supported_versions.ts";
 import {
   fromZarrAttrsV04,

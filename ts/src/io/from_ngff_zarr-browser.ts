@@ -7,7 +7,7 @@ import * as zarr from "zarrita";
 import { MetadataSchema } from "../schemas/zarr_metadata.ts";
 import { NgffMultiscales } from "../types/multiscales.ts";
 import type { NgffScene } from "../types/scene.ts";
-import { hasSceneMetadata, readScene } from "./scene.ts";
+import { hasSceneMetadata, readScene } from "./scene_common.ts";
 import { NgffImage } from "../types/ngff_image.ts";
 import type { AxisUnit } from "../types/units.ts";
 import type { Metadata, Omero } from "../types/zarr_metadata.ts";

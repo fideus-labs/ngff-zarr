@@ -21,7 +21,7 @@ import {
   type Translation,
   type V06Transform,
 } from "../src/mod.ts";
-import { sceneFromOmeValue } from "../src/io/scene.ts";
+import { sceneFromOmeValue } from "../src/io/scene_common.ts";
 
 const FIXTURES = new URL("../../py/test/fixtures/scene/", import.meta.url);
 

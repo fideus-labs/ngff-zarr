@@ -73,7 +73,7 @@ class NgffScene:
         """
         from .from_ngff_zarr import from_ome_zarr
 
-        return from_ome_zarr(store, kind="scene", **kwargs)
+        return from_ome_zarr(store, **{**kwargs, "kind": "scene"})
 
 
 def _check_image_path(path: object) -> None:
