@@ -90,7 +90,7 @@ const multiscales = createMultiscales([image], metadata);
 
 // Write to OME-Zarr
 const writer = new OMEZarrWriter();
-await writer.toNgffZarr("output.ome.zarr", multiscales);
+await writer.toOmeZarr("output.ome.zarr", multiscales);
 ```
 
 ### Schema Validation
