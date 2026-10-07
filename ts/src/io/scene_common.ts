@@ -15,7 +15,7 @@
  */
 import type { NgffMultiscales } from "../types/multiscales.ts";
 import { NgffScene } from "../types/scene.ts";
-import { NgffVersion } from "../types/supported_versions.ts";
+import { isV06Version, NgffVersion } from "../types/supported_versions.ts";
 import {
   type Axis,
   type CoordinateSystem,
@@ -375,7 +375,7 @@ export async function readScene(
       }.`,
     );
   }
-  const version = options.version ?? detectVersion(rootAttrs);
+  const version = readVersion(rootAttrs, options);
   const { coordinateTransformations, coordinateSystems } = sceneFromOmeValue(
     document,
     version,
@@ -404,6 +404,29 @@ export async function readScene(
     checkScene(scene, version);
   }
   return scene;
+}
+
+/**
+ * The version to read `rootAttrs` with: the requested one, checked against
+ * the stored one when validating (the 0.6 family counts as one version), or
+ * the stored one.
+ */
+export function readVersion(
+  rootAttrs: Record<string, unknown>,
+  options: { validate?: boolean; version?: string },
+): string {
+  const detected = detectVersion(rootAttrs);
+  const requested = options.version;
+  if ((options.validate ?? false) && requested !== undefined) {
+    const versionsMatch = detected === requested ||
+      (isV06Version(detected) && isV06Version(requested));
+    if (!versionsMatch) {
+      throw new Error(
+        `Expected OME-Zarr version ${requested}, but found ${detected}`,
+      );
+    }
+  }
+  return requested ?? detected;
 }
 
 /** Whether `rootAttrs` is the root document of a scene group. */

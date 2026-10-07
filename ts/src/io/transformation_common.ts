@@ -18,7 +18,6 @@ import { NgffScene } from "../types/scene.ts";
 import { V06_ONDISK_VERSION } from "../types/supported_versions.ts";
 import type { V06Transform } from "../types/zarr_metadata.ts";
 import { consolidateMetadata } from "../utils/consolidate_metadata.ts";
-import { detectVersion } from "../utils/parse_metadata.ts";
 import {
   serializeV06Transform,
   validateV06Transform,
@@ -26,6 +25,7 @@ import {
 import {
   checkImagePath,
   fieldPaths,
+  readVersion,
   SCENE_VERSIONS,
   sceneFromOmeValue,
 } from "./scene_common.ts";
@@ -137,7 +137,7 @@ export function readTransformation(
   rootAttrs: Record<string, unknown>,
   options: { validate?: boolean; version?: string } = {},
 ): V06Transform {
-  const version = options.version ?? detectVersion(rootAttrs);
+  const version = readVersion(rootAttrs, options);
   const { coordinateTransformations } = sceneFromOmeValue(
     rootAttrs.ome as Record<string, unknown>,
     version,

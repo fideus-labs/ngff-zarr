@@ -374,6 +374,26 @@ Deno.test("write refuses versions before 0.6", async () => {
   });
 });
 
+Deno.test("a requested version is checked against the stored one", async () => {
+  await withTempDir(async (dir) => {
+    const { scene } = await tilesScene();
+    const store = `${dir}/tiles.ome.zarr`;
+    await toOmeZarr(store, scene);
+    await assertRejects(
+      () =>
+        fromOmeZarr(store, { kind: "scene", validate: true, version: "0.5" }),
+      Error,
+      "Expected OME-Zarr version 0.5, but found 0.6",
+    );
+    const read = await fromOmeZarr(store, {
+      kind: "scene",
+      validate: true,
+      version: "0.6",
+    });
+    assertEquals(Object.keys(read.images), ["tile_0", "tile_1"]);
+  });
+});
+
 Deno.test("read validates references against the store", async () => {
   await withTempDir(async (dir) => {
     const { scene } = await tilesScene();

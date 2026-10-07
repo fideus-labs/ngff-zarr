@@ -454,7 +454,7 @@ registration = Affine(
 nz.to_ome_zarr("registration.ome.zarr", registration)
 
 transform = nz.from_ome_zarr("registration.ome.zarr", kind="transformation")
-nz.ngff_transform_to_itk_transform(transform)
+nz.ngff_transform_to_itk_transform(transform, dims=["y", "x"])
 ```
 
 A transformation stored as an array, such as a `displacements` field, points

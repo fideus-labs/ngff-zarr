@@ -95,6 +95,23 @@ Deno.test("nested transformation round trips", async () => {
   });
 });
 
+Deno.test("a requested version is checked against the stored one", async () => {
+  await withTempDir(async (dir) => {
+    const store = `${dir}/affine.ome.zarr`;
+    await toOmeZarr(store, affine());
+    await assertRejects(
+      () =>
+        fromOmeZarr(store, {
+          kind: "transformation",
+          validate: true,
+          version: "0.5",
+        }),
+      Error,
+      "Expected OME-Zarr version 0.5, but found 0.6",
+    );
+  });
+});
+
 Deno.test("the kind option selects what a store holds", async () => {
   await withTempDir(async (dir) => {
     const store = `${dir}/affine.ome.zarr`;
