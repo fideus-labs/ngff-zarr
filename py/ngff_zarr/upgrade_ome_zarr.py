@@ -46,6 +46,7 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
 from ._matrix_transform_arrays import (
+    check_matrix_destinations,
     externalize_matrix_transforms,
     named_matrix_paths,
     write_matrix_arrays,
@@ -272,9 +273,14 @@ def _upgrade_in_place(
     in_store = named_matrix_paths(transforms)
     matrix_arrays = {
         path: matrix
-        for path, matrix in externalize_matrix_transforms(transforms).items()
+        for path, matrix in externalize_matrix_transforms(
+            transforms,
+            reserved=[dataset["path"] for dataset in metadata_dict["datasets"]],
+        ).items()
         if path not in in_store
     }
+    # Each path left is new to the store's metadata, so nothing may sit there.
+    check_matrix_destinations(store, matrix_arrays, replaceable=set())
 
     refresh_consolidated = has_consolidated_metadata(store, target_zarr_format)
     create_zarrista_group(

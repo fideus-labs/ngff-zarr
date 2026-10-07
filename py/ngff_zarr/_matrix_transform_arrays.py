@@ -131,7 +131,9 @@ def named_matrix_paths(transforms: list | None) -> set[str]:
     }
 
 
-def externalize_matrix_transforms(transforms: list | None) -> dict[str, np.ndarray]:
+def externalize_matrix_transforms(
+    transforms: list | None, reserved: Iterable[str] = ()
+) -> dict[str, np.ndarray]:
     """Move each rotation and affine matrix in ``transforms`` into an array.
 
     ``transforms`` is a serialized ``coordinateTransformations`` list and is
@@ -146,13 +148,25 @@ def externalize_matrix_transforms(transforms: list | None) -> dict[str, np.ndarr
     suffix added when an earlier transform claimed the path. A transform that
     names a ``path`` but holds no matrix refers to an array already in the
     store and is left as it is.
+
+    ``reserved`` holds the paths the same write uses for other arrays, the
+    datasets: no matrix path may equal one, or be its ancestor or descendant.
     """
+    reserved = set(reserved)
     matrices = list(_iter_matrix_transforms(transforms))
-    claimed = {
-        _checked_path(transform["path"], transform)
-        for transform in matrices
-        if transform.get("path")
-    }
+    claimed = set(reserved)
+    for transform in matrices:
+        if not transform.get("path"):
+            continue
+        path = _checked_path(transform["path"], transform)
+        overlapped = sorted(other for other in reserved if _is_claimed(path, {other}))
+        if overlapped:
+            raise ValueError(
+                f"{_describe(transform)} names the array path {path!r}, which "
+                f"overlaps the dataset array {overlapped[0]!r} of the same "
+                "multiscales"
+            )
+        claimed.add(path)
     arrays: dict[str, np.ndarray] = {}
     for transform in matrices:
         kind = transform["type"]
@@ -177,6 +191,53 @@ def externalize_matrix_transforms(transforms: list | None) -> dict[str, np.ndarr
             )
         arrays[path] = matrix
     return arrays
+
+
+def stored_matrix_paths(root_attrs: dict | None) -> set[str]:
+    """The matrix array paths a stored root document's multiscales names."""
+    ome = (root_attrs or {}).get("ome")
+    multiscales = ome.get("multiscales") if isinstance(ome, dict) else None
+    if not multiscales or not isinstance(multiscales[0], dict):
+        return set()
+    return named_matrix_paths(multiscales[0].get("coordinateTransformations"))
+
+
+def check_matrix_destinations(
+    store, paths: Iterable[str], replaceable: set[str]
+) -> None:
+    """Refuse to write a matrix over a node the store holds for something else.
+
+    For a write that keeps what the store holds. A destination is free when
+    nothing is stored there, or when it is in ``replaceable``: the matrix
+    arrays the store's current metadata names. Its ancestors may be groups,
+    which the write keeps, but not arrays, which it would turn into groups.
+    """
+    from ._zarrista_utils import LocalZarrArray, open_local_node
+
+    def stored(node_path: str):
+        for zarr_format in (3, 2):
+            node = open_local_node(store, node_path, zarr_format=zarr_format)
+            if node is not None:
+                return node
+        return None
+
+    for path in paths:
+        parts = path.split("/")
+        ancestors = ["/".join(parts[:depth]) for depth in range(1, len(parts))]
+        occupied = [
+            ancestor
+            for ancestor in ancestors
+            if isinstance(stored(ancestor), LocalZarrArray)
+        ]
+        if path not in replaceable and stored(path) is not None:
+            occupied.append(path)
+        if occupied:
+            raise ValueError(
+                f"Cannot write the matrix array at '{path}': the store holds a "
+                f"node at '{occupied[0]}' that its metadata does not name as a "
+                "matrix array. Remove that node, or give the transform a "
+                "different path."
+            )
 
 
 def write_matrix_arrays(store, arrays: dict[str, np.ndarray]) -> None:

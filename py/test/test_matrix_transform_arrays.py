@@ -339,6 +339,17 @@ def test_a_matrix_path_outside_the_group_is_refused_on_read(tmp_path, path):
         )
 
 
+def _rewrite_inline(store: Path, index: int, matrix) -> None:
+    """Store transform ``index`` the way earlier releases did: inline, no array."""
+    root = json.loads((store / "zarr.json").read_text())
+    root.pop("consolidated_metadata", None)
+    entry = root["attributes"]["ome"]["multiscales"][0]
+    transform = entry["coordinateTransformations"][index]
+    shutil.rmtree(store / transform.pop("path"))
+    transform[transform["type"]] = matrix
+    (store / "zarr.json").write_text(json.dumps(root))
+
+
 def test_in_place_upgrade_moves_inline_matrices_into_arrays(tmp_path):
     """A 0.6 store written with inline matrices is upgraded to the array form."""
     store = tmp_path / "image.ome.zarr"
@@ -352,15 +363,7 @@ def test_in_place_upgrade_moves_inline_matrices_into_arrays(tmp_path):
         ),
         version="0.6",
     )
-    # Rewrite the affine the way earlier releases did: inline, with no array.
-    shutil.rmtree(store / "coordinateTransformations" / "inline")
-    root = json.loads((store / "zarr.json").read_text())
-    root.pop("consolidated_metadata", None)
-    entry = root["attributes"]["ome"]["multiscales"][0]
-    inline = entry["coordinateTransformations"][0]
-    del inline["path"]
-    inline["affine"] = AFFINE
-    (store / "zarr.json").write_text(json.dumps(root))
+    _rewrite_inline(store, 0, AFFINE)
     stored_chunk = store / "coordinateTransformations" / "stored" / "c" / "0" / "0"
     stored_mtime = stored_chunk.stat().st_mtime_ns
 
@@ -376,6 +379,24 @@ def test_in_place_upgrade_moves_inline_matrices_into_arrays(tmp_path):
     affine, rotation = upgraded.metadata.coordinateTransformations
     assert _bits(affine.affine) == _bits(AFFINE)
     assert _bits(rotation.rotation) == _bits(ROTATION)
+
+
+def test_in_place_upgrade_refuses_an_occupied_matrix_path(tmp_path):
+    """An unrelated array at the generated path is neither replaced nor lost."""
+    store = tmp_path / "image.ome.zarr"
+    nz.to_ome_zarr(
+        str(store), _multiscales([Affine(affine=AFFINE, name="inline")]), version="0.6"
+    )
+    _rewrite_inline(store, 0, AFFINE)
+    write_matrix_arrays(str(store), {"coordinateTransformations/inline": np.eye(2)})
+    root_before = (store / "zarr.json").read_bytes()
+
+    with pytest.raises(ValueError, match="coordinateTransformations/inline"):
+        nz.upgrade_ome_zarr(str(store), version="0.9.dev1")
+
+    assert (store / "zarr.json").read_bytes() == root_before
+    unrelated = zarr.open_array(str(store / "coordinateTransformations/inline"))
+    np.testing.assert_array_equal(unrelated[...], np.eye(2))
 
 
 def test_by_dimension_items_are_externalized(tmp_path):
@@ -430,7 +451,15 @@ def test_an_append_writes_the_matrices_it_declares(tmp_path):
     nz.to_ome_zarr(
         str(store), _multiscales([Affine(affine=AFFINE, name="first")]), version="0.6"
     )
-    multiscales = _append_level(store, [Rotation(rotation=ROTATION, name="second")])
+    replaced = np.eye(3, 4).tolist()
+    multiscales = _append_level(
+        store,
+        [
+            # The stored root names this array as a matrix, so it is replaced.
+            Affine(affine=replaced, name="first"),
+            Rotation(rotation=ROTATION, name="second"),
+        ],
+    )
 
     nz.to_ome_zarr(
         str(store), multiscales, version="0.6", overwrite=False, start_level=1
@@ -438,9 +467,43 @@ def test_an_append_writes_the_matrices_it_declares(tmp_path):
 
     appended = nz.from_ome_zarr(str(store), validate=True)
     assert len(appended.images) == 2
-    (rotation,) = appended.metadata.coordinateTransformations
+    affine, rotation = appended.metadata.coordinateTransformations
+    assert affine.path == "coordinateTransformations/first"
+    assert _bits(affine.affine) == _bits(replaced)
     assert rotation.path == "coordinateTransformations/second"
     assert _bits(rotation.rotation) == _bits(ROTATION)
+
+
+@pytest.mark.parametrize(
+    ("path", "occupied"), [("extra", "extra"), ("extra/inner", "extra")]
+)
+def test_an_append_refuses_a_matrix_path_the_store_holds(tmp_path, path, occupied):
+    """A retained array the stored root does not name as a matrix is kept."""
+    store = tmp_path / "image.ome.zarr"
+    nz.to_ome_zarr(
+        str(store), _multiscales([Affine(affine=AFFINE, name="first")]), version="0.6"
+    )
+    write_matrix_arrays(str(store), {"extra": np.eye(2)})
+    root_before = (store / "zarr.json").read_bytes()
+    multiscales = _append_level(store, [Affine(affine=AFFINE, path=path)])
+
+    with pytest.raises(ValueError, match=f"node at '{occupied}'"):
+        nz.to_ome_zarr(
+            str(store), multiscales, version="0.6", overwrite=False, start_level=1
+        )
+
+    assert (store / "zarr.json").read_bytes() == root_before
+    np.testing.assert_array_equal(zarr.open_array(str(store / "extra"))[...], np.eye(2))
+
+
+@pytest.mark.parametrize("path", ["scale0/image", "scale0", "scale0/image/m"])
+def test_a_matrix_path_overlapping_a_dataset_is_refused(tmp_path, path):
+    store = tmp_path / "image.ome.zarr"
+    multiscales = _multiscales([Affine(affine=AFFINE, path=path)])
+
+    with pytest.raises(ValueError, match="overlaps the dataset array 'scale0/image'"):
+        nz.to_ome_zarr(str(store), multiscales, version="0.6")
+    assert not store.exists()
 
 
 def test_an_interrupted_append_lists_its_matrices(tmp_path, monkeypatch):

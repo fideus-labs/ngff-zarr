@@ -160,8 +160,13 @@ names a `path` keeps it. Otherwise the path is `coordinateTransformations/<name>
 with the transform type (`rotation` or `affine`) standing in for a name that is
 absent or not a valid Zarr node name, and a `_1`, `_2`, ... suffix when an
 earlier transform took the path. Matrices nested in a `sequence`, `bijection`
-or `byDimension` are written the same way. The writer refuses a `path` that is
-absolute or has `.` or `..` segments, before it touches the store.
+or `byDimension` are written the same way. Before it touches the store, the
+writer refuses a `path` that is absolute, has `.` or `..` segments, or overlaps
+one of the image's own dataset arrays. A write that keeps what the store holds
+-- `overwrite=False`, an append with `start_level`, or an in-place
+`upgrade_ome_zarr` -- also refuses to put a matrix where the store already
+holds a node, unless the store's current metadata names that node as a matrix
+array.
 
 `from_ome_zarr` loads each array back into the `rotation` or `affine` field and
 keeps `path`, so the in-memory transform holds its values, converts to ITK as

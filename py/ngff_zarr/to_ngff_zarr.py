@@ -15,7 +15,9 @@ import numpy as np
 from itkwasm import array_like_to_numpy_array
 
 from ._matrix_transform_arrays import (
+    check_matrix_destinations,
     externalize_matrix_transforms,
+    stored_matrix_paths,
     write_matrix_arrays,
 )
 from ._store_types import StoreLike
@@ -1805,11 +1807,20 @@ def _to_ngff_zarr_impl(
     metadata_dict = _pop_metadata_optionals(metadata_dict)
     metadata_dict["@type"] = "ngff:Image"
     matrix_arrays = externalize_matrix_transforms(
-        metadata_dict.get("coordinateTransformations")
+        metadata_dict.get("coordinateTransformations"),
+        reserved=[dataset["path"] for dataset in metadata_dict["datasets"]],
     )
 
     # Format parameters
     zarr_format = 2 if version == "0.4" else 3
+    if not overwrite:
+        # The store keeps what it holds: a matrix may only replace an array the
+        # current root already names as one.
+        check_matrix_destinations(
+            store_path,
+            matrix_arrays,
+            stored_matrix_paths(read_group_attributes(store, zarr_format=zarr_format)),
+        )
 
     # A zarr v2 store keeps consolidated metadata in a separate .zmetadata
     # sidecar. An in-place write (overwrite=False) rewrites only the group
