@@ -321,9 +321,9 @@ relationship: the tiles of one sample, or the same sample imaged by two
 instruments. Its `ome.scene` metadata holds the `coordinateTransformations`
 between the images' coordinate systems and, optionally, `coordinateSystems` of
 its own, such as a common world system the images map into. Each end of a
-transformation is a `CoordinateSystemIdentifier`: with a `path` it names a
-coordinate system of the image at that path, without one a system the scene
-declares. The images are ordinary multiscales groups below the scene:
+transformation is a `CoordinateSystemIdentifier`.
+
+The images are ordinary multiscales groups below the scene:
 
 ```
 scene.ome.zarr
@@ -389,37 +389,35 @@ scene.images["tile_1"]  # an NgffMultiscales, its pixels read lazily
 scene.coordinateTransformations[1].translation  # [0.0, 128.0]
 ```
 
-Before anything is written, the scene is checked against the spec: the
-scene's coordinate systems carry unique names and an axis model the version
-allows (five axes at most at 0.6, any at 0.9.dev1); every transformation end
-names a system, which resolves to one the scene declares or to one the image
-at its path declares; each transformation holds for the two systems it joins,
-so a translation spans their axes and a `mapAxis` permutes them; and the
-coordinate systems and images form one connected graph. A scene that fails a
-check raises `ValueError`. `from_ome_zarr(store, kind="scene", validate=True)`
-runs the same checks on a scene store, after validating its root metadata against the
-`scene` schema and each image against the `image` schema. The first scene
-coordinate system is the reference a viewer displays by default, so declare
-the common system first. A scene reads from a local directory, a remote URL
-or an `.ozx` archive. `kind="scene"` selects what the store holds, as zarrita's
-`open` takes a `kind`: without it `from_ome_zarr` reads multiscales images
-only and refuses a scene store, and with it a store that holds an image is
-refused; `NgffScene.from_ome_zarr` is the same read. A path into one of the
-scene's images reads that image. `to_ome_zarr` writes a scene at version 0.6 unless told otherwise and
-passes its other keyword arguments, such as `chunks_per_shard`, to the write
-of every image.
+Before anything is written, the scene is checked against the spec:
 
-A transformation whose parameters are an array, such as a `displacements`
-field between two images, references it by `path`. The field is an OME-Zarr
-image of its own, which the spec keeps in a `coordinateTransformations` group
-beside the images, and the scene writer does not produce it: write it first,
-below the scene's store, then the scene with `overwrite=False` so it is kept.
-The writer checks that every referenced node is there, gives it the group
-documents of its ancestors, and includes it in the consolidated metadata.
+- the scene's coordinate systems have unique names and an axis model the
+  version allows (five axes at most at 0.6, any at 0.9.dev1);
+- every transformation names its two ends, and each resolves to a system the
+  scene declares or to a system of the image at its `path`;
+- each transformation fits the two systems it joins: a translation has one
+  value per axis, a `mapAxis` permutes them;
+- the coordinate systems and images form one connected graph;
+- every node a transformation references by `path` is already in the store.
+
+A scene that fails a check raises `ValueError`, and `validate=True` runs the
+same checks after reading. `kind="scene"` selects what the store holds, as
+zarrita's `open` takes a `kind`; without it, `from_ome_zarr` reads multiscales
+images only. `NgffScene.from_ome_zarr` is the same read, and a path into one
+of the scene's images reads that image. The first scene coordinate system is
+the reference a viewer displays by default, so declare the common system
+first. A scene reads from a local directory, a remote URL or an `.ozx`
+archive. `to_ome_zarr` writes a scene at version 0.6 unless told otherwise
+and passes its other keyword arguments, such as `chunks_per_shard`, to the
+write of every image.
+
+An example with a displacement field:
 
 ```python
 from ngff_zarr.v06.zarr_metadata import Displacements
 
+# The field is an image of its own, written first below the scene's store;
+# `overwrite=False` then keeps it.
 field_path = "coordinateTransformations/dfield"
 nz.to_ome_zarr(f"scene.ome.zarr/{field_path}", field_multiscales, version="0.6")
 
@@ -436,6 +434,34 @@ nz.to_ome_zarr("scene.ome.zarr", scene, overwrite=False)
 scene = nz.from_ome_zarr("scene.ome.zarr", kind="scene")
 field = nz.from_ome_zarr(f"scene.ome.zarr/{scene.coordinateTransformations[2].path}")
 ```
+
+## A transformation on its own
+
+A transformation can be stored by itself, without an image or a scene: the
+root group's `ome.coordinateTransformations` holds it, the shape of the
+spec's standalone transformation examples. `to_ome_zarr` takes a
+transformation object and `from_ome_zarr(store, kind="transformation")`
+reads it back, references and `path` kept as written:
+
+```python
+import ngff_zarr as nz
+from ngff_zarr import CoordinateSystemIdentifier
+from ngff_zarr.v06.zarr_metadata import Affine
+
+registration = Affine(
+    affine=[[1.0, 0.0, 12.5], [0.0, 1.0, -3.0]],
+    input=CoordinateSystemIdentifier(name="moving"),
+    output=CoordinateSystemIdentifier(name="fixed"),
+)
+nz.to_ome_zarr("registration.ome.zarr", registration)
+
+transform = nz.from_ome_zarr("registration.ome.zarr", kind="transformation")
+nz.ngff_transform_to_itk_transform(transform)
+```
+
+A transformation whose parameters are an array, such as a `displacements`
+field, references it by `path`: write the field first, below the store, then
+the transformation with `overwrite=False`, as for a scene.
 
 ## TypeScript
 
@@ -557,7 +583,9 @@ The same checks run as in Python, before anything is written and, with
 HTTP(S) URL; without `kind: "scene"`, `fromOmeZarr` keeps its `NgffMultiscales`
 result type and refuses a scene store. A field a transformation references
 by `path` is written first with `toOmeZarr`, then the scene with
-`{ overwrite: false }`.
+`{ overwrite: false }`. A transformation on its own is written the same way,
+`toOmeZarr(store, transform)`, to a directory path or a `MemoryStore`, and
+read back with `fromOmeZarr(store, { kind: "transformation" })`.
 
 ## Compatibility
 

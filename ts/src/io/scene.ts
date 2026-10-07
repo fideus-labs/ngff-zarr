@@ -50,7 +50,7 @@ export interface WriteSceneOptions {
 }
 
 /** The file system store at `store`, in Node.js and Deno. */
-async function localStore(store: string): Promise<zarr.Mutable> {
+export async function localStore(store: string): Promise<zarr.Mutable> {
   if (typeof window !== "undefined") {
     throw new Error(
       "Local file paths are not supported in browser environments.",

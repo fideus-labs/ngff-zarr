@@ -4,7 +4,12 @@ import * as zarr from "zarrita";
 
 import type { NgffMultiscales } from "../types/multiscales.ts";
 import { NgffScene } from "../types/scene.ts";
-import { writeScene } from "./scene.ts";
+import { localStore, writeScene } from "./scene.ts";
+import {
+  isV06Transform,
+  writeTransformation,
+} from "./transformation_common.ts";
+import type { V06Transform } from "../types/zarr_metadata.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { ZarrCodec } from "../utils/codecs.ts";
 import { defaultCodecs } from "../utils/codecs.ts";
@@ -117,7 +122,11 @@ export type ToNgffZarrOzxOptions = ToOmeZarrOzxOptions;
  * @param multiscales - NgffMultiscales data to write, or an {@link NgffScene}:
  *   its metadata lands in the root group's `ome.scene` and each of its images
  *   is written below its path, after the scene is checked against the spec; a
- *   scene is written to a directory path, at version 0.6 unless given
+ *   scene is written to a directory path, at version 0.6 unless given. Or a
+ *   transformation (a {@link V06Transform}): it lands in the root group's
+ *   `ome.coordinateTransformations` as the store's only transformation, at
+ *   version 0.6 unless given; a node it references by `path` is written
+ *   below the store first and the transformation with `overwrite: false`
  * @param options - Writing options
  *
  * @example
@@ -137,9 +146,34 @@ export type ToNgffZarrOzxOptions = ToOmeZarrOzxOptions;
  */
 export async function toOmeZarr(
   store: string | MemoryStore | zarr.FetchStore,
-  multiscales: NgffMultiscales | NgffScene,
+  multiscales: NgffMultiscales | NgffScene | V06Transform,
   options: ToOmeZarrOptions = {},
 ): Promise<void> {
+  if (isV06Transform(multiscales)) {
+    if (
+      store instanceof zarr.FetchStore ||
+      (typeof store === "string" &&
+        (store.startsWith("http://") || store.startsWith("https://")))
+    ) {
+      throw new Error(
+        "HTTP/HTTPS URLs are read-only and cannot be used for writing. Use a local file path instead.",
+      );
+    }
+    if (typeof store === "string" && isOzxPath(store)) {
+      throw new Error(
+        "A transformation is written to a directory path or a MemoryStore; " +
+          "zip it afterwards with memoryStoreToZip().",
+      );
+    }
+    const resolved = store instanceof Map
+      ? store as unknown as zarr.Mutable
+      : await localStore(store);
+    await writeTransformation(resolved, multiscales, {
+      version: options.version ?? "0.6",
+      ...(options.overwrite !== undefined && { overwrite: options.overwrite }),
+    });
+    return;
+  }
   if (multiscales instanceof NgffScene) {
     if (typeof store !== "string") {
       throw new Error(

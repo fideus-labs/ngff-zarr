@@ -21,6 +21,8 @@ from ._zarrista_utils import (
 from .multiscales import NgffMultiscales
 from .rfc9_zip import is_ozx_path, read_ozx_version
 from .scene import NgffScene, _read_scene
+from .transformation import _is_transformation_document, _read_transformation
+from .v06.zarr_metadata import Transform
 
 # Supported remote URL schemes for storage
 REMOTE_URL_SCHEMES = ("s3://", "gs://", "azure://", "http://", "https://")
@@ -195,6 +197,17 @@ def from_ome_zarr(
     validate: bool = ...,
     version: str | None = ...,
     storage_options: dict | None = ...,
+    *,
+    kind: Literal["transformation"],
+) -> Transform: ...
+
+
+@overload
+def from_ome_zarr(
+    store: StoreLike,
+    validate: bool = ...,
+    version: str | None = ...,
+    storage_options: dict | None = ...,
     kind: Literal["multiscales"] | None = ...,
 ) -> NgffMultiscales: ...
 
@@ -204,15 +217,17 @@ def from_ome_zarr(
     validate: bool = False,
     version: str | None = None,
     storage_options: dict | None = None,
-    kind: Literal["multiscales", "scene"] | None = None,
-) -> NgffMultiscales | NgffScene:
+    kind: Literal["multiscales", "scene", "transformation"] | None = None,
+) -> NgffMultiscales | NgffScene | Transform:
     """
     Read an OME-Zarr NGFF multiscales data structure (NgffMultiscales) from a Zarr store.
 
     With ``kind="scene"``, a store whose root group carries ``ome.scene`` is
     read as an :class:`~ngff_zarr.NgffScene` instead, with the images its
     transformations reference by path; a path into one of those images reads
-    that image.
+    that image. With ``kind="transformation"``, a store whose root group
+    carries ``ome.coordinateTransformations`` alone is read as that
+    transformation, references and ``path`` kept as written.
 
     store : StoreLike
         Store or path to directory in file system. Can be a string URL
@@ -236,10 +251,10 @@ def from_ome_zarr(
         OME-Zarr version, if known. For .ozx files, the version will be
         read from the ZIP comment if not provided.
 
-    kind : "multiscales" or "scene", optional
+    kind : "multiscales", "scene" or "transformation", optional
         What the store holds, as zarrita's ``open`` takes a ``kind``: a
-        multiscales image (the default) or a scene. A store that holds the
-        other kind raises ``ValueError``.
+        multiscales image (the default), a scene, or a transformation on its
+        own. A store that holds another kind raises ``ValueError``.
 
     storage_options : dict, optional
         Storage options to pass to the store if store is a string URL.
@@ -313,10 +328,24 @@ def from_ome_zarr(
             version=version,
             storage_options=storage_options,
         )
+    if not subpath and _is_transformation_document(ome_initial):
+        if kind != "transformation":
+            raise ValueError(
+                f"'{original_store}' holds a transformation; read it with "
+                "from_ome_zarr(store, kind='transformation')."
+            )
+        return _read_transformation(
+            root_attrs_initial, validate=validate, version=version
+        )
     if kind == "scene":
         raise ValueError(
             f"'{original_store}' holds no scene: the root group carries no "
             "'ome.scene' entry."
+        )
+    if kind == "transformation":
+        raise ValueError(
+            f"'{original_store}' holds no transformation: the root group carries "
+            "no 'ome.coordinateTransformations' entry of its own."
         )
     is_hcs_plate_root = _is_hcs_plate(root_attrs_initial)
 

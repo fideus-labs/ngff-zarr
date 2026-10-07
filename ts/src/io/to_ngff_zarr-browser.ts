@@ -6,6 +6,11 @@ import * as zarr from "zarrita";
 
 import type { NgffMultiscales } from "../types/multiscales.ts";
 import { NgffScene } from "../types/scene.ts";
+import type { V06Transform } from "../types/zarr_metadata.ts";
+import {
+  isV06Transform,
+  writeTransformation,
+} from "./transformation_common.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { ZarrCodec } from "../utils/codecs.ts";
 import { defaultCodecs } from "../utils/codecs.ts";
@@ -110,9 +115,21 @@ export type ToNgffZarrOzxOptions = ToOmeZarrOzxOptions;
  */
 export async function toOmeZarr(
   store: string | MemoryStore | zarr.FetchStore,
-  multiscales: NgffMultiscales | NgffScene,
+  multiscales: NgffMultiscales | NgffScene | V06Transform,
   options: ToOmeZarrOptions = {},
 ): Promise<void> {
+  if (isV06Transform(multiscales)) {
+    if (!(store instanceof Map)) {
+      throw new Error(
+        "A transformation is written to a MemoryStore in the browser.",
+      );
+    }
+    await writeTransformation(store as unknown as zarr.Mutable, multiscales, {
+      version: options.version ?? "0.6",
+      ...(options.overwrite !== undefined && { overwrite: options.overwrite }),
+    });
+    return;
+  }
   if (multiscales instanceof NgffScene) {
     throw new Error(
       "A scene is written to a directory path, which the browser writer " +

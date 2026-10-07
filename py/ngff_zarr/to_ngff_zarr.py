@@ -43,8 +43,10 @@ from .rfc9_zip import is_ozx_path, write_store_to_zip
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
 from .scene import NgffScene, _write_scene
 from .to_multiscales import to_multiscales
+from .transformation import _write_transformation
 from .v04.zarr_metadata import Metadata as Metadata_v04
 from .v05.zarr_metadata import Metadata as Metadata_v05
+from .v06.zarr_metadata import BaseTransform, Transform
 
 ScaleStrategy = Literal["pad", "exact"]
 
@@ -1551,7 +1553,7 @@ def _prepare_next_scale(
 
 def to_ome_zarr(
     store: StoreLike,
-    multiscales: NgffMultiscales | NgffScene,
+    multiscales: NgffMultiscales | NgffScene | Transform,
     version: str | None = None,
     overwrite: bool = True,
     use_tensorstore: bool = False,
@@ -1576,10 +1578,16 @@ def to_ome_zarr(
         Or an :class:`~ngff_zarr.NgffScene`: its metadata lands in the root group's ``ome.scene``
         and each of its images is written below its path, after the scene is checked against the
         spec; a scene is written to a directory path, at version 0.6 or later.
-    :type  multiscales: NgffMultiscales | NgffScene
+        Or a transformation (an :class:`~ngff_zarr.v06.zarr_metadata.Transform`):
+        it lands in the root group's ``ome.coordinateTransformations`` as the
+        store's only transformation, at version 0.6 or later; a node it
+        references by ``path``, such as a ``displacements`` field, is written
+        below the store first and the transformation with ``overwrite=False``.
+    :type  multiscales: NgffMultiscales | NgffScene | Transform
 
     :param version: OME-Zarr specification version. Defaults to 0.5 for a multiscales image and
-        to 0.6 for a scene. For .ozx files, a version stored in Zarr v3 (0.5 or later) is required.
+        to 0.6 for a scene or a transformation. For .ozx files, a version stored in Zarr v3
+        (0.5 or later) is required.
     :type  version: str, optional
 
     :param overwrite: If True, delete any pre-existing data in `store` before creating groups.
@@ -1696,6 +1704,16 @@ def to_ome_zarr(
             scale_strategy=scale_strategy,
             metadata_only=metadata_only,
             **kwargs,
+        )
+        return
+    if isinstance(multiscales, BaseTransform):
+        if isinstance(store, (str, Path)) and is_ozx_path(store):
+            raise ValueError(
+                "A transformation is written to a directory path; zip it "
+                "afterwards with write_store_to_zip()."
+            )
+        _write_transformation(
+            store, multiscales, version=version or "0.6", overwrite=overwrite
         )
         return
     if version is None:
