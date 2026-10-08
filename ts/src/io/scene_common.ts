@@ -11,11 +11,19 @@
  * https://ngff.openmicroscopy.org/0.6/#scene-md.
  *
  * This module has no Node.js dependency: the Node and browser readers both
- * read scenes through it, and the Node writer in `scene.ts` builds on it.
+ * read scenes through it, and the Node and browser writers both write them
+ * through it, each with its own array writer, to a directory (Node), a
+ * `MemoryStore`, or an RFC-9 `.ozx` archive.
  */
+import * as zarr from "zarrita";
+
 import type { NgffMultiscales } from "../types/multiscales.ts";
 import { NgffScene } from "../types/scene.ts";
-import { isV06Version, NgffVersion } from "../types/supported_versions.ts";
+import {
+  isV06Version,
+  NgffVersion,
+  V06_ONDISK_VERSION,
+} from "../types/supported_versions.ts";
 import {
   type Axis,
   type CoordinateSystem,
@@ -29,8 +37,31 @@ import {
   serializeV06Transform,
   validateV06Transform,
 } from "../utils/v06_metadata.ts";
+import type { ZarrCodec } from "../utils/codecs.ts";
+import {
+  type ConsolidatableStore,
+  consolidatedNodePaths,
+  consolidateMetadata,
+} from "../utils/consolidate_metadata.ts";
+import { type ChunksPerShard, ensureRangeReads } from "../utils/sharding.ts";
+import {
+  ensureAncestorGroups,
+  isPathBelowRoot,
+  storeBelow,
+} from "../utils/store_below.ts";
 import type { ChunkCache } from "../utils/worker_pool.ts";
-import { gateAxisViews, gateSpans } from "./to_ngff_zarr_ozx_common.ts";
+import { memoryStoreToZip } from "./rfc9_zip.ts";
+import {
+  type ArrayWriterFactory,
+  countMultiscalesWrites,
+  DEFAULT_OZX_CHUNKS_PER_SHARD,
+  gateAxisViews,
+  gateOzxVersion,
+  gateSpans,
+  type OzxVersion,
+  type ProgressCallback,
+  writeMultiscalesGroup,
+} from "./to_ngff_zarr_ozx_common.ts";
 
 /** The versions whose metadata model defines scenes. */
 export const SCENE_VERSIONS: readonly string[] = [
@@ -51,9 +82,39 @@ export interface ReadSceneOptions {
   cache?: ChunkCache;
 }
 
-/** Reads the image at a child store path; the port's `fromOmeZarr`. */
+/** The scene subset of `ToOmeZarrOptions`, forwarded by `toOmeZarr`. */
+export interface WriteSceneOptions {
+  /** OME-Zarr specification version, 0.6 (the default) or later. */
+  version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
+  /**
+   * With the default `true`, the root group's attributes are the scene's
+   * alone. With `false`, the attributes an existing root group carries are
+   * kept beside the scene metadata. The images are written over whatever
+   * their paths hold either way. A transformation that references an array
+   * or a field group by `path`, such as a `displacements` field, needs that
+   * node written first, below the scene's store, and the scene written with
+   * `overwrite: false`.
+   */
+  overwrite?: boolean;
+  /**
+   * Write consolidated metadata for the whole store at the root once the
+   * images are written (default `true`).
+   */
+  consolidateMetadata?: boolean;
+  /** How every image's arrays are sharded. */
+  chunksPerShard?: ChunksPerShard;
+  /** The codec pipeline of every image's arrays. */
+  codecs?: ZarrCodec[];
+  /**
+   * Reports the writes of all the images together, chunks or whole shards,
+   * as they complete.
+   */
+  onProgress?: ProgressCallback;
+}
+
+/** Reads the image below a scene: the port's `fromOmeZarr`. */
 export type ImageReader = (
-  store: string,
+  store: string | zarr.Readable,
   options: { validate: boolean; cache?: ChunkCache },
 ) => Promise<NgffMultiscales>;
 
@@ -69,17 +130,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * (Windows does) and a percent-encoded part is read as a URL store does.
  */
 export function checkImagePath(path: unknown): asserts path is string {
-  const decode = (part: string): string => {
-    try {
-      return decodeURIComponent(part);
-    } catch {
-      return part;
-    }
-  };
-  if (
-    typeof path !== "string" ||
-    path.split(/[\\/]/).some((part) => ["", ".", ".."].includes(decode(part)))
-  ) {
+  if (!isPathBelowRoot(path)) {
     throw new Error(
       `Image path '${
         String(path)
@@ -349,19 +400,35 @@ export function sceneFromOmeValue(
   };
 }
 
-/** The store of the image at `path` below the scene group. */
-export function childStore(store: string, path: string): string {
+/**
+ * The store of the image at `path` below the scene group: the path or URL
+ * joined to the scene's, or for a store object, such as a `MemoryStore` or
+ * a zipped `.ozx` store, the part of it below `path`.
+ */
+export function childStore(store: string, path: string): string;
+export function childStore(
+  store: string | zarr.Readable,
+  path: string,
+): string | zarr.Readable;
+export function childStore(
+  store: string | zarr.Readable,
+  path: string,
+): string | zarr.Readable {
+  if (typeof store !== "string") {
+    return storeBelow(store, path);
+  }
   return `${store.replace(/\/+$/, "")}/${path}`;
 }
 
 /**
  * Read the scene `rootAttrs` declares, with the images it references;
- * `fromOmeZarr` calls this. `store` is the path or URL the caller passed,
- * below which `readImage` reads each referenced image. `validate` validates
- * each image and runs the spec checks of {@link checkScene} on the result.
+ * `fromOmeZarr` calls this. `store` is the path, URL, or store object the
+ * caller passed, below which `readImage` reads each referenced image.
+ * `validate` validates each image and runs the spec checks of
+ * {@link checkScene} on the result.
  */
 export async function readScene(
-  store: string,
+  store: string | zarr.Readable,
   rootAttrs: Record<string, unknown>,
   readImage: ImageReader,
   options: ReadSceneOptions = {},
@@ -432,4 +499,216 @@ export function readVersion(
 /** Whether `rootAttrs` is the root document of a scene group. */
 export function hasSceneMetadata(rootAttrs: Record<string, unknown>): boolean {
   return isRecord(rootAttrs.ome) && "scene" in rootAttrs.ome;
+}
+
+/**
+ * Write a scene and its images to `store`; the Node and browser
+ * `toOmeZarr` call this, and `toOmeZarrOzx` through {@link sceneToOzx}.
+ *
+ * The scene metadata lands in the root group's `ome.scene` and each image is
+ * written below its path, at `options.version`, by the calling writer's
+ * arrays (`arrayWriter`, given the codecs and sharding of `options`). The
+ * scene is checked against the spec first ({@link checkScene}); nothing is
+ * written when it fails. A transformation that references an array or a
+ * field group by `path`, such as a `displacements` field, needs that node
+ * written first, below the scene's store, and the scene written with
+ * `overwrite: false`, which also keeps the root group's other attributes.
+ * The consolidated block at the root lists every node the scene wrote: each
+ * image's datasets and matrix arrays, and the groups above them.
+ */
+export async function writeSceneToStore(
+  store: zarr.Mutable,
+  scene: NgffScene,
+  arrayWriter: ArrayWriterFactory,
+  options: WriteSceneOptions = {},
+): Promise<void> {
+  const version = options.version ?? "0.6";
+  if (!SCENE_VERSIONS.includes(version)) {
+    throw new Error(
+      `Scene metadata is defined from OME-Zarr 0.6; got version '${version}'.`,
+    );
+  }
+  checkScene(scene, version);
+
+  // An array-backed transformation points at a node of the store, which the
+  // scene writer does not produce: it has to be there already, so it is
+  // written first and the scene keeps it.
+  const fields = [...fieldPaths(scene.coordinateTransformations)].sort();
+  for (const path of fields) {
+    checkImagePath(path);
+  }
+  if (fields.length > 0 && (options.overwrite ?? true)) {
+    throw new Error(
+      `The scene's transformations reference the nodes ${
+        JSON.stringify(fields)
+      }; write those first with toOmeZarr() below the scene's store, then ` +
+        "the scene with overwrite: false so they are kept.",
+    );
+  }
+  for (const path of fields) {
+    if ((await store.get(`/${path}/zarr.json`)) === undefined) {
+      throw new Error(
+        `The scene's transformations reference '${path}', which the store ` +
+          "does not hold; write it first with toOmeZarr() below the scene's " +
+          "store, then the scene with overwrite: false.",
+      );
+    }
+  }
+
+  // A sharded array needs range reads, which an in-memory `Map` lacks.
+  const root = zarr.root(ensureRangeReads(store));
+  let attributes: Record<string, unknown> = {};
+  if (options.overwrite === false) {
+    try {
+      const existing = await zarr.open(root, { kind: "group" });
+      attributes = { ...(existing.attrs as Record<string, unknown>) };
+    } catch {
+      // No root group yet: nothing to keep.
+    }
+  }
+  const ondisk = version === "0.6" ? V06_ONDISK_VERSION : version;
+  attributes.ome = { version: ondisk, scene: sceneToOmeValue(scene) };
+  await zarr.create(root, { attributes });
+
+  const nodePaths = new Set<string>(
+    await storedNodePaths(store, root, fields),
+  );
+  const ensureAncestors = async (path: string): Promise<void> => {
+    for (const ancestor of await ensureAncestorGroups(root, path)) {
+      nodePaths.add(ancestor);
+    }
+    nodePaths.add(path);
+  };
+
+  const writeArray = arrayWriter({
+    codecs: options.codecs,
+    chunksPerShard: options.chunksPerShard,
+  });
+  const { onProgress } = options;
+  const totalChunks = onProgress
+    ? Object.values(scene.images).reduce(
+      (total, multiscales) =>
+        total + countMultiscalesWrites(multiscales, options.chunksPerShard),
+      0,
+    )
+    : 0;
+  let completedChunks = 0;
+  for (const [path, multiscales] of Object.entries(scene.images)) {
+    await ensureAncestors(path);
+    // Report each image's writes on top of the images before it.
+    const offset = completedChunks;
+    const written = await writeMultiscalesGroup(
+      root.resolve(path),
+      multiscales,
+      writeArray,
+      version,
+      onProgress
+        ? (completed: number) => onProgress(offset + completed, totalChunks)
+        : null,
+      options.chunksPerShard,
+    );
+    for (const node of written) {
+      nodePaths.add(`${path}/${node}`);
+    }
+    if (onProgress) {
+      completedChunks += countMultiscalesWrites(
+        multiscales,
+        options.chunksPerShard,
+      );
+    }
+  }
+  if (options.consolidateMetadata ?? true) {
+    await consolidateMetadata(
+      store as unknown as ConsolidatableStore,
+      [...nodePaths].sort(),
+    );
+  }
+}
+
+/**
+ * The node paths a consolidated block at the root lists for the stored
+ * nodes `fields`, such as displacement fields, that a scene's or a
+ * transformation's transformations reference: each node, the groups above
+ * it, which are created when the store lacks them, and the nodes the node's
+ * own consolidated block lists, which `toOmeZarr` writes when it writes the
+ * field. So the root block covers the field's arrays as well, as the Python
+ * writer's, which consolidates the whole store, does.
+ */
+export async function storedNodePaths(
+  store: zarr.Mutable,
+  root: zarr.Location<zarr.Mutable>,
+  fields: string[],
+): Promise<string[]> {
+  const nodes: string[] = [];
+  for (const path of fields) {
+    nodes.push(...await ensureAncestorGroups(root, path), path);
+    const listed = await consolidatedNodePaths(
+      storeBelow(store, path) as unknown as ConsolidatableStore,
+    );
+    nodes.push(...(listed ?? []).map((node) => `${path}/${node}`));
+  }
+  return nodes;
+}
+
+/** The `toOmeZarrOzx` subset of the options a scene is zipped with. */
+export interface SceneOzxOptions {
+  /** OME-Zarr version, 0.6 (the default) or 0.9.dev1. */
+  version?: OzxVersion | undefined;
+  /**
+   * How every image's arrays are sharded; 2 chunks a shard along every axis
+   * unless given, the `.ozx` default.
+   */
+  chunksPerShard?: ChunksPerShard | undefined;
+  /** Consolidate the whole archive's metadata at its root (default `true`). */
+  consolidateMetadata?: boolean | undefined;
+  /** Reports the writes of all the images together. */
+  onProgress?: ProgressCallback | undefined;
+}
+
+/**
+ * Refuse to write `transforms` in one piece, as an `.ozx` archive is, when
+ * they reference stored nodes by `path`: such a node has to be in the store
+ * before the scene or transformation is, and a fresh archive holds none.
+ */
+export function refuseStoredNodes(
+  transforms: V06Transform[],
+  what: "scene" | "transformation",
+): void {
+  const fields = [...fieldPaths(transforms)].sort();
+  if (fields.length > 0) {
+    throw new Error(
+      `An .ozx archive is written in one piece, so a ${what} whose ` +
+        `transformations reference the stored nodes ${
+          JSON.stringify(fields)
+        } cannot be zipped with toOmeZarrOzx(). Stage it in a MemoryStore ` +
+        "or a directory instead: write each node with toOmeZarr(store, " +
+        `node, { path }), then the ${what} with { overwrite: false }, and ` +
+        "pack the store with storeToZip().",
+    );
+  }
+}
+
+/**
+ * `scene` and its images as an RFC-9 `.ozx` archive; the Node and browser
+ * `toOmeZarrOzx` call this. The scene is written to a fresh `MemoryStore`
+ * with {@link writeSceneToStore}, its images sharded as `.ozx` images are,
+ * and zipped with the version in the archive's comment.
+ */
+export async function sceneToOzx(
+  scene: NgffScene,
+  arrayWriter: ArrayWriterFactory,
+  options: SceneOzxOptions = {},
+): Promise<Uint8Array> {
+  const version = gateOzxVersion(options.version ?? "0.6");
+  refuseStoredNodes(scene.coordinateTransformations, "scene");
+  const store = new Map<string, Uint8Array>();
+  await writeSceneToStore(store, scene, arrayWriter, {
+    version,
+    chunksPerShard: options.chunksPerShard ?? DEFAULT_OZX_CHUNKS_PER_SHARD,
+    ...(options.consolidateMetadata !== undefined &&
+      { consolidateMetadata: options.consolidateMetadata }),
+    ...(options.onProgress !== undefined &&
+      { onProgress: options.onProgress }),
+  });
+  return memoryStoreToZip(store, { version });
 }

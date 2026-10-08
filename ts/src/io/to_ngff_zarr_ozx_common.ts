@@ -12,7 +12,8 @@ import * as zarr from "zarrita";
 import type { NgffMultiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { Axis, MetadataInterface } from "../types/zarr_metadata.ts";
-import type { MemoryStore } from "./rfc9_zip.ts";
+import { type MemoryStore, memoryStoreToZip } from "./rfc9_zip.ts";
+import type { ZarrCodec } from "../utils/codecs.ts";
 import {
   consolidateMetadata,
   datasetNodePaths,
@@ -30,6 +31,7 @@ import {
   NgffVersion,
   V06_ONDISK_VERSION,
 } from "../types/supported_versions.ts";
+import { detectVersion } from "../utils/parse_metadata.ts";
 import {
   SpecRule,
   validateAxisCount,
@@ -411,6 +413,63 @@ export function gateOzxVersion(version: string | undefined): OzxVersion {
   );
 }
 
+/** Options for packing a store into an `.ozx` archive with `storeToZip`. */
+export interface StoreToZipOptions {
+  /**
+   * OME-Zarr version to record in the archive's ZIP comment. Omitted, the
+   * version the store's root document declares, as the readers detect it,
+   * or `0.5` when it declares none.
+   */
+  version?: OzxVersion | undefined;
+}
+
+/**
+ * The contents of `store` packed into an RFC-9 `.ozx` archive, as
+ * {@link memoryStoreToZip} lays them out: the root `zarr.json` first, the
+ * other `zarr.json` documents breadth first, nothing compressed again. A
+ * store staged with `toOmeZarr` -- a displacement field written below its
+ * `path`, then the scene or transformation referencing it with `overwrite:
+ * false` -- is packed whole, the way the Python `write_store_to_zip` packs
+ * a directory. Throws on a store with no root `zarr.json` or a Zarr v2 one:
+ * RFC-9 holds a Zarr v3 store.
+ */
+export function storeToZipData(
+  store: MemoryStore,
+  options: StoreToZipOptions = {},
+): Uint8Array {
+  const rootBytes = store.get("/zarr.json") ?? store.get("zarr.json");
+  if (rootBytes === undefined) {
+    throw new Error(
+      "The store has no root zarr.json, so it is not a Zarr v3 store an " +
+        ".ozx archive (RFC-9) can hold.",
+    );
+  }
+  const root = JSON.parse(new TextDecoder().decode(rootBytes)) as {
+    zarr_format?: unknown;
+    attributes?: Record<string, unknown>;
+  };
+  if (root.zarr_format !== 3) {
+    throw new Error(
+      "An .ozx archive (RFC-9) holds a Zarr v3 store; the root zarr.json " +
+        `declares zarr_format ${JSON.stringify(root.zarr_format)}.`,
+    );
+  }
+  // The version as the readers detect it: `ome.version`, or a bare
+  // multiscales entry's own, which is how a 0.4 image written in a Zarr v3
+  // container declares itself. A plain Zarr group declares none; a version
+  // the readers do not support throws.
+  const attributes = root.attributes ?? {};
+  const ome = attributes.ome as { version?: unknown } | undefined;
+  const multiscales = attributes.multiscales;
+  const declaresVersion = (ome?.version !== undefined) ||
+    (Array.isArray(multiscales) && multiscales.length > 0);
+  const declared = options.version === undefined && declaresVersion
+    ? detectVersion(attributes)
+    : undefined;
+  const version = gateOzxVersion(options.version ?? declared);
+  return memoryStoreToZip(store, { version });
+}
+
 /**
  * Get chunks from an NgffImage, falling back to default chunk size if not specified.
  *
@@ -422,6 +481,129 @@ function getChunksFromImage(image: NgffImage): number[] {
     return image.data.chunks;
   }
   return image.data.shape.map((s: number) => Math.min(s, 1024));
+}
+
+/** Reports cumulative writes: `completedChunks` of `totalChunks`. */
+export type ProgressCallback = (
+  completedChunks: number,
+  totalChunks: number,
+) => void;
+
+/**
+ * Writes one array of a multiscales group, below `group` at `path`. The Node
+ * and browser writers each supply their own, bound to their codec and
+ * sharding options.
+ */
+export type MultiscalesArrayWriter = (
+  group: zarr.Group<MemoryStore>,
+  image: NgffImage,
+  path: string,
+  onProgress?: ProgressCallback | null,
+) => Promise<void>;
+
+/**
+ * Makes a writer's {@link MultiscalesArrayWriter} for a codec pipeline and a
+ * sharding layout, so code shared by the Node and browser writers, such as
+ * the scene writer, writes arrays the way the calling writer does.
+ */
+export type ArrayWriterFactory = (options: {
+  codecs?: ZarrCodec[] | undefined;
+  chunksPerShard?: ChunksPerShard | undefined;
+}) => MultiscalesArrayWriter;
+
+/** How many writes one level takes: chunks, or whole shards when sharded. */
+function countImageWrites(
+  image: NgffImage,
+  chunksPerShard: ChunksPerShard | undefined,
+): number {
+  const shape = image.data.shape;
+  const chunks = outerChunkShape(
+    shape,
+    image.dims,
+    getChunksFromImage(image),
+    chunksPerShard,
+  );
+  let writes = 1;
+  for (let d = 0; d < shape.length; d++) {
+    writes *= Math.ceil(shape[d] / chunks[d]);
+  }
+  return writes;
+}
+
+/**
+ * How many writes {@link writeMultiscalesGroup} makes for `multiscales`, the
+ * total its progress counts toward.
+ */
+export function countMultiscalesWrites(
+  multiscales: NgffMultiscales,
+  chunksPerShard?: ChunksPerShard,
+): number {
+  return multiscales.images.reduce(
+    (total, image) => total + countImageWrites(image, chunksPerShard),
+    0,
+  );
+}
+
+/**
+ * Write `multiscales` as the OME-Zarr group at `location`: the root document
+ * at `version`, the matrix arrays it names, and each level through
+ * `writeArray`. `location` may be the root of a store or a group below it, as
+ * the images of a scene are.
+ *
+ * Returns the node paths below `location` that a consolidated metadata block
+ * lists, the datasets and the matrix arrays with their ancestor groups;
+ * consolidation is left to the caller, which knows where the store's root
+ * is. `onProgress` counts this group's writes ({@link countMultiscalesWrites}).
+ */
+export async function writeMultiscalesGroup(
+  location: zarr.Location<zarr.Mutable>,
+  multiscales: NgffMultiscales,
+  writeArray: MultiscalesArrayWriter,
+  version: "0.4" | "0.5" | "0.6" | "0.9.dev1",
+  onProgress?: ProgressCallback | null,
+  chunksPerShard?: ChunksPerShard,
+): Promise<string[]> {
+  // The same version-specific root document whatever the container: a zipped
+  // store differs from a directory store only in how it is packaged.
+  const { attributes, matrixArrays } = buildRootDocument(
+    multiscales.metadata,
+    version,
+  );
+
+  const group = await zarr.create(location, { attributes });
+  await writeMatrixArrays(location, matrixArrays);
+
+  const totalChunks = onProgress
+    ? countMultiscalesWrites(multiscales, chunksPerShard)
+    : 0;
+  let completedChunks = 0;
+  for (let i = 0; i < multiscales.images.length; i++) {
+    const image = multiscales.images[i];
+    const dataset = multiscales.metadata.datasets[i];
+
+    if (!dataset) {
+      throw new Error(`No dataset configuration found for image ${i}`);
+    }
+
+    // Report each level's writes on top of the levels before it.
+    const offset = completedChunks;
+    await writeArray(
+      group as zarr.Group<MemoryStore>,
+      image,
+      dataset.path,
+      onProgress
+        ? (completed: number) => onProgress(offset + completed, totalChunks)
+        : null,
+    );
+    if (onProgress) {
+      completedChunks += countImageWrites(image, chunksPerShard);
+    }
+  }
+
+  return datasetNodePaths([
+    ...multiscales.metadata.datasets.map((dataset) => dataset.path),
+    ...matrixArrays.keys(),
+  ]);
 }
 
 /**
@@ -443,106 +625,29 @@ function getChunksFromImage(image: NgffImage): number[] {
 export async function writeNgffMultiscalesToMemoryStore(
   store: MemoryStore,
   multiscales: NgffMultiscales,
-  writeImage: (
-    group: zarr.Group<MemoryStore>,
-    image: NgffImage,
-    path: string,
-    onProgress?:
-      | ((completedChunks: number, totalChunks: number) => void)
-      | null,
-  ) => Promise<void>,
-  onProgress?: ((completedChunks: number, totalChunks: number) => void) | null,
+  writeImage: MultiscalesArrayWriter,
+  onProgress?: ProgressCallback | null,
   consolidate: boolean = true,
   version: OzxVersion = DEFAULT_OZX_VERSION,
   chunksPerShard?: ChunksPerShard,
 ): Promise<void> {
-  // Create root location and group. A sharded array needs range reads,
-  // which the in-memory `Map` lacks.
+  // A sharded array needs range reads, which the in-memory `Map` lacks.
   const root = zarr.root(
     chunksPerShard === undefined ? store : ensureRangeReads(store),
   );
-
-  // The same version-specific root document the directory writers produce:
-  // a zipped store differs from a directory store only in its container.
-  const { attributes, matrixArrays } = buildRootDocument(
-    multiscales.metadata,
+  const nodePaths = await writeMultiscalesGroup(
+    root,
+    multiscales,
+    writeImage,
     version,
+    onProgress,
+    chunksPerShard,
   );
-
-  const rootGroup = await zarr.create(root, { attributes });
-  await writeMatrixArrays(root, matrixArrays);
-
-  // Pre-calculate total chunk count across all images for cumulative progress
-  let totalChunks = 0;
-  if (onProgress) {
-    for (const image of multiscales.images) {
-      const shape = image.data.shape;
-      const chunks = outerChunkShape(
-        shape,
-        image.dims,
-        getChunksFromImage(image),
-        chunksPerShard,
-      );
-      let imageChunks = 1;
-      for (let d = 0; d < shape.length; d++) {
-        imageChunks *= Math.ceil(shape[d] / chunks[d]);
-      }
-      totalChunks += imageChunks;
-    }
-  }
-
-  // Write each image in the multiscales
-  let completedChunks = 0;
-  for (let i = 0; i < multiscales.images.length; i++) {
-    const image = multiscales.images[i];
-    const dataset = multiscales.metadata.datasets[i];
-
-    if (!dataset) {
-      throw new Error(`No dataset configuration found for image ${i}`);
-    }
-
-    // Create a per-image progress wrapper that reports cumulative progress
-    const imageOffset = completedChunks;
-    const imageProgress = onProgress
-      ? (completed: number, _imageTotal: number) => {
-        onProgress(imageOffset + completed, totalChunks);
-      }
-      : null;
-
-    await writeImage(
-      rootGroup as zarr.Group<MemoryStore>,
-      image,
-      dataset.path,
-      imageProgress,
-    );
-
-    // Update cumulative offset for next image
-    if (onProgress) {
-      const shape = image.data.shape;
-      const chunks = outerChunkShape(
-        shape,
-        image.dims,
-        getChunksFromImage(image),
-        chunksPerShard,
-      );
-      let imageChunkCount = 1;
-      for (let d = 0; d < shape.length; d++) {
-        imageChunkCount *= Math.ceil(shape[d] / chunks[d]);
-      }
-      completedChunks += imageChunkCount;
-    }
-  }
 
   // Consolidate last: the block inlines the array documents, so they have to
   // exist first. The root key keeps its insertion position in the Map, so the
   // RFC-9 zip writer still lays the root document down as the first entry.
   if (consolidate) {
-    await consolidateMetadata(
-      store,
-      datasetNodePaths([
-        ...multiscales.metadata.datasets.map((dataset) => dataset.path),
-        ...matrixArrays.keys(),
-      ]),
-    );
+    await consolidateMetadata(store, nodePaths);
   }
 }

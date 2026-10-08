@@ -26,9 +26,13 @@ import {
   checkImagePath,
   fieldPaths,
   readVersion,
+  refuseStoredNodes,
   SCENE_VERSIONS,
   sceneFromOmeValue,
+  storedNodePaths,
 } from "./scene_common.ts";
+import { memoryStoreToZip } from "./rfc9_zip.ts";
+import { gateOzxVersion, type OzxVersion } from "./to_ngff_zarr_ozx_common.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -59,6 +63,11 @@ export interface WriteTransformationOptions {
    * references by `path`, which have to be in the store already.
    */
   overwrite?: boolean;
+  /**
+   * Write consolidated metadata at the root, listing the nodes the
+   * transformation references, once it is written (default `true`).
+   */
+  consolidateMetadata?: boolean;
 }
 
 /**
@@ -115,21 +124,37 @@ export async function writeTransformation(
     coordinateTransformations: [serializeV06Transform(transform)],
   };
   await zarr.create(root, { attributes });
-  const nodePaths = new Set<string>();
-  for (const path of fields) {
-    const segments = path.split("/");
-    for (let end = 1; end < segments.length; end++) {
-      const ancestor = segments.slice(0, end).join("/");
-      nodePaths.add(ancestor);
-      try {
-        await zarr.open(root.resolve(ancestor), { kind: "group" });
-      } catch {
-        await zarr.create(root.resolve(ancestor));
-      }
-    }
-    nodePaths.add(path);
+  const nodePaths = new Set(await storedNodePaths(store, root, fields));
+  if (options.consolidateMetadata ?? true) {
+    await consolidateMetadata(store, [...nodePaths].sort());
   }
-  await consolidateMetadata(store, [...nodePaths].sort());
+}
+
+/**
+ * `transform` on its own as an RFC-9 `.ozx` archive; the Node and browser
+ * `toOmeZarrOzx` call this. The transformation is written to a fresh
+ * `MemoryStore` with {@link writeTransformation}, at `options.version` (0.6
+ * unless given) and consolidated unless `options.consolidateMetadata` is
+ * `false`, and zipped with the version in the archive's comment. One that
+ * references a stored node by `path` is refused, since the archive is
+ * written in one piece.
+ */
+export async function transformationToOzx(
+  transform: V06Transform,
+  options: {
+    version?: OzxVersion | undefined;
+    consolidateMetadata?: boolean | undefined;
+  } = {},
+): Promise<Uint8Array> {
+  const version = gateOzxVersion(options.version ?? "0.6");
+  refuseStoredNodes([transform], "transformation");
+  const store = new Map<string, Uint8Array>();
+  await writeTransformation(store as unknown as zarr.Mutable, transform, {
+    version,
+    ...(options.consolidateMetadata !== undefined &&
+      { consolidateMetadata: options.consolidateMetadata }),
+  });
+  return memoryStoreToZip(store, { version });
 }
 
 /** The transformation `rootAttrs` declares; `fromOmeZarr` calls this. */
