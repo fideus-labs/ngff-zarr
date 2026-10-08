@@ -60,6 +60,8 @@ export async function writeToStore(
     await writeTransformation(store, data, {
       version: options.version ?? "0.6",
       ...(options.overwrite !== undefined && { overwrite: options.overwrite }),
+      ...(options.consolidateMetadata !== undefined &&
+        { consolidateMetadata: options.consolidateMetadata }),
     });
     return;
   }

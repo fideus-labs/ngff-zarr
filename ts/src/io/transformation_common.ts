@@ -63,6 +63,11 @@ export interface WriteTransformationOptions {
    * references by `path`, which have to be in the store already.
    */
   overwrite?: boolean;
+  /**
+   * Write consolidated metadata at the root, listing the nodes the
+   * transformation references, once it is written (default `true`).
+   */
+  consolidateMetadata?: boolean;
 }
 
 /**
@@ -120,7 +125,9 @@ export async function writeTransformation(
   };
   await zarr.create(root, { attributes });
   const nodePaths = new Set(await storedNodePaths(store, root, fields));
-  await consolidateMetadata(store, [...nodePaths].sort());
+  if (options.consolidateMetadata ?? true) {
+    await consolidateMetadata(store, [...nodePaths].sort());
+  }
 }
 
 /**

@@ -83,6 +83,27 @@ Deno.test("transformation round trip", async () => {
   });
 });
 
+Deno.test("consolidateMetadata: false leaves a transformation unconsolidated", async () => {
+  await withTempDir(async (dir) => {
+    const store = `${dir}/affine.ome.zarr`;
+    await toOmeZarr(store, affine());
+    await toOmeZarr(store, affine(), { consolidateMetadata: false });
+    const document = JSON.parse(await Deno.readTextFile(`${store}/zarr.json`));
+    assertEquals("consolidated_metadata" in document, false);
+    assertEquals(
+      await fromOmeZarr(store, { kind: "transformation" }),
+      affine(),
+    );
+
+    const memory: MemoryStore = new Map();
+    await toOmeZarrBrowser(memory, affine(), { consolidateMetadata: false });
+    const root = JSON.parse(
+      new TextDecoder().decode(memory.get("/zarr.json")),
+    );
+    assertEquals("consolidated_metadata" in root, false);
+  });
+});
+
 Deno.test("nested transformation round trips", async () => {
   await withTempDir(async (dir) => {
     const sequence: TransformSequence = {
