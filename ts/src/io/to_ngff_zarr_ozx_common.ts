@@ -456,13 +456,16 @@ export function storeToZipData(
   }
   // The version as the readers detect it: `ome.version`, or a bare
   // multiscales entry's own, which is how a 0.4 image written in a Zarr v3
-  // container declares itself. A plain Zarr group declares none.
-  let declared: string | undefined;
-  try {
-    declared = detectVersion(root.attributes ?? {});
-  } catch {
-    declared = undefined;
-  }
+  // container declares itself. A plain Zarr group declares none; a version
+  // the readers do not support throws.
+  const attributes = root.attributes ?? {};
+  const ome = attributes.ome as { version?: unknown } | undefined;
+  const multiscales = attributes.multiscales;
+  const declaresVersion = (ome?.version !== undefined) ||
+    (Array.isArray(multiscales) && multiscales.length > 0);
+  const declared = options.version === undefined && declaresVersion
+    ? detectVersion(attributes)
+    : undefined;
   const version = gateOzxVersion(options.version ?? declared);
   return memoryStoreToZip(store, { version });
 }

@@ -86,7 +86,18 @@ for (const [module, write, read] of WRITERS) {
 
   Deno.test(`${module}: a path that leaves the store is refused`, async () => {
     const multiscales = await image();
-    for (const path of ["../b", "/b", "a//b", "a/./b", "%2e%2e/b"]) {
+    for (
+      const path of [
+        "../b",
+        "/b",
+        "a//b",
+        "a/./b",
+        "%2e%2e/b",
+        "%2e%2e%2fb",
+        "%2e%2e%5cb",
+        "a/%2e%2e%2f%2e%2e/b",
+      ]
+    ) {
       await assertRejects(
         () => write(new Map(), multiscales, { path }),
         Error,
@@ -98,6 +109,43 @@ for (const [module, write, read] of WRITERS) {
         "relative path below the store's root",
       );
     }
+  });
+}
+
+for (const [module, write] of WRITERS) {
+  Deno.test(`${module}: a path below an array is refused, the array kept`, async () => {
+    const multiscales = await image();
+    const store: MemoryStore = new Map();
+    await zarr.create(
+      zarr.root(store as unknown as zarr.Mutable).resolve("a"),
+      {
+        shape: [2],
+        chunkShape: [2],
+        dtype: "uint8",
+      },
+    );
+    const before = store.get("/a/zarr.json");
+    await assertRejects(
+      () => write(store, multiscales, { path: "a/b" }),
+      Error,
+      "'a' holds a Zarr array, not a group",
+    );
+    assertEquals(store.get("/a/zarr.json"), before);
+    assertEquals(documentAt(store, "/a/zarr.json").node_type, "array");
+
+    // Malformed metadata is an error, not a missing group to create.
+    const malformed: MemoryStore = new Map([[
+      "/a/zarr.json",
+      new TextEncoder().encode("{not json"),
+    ]]);
+    await assertRejects(
+      () => write(malformed, multiscales, { path: "a/b" }),
+      SyntaxError,
+    );
+    assertEquals(
+      new TextDecoder().decode(malformed.get("/a/zarr.json")),
+      "{not json",
+    );
   });
 }
 
@@ -151,6 +199,31 @@ for (const [module, write, read, pack] of WRITERS) {
       new TextEncoder().encode(JSON.stringify({ zarr_format: 2 })),
     ]]);
     assertThrows(() => pack(v2), Error, "zarr_format 2");
+    // A version the readers do not support is refused, not packed as 0.5,
+    // unless a version is given.
+    const unsupported: MemoryStore = new Map([[
+      "/zarr.json",
+      new TextEncoder().encode(JSON.stringify({
+        zarr_format: 3,
+        node_type: "group",
+        attributes: { ome: { version: "0.7" } },
+      })),
+    ]]);
+    assertThrows(() => pack(unsupported), Error, "Unsupported NGFF version");
+    assertEquals(
+      readOzxVersion(pack(unsupported, { version: "0.6" })),
+      "0.6",
+    );
+    // A plain Zarr group declares no version: 0.5.
+    const plain: MemoryStore = new Map([[
+      "/zarr.json",
+      new TextEncoder().encode(JSON.stringify({
+        zarr_format: 3,
+        node_type: "group",
+        attributes: {},
+      })),
+    ]]);
+    assertEquals(readOzxVersion(pack(plain)), "0.5");
   });
 }
 

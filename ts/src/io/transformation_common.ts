@@ -134,19 +134,25 @@ export async function writeTransformation(
  * `transform` on its own as an RFC-9 `.ozx` archive; the Node and browser
  * `toOmeZarrOzx` call this. The transformation is written to a fresh
  * `MemoryStore` with {@link writeTransformation}, at `options.version` (0.6
- * unless given), and zipped with the version in the archive's comment. One
- * that references a stored node by `path` is refused, since the archive is
+ * unless given) and consolidated unless `options.consolidateMetadata` is
+ * `false`, and zipped with the version in the archive's comment. One that
+ * references a stored node by `path` is refused, since the archive is
  * written in one piece.
  */
 export async function transformationToOzx(
   transform: V06Transform,
-  options: { version?: OzxVersion | undefined } = {},
+  options: {
+    version?: OzxVersion | undefined;
+    consolidateMetadata?: boolean | undefined;
+  } = {},
 ): Promise<Uint8Array> {
   const version = gateOzxVersion(options.version ?? "0.6");
   refuseStoredNodes([transform], "transformation");
   const store = new Map<string, Uint8Array>();
   await writeTransformation(store as unknown as zarr.Mutable, transform, {
     version,
+    ...(options.consolidateMetadata !== undefined &&
+      { consolidateMetadata: options.consolidateMetadata }),
   });
   return memoryStoreToZip(store, { version });
 }

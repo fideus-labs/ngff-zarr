@@ -16,10 +16,12 @@ import * as zarr from "zarrita";
 /**
  * Whether `path` is a plain path below a store's root: relative, with no
  * empty, `.` or `..` segment. A backslash counts as a separator (Windows
- * does) and a percent-encoded segment is read as a URL store does, so a
- * path joined to a directory or a URL stays below it too.
+ * does) and a percent-encoded segment is read as a URL store does, split
+ * again at the separators it decodes to, such as `%2f`, so a path joined to
+ * a directory or a URL stays below it too.
  */
 export function isPathBelowRoot(path: unknown): path is string {
+  const separators = /[\\/]/;
   const decode = (part: string): string => {
     try {
       return decodeURIComponent(part);
@@ -28,7 +30,11 @@ export function isPathBelowRoot(path: unknown): path is string {
     }
   };
   return typeof path === "string" &&
-    !path.split(/[\\/]/).some((part) => ["", ".", ".."].includes(decode(part)));
+    !path.split(separators).some((part) =>
+      decode(part).split(separators).some((segment) =>
+        ["", ".", ".."].includes(segment)
+      )
+    );
 }
 
 /** Throw unless `path` is a plain path below a store's root. */
@@ -78,9 +84,31 @@ export function storeBelow(
 }
 
 /**
+ * The kind of node the metadata at `location` declares, Zarr v3 or v2, or
+ * `undefined` when there is none. Malformed metadata throws rather than
+ * reading as no node, which `zarr.open` does not tell apart.
+ */
+async function nodeTypeAt(
+  location: zarr.Location<zarr.Mutable>,
+): Promise<unknown> {
+  const get = async (key: string) =>
+    await location.store.get(location.resolve(key).path);
+  const v3 = await get("zarr.json");
+  if (v3 !== undefined) {
+    return (JSON.parse(new TextDecoder().decode(v3)) as {
+      node_type?: unknown;
+    }).node_type;
+  }
+  if ((await get(".zarray")) !== undefined) return "array";
+  if ((await get(".zgroup")) !== undefined) return "group";
+  return undefined;
+}
+
+/**
  * Create each group above `path` that the store below `root` lacks, empty,
  * so the hierarchy stays navigable from the root; a group it holds is left
- * as it is. Returns their paths, the shallowest first.
+ * as it is, and an array there is refused rather than replaced. Returns
+ * their paths, the shallowest first.
  */
 export async function ensureAncestorGroups(
   root: zarr.Location<zarr.Mutable>,
@@ -91,10 +119,16 @@ export async function ensureAncestorGroups(
   for (let end = 1; end < segments.length; end++) {
     const ancestor = segments.slice(0, end).join("/");
     ancestors.push(ancestor);
-    try {
-      await zarr.open(root.resolve(ancestor), { kind: "group" });
-    } catch {
-      await zarr.create(root.resolve(ancestor));
+    const location = root.resolve(ancestor);
+    const nodeType = await nodeTypeAt(location);
+    if (nodeType === undefined) {
+      await zarr.create(location);
+    } else if (nodeType !== "group") {
+      throw new Error(
+        `'${ancestor}' holds a Zarr ${
+          nodeType === "array" ? "array" : `node of type ${String(nodeType)}`
+        }, not a group, so nothing is written below it at '${path}'.`,
+      );
     }
   }
   return ancestors;

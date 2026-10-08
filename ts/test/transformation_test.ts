@@ -206,6 +206,25 @@ Deno.test("a transformation zips into an .ozx archive", async () => {
   });
 });
 
+Deno.test("toOmeZarrOzx honors consolidateMetadata for a transformation", async () => {
+  for (
+    const zip of [
+      await toOmeZarrOzxData(affine(), { consolidateMetadata: false }),
+      await toOmeZarrOzxBrowser(affine(), { consolidateMetadata: false }),
+    ]
+  ) {
+    const archive = ZipFileStore.fromBlob(new Blob([zip as BlobPart]));
+    const root = JSON.parse(
+      new TextDecoder().decode(await archive.get("/zarr.json")),
+    );
+    assertEquals("consolidated_metadata" in root, false);
+    assertEquals(
+      await fromOmeZarr(archive, { kind: "transformation" }),
+      affine(),
+    );
+  }
+});
+
 Deno.test("an .ozx archive refuses what a transformation store cannot hold", async () => {
   await assertRejects(
     () => toOmeZarrOzxData(affine(), { version: "0.5" }),

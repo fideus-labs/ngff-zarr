@@ -590,7 +590,10 @@ export async function toOmeZarrOzx(
   options: ToOmeZarrOzxOptions = {},
 ): Promise<Uint8Array> {
   if (isV06Transform(multiscales)) {
-    return await transformationToOzx(multiscales, { version: options.version });
+    return await transformationToOzx(multiscales, {
+      version: options.version,
+      consolidateMetadata: options.consolidateMetadata,
+    });
   }
   if (multiscales instanceof NgffScene) {
     return await sceneToOzx(multiscales, arrayWriter, options);
