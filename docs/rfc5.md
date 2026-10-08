@@ -625,13 +625,42 @@ const read = await fromOmeZarr("scene.ome.zarr", {
 read.images.tile_1; // an NgffMultiscales, its pixels read lazily
 ```
 
-The same checks run as in Python. A scene reads from a local directory or an
-HTTP(S) URL. Without `kind: "scene"`, `fromOmeZarr` keeps its
+The same checks run as in Python. A scene reads from a local directory, an
+HTTP(S) URL, or a store object such as a `MemoryStore` or a `ZipFileStore`
+over an `.ozx` archive. Without `kind: "scene"`, `fromOmeZarr` keeps its
 `NgffMultiscales` result type and refuses a scene store. A field is written
 first with `toOmeZarr`, then the scene with `{ overwrite: false }`. A
 transformation on its own works the same way: `toOmeZarr(store, transform)`
 writes it, to a directory or a `MemoryStore`, and
 `fromOmeZarr(store, { kind: "transformation" })` reads it back.
+
+Both are written in the browser too. The browser module's `toOmeZarr` writes
+a scene or a transformation to a `MemoryStore`, and `toOmeZarrOzx` zips
+either into an `.ozx` archive, as it does an image; in Node.js,
+`toOmeZarr("scene.ozx", scene)` writes the archive to a file. A scene's
+images are sharded as an image's `.ozx` is, and `onProgress` counts the
+writes of all of them:
+
+```typescript
+import {
+  fromOmeZarr,
+  toOmeZarr,
+  toOmeZarrOzx,
+} from "@fideus-labs/ngff-zarr/browser";
+
+const archive = await toOmeZarrOzx(scene, {
+  onProgress: (written, total) => console.log(`${written} of ${total}`),
+});
+// e.g. download it as scene.ome.zarr.ozx
+
+const store = new Map<string, Uint8Array>();
+await toOmeZarr(store, scene);
+const read = await fromOmeZarr(store, { kind: "scene" });
+```
+
+An archive is written in one piece, so a scene or a transformation that
+references a stored node by `path`, such as a `displacements` field, is
+refused by `toOmeZarrOzx`; write it to a store with its field instead.
 
 ## Compatibility
 

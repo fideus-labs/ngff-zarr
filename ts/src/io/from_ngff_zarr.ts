@@ -145,19 +145,20 @@ export async function fromOmeZarr(
     const rootAttrs = attrs as Record<string, unknown>;
 
     // A scene group is read with the images its transformations reference,
-    // each below the path or URL the caller passed.
+    // each below the path or URL the caller passed, or below its path in the
+    // store object, such as a MemoryStore or a zipped `.ozx` store.
     if (hasSceneMetadata(rootAttrs)) {
       if (options.kind !== "scene") {
         throw new Error(
           `'${store}' holds a scene; read it with fromOmeZarr(store, { kind: "scene" }).`,
         );
       }
-      if (typeof store !== "string") {
-        throw new Error(
-          "A scene is read from a directory path or a URL; got a store object.",
-        );
-      }
-      return await readScene(store, rootAttrs, fromOmeZarr, options);
+      return await readScene(
+        typeof store === "string" ? store : resolvedStore,
+        rootAttrs,
+        fromOmeZarr,
+        options,
+      );
     }
     if (hasTransformationMetadata(rootAttrs)) {
       if (options.kind !== "transformation") {

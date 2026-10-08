@@ -9,16 +9,14 @@ import { NgffScene } from "../types/scene.ts";
 import type { V06Transform } from "../types/zarr_metadata.ts";
 import {
   isV06Transform,
+  transformationToOzx,
   writeTransformation,
 } from "./transformation_common.ts";
+import { sceneToOzx, writeSceneToStore } from "./scene_common.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { ZarrCodec } from "../utils/codecs.ts";
 import { defaultCodecs } from "../utils/codecs.ts";
-import {
-  consolidateMetadata,
-  datasetNodePaths,
-} from "../utils/consolidate_metadata.ts";
-import { writeMatrixArrays } from "../utils/matrix_transform_arrays.ts";
+import { consolidateMetadata } from "../utils/consolidate_metadata.ts";
 import {
   arrayLayout,
   type ChunksPerShard,
@@ -29,10 +27,12 @@ import { createWriteQueue, zarrGet, zarrSet } from "../utils/worker_pool.ts";
 import type { MemoryStore } from "./from_ngff_zarr-browser.ts";
 import { memoryStoreToZip } from "./rfc9_zip.ts";
 import {
-  buildRootDocument,
+  type ArrayWriterFactory,
   DEFAULT_OZX_CHUNKS_PER_SHARD,
   gateOzxVersion,
   type OzxVersion,
+  type ProgressCallback,
+  writeMultiscalesGroup,
   writeNgffMultiscalesToMemoryStore,
 } from "./to_ngff_zarr_ozx_common.ts";
 
@@ -42,8 +42,9 @@ export interface ToOmeZarrOptions {
   overwrite?: boolean;
   /**
    * OME-Zarr version to write. Defaults to "0.5", as the Node.js/Deno
-   * toOmeZarr does. Version "0.6" writes RFC 5 coordinate systems and
-   * transformations.
+   * toOmeZarr does, and to "0.6" for a scene or a transformation, which
+   * that version introduced. Version "0.6" writes RFC 5 coordinate systems
+   * and transformations.
    */
   version?: "0.4" | "0.5" | "0.6" | "0.9.dev1";
   /**
@@ -66,6 +67,12 @@ export interface ToOmeZarrOptions {
    * treats a consolidated block as interference.
    */
   consolidateMetadata?: boolean;
+  /**
+   * Called after each chunk is written, or each shard when sharded, with the
+   * writes completed so far and the total: across every level of an image,
+   * and across every image of a scene.
+   */
+  onProgress?: ProgressCallback;
 }
 
 /** @deprecated Use {@link ToOmeZarrOptions} instead. */
@@ -90,9 +97,11 @@ export interface ToOmeZarrOzxOptions {
    */
   consolidateMetadata?: boolean | undefined;
   /**
-   * OME-Zarr version to write the archive at (default `0.5`). Any version
-   * stored in Zarr v3 can be zipped: `0.5`, `0.6` or `0.9.dev1`. The version
-   * is recorded in the archive's ZIP comment as well as in its root metadata.
+   * OME-Zarr version to write the archive at (default `0.5`, and `0.6` for a
+   * scene or a transformation). Any version stored in Zarr v3 can be zipped:
+   * `0.5`, `0.6` or `0.9.dev1`; a scene or a transformation needs `0.6` or
+   * later. The version is recorded in the archive's ZIP comment as well as
+   * in its root metadata.
    */
   version?: OzxVersion | undefined;
   /**
@@ -109,10 +118,22 @@ export interface ToOmeZarrOzxOptions {
 /** @deprecated Use {@link ToOmeZarrOzxOptions} instead. */
 export type ToNgffZarrOzxOptions = ToOmeZarrOzxOptions;
 
+/** Writes arrays the way this module does, with the given codecs and sharding. */
+const arrayWriter: ArrayWriterFactory =
+  ({ codecs, chunksPerShard }) => (group, image, path, onProgress) =>
+    _writeImage(group, image, path, onProgress, codecs, chunksPerShard);
+
 /**
  * Browser-compatible version of toOmeZarr.
  * Only supports MemoryStore (Map) for writing.
  * Does NOT support local file paths or HTTP URLs (use the full version in Node.js/Deno).
+ *
+ * `multiscales` may also be an {@link NgffScene}: its metadata lands in the
+ * root group's `ome.scene` and each of its images is written below its path,
+ * after the scene is checked against the spec, at version 0.6 unless given.
+ * Or a transformation (a {@link V06Transform}), written as the store's only
+ * transformation, at version 0.6 unless given. {@link toOmeZarrOzx} zips
+ * any of the three into an `.ozx` archive.
  */
 export async function toOmeZarr(
   store: string | MemoryStore | zarr.FetchStore,
@@ -132,12 +153,20 @@ export async function toOmeZarr(
     return;
   }
   if (multiscales instanceof NgffScene) {
-    throw new Error(
-      "A scene is written to a directory path, which the browser writer " +
-        "has no access to; write it with the Node.js module.",
+    if (!(store instanceof Map)) {
+      throw new Error(
+        "A scene is written to a MemoryStore in the browser, or zipped into " +
+          "an .ozx archive with toOmeZarrOzx().",
+      );
+    }
+    await writeSceneToStore(
+      store as unknown as zarr.Mutable,
+      multiscales,
+      arrayWriter,
+      { ...options, version: options.version ?? "0.6" },
     );
+    return;
   }
-  const _overwrite = options.overwrite ?? true;
   const _version = options.version ?? "0.5";
 
   gateShardingVersion(_version, options.chunksPerShard);
@@ -162,57 +191,35 @@ export async function toOmeZarr(
       );
     }
 
-    // Create root location and group. A sharded array needs range reads,
-    // which an in-memory `Map` lacks.
+    // A sharded array needs range reads, which an in-memory `Map` lacks.
     const root = zarr.root(
       options.chunksPerShard === undefined
         ? _resolvedStore
         : ensureRangeReads(_resolvedStore),
     );
 
-    // Build the version-specific root-group metadata (v0.6 RFC-5 coordinate
-    // systems, v0.5 `ome`-wrapped axes, or bare v0.4 multiscales). Shared with
-    // the Node writer and the in-place `upgradeOmeZarr` rewrite.
-    const { attributes, matrixArrays } = buildRootDocument(
-      multiscales.metadata,
+    // The version-specific root document (v0.6 RFC-5 coordinate systems,
+    // v0.5 `ome`-wrapped axes, or bare v0.4 multiscales), its matrix arrays,
+    // and every level, as the Node writer and the `.ozx` writers write them.
+    const nodePaths = await writeMultiscalesGroup(
+      root,
+      multiscales,
+      arrayWriter({
+        codecs: options.codecs,
+        chunksPerShard: options.chunksPerShard,
+      }),
       _version,
+      options.onProgress ?? null,
+      options.chunksPerShard,
     );
 
-    const rootGroup = await zarr.create(root, { attributes });
-    await writeMatrixArrays(root, matrixArrays);
-
-    // Write each image in the multiscales
-    for (let i = 0; i < multiscales.images.length; i++) {
-      const image = multiscales.images[i];
-      const dataset = multiscales.metadata.datasets[i];
-
-      if (!dataset) {
-        throw new Error(`No dataset configuration found for image ${i}`);
-      }
-
-      await _writeImage(
-        rootGroup as zarr.Group<MemoryStore>,
-        image,
-        dataset.path,
-        undefined, // onProgress
-        options.codecs,
-        options.chunksPerShard,
-      );
-    }
-
     // Consolidate last: the block inlines the array documents, so it has to be
-    // written after them. `zarr.create` above replaced the root document
-    // wholesale, so a store that was consolidated before this call and is
-    // written with `consolidateMetadata: false` is left unconsolidated rather
-    // than stale -- the Zarr v3 behavior the Python writer relies on too.
+    // written after them. The root document was replaced wholesale, so a
+    // store that was consolidated before this call and is written with
+    // `consolidateMetadata: false` is left unconsolidated rather than stale --
+    // the Zarr v3 behavior the Python writer relies on too.
     if (options.consolidateMetadata ?? true) {
-      await consolidateMetadata(
-        _resolvedStore,
-        datasetNodePaths([
-          ...multiscales.metadata.datasets.map((dataset) => dataset.path),
-          ...matrixArrays.keys(),
-        ]),
-      );
+      await consolidateMetadata(_resolvedStore, nodePaths);
     }
   } catch (error) {
     throw new Error(
@@ -593,38 +600,44 @@ function calculateChunkStride(chunkShape: number[]): number[] {
  * the ZIP data as a Uint8Array. This is the browser-compatible version
  * that returns the raw ZIP data for download or further processing.
  *
- * @param multiscales - NgffMultiscales data to write
+ * `multiscales` may also be an {@link NgffScene}, zipped with its images
+ * below it, or a transformation (a {@link V06Transform}) on its own; either
+ * is written at version 0.6 unless given. Arrays are sharded 2 chunks a
+ * shard along every axis unless `chunksPerShard` says otherwise, and
+ * `onProgress` counts the writes of every image of a scene together. A
+ * scene or a transformation that references a stored node by `path`, such
+ * as a `displacements` field, cannot be zipped in one piece and is refused.
+ *
+ * @param multiscales - NgffMultiscales, NgffScene, or V06Transform to write
  * @param options - Options for writing
  * @returns ZIP file data as Uint8Array
  *
  * @see https://ngff.openmicroscopy.org/rfc/9/index.html
  */
 export async function toOmeZarrOzx(
-  multiscales: NgffMultiscales,
-  _options: ToOmeZarrOzxOptions = {},
+  multiscales: NgffMultiscales | NgffScene | V06Transform,
+  options: ToOmeZarrOzxOptions = {},
 ): Promise<Uint8Array> {
-  const version = gateOzxVersion(_options.version);
+  if (isV06Transform(multiscales)) {
+    return await transformationToOzx(multiscales, { version: options.version });
+  }
+  if (multiscales instanceof NgffScene) {
+    return await sceneToOzx(multiscales, arrayWriter, options);
+  }
+  const version = gateOzxVersion(options.version);
 
   // Create a memory store to hold the zarr data
   const memoryStore: MemoryStore = new Map<string, Uint8Array>();
 
   // Use the shared write function
-  const chunksPerShard = _options.chunksPerShard ??
+  const chunksPerShard = options.chunksPerShard ??
     DEFAULT_OZX_CHUNKS_PER_SHARD;
   await writeNgffMultiscalesToMemoryStore(
     memoryStore,
     multiscales,
-    (group, image, path, onImageProgress) =>
-      _writeImage(
-        group,
-        image,
-        path,
-        onImageProgress,
-        undefined,
-        chunksPerShard,
-      ),
-    _options.onProgress ?? null,
-    _options.consolidateMetadata ?? true,
+    arrayWriter({ chunksPerShard }),
+    options.onProgress ?? null,
+    options.consolidateMetadata ?? true,
     version,
     chunksPerShard,
   );

@@ -26,9 +26,12 @@ import {
   checkImagePath,
   fieldPaths,
   readVersion,
+  refuseStoredNodes,
   SCENE_VERSIONS,
   sceneFromOmeValue,
 } from "./scene_common.ts";
+import { memoryStoreToZip } from "./rfc9_zip.ts";
+import { gateOzxVersion, type OzxVersion } from "./to_ngff_zarr_ozx_common.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -130,6 +133,27 @@ export async function writeTransformation(
     nodePaths.add(path);
   }
   await consolidateMetadata(store, [...nodePaths].sort());
+}
+
+/**
+ * `transform` on its own as an RFC-9 `.ozx` archive; the Node and browser
+ * `toOmeZarrOzx` call this. The transformation is written to a fresh
+ * `MemoryStore` with {@link writeTransformation}, at `options.version` (0.6
+ * unless given), and zipped with the version in the archive's comment. One
+ * that references a stored node by `path` is refused, since the archive is
+ * written in one piece.
+ */
+export async function transformationToOzx(
+  transform: V06Transform,
+  options: { version?: OzxVersion | undefined } = {},
+): Promise<Uint8Array> {
+  const version = gateOzxVersion(options.version ?? "0.6");
+  refuseStoredNodes([transform], "transformation");
+  const store = new Map<string, Uint8Array>();
+  await writeTransformation(store as unknown as zarr.Mutable, transform, {
+    version,
+  });
+  return memoryStoreToZip(store, { version });
 }
 
 /** The transformation `rootAttrs` declares; `fromOmeZarr` calls this. */

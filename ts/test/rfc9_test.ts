@@ -25,6 +25,7 @@ import {
   toOmeZarr,
   toOmeZarrOzxData,
 } from "../src/io/to_ngff_zarr.ts";
+import { toOmeZarr as toOmeZarrBrowser } from "../src/io/to_ngff_zarr-browser.ts";
 import { fromOmeZarr } from "../src/io/from_ngff_zarr.ts";
 import { itkImageToNgffImage } from "../src/io/itk_image_to_ngff_image.ts";
 import { toMultiscales } from "../src/process/to_multiscales-node.ts";
@@ -673,6 +674,20 @@ Deno.test("toOmeZarrOzxData - progress counts shard writes", async () => {
 
   // Four shard writes, not nine chunk writes.
   assertEquals(reports.at(-1), [4, 4]);
+
+  // toOmeZarr into a store counts the same way, in both writers: chunks
+  // when it is not sharded, shards when it is.
+  for (const write of [toOmeZarr, toOmeZarrBrowser]) {
+    for (const [chunksPerShard, writes] of [[undefined, 9], [2, 4]] as const) {
+      const progress: Array<[number, number]> = [];
+      await write(new Map(), multiscales, {
+        ...(chunksPerShard !== undefined && { chunksPerShard }),
+        onProgress: (completed, total) => progress.push([completed, total]),
+      });
+      assertEquals(progress.length, writes);
+      assertEquals(progress.at(-1), [writes, writes]);
+    }
+  }
 });
 
 Deno.test("toOmeZarrOzxData - shards two chunks a shard by default", async () => {

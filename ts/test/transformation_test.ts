@@ -5,17 +5,22 @@
  * Mirrors `py/test/test_transformation.py`.
  */
 import { assertEquals, assertRejects } from "@std/assert";
+import { ZipFileStore } from "@zarrita/storage";
 import {
   type Affine,
   type Displacements,
   fromOmeZarr,
   NgffMultiscales,
+  readOzxVersion,
   toMultiscales,
   toNgffImage,
   toOmeZarr,
+  toOmeZarrOzxData,
   type TransformSequence,
 } from "../src/mod.ts";
 import type { MemoryStore } from "../src/io/from_ngff_zarr.ts";
+import { fromOmeZarr as fromOmeZarrBrowser } from "../src/io/from_ngff_zarr-browser.ts";
+import { toOmeZarrOzx as toOmeZarrOzxBrowser } from "../src/io/to_ngff_zarr-browser.ts";
 
 function affine(): Affine {
   return {
@@ -146,16 +151,51 @@ Deno.test("the kind option selects what a store holds", async () => {
       "holds no transformation",
     );
     await assertRejects(
-      () => toOmeZarr(`${dir}/affine.ozx`, affine()),
-      Error,
-      "directory path",
-    );
-    await assertRejects(
       () => toOmeZarr(`${dir}/affine05.ome.zarr`, affine(), { version: "0.5" }),
       Error,
       "0.6",
     );
   });
+});
+
+Deno.test("a transformation zips into an .ozx archive", async () => {
+  await withTempDir(async (dir) => {
+    const path = `${dir}/affine.ozx`;
+    await toOmeZarr(path, affine());
+    const archives = [
+      await Deno.readFile(path),
+      await toOmeZarrOzxData(affine()),
+      await toOmeZarrOzxBrowser(affine()),
+    ];
+    for (const zip of archives) {
+      assertEquals(readOzxVersion(zip), "0.6");
+      const archive = ZipFileStore.fromBlob(new Blob([zip as BlobPart]));
+      for (const read of [fromOmeZarr, fromOmeZarrBrowser]) {
+        assertEquals(
+          await read(archive, { kind: "transformation", validate: true }),
+          affine(),
+        );
+      }
+    }
+  });
+});
+
+Deno.test("an .ozx archive refuses what a transformation store cannot hold", async () => {
+  await assertRejects(
+    () => toOmeZarrOzxData(affine(), { version: "0.5" }),
+    Error,
+    "defined from OME-Zarr 0.6",
+  );
+  const warp: Displacements = {
+    type: "displacements",
+    path: "coordinateTransformations/dfield",
+    interpolation: "linear",
+    input: { name: "fixed" },
+    output: { name: "moving" },
+  };
+  for (const zip of [toOmeZarrOzxData, toOmeZarrOzxBrowser]) {
+    await assertRejects(() => zip(warp), Error, "written in one piece");
+  }
 });
 
 Deno.test("transformation with a displacement field", async () => {

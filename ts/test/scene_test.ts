@@ -6,21 +6,31 @@
  */
 import { assertEquals, assertRejects } from "@std/assert";
 import * as zarr from "zarrita";
-import { FileSystemStore } from "@zarrita/storage";
+import { FileSystemStore, ZipFileStore } from "@zarrita/storage";
 import {
+  type Affine,
   type Bijection,
   type CoordinateSystem,
   type Displacements,
   fromOmeZarr,
+  getZipFileList,
   NgffMultiscales,
   NgffScene,
+  readOzxVersion,
   toMultiscales,
   toNgffImage,
   toOmeZarr,
+  toOmeZarrOzxData,
   type TransformSequence,
   type Translation,
   type V06Transform,
 } from "../src/mod.ts";
+import type { MemoryStore } from "../src/io/from_ngff_zarr.ts";
+import { fromOmeZarr as fromOmeZarrBrowser } from "../src/io/from_ngff_zarr-browser.ts";
+import {
+  toOmeZarr as toOmeZarrBrowser,
+  toOmeZarrOzx as toOmeZarrOzxBrowser,
+} from "../src/io/to_ngff_zarr-browser.ts";
 import { sceneFromOmeValue } from "../src/io/scene_common.ts";
 
 const FIXTURES = new URL("../../py/test/fixtures/scene/", import.meta.url);
@@ -458,10 +468,270 @@ Deno.test("the kind option selects what a store holds", async () => {
     const tile1 = await fromOmeZarr(`${store}/tile_1`);
     assertEquals(tile1 instanceof NgffMultiscales, true);
     assertEquals(await pixelsOf(tile1), pixels.tile_1);
+  });
+});
+
+/** Each image of `read` holds the pixels written at its path, and no other image is there. */
+async function assertScenePixels(
+  read: NgffScene,
+  pixels: Record<string, Uint8Array>,
+): Promise<void> {
+  assertEquals(Object.keys(read.images).sort(), Object.keys(pixels).sort());
+  for (const [path, data] of Object.entries(pixels)) {
+    assertEquals(await pixelsOf(read.images[path]), data);
+  }
+}
+
+function documentAt(
+  store: MemoryStore,
+  key: string,
+): Record<string, unknown> {
+  return JSON.parse(new TextDecoder().decode(store.get(key)));
+}
+
+async function archiveDocument(
+  archive: ZipFileStore,
+  key: `/${string}`,
+): Promise<Record<string, unknown>> {
+  return JSON.parse(new TextDecoder().decode(await archive.get(key)));
+}
+
+function consolidatedNodes(document: Record<string, unknown>): string[] {
+  return Object.keys(
+    (document.consolidated_metadata as { metadata: Record<string, unknown> })
+      .metadata,
+  );
+}
+
+/** Records every progress report, for the last one and the total. */
+function progressLog(): {
+  reports: Array<[number, number]>;
+  onProgress: (completed: number, total: number) => void;
+} {
+  const reports: Array<[number, number]> = [];
+  return {
+    reports,
+    onProgress: (completed, total) => reports.push([completed, total]),
+  };
+}
+
+Deno.test("the browser writer writes a scene to a MemoryStore", async () => {
+  const { pixels, scene } = await tilesScene(["tile_0", "sample/tile_1"]);
+  const store: MemoryStore = new Map();
+  const progress = progressLog();
+  await toOmeZarrBrowser(store, scene, { onProgress: progress.onProgress });
+
+  const document = documentAt(store, "/zarr.json");
+  const ome = (document.attributes as Record<string, unknown>).ome as Record<
+    string,
+    unknown
+  >;
+  assertEquals(ome.version, "0.6");
+  assertEquals(
+    (ome.scene as Record<string, unknown>).coordinateTransformations,
+    scene.coordinateTransformations.map((transform) => ({ ...transform })),
+  );
+  assertEquals(documentAt(store, "/sample/zarr.json").attributes, {});
+  const datasetPath = scene.images.tile_0.metadata.datasets[0].path;
+  const nodes = consolidatedNodes(document);
+  for (
+    const node of [
+      "tile_0",
+      `tile_0/${datasetPath}`,
+      "sample",
+      "sample/tile_1",
+      `sample/tile_1/${datasetPath}`,
+    ]
+  ) {
+    assertEquals(nodes.includes(node), true, node);
+  }
+
+  // One count across both images: every report has the same total, which
+  // the last one reaches.
+  const [, total] = progress.reports.at(-1)!;
+  assertEquals(progress.reports.at(-1), [total, total]);
+  assertEquals(progress.reports.every(([, each]) => each === total), true);
+
+  for (const read of [fromOmeZarrBrowser, fromOmeZarr]) {
+    const scene_ = await read(store, { kind: "scene", validate: true });
+    await assertScenePixels(scene_, pixels);
+    assertEquals(
+      scene_.coordinateTransformations,
+      scene.coordinateTransformations,
+    );
+  }
+});
+
+Deno.test("toOmeZarrOzx zips a scene with its images", async () => {
+  const { pixels, scene } = await tilesScene();
+  // The scene's progress counts what the images count on their own.
+  let imageWrites = 0;
+  for (const multiscales of Object.values(scene.images)) {
+    const progress = progressLog();
+    await toOmeZarrOzxBrowser(multiscales, { onProgress: progress.onProgress });
+    imageWrites += progress.reports.at(-1)![1];
+  }
+
+  for (const zipScene of [toOmeZarrOzxBrowser, toOmeZarrOzxData]) {
+    const progress = progressLog();
+    const zip = await zipScene(scene, { onProgress: progress.onProgress });
+    assertEquals(readOzxVersion(zip), "0.6");
+    assertEquals(progress.reports.at(-1), [imageWrites, imageWrites]);
+    // RFC-9: the zarr.json documents lead, breadth first, the root's first.
+    assertEquals(getZipFileList(zip).slice(0, 3), [
+      "zarr.json",
+      "tile_0/zarr.json",
+      "tile_1/zarr.json",
+    ]);
+
+    const archive = ZipFileStore.fromBlob(new Blob([zip as BlobPart]));
+    const datasetPath = scene.images.tile_0.metadata.datasets[0].path;
+    assertEquals(
+      consolidatedNodes(await archiveDocument(archive, "/zarr.json"))
+        .includes(`tile_1/${datasetPath}`),
+      true,
+    );
+    // Sharded, as an image's .ozx is by default.
+    const array = await archiveDocument(
+      archive,
+      `/tile_0/${datasetPath}/zarr.json`,
+    );
+    assertEquals(
+      (array.codecs as Array<{ name: string }>)[0].name,
+      "sharding_indexed",
+    );
+    for (const read of [fromOmeZarrBrowser, fromOmeZarr]) {
+      await assertScenePixels(
+        await read(archive, { kind: "scene", validate: true }),
+        pixels,
+      );
+    }
+  }
+});
+
+Deno.test("toOmeZarr writes a scene to an .ozx path and to a MemoryStore", async () => {
+  await withTempDir(async (dir) => {
+    const { pixels, scene } = await tilesScene();
+    const path = `${dir}/tiles.ozx`;
+    await toOmeZarr(path, scene);
+    const zip = await Deno.readFile(path);
+    assertEquals(readOzxVersion(zip), "0.6");
+    await assertScenePixels(
+      await fromOmeZarr(ZipFileStore.fromBlob(new Blob([zip as BlobPart])), {
+        kind: "scene",
+        validate: true,
+      }),
+      pixels,
+    );
+
+    const memory: MemoryStore = new Map();
+    await toOmeZarr(memory, scene);
+    await assertScenePixels(
+      await fromOmeZarr(memory, { kind: "scene", validate: true }),
+      pixels,
+    );
+  });
+});
+
+Deno.test("a scene reads from a store object", async () => {
+  await withTempDir(async (dir) => {
+    const { pixels, scene } = await tilesScene(["tile_0", "sample/tile_1"]);
+    const store = `${dir}/tiles.ome.zarr`;
+    await toOmeZarr(store, scene);
+    await assertScenePixels(
+      await fromOmeZarr(new FileSystemStore(store), {
+        kind: "scene",
+        validate: true,
+      }),
+      pixels,
+    );
+  });
+});
+
+Deno.test("the matrix arrays of a scene's images are written and consolidated", async () => {
+  await withTempDir(async (dir) => {
+    const { scene } = await tilesScene();
+    const tile0 = scene.images.tile_0.metadata;
+    const toPhysical: Affine = {
+      type: "affine",
+      name: "to_physical",
+      affine: [[1, 0, 0.5], [0, 1, 0.25]],
+      input: { name: tile0.coordinateSystems![0].name },
+      output: { name: "physical" },
+    };
+    tile0.coordinateSystems!.push({ name: "physical", axes: tile0.axes });
+    tile0.coordinateTransformations = [toPhysical];
+    const arrayNodes = [
+      "tile_0/coordinateTransformations",
+      "tile_0/coordinateTransformations/to_physical",
+    ];
+
+    const directory = `${dir}/tiles.ome.zarr`;
+    await toOmeZarr(directory, scene);
+    const memory: MemoryStore = new Map();
+    await toOmeZarrBrowser(memory, scene);
+    const roots = [
+      await rootDocument(directory),
+      documentAt(memory, "/zarr.json"),
+    ];
+    for (const document of roots) {
+      const nodes = consolidatedNodes(document);
+      for (const node of arrayNodes) {
+        assertEquals(nodes.includes(node), true, node);
+      }
+    }
+    for (const store of [directory, memory]) {
+      const read = await fromOmeZarr(store, { kind: "scene", validate: true });
+      const [affine] = read.images.tile_0.metadata.coordinateTransformations!;
+      assertEquals((affine as Affine).affine, toPhysical.affine);
+    }
+  });
+});
+
+Deno.test("a scene is written where it can be held", async () => {
+  await withTempDir(async (dir) => {
+    const { scene } = await tilesScene();
+    await assertRejects(
+      () => toOmeZarrBrowser(`${dir}/tiles.ome.zarr`, scene),
+      Error,
+      "MemoryStore",
+    );
+    await assertRejects(
+      () => toOmeZarr("https://example.org/tiles.ome.zarr", scene),
+      Error,
+      "read-only",
+    );
+    for (const zip of [toOmeZarrOzxBrowser, toOmeZarrOzxData]) {
+      await assertRejects(
+        () => zip(scene, { version: "0.5" }),
+        Error,
+        "defined from OME-Zarr 0.6",
+      );
+    }
+    await assertRejects(
+      () => toOmeZarr(`${dir}/tiles.ozx`, scene, { version: "0.4" }),
+      Error,
+      "RFC-9",
+    );
+
+    scene.coordinateTransformations.push({
+      type: "displacements",
+      path: "coordinateTransformations/dfield",
+      interpolation: "linear",
+      input: { path: "tile_0", name: "intrinsic" },
+      output: { path: "tile_1", name: "intrinsic" },
+    });
+    for (const zip of [toOmeZarrOzxBrowser, toOmeZarrOzxData]) {
+      await assertRejects(() => zip(scene), Error, "written in one piece");
+    }
     await assertRejects(
       () => toOmeZarr(`${dir}/tiles.ozx`, scene),
       Error,
-      "directory path",
+      "written in one piece",
+    );
+    await assertRejects(
+      () => Deno.stat(`${dir}/tiles.ozx`),
+      Deno.errors.NotFound,
     );
   });
 });
