@@ -14,7 +14,7 @@ compatible with Deno, Node.js, and the browser.
 - 🦕 **Deno-first**: Built for Deno with first-class TypeScript support
 - 📦 **npm compatible**: Automatically builds npm packages using @deno/dnt
 - 🔍 **Type-safe**: Full TypeScript support with Zod schema validation
-- 🗂️ **OME-Zarr support**: Read and write OME-Zarr v0.4, v0.5, and v0.6 using zarrita
+- 🗂️ **OME-Zarr support**: Read and write OME-Zarr v0.4, v0.5, and v0.6 using fizarrita
 - 🧪 **Well-tested**: Comprehensive test suite using @std/assert
 - 🏗️ **Mirrors Python API**: TypeScript classes and types mirror the Python
   dataclasses
@@ -132,8 +132,8 @@ const validatedMetadata2 = validateMetadata(metadata);
 
 ### I/O Classes
 
-- `OMEZarrReader`: Read OME-Zarr files using zarrita
-- `OMEZarrWriter`: Write OME-Zarr files using zarrita
+- `OMEZarrReader`: Read OME-Zarr files using fizarrita
+- `OMEZarrWriter`: Write OME-Zarr files using fizarrita
 
 ### Validation
 
@@ -260,7 +260,7 @@ This TypeScript package mirrors the Python ngff-zarr package:
 - **Types**: TypeScript interfaces/classes correspond to Python dataclasses
 - **API**: Similar function names and patterns
 - **Validation**: Zod schemas provide runtime validation like Python
-- **I/O**: zarrita provides Zarr operations like zarr-python
+- **I/O**: fizarrita provides Zarr operations like zarr-python
 
 ## Contributing
 
