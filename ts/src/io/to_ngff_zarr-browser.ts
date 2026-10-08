@@ -10,31 +10,29 @@ import type { V06Transform } from "../types/zarr_metadata.ts";
 import {
   isV06Transform,
   transformationToOzx,
-  writeTransformation,
 } from "./transformation_common.ts";
-import { sceneToOzx, writeSceneToStore } from "./scene_common.ts";
+import { sceneToOzx } from "./scene_common.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { ZarrCodec } from "../utils/codecs.ts";
 import { defaultCodecs } from "../utils/codecs.ts";
-import { consolidateMetadata } from "../utils/consolidate_metadata.ts";
-import {
-  arrayLayout,
-  type ChunksPerShard,
-  ensureRangeReads,
-  gateShardingVersion,
-} from "../utils/sharding.ts";
+import { arrayLayout, type ChunksPerShard } from "../utils/sharding.ts";
+import { writableStoreBelow } from "../utils/store_below.ts";
 import { createWriteQueue, zarrGet, zarrSet } from "../utils/worker_pool.ts";
 import type { MemoryStore } from "./from_ngff_zarr-browser.ts";
 import { memoryStoreToZip } from "./rfc9_zip.ts";
+import { writeToStore } from "./to_ngff_zarr_common.ts";
 import {
   type ArrayWriterFactory,
   DEFAULT_OZX_CHUNKS_PER_SHARD,
   gateOzxVersion,
   type OzxVersion,
   type ProgressCallback,
-  writeMultiscalesGroup,
+  storeToZipData,
+  type StoreToZipOptions,
   writeNgffMultiscalesToMemoryStore,
 } from "./to_ngff_zarr_ozx_common.ts";
+
+export type { StoreToZipOptions } from "./to_ngff_zarr_ozx_common.ts";
 
 export { isOzxPath } from "./rfc9_zip.ts";
 
@@ -73,6 +71,17 @@ export interface ToOmeZarrOptions {
    * and across every image of a scene.
    */
   onProgress?: ProgressCallback;
+  /**
+   * Write below this path of the store rather than at its root, as if the
+   * group there were the root of a store of its own: its metadata is
+   * consolidated in its own `zarr.json`, and the groups above it that the
+   * store lacks are created. This is how a displacement field, or another
+   * node a transformation references by `path`, is staged in a MemoryStore
+   * before the scene or the transformation is written with
+   * `{ overwrite: false }`; {@link storeToZip} then packs the store into an
+   * `.ozx` archive.
+   */
+  path?: string;
 }
 
 /** @deprecated Use {@link ToOmeZarrOptions} instead. */
@@ -133,101 +142,63 @@ const arrayWriter: ArrayWriterFactory =
  * after the scene is checked against the spec, at version 0.6 unless given.
  * Or a transformation (a {@link V06Transform}), written as the store's only
  * transformation, at version 0.6 unless given. {@link toOmeZarrOzx} zips
- * any of the three into an `.ozx` archive.
+ * any of the three into an `.ozx` archive. One whose transformations
+ * reference a stored node, such as a displacement field, is staged in the
+ * MemoryStore instead -- the node written below its `path` first, then the
+ * scene or transformation with `{ overwrite: false }` -- and the store
+ * packed with {@link storeToZip}.
  */
 export async function toOmeZarr(
   store: string | MemoryStore | zarr.FetchStore,
   multiscales: NgffMultiscales | NgffScene | V06Transform,
   options: ToOmeZarrOptions = {},
 ): Promise<void> {
-  if (isV06Transform(multiscales)) {
-    if (!(store instanceof Map)) {
+  if (!(store instanceof Map)) {
+    if (isV06Transform(multiscales)) {
       throw new Error(
         "A transformation is written to a MemoryStore in the browser.",
       );
     }
-    await writeTransformation(store as unknown as zarr.Mutable, multiscales, {
-      version: options.version ?? "0.6",
-      ...(options.overwrite !== undefined && { overwrite: options.overwrite }),
-    });
-    return;
-  }
-  if (multiscales instanceof NgffScene) {
-    if (!(store instanceof Map)) {
+    if (multiscales instanceof NgffScene) {
       throw new Error(
         "A scene is written to a MemoryStore in the browser, or zipped into " +
           "an .ozx archive with toOmeZarrOzx().",
       );
     }
-    await writeSceneToStore(
-      store as unknown as zarr.Mutable,
-      multiscales,
-      arrayWriter,
-      { ...options, version: options.version ?? "0.6" },
-    );
-    return;
-  }
-  const _version = options.version ?? "0.5";
-
-  gateShardingVersion(_version, options.chunksPerShard);
-
-  try {
-    // Determine the appropriate store type based on the path
-    let _resolvedStore: MemoryStore;
-    if (store instanceof Map) {
-      _resolvedStore = store;
-    } else if (store instanceof zarr.FetchStore) {
+    if (store instanceof zarr.FetchStore) {
       throw new Error(
         "FetchStore is read-only and cannot be used for writing. Use MemoryStore instead.",
       );
-    } else if (store.startsWith("http://") || store.startsWith("https://")) {
+    }
+    if (store.startsWith("http://") || store.startsWith("https://")) {
       throw new Error(
         "HTTP/HTTPS URLs are read-only and cannot be used for writing. Use MemoryStore instead.",
       );
-    } else {
-      // Local file paths are not supported in browser environments
-      throw new Error(
-        "Local file paths are not supported in browser environments. Use MemoryStore instead.",
-      );
     }
-
-    // A sharded array needs range reads, which an in-memory `Map` lacks.
-    const root = zarr.root(
-      options.chunksPerShard === undefined
-        ? _resolvedStore
-        : ensureRangeReads(_resolvedStore),
-    );
-
-    // The version-specific root document (v0.6 RFC-5 coordinate systems,
-    // v0.5 `ome`-wrapped axes, or bare v0.4 multiscales), its matrix arrays,
-    // and every level, as the Node writer and the `.ozx` writers write them.
-    const nodePaths = await writeMultiscalesGroup(
-      root,
-      multiscales,
-      arrayWriter({
-        codecs: options.codecs,
-        chunksPerShard: options.chunksPerShard,
-      }),
-      _version,
-      options.onProgress ?? null,
-      options.chunksPerShard,
-    );
-
-    // Consolidate last: the block inlines the array documents, so it has to be
-    // written after them. The root document was replaced wholesale, so a
-    // store that was consolidated before this call and is written with
-    // `consolidateMetadata: false` is left unconsolidated rather than stale --
-    // the Zarr v3 behavior the Python writer relies on too.
-    if (options.consolidateMetadata ?? true) {
-      await consolidateMetadata(_resolvedStore, nodePaths);
-    }
-  } catch (error) {
+    // Local file paths are not supported in browser environments
     throw new Error(
-      `Failed to write OME-Zarr: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      "Local file paths are not supported in browser environments. Use MemoryStore instead.",
     );
   }
+  const { path, ...rest } = options;
+  const target = path === undefined
+    ? store as unknown as zarr.Mutable
+    : await writableStoreBelow(store as unknown as zarr.Mutable, path);
+  await writeToStore(target, multiscales, arrayWriter, rest);
+}
+
+/**
+ * The contents of a MemoryStore packed into an RFC-9 `.ozx` archive: what
+ * a store staged with {@link toOmeZarr} holds, such as a scene and the
+ * displacement field one of its transformations references, written in
+ * several calls. The archive records the version the store's root document
+ * declares unless `options.version` is given; the root `zarr.json` leads it.
+ */
+export function storeToZip(
+  store: MemoryStore,
+  options: StoreToZipOptions = {},
+): Uint8Array {
+  return storeToZipData(store, options);
 }
 
 /** @deprecated Use {@link toOmeZarr} instead. */

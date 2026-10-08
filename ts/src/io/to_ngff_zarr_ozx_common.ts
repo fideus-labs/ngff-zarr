@@ -12,7 +12,7 @@ import * as zarr from "zarrita";
 import type { NgffMultiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { Axis, MetadataInterface } from "../types/zarr_metadata.ts";
-import type { MemoryStore } from "./rfc9_zip.ts";
+import { type MemoryStore, memoryStoreToZip } from "./rfc9_zip.ts";
 import type { ZarrCodec } from "../utils/codecs.ts";
 import {
   consolidateMetadata,
@@ -31,6 +31,7 @@ import {
   NgffVersion,
   V06_ONDISK_VERSION,
 } from "../types/supported_versions.ts";
+import { detectVersion } from "../utils/parse_metadata.ts";
 import {
   SpecRule,
   validateAxisCount,
@@ -410,6 +411,60 @@ export function gateOzxVersion(version: string | undefined): OzxVersion {
       "For .ozx files, omit the version option or set it to '0.5', '0.6' " +
       "or '0.9.dev1'.",
   );
+}
+
+/** Options for packing a store into an `.ozx` archive with `storeToZip`. */
+export interface StoreToZipOptions {
+  /**
+   * OME-Zarr version to record in the archive's ZIP comment. Omitted, the
+   * version the store's root document declares, as the readers detect it,
+   * or `0.5` when it declares none.
+   */
+  version?: OzxVersion | undefined;
+}
+
+/**
+ * The contents of `store` packed into an RFC-9 `.ozx` archive, as
+ * {@link memoryStoreToZip} lays them out: the root `zarr.json` first, the
+ * other `zarr.json` documents breadth first, nothing compressed again. A
+ * store staged with `toOmeZarr` -- a displacement field written below its
+ * `path`, then the scene or transformation referencing it with `overwrite:
+ * false` -- is packed whole, the way the Python `write_store_to_zip` packs
+ * a directory. Throws on a store with no root `zarr.json` or a Zarr v2 one:
+ * RFC-9 holds a Zarr v3 store.
+ */
+export function storeToZipData(
+  store: MemoryStore,
+  options: StoreToZipOptions = {},
+): Uint8Array {
+  const rootBytes = store.get("/zarr.json") ?? store.get("zarr.json");
+  if (rootBytes === undefined) {
+    throw new Error(
+      "The store has no root zarr.json, so it is not a Zarr v3 store an " +
+        ".ozx archive (RFC-9) can hold.",
+    );
+  }
+  const root = JSON.parse(new TextDecoder().decode(rootBytes)) as {
+    zarr_format?: unknown;
+    attributes?: Record<string, unknown>;
+  };
+  if (root.zarr_format !== 3) {
+    throw new Error(
+      "An .ozx archive (RFC-9) holds a Zarr v3 store; the root zarr.json " +
+        `declares zarr_format ${JSON.stringify(root.zarr_format)}.`,
+    );
+  }
+  // The version as the readers detect it: `ome.version`, or a bare
+  // multiscales entry's own, which is how a 0.4 image written in a Zarr v3
+  // container declares itself. A plain Zarr group declares none.
+  let declared: string | undefined;
+  try {
+    declared = detectVersion(root.attributes ?? {});
+  } catch {
+    declared = undefined;
+  }
+  const version = gateOzxVersion(options.version ?? declared);
+  return memoryStoreToZip(store, { version });
 }
 
 /**

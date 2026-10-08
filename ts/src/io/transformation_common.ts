@@ -29,6 +29,7 @@ import {
   refuseStoredNodes,
   SCENE_VERSIONS,
   sceneFromOmeValue,
+  storedNodePaths,
 } from "./scene_common.ts";
 import { memoryStoreToZip } from "./rfc9_zip.ts";
 import { gateOzxVersion, type OzxVersion } from "./to_ngff_zarr_ozx_common.ts";
@@ -118,20 +119,7 @@ export async function writeTransformation(
     coordinateTransformations: [serializeV06Transform(transform)],
   };
   await zarr.create(root, { attributes });
-  const nodePaths = new Set<string>();
-  for (const path of fields) {
-    const segments = path.split("/");
-    for (let end = 1; end < segments.length; end++) {
-      const ancestor = segments.slice(0, end).join("/");
-      nodePaths.add(ancestor);
-      try {
-        await zarr.open(root.resolve(ancestor), { kind: "group" });
-      } catch {
-        await zarr.create(root.resolve(ancestor));
-      }
-    }
-    nodePaths.add(path);
-  }
+  const nodePaths = new Set(await storedNodePaths(store, root, fields));
   await consolidateMetadata(store, [...nodePaths].sort());
 }
 

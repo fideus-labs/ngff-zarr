@@ -7,7 +7,8 @@ import * as zarr from "zarrita";
 import { MetadataSchema } from "../schemas/zarr_metadata.ts";
 import { NgffMultiscales } from "../types/multiscales.ts";
 import type { NgffScene } from "../types/scene.ts";
-import { hasSceneMetadata, readScene } from "./scene_common.ts";
+import { childStore, hasSceneMetadata, readScene } from "./scene_common.ts";
+import { checkPathBelowRoot } from "../utils/store_below.ts";
 import {
   hasTransformationMetadata,
   readTransformation,
@@ -44,6 +45,14 @@ export interface FromOmeZarrOptions {
    * @see {@link https://github.com/fideus-labs/worker-pool/tree/main/fizarrita#chunk-caching}
    */
   cache?: import("../utils/worker_pool.ts").ChunkCache;
+  /**
+   * Read below this path of the store rather than at its root, as if the
+   * group there were the root of a store of its own: a displacement field a
+   * transformation references by `path`, or one image of a scene. A path or
+   * a URL is joined with it; a store object, such as a MemoryStore or a
+   * zipped `.ozx` store, is read below it.
+   */
+  path?: string;
 }
 
 /** @deprecated Use {@link FromOmeZarrOptions} instead. */
@@ -73,6 +82,15 @@ export async function fromOmeZarr(
   store: string | MemoryStore | zarr.FetchStore | zarr.Readable,
   options: FromOmeZarrOptions = {},
 ): Promise<NgffMultiscales | NgffScene | V06Transform> {
+  if (options.path !== undefined) {
+    const { path, ...rest } = options;
+    checkPathBelowRoot(path);
+    const read = fromOmeZarr as (
+      store: string | zarr.Readable,
+      options: FromOmeZarrOptions,
+    ) => Promise<NgffMultiscales | NgffScene | V06Transform>;
+    return await read(childStore(store as string | zarr.Readable, path), rest);
+  }
   const validate = options.validate ?? false;
   const version = options.version;
 

@@ -17,6 +17,7 @@ import {
   NgffMultiscales,
   NgffScene,
   readOzxVersion,
+  storeToZip,
   toMultiscales,
   toNgffImage,
   toOmeZarr,
@@ -28,6 +29,7 @@ import {
 import type { MemoryStore } from "../src/io/from_ngff_zarr.ts";
 import { fromOmeZarr as fromOmeZarrBrowser } from "../src/io/from_ngff_zarr-browser.ts";
 import {
+  storeToZip as storeToZipBrowser,
   toOmeZarr as toOmeZarrBrowser,
   toOmeZarrOzx as toOmeZarrOzxBrowser,
 } from "../src/io/to_ngff_zarr-browser.ts";
@@ -349,6 +351,9 @@ Deno.test("scene with a displacement field between two images", async () => {
     };
     assertEquals("coordinateTransformations" in consolidated.metadata, true);
     assertEquals(fieldPath in consolidated.metadata, true);
+    // The field's own arrays too, as the Python writer, which consolidates
+    // the whole store, lists them.
+    assertEquals(`${fieldPath}/scale0` in consolidated.metadata, true);
 
     const read = await fromOmeZarr(store, { kind: "scene", validate: true });
     assertEquals(read.coordinateTransformations[2], warp);
@@ -359,8 +364,97 @@ Deno.test("scene with a displacement field between two images", async () => {
       fieldRead.metadata.coordinateSystems![0].axes.map((axis) => axis.type),
       ["displacement", "space", "space"],
     );
+
+    // The staged directory packs into an archive that reads back the same.
+    const archivePath = `${dir}/registered.ozx`;
+    await storeToZip(store, archivePath);
+    const zip = await Deno.readFile(archivePath);
+    assertEquals(readOzxVersion(zip), "0.6");
+    const archive = ZipFileStore.fromBlob(new Blob([zip as BlobPart]));
+    const fromArchive = await fromOmeZarr(archive, {
+      kind: "scene",
+      validate: true,
+    });
+    assertEquals(fromArchive.coordinateTransformations[2], warp);
+    assertEquals(
+      (await fromOmeZarr(archive, { path: fieldPath })).images[0].data.shape,
+      [2, 16, 16],
+    );
   });
 });
+
+/** The 2 x 16 x 16 displacement field the tile scenes' warp references. */
+async function displacementField(): Promise<NgffMultiscales> {
+  const field = await toNgffImage(
+    new Float32Array(2 * 16 * 16).map((_, i) => i / 8),
+    {
+      dims: ["c", "y", "x"],
+      shape: [2, 16, 16],
+      scale: { c: 1, y: 0.5, x: 0.5 },
+      translation: { c: 0, y: 0, x: 0 },
+      axesTypes: { c: "displacement" },
+    },
+  );
+  return await toMultiscales(field, { scaleFactors: [] });
+}
+
+const STAGING = [
+  ["Node", toOmeZarr, storeToZip],
+  ["browser", toOmeZarrBrowser, storeToZipBrowser],
+] as const;
+
+for (const [module, write, pack] of STAGING) {
+  Deno.test(`${module}: a scene with a displacement field is staged in a MemoryStore and packed`, async () => {
+    const { pixels, scene } = await tilesScene();
+    const fieldPath = "coordinateTransformations/dfield";
+    const warp: Displacements = {
+      type: "displacements",
+      path: fieldPath,
+      interpolation: "linear",
+      input: { path: "tile_0", name: "intrinsic" },
+      output: { path: "tile_1", name: "intrinsic" },
+    };
+    scene.coordinateTransformations.push(warp);
+    const field = await displacementField();
+
+    const store: MemoryStore = new Map();
+    await write(store, field, { version: "0.6", path: fieldPath });
+    await write(store, scene, { overwrite: false });
+    const zip = pack(store);
+    assertEquals(readOzxVersion(zip), "0.6");
+    assertEquals(getZipFileList(zip)[0], "zarr.json");
+
+    const archive = ZipFileStore.fromBlob(new Blob([zip as BlobPart]));
+    const nodes = consolidatedNodes(
+      await archiveDocument(archive, "/zarr.json"),
+    );
+    const fieldDataset = field.metadata.datasets[0].path;
+    for (
+      const node of [
+        "coordinateTransformations",
+        fieldPath,
+        `${fieldPath}/${fieldDataset}`,
+        "tile_0",
+      ]
+    ) {
+      assertEquals(nodes.includes(node), true, node);
+    }
+    for (const read of [fromOmeZarr, fromOmeZarrBrowser]) {
+      const readScene = await read(archive, { kind: "scene", validate: true });
+      await assertScenePixels(readScene, pixels);
+      assertEquals(readScene.coordinateTransformations[2], warp);
+      const readField = await read(archive, { path: warp.path });
+      assertEquals(
+        readField.metadata.coordinateSystems![0].axes.map((axis) => axis.type),
+        ["displacement", "space", "space"],
+      );
+      assertEquals(
+        (await zarr.get(readField.images[0].data)).data,
+        (await zarr.get(field.images[0].data)).data,
+      );
+    }
+  });
+}
 
 Deno.test("write refuses paths outside the scene", async () => {
   await withTempDir(async (dir) => {

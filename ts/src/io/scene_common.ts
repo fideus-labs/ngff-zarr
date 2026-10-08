@@ -40,9 +40,15 @@ import {
 import type { ZarrCodec } from "../utils/codecs.ts";
 import {
   type ConsolidatableStore,
+  consolidatedNodePaths,
   consolidateMetadata,
 } from "../utils/consolidate_metadata.ts";
 import { type ChunksPerShard, ensureRangeReads } from "../utils/sharding.ts";
+import {
+  ensureAncestorGroups,
+  isPathBelowRoot,
+  storeBelow,
+} from "../utils/store_below.ts";
 import type { ChunkCache } from "../utils/worker_pool.ts";
 import { memoryStoreToZip } from "./rfc9_zip.ts";
 import {
@@ -124,17 +130,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * (Windows does) and a percent-encoded part is read as a URL store does.
  */
 export function checkImagePath(path: unknown): asserts path is string {
-  const decode = (part: string): string => {
-    try {
-      return decodeURIComponent(part);
-    } catch {
-      return part;
-    }
-  };
-  if (
-    typeof path !== "string" ||
-    path.split(/[\\/]/).some((part) => ["", ".", ".."].includes(decode(part)))
-  ) {
+  if (!isPathBelowRoot(path)) {
     throw new Error(
       `Image path '${
         String(path)
@@ -405,23 +401,6 @@ export function sceneFromOmeValue(
 }
 
 /**
- * The part of `store` below `path`, as a store of its own: every key is
- * looked up under `/<path>`, range reads included when `store` has them, so
- * a sharded array below `path` still opens.
- */
-function storeBelow(store: zarr.Readable, path: string): zarr.AsyncReadable {
-  const below: zarr.AsyncReadable = {
-    get: async (key, options) => await store.get(`/${path}${key}`, options),
-  };
-  if (typeof store.getRange === "function") {
-    const getRange = store.getRange.bind(store);
-    below.getRange = async (key, range, options) =>
-      await getRange(`/${path}${key}`, range, options);
-  }
-  return below;
-}
-
-/**
  * The store of the image at `path` below the scene group: the path or URL
  * joined to the scene's, or for a store object, such as a `MemoryStore` or
  * a zipped `.ozx` store, the part of it below `path`.
@@ -591,23 +570,15 @@ export async function writeSceneToStore(
   attributes.ome = { version: ondisk, scene: sceneToOmeValue(scene) };
   await zarr.create(root, { attributes });
 
-  const nodePaths = new Set<string>();
+  const nodePaths = new Set<string>(
+    await storedNodePaths(store, root, fields),
+  );
   const ensureAncestors = async (path: string): Promise<void> => {
-    const segments = path.split("/");
-    for (let end = 1; end < segments.length; end++) {
-      const ancestor = segments.slice(0, end).join("/");
+    for (const ancestor of await ensureAncestorGroups(root, path)) {
       nodePaths.add(ancestor);
-      try {
-        await zarr.open(root.resolve(ancestor), { kind: "group" });
-      } catch {
-        await zarr.create(root.resolve(ancestor));
-      }
     }
     nodePaths.add(path);
   };
-  for (const path of fields) {
-    await ensureAncestors(path);
-  }
 
   const writeArray = arrayWriter({
     codecs: options.codecs,
@@ -654,6 +625,31 @@ export async function writeSceneToStore(
   }
 }
 
+/**
+ * The node paths a consolidated block at the root lists for the stored
+ * nodes `fields`, such as displacement fields, that a scene's or a
+ * transformation's transformations reference: each node, the groups above
+ * it, which are created when the store lacks them, and the nodes the node's
+ * own consolidated block lists, which `toOmeZarr` writes when it writes the
+ * field. So the root block covers the field's arrays as well, as the Python
+ * writer's, which consolidates the whole store, does.
+ */
+export async function storedNodePaths(
+  store: zarr.Mutable,
+  root: zarr.Location<zarr.Mutable>,
+  fields: string[],
+): Promise<string[]> {
+  const nodes: string[] = [];
+  for (const path of fields) {
+    nodes.push(...await ensureAncestorGroups(root, path), path);
+    const listed = await consolidatedNodePaths(
+      storeBelow(store, path) as unknown as ConsolidatableStore,
+    );
+    nodes.push(...(listed ?? []).map((node) => `${path}/${node}`));
+  }
+  return nodes;
+}
+
 /** The `toOmeZarrOzx` subset of the options a scene is zipped with. */
 export interface SceneOzxOptions {
   /** OME-Zarr version, 0.6 (the default) or 0.9.dev1. */
@@ -684,8 +680,10 @@ export function refuseStoredNodes(
       `An .ozx archive is written in one piece, so a ${what} whose ` +
         `transformations reference the stored nodes ${
           JSON.stringify(fields)
-        } cannot be zipped with toOmeZarrOzx(). Write it with those nodes ` +
-        "to a store with toOmeZarr() instead.",
+        } cannot be zipped with toOmeZarrOzx(). Stage it in a MemoryStore ` +
+        "or a directory instead: write each node with toOmeZarr(store, " +
+        `node, { path }), then the ${what} with { overwrite: false }, and ` +
+        "pack the store with storeToZip().",
     );
   }
 }

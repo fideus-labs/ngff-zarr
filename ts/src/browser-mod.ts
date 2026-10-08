@@ -57,6 +57,8 @@ export {
 } from "./io/rfc9_zip.ts";
 export {
   isOzxPath,
+  storeToZip,
+  type StoreToZipOptions,
   toNgffZarr,
   type ToNgffZarrOptions,
   toNgffZarrOzx,

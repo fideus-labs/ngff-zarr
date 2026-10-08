@@ -12,6 +12,7 @@ import {
   fromOmeZarr,
   NgffMultiscales,
   readOzxVersion,
+  storeToZip,
   toMultiscales,
   toNgffImage,
   toOmeZarr,
@@ -20,7 +21,11 @@ import {
 } from "../src/mod.ts";
 import type { MemoryStore } from "../src/io/from_ngff_zarr.ts";
 import { fromOmeZarr as fromOmeZarrBrowser } from "../src/io/from_ngff_zarr-browser.ts";
-import { toOmeZarrOzx as toOmeZarrOzxBrowser } from "../src/io/to_ngff_zarr-browser.ts";
+import {
+  storeToZip as storeToZipBrowser,
+  toOmeZarr as toOmeZarrBrowser,
+  toOmeZarrOzx as toOmeZarrOzxBrowser,
+} from "../src/io/to_ngff_zarr-browser.ts";
 
 function affine(): Affine {
   return {
@@ -197,6 +202,48 @@ Deno.test("an .ozx archive refuses what a transformation store cannot hold", asy
     await assertRejects(() => zip(warp), Error, "written in one piece");
   }
 });
+
+for (
+  const [module, write, pack] of [
+    ["Node", toOmeZarr, storeToZip],
+    ["browser", toOmeZarrBrowser, storeToZipBrowser],
+  ] as const
+) {
+  Deno.test(`${module}: a transformation with a displacement field is staged and packed`, async () => {
+    const warp: Displacements = {
+      type: "displacements",
+      path: "coordinateTransformations/dfield",
+      interpolation: "linear",
+      input: { name: "fixed" },
+      output: { name: "moving" },
+    };
+    const field = await toMultiscales(
+      await toNgffImage(new Float32Array(2 * 8 * 8).fill(0.25), {
+        dims: ["c", "y", "x"],
+        shape: [2, 8, 8],
+        axesTypes: { c: "displacement" },
+      }),
+      { scaleFactors: [] },
+    );
+    const store: MemoryStore = new Map();
+    await write(store, field, { version: "0.6", path: warp.path });
+    await write(store, warp, { overwrite: false });
+
+    const zip = pack(store);
+    assertEquals(readOzxVersion(zip), "0.6");
+    const archive = ZipFileStore.fromBlob(new Blob([zip as BlobPart]));
+    for (const read of [fromOmeZarr, fromOmeZarrBrowser]) {
+      assertEquals(
+        await read(archive, { kind: "transformation", validate: true }),
+        warp,
+      );
+      assertEquals(
+        (await read(archive, { path: warp.path })).images[0].data.shape,
+        [2, 8, 8],
+      );
+    }
+  });
+}
 
 Deno.test("transformation with a displacement field", async () => {
   await withTempDir(async (dir) => {
