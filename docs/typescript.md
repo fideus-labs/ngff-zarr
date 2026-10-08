@@ -9,7 +9,7 @@ NGFF-Zarr provides a TypeScript implementation for working with OME-Zarr data st
 - 🦕 **Deno-first**: Built for Deno with first-class TypeScript support
 - 📦 **Universal compatibility**: Works in Deno, Node.js, and browsers
 - 🔍 **Type-safe**: Full TypeScript support with Zod schema validation
-- 🗂️ **OME-Zarr support**: Read and write OME-Zarr v0.4, v0.5, and v0.6 (v0.6 adds RFC-5 coordinate systems and transformations), plus the opt-in development version `0.9.dev1` which adopts RFC-3 (extended axis count, names, types and order)
+- 🗂️ **OME-Zarr support**: Read and write OME-Zarr v0.4, v0.5, and v0.6 (v0.6 adds RFC-5 coordinate systems and transformations), plus the opt-in development version `0.9.dev1` which adopts RFC-3 (extended axis count, names, types and order); OME-Zarr I/O uses fizarrita-backed Zarr operations
 - 🧪 **Well-tested**: Comprehensive test suite with browser validation
 - 🏗️ **Mirrors Python API**: Familiar interfaces for Python users
 - 📖 **Lazy loading**: Efficient handling of large datasets
@@ -1050,7 +1050,7 @@ const ms = await fromOmeZarr("http://localhost:8000/file.ome.zarr");
 
 ### Memory Management
 
-For large datasets, zarrita handles lazy loading automatically:
+For large datasets, fizarrita handles lazy loading automatically:
 
 ```typescript
 // Data is loaded lazily - metadata read immediately
