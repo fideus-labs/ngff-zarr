@@ -16,12 +16,11 @@ import type { NgffMultiscales } from "../types/multiscales.ts";
 import { identityDirection, itkDirection } from "../utils/itk_direction.ts";
 export { itkDirection };
 import { ngffTransformToItkTransform } from "../utils/ngff_transform_to_itk_transform.ts";
-import { decodeMatrixOffset } from "../utils/itk_transform_to_ngff_transform.ts";
 import {
   checkUnorientedField,
-  fieldDisplacementRange,
+  fieldBoundary,
   fieldImage,
-  fieldWindow,
+  fieldReach,
 } from "../utils/displacement_field_transform.ts";
 
 const SPATIAL_DIMS = ["x", "y", "z"];
@@ -324,273 +323,6 @@ function fieldFor(
   return field;
 }
 
-//: Parameterizations whose displacement is values read through a kernel that
-//: is non-negative and sums to one. The displacement anywhere is a convex
-//: combination of those numbers, so it lies between their smallest and
-//: largest, and it is zero beyond the transform's own domain, where ITK
-//: returns the point unchanged. The layouts differ: a field interleaves
-//: components per point, a B-spline blocks them per component.
-const INTERVAL_PARAMETERIZATIONS = new Set(["DisplacementField", "BSpline"]);
-
-//: Parameterizations that evaluate `y = R x + b` with `R` orthonormal. Each
-//: row of `R` has unit norm, so a component of `R r` is bounded by the
-//: Euclidean norm of `r`: the ball an interval folds into when the exact
-//: matrix is not worth decoding.
-const ORTHONORMAL_PARAMETERIZATIONS = new Set([
-  "Euler2D",
-  "Euler3D",
-  "Rigid2D",
-  "Rigid3D",
-  "Versor",
-  "VersorRigid3D",
-  "QuaternionRigid",
-]);
-
-interface Interval {
-  low: number[];
-  high: number[];
-}
-
-/** One list entry's displacement range, or undefined for the rest. */
-function stageInterval(
-  entry: TransformList[number],
-  dimension: number,
-): Interval | undefined {
-  const name = String(entry.transformType.transformParameterization);
-  if (!INTERVAL_PARAMETERIZATIONS.has(name)) return undefined;
-  const values = entry.parameters as ArrayLike<number> | null | undefined;
-  if (!values || values.length === 0 || values.length % dimension !== 0) {
-    return undefined;
-  }
-  const low = new Array<number>(dimension).fill(Number.POSITIVE_INFINITY);
-  const high = new Array<number>(dimension).fill(Number.NEGATIVE_INFINITY);
-  const block = values.length / dimension;
-  for (let index = 0; index < values.length; index++) {
-    const component = name === "DisplacementField"
-      ? index % dimension
-      : Math.floor(index / block);
-    const value = values[index];
-    if (value < low[component]) low[component] = value;
-    if (value > high[component]) high[component] = value;
-  }
-  return { low, high };
-}
-
-/** Whether `box` stays on a field's own lattice, read off its fixed
- * parameters: size, origin, spacing, then the direction, row-major. A point
- * past the lattice is displaced by nothing, so a grid that leaves it takes
- * zero into its range; anything not answerable exactly answers false, which
- * only widens. */
-function boxInsideFieldDomain(
-  entry: TransformList[number],
-  dimension: number,
-  box: Interval,
-): boolean {
-  // A BSpline never answers true: its control lattice reaches spline-order
-  // points beyond its domain of support, so lying inside the lattice proves
-  // nothing about staying on the domain.
-  if (
-    String(entry.transformType.transformParameterization) !==
-      "DisplacementField"
-  ) {
-    return false;
-  }
-  const fixed = entry.fixedParameters as ArrayLike<number> | null | undefined;
-  if (!fixed || fixed.length !== 3 * dimension + dimension * dimension) {
-    return false;
-  }
-  for (let row = 0; row < dimension; row++) {
-    for (let col = 0; col < dimension; col++) {
-      const expected = row === col ? 1 : 0;
-      if (fixed[3 * dimension + row * dimension + col] !== expected) {
-        return false;
-      }
-    }
-  }
-  for (let component = 0; component < dimension; component++) {
-    const size = fixed[component];
-    const origin = fixed[dimension + component];
-    const spacing = fixed[2 * dimension + component];
-    if (spacing <= 0) return false;
-    const first = (box.low[component] - origin) / spacing;
-    const last = (box.high[component] - origin) / spacing;
-    if (Math.min(first, last) < 0 || Math.max(first, last) > size - 1) {
-      return false;
-    }
-  }
-  return true;
-}
-
-/** The range the displacement stages of `entries` can add, or undefined.
- * ITK applies the last entry of a list first, so the walk runs from the last
- * entry outward, carrying what the stages seen so far can add. A displacement
- * stage adds its own range, since the linear list this widens replaced that
- * stage by the identity; an affine stage maps the range through the signs of
- * its matrix; an orthonormal stage bounds every component by the range's
- * Euclidean reach. Any other stage returns undefined, and the caller keeps the
- * boundary walk.
- *
- * Accumulating outward rather than folding each stage separately is what lets
- * a displacement stage sit outside another one: the range reaching it is
- * carried through, and its own range joins on top. `intervals` holds one
- * `stageInterval` per entry, so a field's parameters are scanned once for the
- * whole list. */
-function accumulatedInterval(
-  entries: TransformList,
-  intervals: (Interval | undefined)[],
-  dimension: number,
-  contained: boolean,
-): Interval | undefined {
-  let low = new Array<number>(dimension).fill(0);
-  let high = new Array<number>(dimension).fill(0);
-  for (let position = entries.length - 1; position >= 0; position--) {
-    const entry = entries[position];
-    const interval = intervals[position];
-    if (interval !== undefined) {
-      // ITK displaces a point beyond a stage's domain by nothing.
-      const ranged = contained ? interval : {
-        low: interval.low.map((value) => Math.min(value, 0)),
-        high: interval.high.map((value) => Math.max(value, 0)),
-      };
-      low = low.map((value, i) => value + ranged.low[i]);
-      high = high.map((value, i) => value + ranged.high[i]);
-      continue;
-    }
-    let matrix: number[][] | undefined;
-    try {
-      matrix = decodeMatrixOffset(entry, dimension).matrix;
-    } catch {
-      matrix = undefined;
-    }
-    if (matrix !== undefined) {
-      const nextLow = new Array<number>(dimension).fill(0);
-      const nextHigh = new Array<number>(dimension).fill(0);
-      for (let row = 0; row < dimension; row++) {
-        for (let col = 0; col < dimension; col++) {
-          const ends = [
-            matrix[row][col] * low[col],
-            matrix[row][col] * high[col],
-          ];
-          nextLow[row] += Math.min(...ends);
-          nextHigh[row] += Math.max(...ends);
-        }
-      }
-      low = nextLow;
-      high = nextHigh;
-    } else if (
-      ORTHONORMAL_PARAMETERIZATIONS.has(
-        String(entry.transformType.transformParameterization),
-      )
-    ) {
-      const reach = Math.hypot(
-        ...low.map((value, i) => Math.max(Math.abs(value), Math.abs(high[i]))),
-      );
-      low = new Array<number>(dimension).fill(-reach);
-      high = new Array<number>(dimension).fill(reach);
-    } else {
-      return undefined;
-    }
-  }
-  return { low, high };
-}
-
-/** The grid's physical extent per component, direction included. The
- * directions RFC-4 orientations produce are signed permutations, so each
- * component follows exactly one grid axis; undefined for any other
- * direction. */
-function gridPhysicalBox(
-  grid: NgffImage,
-  itkDims: string[],
-): Interval | undefined {
-  const direction = itkDirection(grid, itkDims);
-  const dimension = itkDims.length;
-  const low = itkDims.map((dim) => grid.translation[dim]);
-  const high = low.slice();
-  for (let axis = 0; axis < dimension; axis++) {
-    let component = -1;
-    for (let row = 0; row < dimension; row++) {
-      const value = direction[row * dimension + axis];
-      if (value !== 0) {
-        if (component !== -1 || Math.abs(value) !== 1) return undefined;
-        component = row;
-      }
-    }
-    if (component === -1) return undefined;
-    const dim = itkDims[axis];
-    const reach = direction[component * dimension + axis] *
-      (grid.data.shape[grid.dims.indexOf(dim)] - 1) * grid.scale[dim];
-    low[component] += Math.min(reach, 0);
-    high[component] += Math.max(reach, 0);
-  }
-  return { low, high };
-}
-
-/** Split a transform list into its linear part and a displacement range, or
- * undefined when no stage carries one or a stage could not be folded. A lone
- * `DisplacementField` whose lattice contains `gridBox` keeps the values' own
- * range; in every other case zero joins it. */
-function nonlinearInterval(
-  entries: TransformList,
-  dimension: number,
-  gridBox: Interval | undefined,
-): { entries: TransformList; range: Interval } | undefined {
-  const intervals = entries.map((entry) => stageInterval(entry, dimension));
-  const indices: number[] = [];
-  intervals.forEach((interval, index) => {
-    if (interval !== undefined) indices.push(index);
-  });
-  if (indices.length === 0) return undefined;
-  const contained = entries.length === 1 && gridBox !== undefined &&
-    boxInsideFieldDomain(entries[0], dimension, gridBox);
-  const range = accumulatedInterval(entries, intervals, dimension, contained);
-  if (range === undefined) return undefined;
-  const replaced = entries.slice();
-  const identity = ngffTransformToItkTransform(
-    { type: "identity" },
-    ["z", "y", "x"].slice(-dimension),
-  )[0];
-  for (const index of indices) replaced[index] = identity;
-  return { entries: replaced, range };
-}
-
-/** The physical range as the two per-dimension mappings `grown` takes: the
- * corners are physical positions keyed by name, so component j widens the
- * dimension named `itkDims[j]`; an index moves through the direction's
- * transpose, and with the signed permutations RFC-4 orientations produce,
- * axis k follows the one component its column names, sign included. */
-function directionBounds(
-  range: Interval,
-  itkDims: string[],
-  direction: Float64Array,
-  spatial: string[],
-): { corners: Interval; indices: Interval } {
-  const dimension = itkDims.length;
-  const corners: Record<string, [number, number]> = {};
-  const indices: Record<string, [number, number]> = {};
-  itkDims.forEach((dim, j) => {
-    corners[dim] = [range.low[j], range.high[j]];
-  });
-  for (let axis = 0; axis < dimension; axis++) {
-    let component = 0;
-    let best = 0;
-    for (let row = 0; row < dimension; row++) {
-      const value = Math.abs(direction[row * dimension + axis]);
-      if (value > best) {
-        best = value;
-        component = row;
-      }
-    }
-    const sign = Math.sign(direction[component * dimension + axis]) || 1;
-    const ends = [sign * range.low[component], sign * range.high[component]];
-    indices[itkDims[axis]] = [Math.min(...ends), Math.max(...ends)];
-  }
-  const order = (table: Record<string, [number, number]>) => ({
-    low: spatial.map((dim) => table[dim][0]),
-    high: spatial.map((dim) => table[dim][1]),
-  });
-  return { corners: order(corners), indices: order(indices) };
-}
-
 function isV06Transform(value: unknown): value is V06Transform {
   return typeof value === "object" && value !== null && "type" in value &&
     typeof (value as { type: unknown }).type === "string";
@@ -667,72 +399,49 @@ export async function resampleBoundingBoxShared(
   let transformList: TransformList;
   let fixedDirection: Float64Array;
   let movingDirection: Float64Array;
-  let fieldRange: { low: number[]; high: number[] } | undefined;
-  let indexRange: { low: number[]; high: number[] } | undefined;
 
   if (Array.isArray(transform)) {
     // An ITK transform list acts on ITK physical space, so the geometry is
     // built the way ngffImageToItkImage builds it, direction included.
-    transformList = transform;
     fixedDirection = itkDirection(fixed, itkDims);
     movingDirection = itkDirection(moving, itkDims);
-    // The pipeline walks the boundary of the transformed grid, which
-    // reports a linear map exactly and misses what a DisplacementField or
-    // BSpline stage does strictly inside it. The walk therefore measures
-    // the list with those stages replaced by the identity, and the range
-    // their values can add widens the result; a stage outside another one
-    // carries the range reaching it and adds its own on top.
-    const split = nonlinearInterval(
+    transformList = await windowedFields(
+      pipeline,
       transform,
-      itkDims.length,
-      gridPhysicalBox(fixed, itkDims),
+      metadataOnlyItkImage(fixed, itkDims, fixedDirection),
     );
-    if (split !== undefined) {
-      transformList = split.entries;
-      const bounds = directionBounds(
-        split.range,
-        itkDims,
-        movingDirection,
-        fixedSpatial,
-      );
-      fieldRange = bounds.corners;
-      indexRange = bounds.indices;
-    }
   } else if (isV06Transform(transform)) {
     if (
       transform.type === "displacements" || transform.type === "coordinates"
     ) {
-      // A field transform is the identity plus a displacement. The identity
-      // is what the pipeline measures; the displacement is read off the field
-      // a chunk at a time and widens the region afterwards, so the field is
-      // never held whole and a bump inside the grid is not walked past.
+      // The field holds where each of its samples goes, so the walk the
+      // pipeline makes over the boundary of the grid is read off the samples
+      // there, a chunk at a time, without a pipeline call.
       const image = fieldImage(
         transform,
         fieldFor(transform, options.fields),
         fixedSpatial,
       );
       checkUnorientedField(image, fixedSpatial);
-      const { window, outside } = fieldWindow(
+      const { slabs, outside } = fieldBoundary(
         image,
         fixedSpatial,
         fixed.translation,
         fixed.scale,
         fixedSpatial.map((dim) => fixed.data.shape[fixed.dims.indexOf(dim)]),
       );
-      fieldRange = await fieldDisplacementRange(
-        transform,
-        image,
-        fixedSpatial,
-        window,
+      return fieldRegion(
+        await fieldReach(transform, image, fixedSpatial, slabs),
         outside,
+        fixedSpatial,
+        fixed,
+        image,
+        moving,
+        movingShape,
+        padding,
       );
-      transformList = ngffTransformToItkTransform(
-        { type: "identity" },
-        fixed.dims,
-      );
-    } else {
-      transformList = ngffTransformToItkTransform(transform, fixed.dims);
     }
+    transformList = ngffTransformToItkTransform(transform, fixed.dims);
     // An RFC-5 transformation is defined on the intrinsic coordinate system,
     // which carries no direction matrix.
     fixedDirection = identityDirection(itkDims.length);
@@ -777,68 +486,187 @@ export async function resampleBoundingBoxShared(
     paddedCornersMax: byDim(raw.paddedCorners.max),
     movingShape,
   });
-  return fieldRange === undefined
-    ? region
-    : grown(region, fieldRange, fixedSpatial, moving, movingShape, indexRange);
+  return region;
 }
 
 /**
- * `region` moved and widened by a per-axis displacement range.
+ * `transformList` with each displacement field cut to what `grid` reads.
  *
- * The pipeline walks the boundary of the transformed grid, which reports
- * where a *linear* map sends the grid exactly and misses whatever a
- * displacement does strictly inside it. A point `p` of the region reaches
- * `p + d` with `d` in the range, so the region's image lies between the two
- * ends of that range: a field that shifts every point the same way moves the
- * region, and only what varies widens it.
+ * The pipeline copies a transform's parameters into WebAssembly on every
+ * call, and the parameters of a `DisplacementField` stage are the whole
+ * field. A grid reads only the part of the field its points land in, so each
+ * such stage is cut to that window first: the region the stages applied
+ * before the field send the grid to, in the field's own index space, with
+ * one sample of margin on every side. ITK applies the last entry of a list
+ * first, so those stages are the entries after the field. ITK displaces
+ * nothing beyond a field's lattice, so a grid that misses the field takes
+ * the identity in its place.
  */
-function grown(
-  region: ResampleBoundingBox,
-  range: { low: number[]; high: number[] },
+async function windowedFields(
+  pipeline: Parameters<typeof resampleBoundingBoxShared>[0],
+  transformList: TransformList,
+  grid: Image,
+): Promise<TransformList> {
+  const dimension = grid.imageType.dimension;
+  const axes = SPATIAL_DIMS.slice(0, dimension);
+  const identity = ngffTransformToItkTransform({ type: "identity" }, axes);
+  const windowed = [...transformList];
+  // Innermost first: a field's window depends on the stages after it, and
+  // those are walked as already cut.
+  for (let position = windowed.length - 1; position >= 0; position--) {
+    const entry = windowed[position];
+    const lattice = Array.from(entry.fixedParameters ?? [], Number);
+    if (
+      entry.transformType.transformParameterization !== "DisplacementField" ||
+      !entry.parameters || lattice.length !== dimension * (3 + dimension)
+    ) {
+      continue;
+    }
+    const size = lattice.slice(0, dimension);
+    const origin = lattice.slice(dimension, 2 * dimension);
+    const spacing = lattice.slice(2 * dimension, 3 * dimension);
+    const direction = Float64Array.from(lattice.slice(3 * dimension));
+    const inner = windowed.slice(position + 1);
+    const { boundingBox } = await pipeline(
+      inner.length > 0 ? inner : identity,
+      grid,
+      {
+        imageType: grid.imageType,
+        name: "",
+        origin,
+        spacing,
+        direction,
+        size,
+        metadata: new Map(),
+        data: new Uint8Array(0),
+      },
+      { padding: 1 },
+    );
+    const raw = boundingBox as RawBoundingBox;
+    checkIndexArrays(raw, axes);
+    const clip = (value: number, axis: number) =>
+      Math.min(Math.max(value, 0), size[axis]);
+    const start = raw.paddedStartIndex.map(clip);
+    const stop = raw.paddedStartIndex.map((first, axis) =>
+      clip(first + raw.paddedSize[axis], axis)
+    );
+    if (stop.some((value, axis) => value <= start[axis])) {
+      windowed[position] = identity[0];
+      continue;
+    }
+    if (
+      stop.every((value, axis) => start[axis] === 0 && value === size[axis])
+    ) {
+      continue;
+    }
+
+    // The parameters are one vector per lattice point, x fastest, so a row
+    // along x is contiguous and the window is copied a row at a time.
+    const count = stop.map((value, axis) => value - start[axis]);
+    const strides = size.map((_, axis) =>
+      size.slice(0, axis).reduce(
+        (product, extent) => product * extent,
+        dimension,
+      )
+    );
+    const row = count[0] * dimension;
+    const rows = count.slice(1).reduce(
+      (product, extent) => product * extent,
+      1,
+    );
+    const parameters = entry.parameters.slice(0, rows * row);
+    for (let index = 0; index < rows; index++) {
+      let source = start[0] * strides[0];
+      let rest = index;
+      for (let axis = 1; axis < dimension; axis++) {
+        source += (start[axis] + rest % count[axis]) * strides[axis];
+        rest = Math.floor(rest / count[axis]);
+      }
+      parameters.set(
+        entry.parameters.subarray(source, source + row) as never,
+        index * row,
+      );
+    }
+    const shifted = origin.map((value, component) =>
+      start.reduce(
+        (sum, first, axis) =>
+          sum + direction[component * dimension + axis] * first * spacing[axis],
+        value,
+      )
+    );
+    windowed[position] = {
+      ...entry,
+      numberOfParameters: parameters.length,
+      parameters,
+      fixedParameters: Float64Array.from([
+        ...count,
+        ...shifted,
+        ...spacing,
+        ...direction,
+      ]),
+    };
+  }
+  return windowed;
+}
+
+/**
+ * The region a field transform makes `fixed` read.
+ *
+ * @param reach Where the field sends the samples the boundary of the grid
+ *   lies between, as {@link fieldReach} reports it, or `undefined` when the
+ *   grid touches no sample.
+ * @param outside Whether the grid also has points beyond the field's lattice.
+ *   ITK displaces a point up to half a sample beyond it by what the nearest
+ *   sample holds and any further point by nothing, so the reach grows by half
+ *   a sample and the grid's own extent joins it.
+ */
+function fieldRegion(
+  reach: { low: number[]; high: number[] } | undefined,
+  outside: boolean,
   spatial: string[],
+  fixed: NgffImage,
+  field: NgffImage,
   moving: NgffImage,
   movingShape: Record<string, number>,
-  indexRange?: { low: number[]; high: number[] },
+  padding: number,
 ): ResampleBoundingBox {
-  const startIndex = { ...region.startIndex };
-  const size = { ...region.size };
-  const cornersMin = { ...region.cornersMin };
-  const cornersMax = { ...region.cornersMax };
-  const paddedCornersMin = { ...region.paddedCornersMin };
-  const paddedCornersMax = { ...region.paddedCornersMax };
+  const startIndex: Record<string, number> = {};
+  const size: Record<string, number> = {};
+  const cornersMin: Record<string, number> = {};
+  const cornersMax: Record<string, number> = {};
+  const paddedCornersMin: Record<string, number> = {};
+  const paddedCornersMax: Record<string, number> = {};
   spatial.forEach((dim, axis) => {
-    const low = range.low[axis];
-    const high = range.high[axis];
-    // The corners live in world space; the start and size are indices, which
-    // an oriented moving image reaches through its direction. The two
-    // coincide unless a caller passes the index mapping separately.
-    const indexLow = (indexRange ?? range).low[axis];
-    const indexHigh = (indexRange ?? range).high[axis];
-    if (low === 0 && high === 0 && indexLow === 0 && indexHigh === 0) return;
-    const scale = moving.scale[dim];
-    const first = Math.floor(Math.min(indexLow / scale, indexHigh / scale));
-    const last = Math.ceil(Math.max(indexLow / scale, indexHigh / scale));
-    startIndex[dim] += first;
-    size[dim] += last - first;
-    // The reported corners hold a first and a last index position, which swap
-    // when an axis direction is negative; move the span either way.
-    for (
-      const [begin, stop] of [
-        [cornersMin, cornersMax],
-        [paddedCornersMin, paddedCornersMax],
-      ] as Record<string, number>[][]
-    ) {
-      if (begin[dim] <= stop[dim]) {
-        begin[dim] += low;
-        stop[dim] += high;
-      } else {
-        begin[dim] += high;
-        stop[dim] += low;
-      }
+    const origin = fixed.translation[dim];
+    const end = origin +
+      (fixed.data.shape[fixed.dims.indexOf(dim)] - 1) * fixed.scale[dim];
+    let first = Math.min(origin, end);
+    let last = Math.max(origin, end);
+    if (reach !== undefined && !outside) {
+      first = reach.low[axis];
+      last = reach.high[axis];
+    } else if (reach !== undefined) {
+      const half = Math.abs(field.scale[dim]) / 2;
+      first = Math.min(first, reach.low[axis] - half);
+      last = Math.max(last, reach.high[axis] + half);
     }
+    // The arithmetic the pipeline applies to the points it walks: the extent
+    // in the moving image's index space, floored and ceiled, padded.
+    const scale = moving.scale[dim];
+    const translation = moving.translation[dim];
+    const low = (first - translation) / scale;
+    const high = (last - translation) / scale;
+    const start = Math.floor(Math.min(low, high)) - padding;
+    const count = Math.ceil(Math.max(low, high)) + padding - start + 1;
+    startIndex[dim] = start;
+    size[dim] = count;
+    cornersMin[dim] = first;
+    cornersMax[dim] = last;
+    paddedCornersMin[dim] = translation + start * scale;
+    paddedCornersMax[dim] = translation + (start + count - 1) * scale;
   });
   return new ResampleBoundingBox({
-    dims: region.dims,
+    dims: spatial,
     startIndex,
     size,
     cornersMin,

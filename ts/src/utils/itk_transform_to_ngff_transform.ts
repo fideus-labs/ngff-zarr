@@ -425,8 +425,3 @@ function simplifyTransform(
   }
   return undefined;
 }
-
-// The linear decoder, for callers that bound a transform list rather than
-// convert it: the fold in resample_bounding_box-shared.ts carries a
-// displacement range through the matrices of the stages applied after it.
-export { decode as decodeMatrixOffset };

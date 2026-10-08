@@ -14,6 +14,7 @@
  */
 
 import {
+  assert,
   assertAlmostEquals,
   assertEquals,
   assertRejects,
@@ -37,7 +38,11 @@ import {
   resampleBoundingBox,
 } from "../src/mod.ts";
 import { ngffTransformToItkMatrix } from "../src/utils/ngff_transform_to_itk_transform.ts";
-import { resampleBoundingBoxShared } from "../src/io/resample_bounding_box-shared.ts";
+import { resampleBoundingBoxNode } from "@itk-wasm/downsample";
+import {
+  metadataOnlyItkImage,
+  resampleBoundingBoxShared,
+} from "../src/io/resample_bounding_box-shared.ts";
 import { RAS } from "../src/types/rfc4.ts";
 import type { AnatomicalOrientation } from "../src/types/rfc4.ts";
 
@@ -1296,13 +1301,12 @@ function interiorBump(extent: number, radius: number, peaks: number[]) {
   return values;
 }
 
-Deno.test("a bump inside the grid widens the region", async () => {
-  // The pipeline sizes a region by walking the boundary of the transformed
-  // grid, so a displacement that is zero there and large inside left the
-  // region unchanged and the pixels it reaches unread.
+Deno.test("a bump strictly inside the grid is beyond the boundary walk", async () => {
+  // A region is sized by walking the boundary of the transformed grid, for
+  // a field as for an ITK transform. A displacement that is zero there and
+  // large inside leaves the region covering the grid alone: the documented
+  // limit of the walk, pinned so a change of method shows up here.
   const extent = 64;
-  // The peak carries the grid past its own extent, so a region that only
-  // covers the grid is not enough.
   const values = interiorBump(extent, 20, [60, -60]);
   const field = await bumpField(values, ["y", "x"], extent, 16);
   const fixed = await geometryImage(
@@ -1322,22 +1326,10 @@ Deno.test("a bump inside the grid widens the region", async () => {
     moving,
     { fields: { warp: field } },
   );
+  const identity = await resampleBoundingBox(createIdentity(), fixed, moving);
 
-  const voxels = extent * extent;
-  ["y", "x"].forEach((dim, component) => {
-    let lowest = Number.POSITIVE_INFINITY;
-    let highest = Number.NEGATIVE_INFINITY;
-    for (let y = 0; y < extent; y++) {
-      for (let x = 0; x < extent; x++) {
-        const index = component === 0 ? y : x;
-        const reached = index + values[component * voxels + y * extent + x];
-        lowest = Math.min(lowest, reached);
-        highest = Math.max(highest, reached);
-      }
-    }
-    assertEquals(region.startIndex[dim] <= lowest, true);
-    assertEquals(region.startIndex[dim] + region.size[dim] >= highest, true);
-  });
+  assertEquals(region.startIndex, identity.startIndex);
+  assertEquals(region.size, identity.size);
 });
 
 Deno.test("a field's chunking does not change the region it reports", async () => {
@@ -1448,239 +1440,77 @@ Deno.test("an oriented field is refused by the bounding box", async () => {
   );
 });
 
-function displacementFieldEntry(
-  vectors: Float64Array,
-  size: number[],
-  spacing: number[],
-  // deno-lint-ignore no-explicit-any
-): any {
-  const dimension = size.length;
-  return {
-    transformType: {
-      transformParameterization: "DisplacementField",
-      parametersValueType: "float64",
-      inputDimension: dimension,
-      outputDimension: dimension,
-    },
-    name: "DisplacementFieldTransform",
-    inputSpaceName: "",
-    outputSpaceName: "",
-    numberOfFixedParameters: 3 * dimension + dimension * dimension,
-    numberOfParameters: vectors.length,
-    fixedParameters: new Float64Array([
-      ...size,
-      ...size.map(() => 0),
-      ...spacing,
-      ...Array.from(
-        { length: dimension * dimension },
-        (_, index) => index % (dimension + 1) === 0 ? 1 : 0,
-      ),
-    ]),
-    parameters: vectors,
-    metadata: new Map(),
-  };
-}
-
-Deno.test("the stage interval reads the layouts itk writes", async () => {
-  // A field interleaves components per point; a B-spline blocks them per
-  // component. Misreading the layout would produce plausible wrong bounds.
-  const { resampleBoundingBox } = await import(
-    "../src/io/resample_bounding_box.ts"
-  );
-  const vectors = new Float64Array(4 * 3 * 2);
-  vectors[(1 * 4 + 2) * 2] = 7.0;
-  vectors[(1 * 4 + 2) * 2 + 1] = -9.0;
-  const warp = displacementFieldEntry(vectors, [4, 3], [8, 8]);
-  const fixed = await geometryImage(
-    ["y", "x"],
-    { y: 4, x: 4 },
-    { y: 1, x: 1 },
-    {
-      y: 0,
-      x: 0,
-    },
-  );
+Deno.test("an ITK displacement field reaches the pipeline as the grid's window", async () => {
+  const fixed = await geometryImage(["y", "x"], { y: 16, x: 16 }, {
+    y: 1,
+    x: 1,
+  }, { y: 20, x: 30 });
   const moving = await geometryImage(["y", "x"], { y: 64, x: 64 }, {
     y: 1,
     x: 1,
   }, { y: 0, x: 0 });
 
-  const region = await resampleBoundingBox([warp], fixed, moving, {
-    padding: 0,
-  });
-
-  // The x range is [0, 7] and the y range [-9, 0], zero joined since the
-  // 4x4 grid leaves nothing to check against the field's own 32x24 reach:
-  // the grid is inside, so the values' range stands alone.
-  assertEquals(region.startIndex, { y: -9, x: 0 });
-  assertEquals(region.size, { y: 13, x: 11 });
-});
-
-Deno.test("an interior bump in an itk field widens the region", async () => {
-  const { resampleBoundingBox } = await import(
-    "../src/io/resample_bounding_box.ts"
-  );
-  const extent = 64;
-  const vectors = new Float64Array(extent * extent * 2);
-  const reach = { y: [0, 0], x: [0, 0] };
-  for (let y = 0; y < extent; y++) {
-    for (let x = 0; x < extent; x++) {
-      const distance = Math.hypot(y - extent / 2, x - extent / 2);
-      const profile = distance < 20
-        ? 0.5 * (1 + Math.cos(Math.PI * distance / 20))
-        : 0;
-      const index = (y * extent + x) * 2;
-      vectors[index] = -60 * profile;
-      vectors[index + 1] = 60 * profile;
-      reach.y = [
-        Math.min(reach.y[0], y + 60 * profile),
-        Math.max(reach.y[1], y + 60 * profile),
-      ];
-      reach.x = [
-        Math.min(reach.x[0], x - 60 * profile),
-        Math.max(reach.x[1], x - 60 * profile),
-      ];
+  // A 64 x 64 field in ITK layout: one (x, y) vector per point, x fastest. It
+  // varies by less than a pixel per pixel, so it does not fold.
+  const parameters = new Float64Array(2 * 64 * 64);
+  for (let y = 0; y < 64; y++) {
+    for (let x = 0; x < 64; x++) {
+      parameters[2 * (y * 64 + x)] = 3 * Math.sin(y / 5);
+      parameters[2 * (y * 64 + x) + 1] = 2 * Math.cos(x / 7);
     }
   }
-  const warp = displacementFieldEntry(vectors, [extent, extent], [1, 1]);
-  const fixed = await geometryImage(
-    ["y", "x"],
-    { y: extent, x: extent },
-    { y: 1, x: 1 },
-    { y: 0, x: 0 },
-  );
-  const moving = await geometryImage(["y", "x"], { y: 256, x: 256 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
+  const whole = [{
+    transformType: {
+      transformParameterization: "DisplacementField",
+      parametersValueType: "float64",
+      inputDimension: 2,
+      outputDimension: 2,
+    },
+    name: "DisplacementFieldTransform",
+    inputSpaceName: "",
+    outputSpaceName: "",
+    numberOfFixedParameters: 10,
+    numberOfParameters: parameters.length,
+    fixedParameters: new Float64Array([64, 64, 0, 0, 1, 1, 1, 0, 0, 1]),
+    parameters,
+    metadata: new Map(),
+  }];
 
-  const region = await resampleBoundingBox([warp], fixed, moving, {
-    padding: 1,
-  });
-
-  for (const dim of ["y", "x"] as const) {
-    assertEquals(region.startIndex[dim] <= reach[dim][0], true);
-    assertEquals(
-      region.startIndex[dim] + region.size[dim] >= reach[dim][1],
-      true,
-    );
-  }
-});
-
-/** A field that shifts every point of its lattice by the same vector. */
-function constantFieldEntry(
-  shift: number[],
-  size: number[],
-  spacing: number[],
-  // deno-lint-ignore no-explicit-any
-): any {
-  const points = size.reduce((total, extent) => total * extent, 1);
-  const vectors = new Float64Array(points * shift.length);
-  for (let point = 0; point < points; point++) {
-    for (let component = 0; component < shift.length; component++) {
-      vectors[point * shift.length + component] = shift[component];
-    }
-  }
-  return displacementFieldEntry(vectors, size, spacing);
-}
-
-/** A field that is zero on its boundary and peaks at its centre.
- *
- * The boundary walk sees only the zero, so a stage outside this one has to
- * carry the peak for the region to hold it. `peaks` is in ITK component
- * order (x, y); the returned entry's lattice is unit-spaced at the origin. */
-function bumpFieldEntry(
-  extent: number,
-  peaks: number[],
-  radius: number,
-  // deno-lint-ignore no-explicit-any
-): any {
-  const vectors = new Float64Array(extent * extent * 2);
-  for (let y = 0; y < extent; y++) {
-    for (let x = 0; x < extent; x++) {
-      const distance = Math.hypot(y - extent / 2, x - extent / 2);
-      const profile = distance < radius
-        ? 0.5 * (1 + Math.cos(Math.PI * distance / radius))
-        : 0;
-      const index = (y * extent + x) * 2;
-      vectors[index] = peaks[0] * profile;
-      vectors[index + 1] = peaks[1] * profile;
-    }
-  }
-  return displacementFieldEntry(vectors, [extent, extent], [1, 1]);
-}
-
-Deno.test("a field outside an interior bump carries its range", async () => {
-  // ITK applies the last entry first, so the bump's range has to travel
-  // through the constant field outside it, which is itself non-linear:
-  // folding stage by stage stops there and the walk, which sees only the
-  // bump's zero boundary, reports a region the composition leaves.
-  const { resampleBoundingBox } = await import(
-    "../src/io/resample_bounding_box.ts"
-  );
-  const extent = 64;
-  const peaks = [-60, 60];
-  const bump = bumpFieldEntry(extent, peaks, 20);
-  const shift = [-3, 11];
-  const outer = constantFieldEntry(shift, [256, 256], [1, 1]);
-  const fixed = await geometryImage(
-    ["y", "x"],
-    { y: extent, x: extent },
-    { y: 1, x: 1 },
-    { y: 0, x: 0 },
-  );
-  const moving = await geometryImage(["y", "x"], { y: 512, x: 512 }, {
-    y: 1,
-    x: 1,
-  }, { y: -128, x: -128 });
-
-  const region = await resampleBoundingBox([outer, bump], fixed, moving, {
-    padding: 0,
-  });
-
-  // The grid centre takes the whole peak, then the constant shift.
-  const centre = extent / 2;
-  assertEquals(region.cornersMax.y >= centre + peaks[1] + shift[1], true);
-  assertEquals(region.cornersMin.x <= centre + peaks[0] + shift[0], true);
-});
-
-Deno.test("an affine outside two fields carries both their ranges", async () => {
-  const { resampleBoundingBox } = await import(
-    "../src/io/resample_bounding_box.ts"
-  );
-  const extent = 64;
-  const peaks = [-60, 60];
-  const bump = bumpFieldEntry(extent, peaks, 20);
-  const shift = [-3, 11];
-  const outer = constantFieldEntry(shift, [256, 256], [1, 1]);
-  const [affine] = itkAffine([[2, 0], [0, 3]], [4, -6]);
-  const fixed = await geometryImage(
-    ["y", "x"],
-    { y: extent, x: extent },
-    { y: 1, x: 1 },
-    { y: 0, x: 0 },
-  );
-  const moving = await geometryImage(["y", "x"], { y: 1024, x: 1024 }, {
-    y: 1,
-    x: 1,
-  }, { y: -512, x: -512 });
-
-  const region = await resampleBoundingBox(
-    [affine, outer, bump],
+  const received: number[] = [];
+  const recording: Parameters<typeof resampleBoundingBoxShared>[0] = (
+    transform,
+    ...rest
+  ) => {
+    received.push(transform[0].numberOfParameters);
+    return resampleBoundingBoxNode(transform, ...rest);
+  };
+  const cut = await resampleBoundingBoxShared(
+    recording,
+    whole as never,
     fixed,
     moving,
-    { padding: 0 },
   );
 
-  // The centre takes the peak and the shift, then the affine scales it:
-  // x' = 2 (x + peak_x + shift_x) + 4, y' = 3 (y + peak_y + shift_y) - 6.
-  const centre = extent / 2;
-  assertEquals(
-    region.cornersMax.y >= 3 * (centre + peaks[1] + shift[1]) - 6,
-    true,
+  // The identity that finds the window, then the window itself: sixteen
+  // samples, the three pixels the field moves them by at most, and a sample
+  // of margin on either side.
+  assertEquals(received.length, 2);
+  assert(received[1] <= 2 * 24 * 24, `the pipeline received ${received[1]}`);
+
+  const direction = new Float64Array([1, 0, 0, 1]);
+  const { boundingBox } = await resampleBoundingBoxNode(
+    whole as never,
+    metadataOnlyItkImage(fixed, ["x", "y"], direction),
+    metadataOnlyItkImage(moving, ["x", "y"], direction),
+    { padding: 1 },
   );
-  assertEquals(
-    region.cornersMin.x <= 2 * (centre + peaks[0] + shift[0]) + 4,
-    true,
-  );
+  const uncut = boundingBox as {
+    paddedStartIndex: number[];
+    paddedSize: number[];
+  };
+  assertEquals(cut.startIndex, {
+    y: uncut.paddedStartIndex[1],
+    x: uncut.paddedStartIndex[0],
+  });
+  assertEquals(cut.size, { y: uncut.paddedSize[1], x: uncut.paddedSize[0] });
 });

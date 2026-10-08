@@ -4,28 +4,27 @@
 
 import functools
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
 import numpy as np
 
 from .displacement_field_transform import field_window
+from .itk_transform_to_ngff_transform import _parameterization_name
 from .ngff_image import NgffImage
 from .ngff_transform_to_itk_transform import ngff_transform_to_itk_transform
 from .resample_bounding_box import (
     _as_itk_transform_list,
     _check_geometry,
-    _direction_bounds,
-    _field_stream,
-    _grid_physical_box,
-    _grown,
-    _identity_region,
+    _field_regions,
     _identity_transform_list,
     _is_ngff_transform,
     _itk_direction,
     _metadata_only_itk_image,
-    _nonlinear_interval,
     _shifted_translation,
     _spatial_dims,
+    _typed_field,
+    _windowed_fields,
     resample_bounding_box,
 )
 from .v06.zarr_metadata import Coordinates, Displacements
@@ -58,6 +57,11 @@ _INTERPOLATOR_PADDING = {
 #: float64 resolves the prefilter perturbation further out than float32 does,
 #: so ``b_spline`` needs twice the padding to stay exact on float64 images.
 _FLOAT64_INTERPOLATOR_PADDING = {"b_spline": 32}
+
+#: Threads computing the blocks' regions while the graph is built. Each region
+#: is one pipeline call; past eight the calls contend for the interpreter while
+#: they marshal their arguments and the build stops getting faster.
+_REGION_THREADS = 8
 
 
 def _default_padding(interpolator: str, dtype) -> int:
@@ -235,6 +239,7 @@ def _resample_block(
     interpolator: str,
     default_value: float,
     out_dtype,
+    window_fields: bool = False,
 ):
     """Resample one output block from the moving chunks its region touches.
 
@@ -243,7 +248,9 @@ def _resample_block(
     the first of them in the moving image and ``bounds`` the region itself.
     ``transform_list`` arrives as a task argument rather than bound into the
     callable, so the graph carries it once for every block instead of once per
-    block: see where the tasks are built.
+    block: see where the tasks are built. With ``window_fields`` it is an ITK
+    list holding a whole displacement field, which is cut here to the window
+    this block reads so that only the window reaches ITK.
     """
     from itkwasm_downsample import resample_to_reference
 
@@ -277,6 +284,8 @@ def _resample_block(
     )
     itk_dims = list(reversed(_spatial_dims(grid)))
     reference = _metadata_only_itk_image(grid, itk_dims, _itk_direction(grid, itk_dims))
+    if window_fields:
+        transform_list = _windowed_fields(transform_list, reference)
     # resample_to_reference reads only the reference geometry, but it aborts
     # when the component type disagrees with the moving image, so align it.
     reference.imageType.componentType = _component_type(out_dtype)
@@ -355,10 +364,10 @@ def resample(
     An RFC-5 ``displacements`` or ``coordinates`` field is streamed the same
     way. A block reads the window of the field its own points fall in, and
     that window becomes the block's ITK transform; what sizes the block's
-    moving read is the range of displacement that window holds. The field is
-    passed over once when the graph is built, a chunk at a time, to learn that
-    range per chunk. Neither the moving image nor the field has to fit in
-    memory.
+    moving read is where the field sends the samples on the block's boundary.
+    The field is passed over once when the graph is built, a chunk at a time,
+    to learn that for every block. Neither the moving image nor the field has
+    to fit in memory.
 
     A window declares its own origin, and on a float64 moving image that
     changes the last bits of the continuous index ITK computes from it, so
@@ -459,20 +468,10 @@ def resample(
     dtype = moving.data.dtype
     out_orientations = fixed.axes_orientations
     field = None
-    field_bound = None
-    itk_interval = None
-    itk_growth = None
+    window_fields = False
     if _is_ngff_transform(transform):
         if isinstance(transform, (Coordinates, Displacements)):
-            # The blocks divide the grid, so the grid's own window is the
-            # union of theirs: the pass reads no chunk no block asks about.
-            field, field_bound, _window, _outside = _field_stream(
-                transform,
-                fields,
-                fixed,
-                fixed_spatial,
-                dict(zip(fixed.dims, fixed.data.shape)),
-            )
+            field = _typed_field(transform, fields, fixed_spatial)
             transform_list = _identity_transform_list(fixed.dims)
         else:
             transform_list = ngff_transform_to_itk_transform(
@@ -486,20 +485,10 @@ def resample(
         moving = replace(moving, axes_orientations=None)
     else:
         transform_list = _as_itk_transform_list(transform)
-        # A displacement stage would have its whole field scanned once per
-        # block below; the split and its range are loop constants, so they
-        # are taken here. The graph's tasks keep the original list: only the
-        # regions walk the linear part.
-        itk_dims = [dim for dim in ("x", "y", "z") if dim in fixed_spatial]
-        walked_list, itk_interval = _nonlinear_interval(
-            transform_list,
-            len(fixed_spatial),
-            _grid_physical_box(fixed, itk_dims),
+        window_fields = any(
+            _parameterization_name(entry.transformType) == "DisplacementField"
+            for entry in transform_list
         )
-        if itk_interval is not None:
-            itk_growth = _direction_bounds(
-                itk_interval, itk_dims, _itk_direction(moving, itk_dims)
-            )
 
     out_chunks = fixed.data.chunks
     out_offsets = _chunk_offsets(out_chunks)
@@ -548,33 +537,37 @@ def resample(
     # cross the wire once per block.
     transform_key = f"{name}-transform"
     graph = {transform_key: transform_list}
+    grids = {}
     for index in np.ndindex(*[len(sizes) for sizes in out_chunks]):
         starts = {
             dim: int(out_offsets[axis][index[axis]])
             for axis, dim in enumerate(fixed.dims)
         }
         shape = tuple(int(out_chunks[axis][index[axis]]) for axis in range(len(index)))
-        grid = _block_grid(fixed, starts, shape)
+        grids[index] = _block_grid(fixed, starts, shape)
+    if field is not None:
+        regions = _field_regions(transform, field, grids, moving, padding)
+    else:
+        # One pipeline call per block, each independent of the others.
+        with ThreadPoolExecutor(_REGION_THREADS) as pool:
+            regions = dict(
+                zip(
+                    grids,
+                    pool.map(
+                        lambda grid: resample_bounding_box(
+                            transform_list, grid, moving, padding=padding
+                        ),
+                        grids.values(),
+                    ),
+                )
+            )
+    for index, grid in grids.items():
+        shape = grid.data.shape
         block_transform = transform_key
+        region = regions[index]
         if field is not None:
-            window, outside = field_window(
+            window, _outside = field_window(
                 field, tuple(fixed.dims), grid.translation, grid.scale, shape
-            )
-            region = _grown(
-                _identity_region(grid, moving, padding),
-                field_bound.over(window, outside),
-                moving,
-            )
-        elif itk_interval is not None:
-            region = _grown(
-                resample_bounding_box(walked_list, grid, moving, padding=padding),
-                itk_growth[0],
-                moving,
-                itk_growth[1],
-            )
-        else:
-            region = resample_bounding_box(
-                transform_list, grid, moving, padding=padding
             )
         if region.is_empty:
             graph[(name, *index)] = (np.full, shape, default_value, dtype)
@@ -625,6 +618,7 @@ def resample(
                 interpolator=interpolator,
                 default_value=default_value,
                 out_dtype=dtype,
+                window_fields=window_fields,
             ),
             chunk_keys,
             block_transform,

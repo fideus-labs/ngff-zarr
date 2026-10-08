@@ -220,12 +220,23 @@ the transformed corners -- so the whole grid boundary is walked instead. Cost is
 proportional to the boundary, not the pixel count, and per block that boundary
 is small.
 
+The walk is exact for a transform that is continuous and does not fold the
+grid. Two things inside a block escape it: a fold, and the edge of a
+displacement stage's domain, past which ITK displaces nothing. Registration
+results rarely do either; a fixed grid that reaches past a B-spline's domain is
+the case to watch for. An RFC-5 `displacements` or `coordinates` field is sized
+by the same walk, read off the field's own samples.
+
 Displacement-field transforms work directly:
 
 ```python
 >>> region = nz.resample_bounding_box(  # doctest: +SKIP
 ...     displacement_field_transform, fixed, moving)
 ```
+
+A block reads only the part of the field its points land in, so each block
+hands ITK that window of the field rather than the whole of it. The cost of a
+block then follows the block, not the size of the field.
 
 ### Registration transforms from Elastix
 

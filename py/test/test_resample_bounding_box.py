@@ -1076,13 +1076,17 @@ def _interior_bump(extent, radius, peaks):
     return np.stack([peak * profile for peak in peaks]).astype(np.float32)
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="the boundary walk cannot see a fold strictly inside the grid",
+)
 def test_a_bump_inside_the_grid_widens_the_region():
     """The reported region has to contain what the field displaces onto.
 
-    The pipeline sizes a region by walking the boundary of the transformed
-    grid, so a displacement that is zero there and large inside left the
-    region covering the grid alone. The peak here carries the grid past its
-    own extent, so that is not enough.
+    A region is sized by walking the boundary of the transformed grid, so a
+    displacement that is zero there and large inside leaves the region
+    covering the grid alone. The peak here carries the grid past its own
+    extent, so that is not enough.
     """
     fixed = _image("yx", {"y": 64, "x": 64}, {"y": 1.0, "x": 1.0}, {"y": 0.0, "x": 0.0})
     moving = _image(
@@ -1137,17 +1141,18 @@ def test_a_fields_chunking_does_not_change_the_region_it_reports():
     assert regions[0].size == regions[1].size
 
 
-def test_the_identity_region_is_the_pipelines():
+def test_the_extent_region_is_the_pipelines():
     """The arithmetic region and the pipeline's agree, field for field.
 
-    The field path derives its region from `_identity_region` rather than a
-    per-block pipeline call, so the two must not drift: randomized geometry,
-    fractional and integer scales and translations, paddings 0 to 3.
+    The field path sizes its region with `_extent_region` rather than a
+    pipeline call, so the two must not drift: a grid's own extent against
+    the identity, over randomized geometry, fractional and integer scales
+    and translations, paddings 0 to 3.
     """
     from ngff_zarr.ngff_transform_to_itk_transform import (
         ngff_transform_to_itk_transform,
     )
-    from ngff_zarr.resample_bounding_box import _identity_region
+    from ngff_zarr.resample_bounding_box import _extent_region, _grid_extent
 
     rng = np.random.default_rng(0)
     for _ in range(25):
@@ -1183,7 +1188,7 @@ def test_the_identity_region_is_the_pipelines():
         identity = ngff_transform_to_itk_transform(Identity(), dims)
 
         pipeline = resample_bounding_box(identity, grid, moving, padding=padding)
-        direct = _identity_region(grid, moving, padding)
+        direct = _extent_region(_grid_extent(grid), moving, padding)
 
         assert direct.dims == pipeline.dims
         assert direct.start_index == pipeline.start_index
@@ -1202,8 +1207,7 @@ def test_the_identity_region_is_the_pipelines():
 def _bump_displacement_transform(itk, extent=64, radius=20, peaks=(60.0, -60.0)):
     """A field that is zero on the grid boundary and peaks in the middle.
 
-    The boundary walk sees only the zero, which is what the interval has to
-    make up for. ``peaks`` are the (y, x) amplitudes; the field's grid is
+    The boundary walk sees only the zero. ``peaks`` are the (y, x) amplitudes; the field's grid is
     unit-spaced at the origin.
     """
     grid_y, grid_x = np.mgrid[0:extent, 0:extent].astype(np.float64)
@@ -1222,75 +1226,16 @@ def _bump_displacement_transform(itk, extent=64, radius=20, peaks=(60.0, -60.0))
     return transform, profile
 
 
-def test_the_stage_interval_reads_the_layouts_itk_writes():
-    """A field interleaves components per point; a B-spline blocks them.
-
-    Pinned against ITK itself: one distinctive value planted per component
-    must come back on its own component, not on a neighbour's. Misreading the
-    layout would produce plausible wrong bounds silently.
-    """
-    itk = pytest.importorskip("itk")
-    from ngff_zarr.resample_bounding_box import _stage_interval
-
-    field = itk.Image[itk.Vector[itk.D, 2], 2].New()
-    field.SetRegions(itk.ImageRegion[2]([4, 3]))
-    field.Allocate()
-    field.FillBuffer(itk.Vector[itk.D, 2]())
-    vector = itk.Vector[itk.D, 2]()
-    vector[0], vector[1] = 7.0, -9.0
-    field.SetPixel([2, 1], vector)
-    warp = itk.DisplacementFieldTransform[itk.D, 2].New()
-    warp.SetDisplacementField(field)
-    (entry,) = _as_itk_transform_list(warp)
-    low, high = _stage_interval(entry, 2)
-    assert (low.tolist(), high.tolist()) == ([0.0, -9.0], [7.0, 0.0])
-
-    spline = itk.BSplineTransform[itk.D, 2, 3].New()
-    mesh = itk.Size[2]()
-    mesh.Fill(3)
-    spline.SetTransformDomainMeshSize(mesh)
-    count = spline.GetNumberOfParameters()
-    parameters = itk.OptimizerParameters[itk.D](count)
-    for index in range(count):
-        parameters.SetElement(index, 0.0)
-    parameters.SetElement(5, 11.0)
-    parameters.SetElement(count // 2 + 5, -13.0)
-    spline.SetParameters(parameters)
-    (entry,) = _as_itk_transform_list(spline)
-    low, high = _stage_interval(entry, 2)
-    assert (low.tolist(), high.tolist()) == ([0.0, -13.0], [11.0, 0.0])
-
-
-def test_an_interior_bump_in_an_itk_field_widens_the_region():
-    """A displacement the grid's boundary does not show still gets covered.
-
-    The walk reported the identity region for this field and resample
-    returned the default value for 64 of 4096 pixels, by up to 93.
-    """
-    itk = pytest.importorskip("itk")
-    warp, profile = _bump_displacement_transform(itk)
-
-    fixed = _image("yx", {"y": 64, "x": 64}, {"y": 1.0, "x": 1.0}, {"y": 0.0, "x": 0.0})
-    moving = _image(
-        "yx", {"y": 256, "x": 256}, {"y": 1.0, "x": 1.0}, {"y": 0.0, "x": 0.0}
-    )
-
-    region = resample_bounding_box(warp, fixed, moving, padding=1)
-
-    grid_y, grid_x = np.mgrid[0:64, 0:64].astype(np.float64)
-    for dim, reached in (
-        ("y", grid_y + 60.0 * profile),
-        ("x", grid_x - 60.0 * profile),
-    ):
-        assert region.start_index[dim] <= float(reached.min())
-        assert region.start_index[dim] + region.size[dim] >= float(reached.max())
-
-
+@pytest.mark.xfail(
+    strict=True,
+    reason="the boundary walk cannot see a fold strictly inside the grid",
+)
 def test_an_interior_bump_resamples_exactly_in_one_block():
     """One output block over the whole grid, against a whole-image call.
 
-    Small blocks hide the miss by accident, their boundaries crossing the
-    bump; one block is the case the walk got wrong.
+    The bump folds the grid strictly inside it, which the boundary walk
+    cannot see. Small blocks hide the miss, their boundaries crossing the
+    bump; one block over the whole grid is the case it gets wrong.
     """
     itk = pytest.importorskip("itk")
     from ngff_zarr import resample
@@ -1338,71 +1283,6 @@ def test_an_interior_bump_resamples_exactly_in_one_block():
         ).data
     ).reshape((64, 64))
     np.testing.assert_array_equal(result, expected)
-
-
-def test_an_affine_around_the_field_folds_its_interval():
-    """A composite of an affine and a field bounds through the affine's signs."""
-    itk = pytest.importorskip("itk")
-    from ngff_zarr.resample_bounding_box import _nonlinear_interval
-
-    warp, _profile = _bump_displacement_transform(itk, peaks=(60.0, -60.0))
-    scaling = itk.AffineTransform[itk.D, 2].New()
-    scaling.Scale(2.0)
-    composite = itk.CompositeTransform[itk.D, 2].New()
-    composite.AddTransform(warp)
-    composite.AddTransform(scaling)  # applied first: entries = [warp? or scaling?]
-
-    entries = _as_itk_transform_list(composite)
-    walked, interval = _nonlinear_interval(entries, 2)
-
-    assert interval is not None
-    low, high = interval
-    # The field is the outermost stage here, so its range passes through no
-    # affine and keeps its own numbers, zero included.
-    assert low.tolist() == [-60.0, 0.0]
-    assert high.tolist() == [0.0, 60.0]
-
-    reordered = _as_itk_transform_list([entries[1], entries[0]])
-    _walked, folded = _nonlinear_interval(reordered, 2)
-    # The affine is outermost now, so the field's range doubles through it.
-    assert folded[0].tolist() == [-120.0, 0.0]
-    assert folded[1].tolist() == [0.0, 120.0]
-
-
-def test_a_lone_bspline_keeps_zero_in_its_range():
-    """A B-spline's lattice cannot prove the grid stays on its domain.
-
-    The control lattice reaches spline-order points beyond the domain of
-    support, so a grid inside the lattice can still land where ITK displaces
-    it by nothing: coefficients all one way must not carry the region off
-    the undisplaced points.
-    """
-    itk = pytest.importorskip("itk")
-
-    spline = itk.BSplineTransform[itk.D, 2, 3].New()
-    mesh = itk.Size[2]()
-    mesh.Fill(3)
-    spline.SetTransformDomainMeshSize(mesh)
-    physical = itk.Vector[itk.D, 2]()
-    physical[0], physical[1] = 32.0, 32.0
-    spline.SetTransformDomainPhysicalDimensions(physical)
-    count = spline.GetNumberOfParameters()
-    parameters = itk.OptimizerParameters[itk.D](count)
-    for index in range(count):
-        parameters.SetElement(index, 10.0)
-    spline.SetParameters(parameters)
-
-    fixed = _image("yx", {"y": 16, "x": 16}, {"y": 1.0, "x": 1.0}, {"y": 8.0, "x": 8.0})
-    moving = _image(
-        "yx", {"y": 64, "x": 64}, {"y": 1.0, "x": 1.0}, {"y": 0.0, "x": 0.0}
-    )
-
-    region = resample_bounding_box(spline, fixed, moving, padding=0)
-
-    for dim in ("y", "x"):
-        # Zero in the range keeps the grid's own undisplaced extent covered.
-        assert region.start_index[dim] <= 8
-        assert region.start_index[dim] + region.size[dim] >= 8 + 15 + 10
 
 
 def _reached_corners(itk, transform, grid):
@@ -1508,6 +1388,11 @@ def test_a_bspline_with_non_trivial_coefficients_is_covered():
     _assert_region_reaches(region, _reached_corners(itk, spline, fixed))
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="the B-spline domain ends inside the grid, where its displacement "
+    "drops to zero; the boundary walk cannot see that edge",
+)
 def test_a_bspline_then_affine_composite_is_covered():
     itk = pytest.importorskip("itk")
     fixed, moving = _reaching_grids()
@@ -1536,8 +1421,8 @@ def test_a_composite_of_several_affines_is_covered_exactly():
 
     reached = _reached_corners(itk, composite, fixed)
     _assert_region_reaches(region, reached)
-    # No displacement stage widens this one, so the region is the reached
-    # extent itself rather than a bound around it.
+    # A linear map sends the boundary to the boundary, so the region is
+    # the reached extent itself rather than a bound around it.
     for dim, (low, high) in reached.items():
         assert region.corners_min[dim] == pytest.approx(low, abs=1e-3)
         assert region.corners_max[dim] == pytest.approx(high, abs=1e-3)
@@ -1555,94 +1440,3 @@ def test_an_affine_then_bspline_composite_is_covered():
     region = resample_bounding_box(composite, fixed, moving, padding=0)
 
     _assert_region_reaches(region, _reached_corners(itk, composite, fixed))
-
-
-def test_an_affine_then_displacement_field_composite_is_covered():
-    itk = pytest.importorskip("itk")
-    fixed, moving = _reaching_grids()
-    warp, _profile = _bump_displacement_transform(itk)
-    composite = _itk_composite(
-        itk, _itk_affine(itk, [[2.0, 0.0], [0.0, 2.0]], [4.0, 4.0]), warp
-    )
-
-    region = resample_bounding_box(composite, fixed, moving, padding=0)
-
-    _assert_region_reaches(region, _reached_corners(itk, composite, fixed))
-
-
-def test_an_affine_bspline_and_field_composite_is_covered():
-    """Two displacement stages of different kinds, one outside the other.
-
-    The interior bump is invisible to the boundary walk, and the B-spline
-    stage sits between it and the affine, so the range has to travel through
-    a stage that is itself non-linear.
-    """
-    itk = pytest.importorskip("itk")
-    fixed, moving = _reaching_grids()
-    warp, _profile = _bump_displacement_transform(itk)
-    composite = _itk_composite(
-        itk,
-        _itk_affine(itk, [[1.2, 0.0], [0.0, 0.8]], [3.0, 1.0]),
-        _varied_bspline(itk),
-        warp,
-    )
-
-    region = resample_bounding_box(composite, fixed, moving, padding=0)
-
-    _assert_region_reaches(region, _reached_corners(itk, composite, fixed))
-
-
-def test_an_affine_and_two_displacement_fields_composite_is_covered():
-    """Two fields in one composition, each bumped where the other is not."""
-    itk = pytest.importorskip("itk")
-    fixed, moving = _reaching_grids()
-    first, _first_profile = _bump_displacement_transform(itk, peaks=(40.0, -20.0))
-    second, _second_profile = _bump_displacement_transform(
-        itk, radius=12, peaks=(-30.0, 50.0)
-    )
-    composite = _itk_composite(
-        itk, _itk_affine(itk, [[1.0, 0.0], [0.0, 1.0]], [2.0, 2.0]), first, second
-    )
-
-    region = resample_bounding_box(composite, fixed, moving, padding=0)
-
-    _assert_region_reaches(region, _reached_corners(itk, composite, fixed))
-
-
-def test_a_composite_range_contains_the_range_its_field_shows():
-    """The bound the split derives holds the displacement ITK measures.
-
-    ``TransformToDisplacementFieldFilter`` collapses the composition into one
-    field, which ``_stage_interval`` reads exactly as it reads a field stage.
-    Comparing the two ranges only means something when the linear part is the
-    identity, so this composition carries no affine, and the test says so.
-    """
-    itk = pytest.importorskip("itk")
-    from ngff_zarr.resample_bounding_box import _nonlinear_interval, _stage_interval
-
-    fixed, _moving = _reaching_grids()
-    warp, _profile = _bump_displacement_transform(itk)
-    composite = _itk_composite(itk, _varied_bspline(itk), warp)
-
-    entries = _as_itk_transform_list(composite)
-    walked, (low, high) = _nonlinear_interval(entries, 2)
-    for entry in walked:
-        assert _stage_interval(entry, 2) is None
-
-    field_type = itk.Image[itk.Vector[itk.F, 2], 2]
-    filt = itk.TransformToDisplacementFieldFilter[field_type, itk.D].New()
-    filt.SetTransform(composite)
-    filt.SetSize([int(fixed.data.shape[1]), int(fixed.data.shape[0])])
-    filt.SetOutputOrigin([fixed.translation["x"], fixed.translation["y"]])
-    filt.SetOutputSpacing([fixed.scale["x"], fixed.scale["y"]])
-    filt.SetOutputDirection(itk.matrix_from_array(np.eye(2)))
-    filt.Update()
-    output = filt.GetOutput()
-    output.DisconnectPipeline()
-    measured = itk.DisplacementFieldTransform[itk.F, 2].New()
-    measured.SetDisplacementField(output)
-    (entry,) = _as_itk_transform_list(measured)
-    measured_low, measured_high = _stage_interval(entry, 2)
-
-    assert np.all(low <= measured_low + 1e-3)
-    assert np.all(high >= measured_high - 1e-3)

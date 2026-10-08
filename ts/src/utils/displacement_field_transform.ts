@@ -719,12 +719,18 @@ export function fieldImage(
 }
 
 /**
+ * How far from a whole field index, in samples, a grid point may compute to
+ * and still count as lying on the sample.
+ */
+const ON_LATTICE = 1e-6;
+
+/**
  * The field indices a grid of `shape` at `translation` reads.
  *
  * The field is evaluated at the grid's own points, so the window is that
  * grid's extent expressed in field indices, whatever the displacement is:
- * what a displacement sizes is the *moving* read, which
- * {@link fieldDisplacementRange} answers.
+ * what a displacement sizes is the *moving* read, which {@link fieldReach}
+ * answers.
  *
  * @param image The field image.
  * @param dims The spatial axis names, in RFC-5 order.
@@ -733,11 +739,10 @@ export function fieldImage(
  * @param shape The grid's extent, in `dims` order.
  * @param margin Lattice points kept beyond the bracketing pair, so that linear
  *   interpolation at a point on the boundary reads the same values it reads
- *   from the whole field.
+ *   from the whole field. Zero keeps the samples that bracket the grid's
+ *   points and no others, which is what a region is sized from.
  * @returns `[start, stop]` per axis, in `dims` order, clamped to the field,
- *   and whether the grid also has points beyond the field, which ITK
- *   displaces by nothing. {@link fieldDisplacementRange} takes the second as
- *   its `outside`.
+ *   and whether the grid also has points beyond the field's lattice.
  */
 export function fieldWindow(
   image: NgffImage,
@@ -751,15 +756,15 @@ export function fieldWindow(
   const window = dims.map((dim, axis) => {
     const extent = image.data.shape[1 + axis];
     if (shape[axis] === 0) return [0, 0] as [number, number];
-    const corners = [0, shape[axis] - 1].map((index) =>
-      (translation[dim] + scale[dim] * index - image.translation[dim]) /
-      image.scale[dim]
-    );
-    if (Math.min(...corners) < 0 || Math.max(...corners) > extent - 1) {
+    const [first, last] = gridSpan(image, dim, translation, scale, shape[axis]);
+    // A grid on the field's own lattice computes to within rounding of whole
+    // indices; without the tolerance each side would pick up a sample the
+    // grid does not read.
+    if (first + ON_LATTICE < 0 || last - ON_LATTICE > extent - 1) {
       outside = true;
     }
-    const low = Math.floor(Math.min(...corners)) - margin;
-    const high = Math.ceil(Math.max(...corners)) + margin + 1;
+    const low = Math.floor(first + ON_LATTICE) - margin;
+    const high = Math.ceil(last - ON_LATTICE) + margin + 1;
     return [
       Math.max(0, Math.min(low, extent)),
       Math.max(0, Math.min(high, extent)),
@@ -768,100 +773,188 @@ export function fieldWindow(
   return { window, outside };
 }
 
+/** The field indices of a grid's first and last sample along `dim`. */
+function gridSpan(
+  image: NgffImage,
+  dim: string,
+  translation: Record<string, number>,
+  scale: Record<string, number>,
+  count: number,
+): [number, number] {
+  const corners = [0, count - 1].map((index) =>
+    (translation[dim] + scale[dim] * index - image.translation[dim]) /
+    image.scale[dim]
+  );
+  return [Math.min(...corners), Math.max(...corners)];
+}
+
 /**
- * The range of displacement a window of the field can produce, per component.
+ * The field samples the boundary of a grid lies between.
+ *
+ * The ITK-Wasm pipeline sizes a region from the boundary of a grid, and this
+ * names the same points in the field: one slab of samples per face of the
+ * grid, one sample thick where the face lies on the field's lattice and two
+ * where it falls between samples.
+ *
+ * @param image The field image.
+ * @param dims The spatial axis names, in RFC-5 order.
+ * @param translation The grid's translation, keyed by dimension.
+ * @param scale The grid's scale, keyed by dimension.
+ * @param shape The grid's extent, in `dims` order.
+ * @returns The slabs, each `[start, stop]` per axis in `dims` order, clamped
+ *   to the field, and whether the grid also has points beyond the field's
+ *   lattice. No slab for a grid that touches no sample.
+ */
+export function fieldBoundary(
+  image: NgffImage,
+  dims: string[],
+  translation: Record<string, number>,
+  scale: Record<string, number>,
+  shape: number[],
+): { slabs: Box[]; outside: boolean } {
+  const { window, outside } = fieldWindow(
+    image,
+    dims,
+    translation,
+    scale,
+    shape,
+    0,
+  );
+  if (window.some(([start, stop]) => stop <= start)) {
+    return { slabs: [], outside };
+  }
+  const slabs: Box[] = [];
+  dims.forEach((dim, axis) => {
+    const extent = image.data.shape[1 + axis];
+    for (const face of gridSpan(image, dim, translation, scale, shape[axis])) {
+      const start = Math.max(0, Math.floor(face + ON_LATTICE));
+      const stop = Math.min(extent, Math.ceil(face - ON_LATTICE) + 1);
+      if (stop <= start) continue;
+      const slab = [...window];
+      slab[axis] = [start, stop];
+      slabs.push(slab);
+    }
+  });
+  return { slabs, outside };
+}
+
+/**
+ * Where a field transform sends the samples a set of windows holds.
  *
  * A field is read through a kernel that is non-negative and sums to one, so a
- * displacement anywhere is a convex combination of the values around it and
- * lies between their smallest and largest. That makes the range a bound on
- * every interpolated displacement, not a sample of one: walking the boundary
- * of a region instead misses a bump the region encloses.
+ * point between samples lands between where the samples around it land. The
+ * box around the landing positions of a window's samples therefore holds the
+ * image of every point the window brackets. Given the slabs
+ * {@link fieldBoundary} names, that is where the boundary of a grid goes,
+ * which is what the ITK-Wasm pipeline sizes a moving read from.
  *
- * The window is read a chunk at a time and only a number per component is
- * kept, so a field larger than memory is bounded without being held.
+ * Each chunk a window crosses is read once and only two positions per axis
+ * are kept, so a field larger than memory is never held.
  *
  * @param transform The `displacements` or `coordinates` transform.
  * @param image The field image, as {@link fieldImage} returns it.
  * @param dims The spatial axis names, in RFC-5 order.
- * @param window `[start, stop]` per axis, as {@link fieldWindow} returns it.
- * @param outside Whether the grid the window came from also has points beyond
- *   the field. ITK displaces those by nothing, so zero belongs in the range as
- *   much as the values do; leaving it out lets a field that displaces every
- *   point it covers one way carry the region away from the points it does not
- *   cover.
- * @returns The smallest and largest displacement per component, ordered like
- *   `dims`. Zero for an empty window, where the field displaces nothing.
+ * @param windows `[start, stop]` per axis for each window, as
+ *   {@link fieldBoundary} returns them.
+ * @returns The smallest and largest landing position per axis, ordered like
+ *   `dims`, in physical coordinates. `undefined` when the windows hold no
+ *   sample.
  */
-export async function fieldDisplacementRange(
+export async function fieldReach(
   transform: Displacements | Coordinates,
   image: NgffImage,
   dims: string[],
-  window: [number, number][],
-  outside = false,
-): Promise<{ low: number[]; high: number[] }> {
+  windows: Box[],
+): Promise<{ low: number[]; high: number[] } | undefined> {
+  windows = windows.filter((window) => overlap(window, window) !== undefined);
+  if (windows.length === 0) return undefined;
+
   const rank = dims.length;
   const low = new Array(rank).fill(Number.POSITIVE_INFINITY);
   const high = new Array(rank).fill(Number.NEGATIVE_INFINITY);
-  const zero = { low: new Array(rank).fill(0), high: new Array(rank).fill(0) };
-  if (window.some(([start, stop]) => stop <= start)) return zero;
-
   const absolute = transform.type === "coordinates";
-  const chunkShape = image.data.chunks ?? image.data.shape;
-  const starts: number[][] = window.map(([begin, end], axis) => {
-    const size = chunkShape[1 + axis];
-    const first = Math.floor(begin / size) * size;
-    const positions: number[] = [];
-    for (let position = first; position < end; position += size) {
-      positions.push(position);
+  const chunkShape = (image.data.chunks ?? image.data.shape).slice(1);
+  const chunkStarts = hull(windows).map(([begin, end], axis) => {
+    const starts: number[] = [];
+    const size = chunkShape[axis];
+    for (
+      let start = Math.floor(begin / size) * size;
+      start < end;
+      start += size
+    ) {
+      starts.push(start);
     }
-    return positions;
+    return starts;
   });
 
-  for (const origin of gridPositions(starts)) {
-    const selection: (zarr.Slice | null)[] = [null];
-    const sizes: number[] = [];
-    origin.forEach((start, axis) => {
-      const stop = Math.min(
-        start + chunkShape[1 + axis],
-        image.data.shape[1 + axis],
-      );
-      selection.push(zarr.slice(start, stop));
-      sizes.push(stop - start);
-    });
-    const chunk = await zarr.get(image.data, selection);
-    const values = chunk.data as ArrayLike<number>;
+  for (const start of gridPositions(chunkStarts)) {
+    const chunk: Box = start.map((begin, axis) => [
+      begin,
+      begin + chunkShape[axis],
+    ]);
+    const parts = windows.map((window) => overlap(window, chunk)).filter((
+      part,
+    ): part is Box => part !== undefined);
+    if (parts.length === 0) continue;
+    // The box around what the windows hold of the chunk is all of it that
+    // is read.
+    const read = hull(parts);
+    const { data } = await zarr.get(image.data, [
+      null,
+      ...read.map(([begin, stop]) => zarr.slice(begin, stop)),
+    ]);
+    const values = data as ArrayLike<number>;
+    const sizes = read.map(([begin, stop]) => stop - begin);
     const count = sizes.reduce((a, b) => a * b, 1);
-    const strides = new Array(rank).fill(1);
-    for (let axis = rank - 2; axis >= 0; axis--) {
-      strides[axis] = strides[axis + 1] * sizes[axis + 1];
-    }
-    for (let component = 0; component < rank; component++) {
-      const offset = component * count;
-      const origin_ = image.translation[dims[component]];
-      const step = image.scale[dims[component]];
-      for (let index = 0; index < count; index++) {
-        let value = values[offset + index];
-        if (absolute) {
-          // A coordinates field holds the output position of each grid point
-          // rather than the offset from it, so the grid point comes off first.
-          const along = Math.floor(index / strides[component]) %
-            sizes[component];
-          value -= origin_ + step * (origin[component] + along);
+    for (const part of parts) {
+      // An odometer over the samples of the part, last axis fastest.
+      const at = part.map(([begin]) => begin);
+      for (;;) {
+        let index = 0;
+        for (let axis = 0; axis < rank; axis++) {
+          index = index * sizes[axis] + at[axis] - read[axis][0];
         }
-        if (value < low[component]) low[component] = value;
-        if (value > high[component]) high[component] = value;
+        for (let component = 0; component < rank; component++) {
+          let value = values[component * count + index];
+          if (!absolute) {
+            // A displacements field holds the offset from each sample rather
+            // than where it lands, so the sample's position goes on first.
+            const dim = dims[component];
+            value += image.translation[dim] + image.scale[dim] * at[component];
+          }
+          low[component] = Math.min(low[component], value);
+          high[component] = Math.max(high[component], value);
+        }
+        let axis = rank - 1;
+        while (axis >= 0 && ++at[axis] === part[axis][1]) {
+          at[axis] = part[axis][0];
+          axis--;
+        }
+        if (axis < 0) break;
       }
     }
   }
-  // A window that reached no value displaces nothing.
-  if (!Number.isFinite(low[0])) return zero;
-  if (outside) {
-    for (let component = 0; component < rank; component++) {
-      low[component] = Math.min(low[component], 0);
-      high[component] = Math.max(high[component], 0);
-    }
-  }
   return { low, high };
+}
+
+/** `[start, stop]` per axis. */
+type Box = [number, number][];
+
+/** The box around `boxes`. */
+function hull(boxes: Box[]): Box {
+  return boxes[0].map((_, axis) => [
+    Math.min(...boxes.map((box) => box[axis][0])),
+    Math.max(...boxes.map((box) => box[axis][1])),
+  ]);
+}
+
+/** What `a` and `b` share, or `undefined` when they share no sample. */
+function overlap(a: Box, b: Box): Box | undefined {
+  const shared: Box = a.map(([start, stop], axis) => [
+    Math.max(start, b[axis][0]),
+    Math.min(stop, b[axis][1]),
+  ]);
+  return shared.every(([start, stop]) => stop > start) ? shared : undefined;
 }
 
 function* gridPositions(starts: number[][]): Generator<number[]> {

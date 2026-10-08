@@ -608,3 +608,128 @@ def test_a_displacements_transformation_needs_its_field():
 
     with pytest.raises(ValueError, match="no field was passed"):
         resample(Displacements(path="warp"), fixed, moving)
+
+
+def _field_transform(shape, origin=(0.0, 0.0), spacing=(1.0, 1.0), flipped=False):
+    """An ``itk.DisplacementFieldTransform`` over a ``(y, x)`` lattice.
+
+    The field varies smoothly and by less than a pixel per pixel, so it does
+    not fold. ``origin`` and ``spacing`` are in ITK order, ``(x, y)``.
+    """
+    grid_y, grid_x = np.mgrid[0 : shape[0], 0 : shape[1]].astype(np.float64)
+    field = itk.Image[itk.Vector[itk.D, 2], 2].New()
+    field.SetRegions(itk.ImageRegion[2]([shape[1], shape[0]]))
+    field.SetOrigin(list(origin))
+    field.SetSpacing(list(spacing))
+    if flipped:
+        field.SetDirection(itk.matrix_from_array(np.diag([-1.0, 1.0])))
+    field.Allocate()
+    view = itk.array_view_from_image(field)
+    view[..., 0] = 3.0 * np.sin(grid_y / 5.0)
+    view[..., 1] = 2.0 * np.cos(grid_x / 7.0)
+    transform = itk.DisplacementFieldTransform[itk.D, 2].New()
+    transform.SetDisplacementField(field)
+    return transform
+
+
+def _affine(matrix, offset):
+    transform = itk.AffineTransform[itk.D, 2].New()
+    transform.SetMatrix(itk.matrix_from_array(np.asarray(matrix, dtype=float)))
+    transform.SetOffset(list(offset))
+    return transform
+
+
+def _composite(*transforms):
+    composite = itk.CompositeTransform[itk.D, 2].New()
+    for transform in transforms:
+        composite.AddTransform(transform)
+    return composite
+
+
+_ITK_FIELD_CASES = {
+    "a lone field": lambda: _field_transform((64, 64)),
+    "a field applied after an affine": lambda: _composite(
+        _field_transform((64, 64)), _affine([[1.0, 0.1], [0.0, 0.9]], [2.5, -1.0])
+    ),
+    "a field applied before an affine": lambda: _composite(
+        _affine([[1.0, 0.1], [0.0, 0.9]], [2.5, -1.0]), _field_transform((64, 64))
+    ),
+    "two fields": lambda: _composite(
+        _field_transform((64, 64)), _field_transform((40, 48), origin=(8.0, 4.0))
+    ),
+    "a field smaller than the grid": lambda: _field_transform(
+        (20, 24), origin=(12.25, 20.5), spacing=(1.5, 0.75)
+    ),
+    "a field whose lattice is flipped": lambda: _field_transform(
+        (64, 64), origin=(63.0, 0.0), flipped=True
+    ),
+}
+
+
+@pytest.mark.parametrize("case", _ITK_FIELD_CASES)
+def test_an_itk_displacement_field_resamples_exactly_block_wise(case):
+    """Each block hands ITK its own window of the field, and no pixel moves."""
+    transform = _ITK_FIELD_CASES[case]()
+    moving = _image("yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+    fixed = _image(
+        "yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 0, "x": 0}, chunks=(16, 16)
+    )
+
+    result = resample(transform, fixed, moving)
+
+    expected = _whole_image_reference(transform, fixed, moving)
+    np.testing.assert_array_equal(np.asarray(result.data), expected)
+
+
+def _block_image(start, shape):
+    """A geometry-only ITK-Wasm image for a unit-spaced ``(y, x)`` block."""
+    from ngff_zarr.resample_bounding_box import _metadata_only_itk_image
+
+    block = NgffImage(
+        data=da.zeros(shape, chunks=shape, dtype=np.uint8),
+        dims=("y", "x"),
+        scale={"y": 1.0, "x": 1.0},
+        translation={"y": float(start[0]), "x": float(start[1])},
+    )
+    return _metadata_only_itk_image(block, ["x", "y"], np.eye(2))
+
+
+def test_a_block_takes_only_its_window_of_an_itk_field():
+    """The pipeline copies its transform on every call, so a block's is cut."""
+    from itkwasm_downsample import resample_bounding_box as pipeline
+    from ngff_zarr.resample_bounding_box import (
+        _as_itk_transform_list,
+        _windowed_fields,
+    )
+
+    whole = _as_itk_transform_list(_field_transform((256, 256)))
+    block = _block_image((64, 128), (16, 16))
+
+    (windowed,) = _windowed_fields(whole, block)
+
+    assert whole[0].numberOfParameters == 2 * 256 * 256
+    # Sixteen samples, the three pixels the field displaces them by at most,
+    # and the sample linear interpolation reads on either side.
+    assert windowed.numberOfParameters <= 2 * 24 * 24
+    assert len(windowed.parameters) == windowed.numberOfParameters
+
+    moving = _block_image((0, 0), (256, 256))
+    cut = pipeline([windowed], block, moving, padding=1)
+    uncut = pipeline(whole, block, moving, padding=1)
+    assert list(cut["paddedStartIndex"]) == list(uncut["paddedStartIndex"])
+    assert list(cut["paddedSize"]) == list(uncut["paddedSize"])
+
+
+def test_a_block_that_misses_an_itk_field_takes_the_identity():
+    """ITK displaces nothing beyond a field's lattice."""
+    from ngff_zarr.itk_transform_to_ngff_transform import _parameterization_name
+    from ngff_zarr.resample_bounding_box import (
+        _as_itk_transform_list,
+        _windowed_fields,
+    )
+
+    whole = _as_itk_transform_list(_field_transform((32, 32)))
+
+    (windowed,) = _windowed_fields(whole, _block_image((100, 100), (16, 16)))
+
+    assert _parameterization_name(windowed.transformType) == "Affine"

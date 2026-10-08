@@ -113,60 +113,6 @@ class ResampleBoundingBox:
         )
 
 
-def _grown(
-    region: "ResampleBoundingBox",
-    bound: Mapping[str, tuple[float, float]],
-    moving: NgffImage,
-    index_bound: Mapping[str, tuple[float, float]] | None = None,
-) -> "ResampleBoundingBox":
-    """``region`` moved and widened by a per-axis displacement range.
-
-    The pipeline walks the boundary of the transformed grid, which reports
-    where a *linear* map sends the grid exactly and misses whatever a
-    displacement does strictly inside it. A point ``p`` of the region reaches
-    ``p + d`` with ``d`` in ``bound``, so the region's image lies between the
-    two ends of that range: a field that shifts every point the same way moves
-    the region, and only what varies widens it.
-    """
-    start = dict(region.start_index)
-    size = dict(region.size)
-    corners_min = dict(region.corners_min)
-    corners_max = dict(region.corners_max)
-    padded_min = dict(region.padded_corners_min)
-    padded_max = dict(region.padded_corners_max)
-    for dim in region.dims:
-        low, high = bound.get(dim, (0.0, 0.0))
-        # The corners live in world space; the start and size are indices,
-        # which an oriented moving image reaches through its direction. The
-        # two coincide unless a caller passes the index mapping separately.
-        index_low, index_high = (index_bound or bound).get(dim, (0.0, 0.0))
-        if low == high == 0.0 and index_low == index_high == 0.0:
-            continue
-        scale = float(moving.scale[dim])
-        first = math.floor(min(index_low / scale, index_high / scale))
-        last = math.ceil(max(index_low / scale, index_high / scale))
-        start[dim] += first
-        size[dim] += last - first
-        # The reported corners hold a first and a last index position, which
-        # swap when an axis direction is negative; move the span either way.
-        for begin, stop in ((corners_min, corners_max), (padded_min, padded_max)):
-            if begin[dim] <= stop[dim]:
-                begin[dim] += low
-                stop[dim] += high
-            else:
-                begin[dim] += high
-                stop[dim] += low
-    return replace(
-        region,
-        start_index=start,
-        size=size,
-        corners_min=corners_min,
-        corners_max=corners_max,
-        padded_corners_min=padded_min,
-        padded_corners_max=padded_max,
-    )
-
-
 def _spatial_dims(ngff_image: NgffImage) -> list[str]:
     return [dim for dim in ngff_image.dims if dim in _SPATIAL_DIMS]
 
@@ -445,253 +391,28 @@ def _transform_from_dict(entry: dict):
     return ItkTransform(**entry)
 
 
-#: Parameterizations whose displacement is values read through a kernel that
-#: is non-negative and sums to one: linear interpolation over the field's
-#: vectors, the cubic B-spline basis over its coefficients. The displacement
-#: anywhere is then a convex combination of those numbers and lies between
-#: their smallest and largest, and it is zero beyond the transform's own
-#: domain, where ITK returns the point unchanged.
-#:
-#: The parameter layouts differ and are pinned by
-#: ``test_the_stage_interval_reads_the_layouts_itk_writes``: a field
-#: interleaves components per point, a B-spline blocks them per component.
-_INTERVAL_PARAMETERIZATIONS = {
-    "DisplacementField": lambda values, dimension: values.reshape(-1, dimension),
-    "BSpline": lambda values, dimension: values.reshape(dimension, -1).T,
-}
-
-#: Parameterizations that evaluate ``y = s R x + b`` with ``R`` orthonormal
-#: and ``s = 1``. Each row of ``R`` has unit norm, so a component of ``R r``
-#: is bounded by the Euclidean norm of ``r``: the ball an interval folds into
-#: when the exact matrix is not worth decoding.
-_ORTHONORMAL_PARAMETERIZATIONS = frozenset(
-    {
-        "Euler2D",
-        "Euler3D",
-        "Rigid2D",
-        "Rigid3D",
-        "Versor",
-        "VersorRigid3D",
-        "QuaternionRigid",
-    }
-)
-
-
-def _stage_interval(entry, dimension: int):
-    """One list entry's displacement range, or ``None`` for the rest.
-
-    :return: ``(low, high)`` per physical component, or ``None`` when the
-        entry is not one of the two interval parameterizations. Whether zero
-        joins the range is the caller's question: it depends on whether the
-        grid can leave the stage's domain, where ITK returns the point
-        unchanged.
-    """
-    from .itk_transform_to_ngff_transform import _parameterization_name
-
-    arrange = _INTERVAL_PARAMETERIZATIONS.get(
-        _parameterization_name(entry.transformType)
-    )
-    if arrange is None or entry.parameters is None:
-        return None
-    values = np.asarray(entry.parameters, dtype=float)
-    if values.size == 0 or values.size % dimension:
-        return None
-    per_point = arrange(values, dimension)
-    return per_point.min(axis=0), per_point.max(axis=0)
-
-
-def _box_inside_field_domain(entry, dimension: int, grid_box) -> bool:
-    """Whether ``grid_box`` stays on the field's own lattice.
-
-    A ``DisplacementField``'s fixed parameters carry its grid: size, origin,
-    spacing, then the direction, row-major, the layout
-    :func:`~ngff_zarr.ngff_displacement_field_to_itk_transform` writes and ITK
-    reads. A point past the lattice is displaced by nothing, so a grid that
-    leaves it takes zero into its range; one that stays inside keeps the
-    values' own range, which is what makes a constant field an exact shift.
-    Anything not answerable exactly, a rotated field grid included, answers
-    ``False``, which only widens. A ``BSpline`` never answers ``True``: its
-    control lattice reaches spline-order points beyond its domain of support,
-    so lying inside the lattice proves nothing about staying on the domain.
-    """
-    from .itk_transform_to_ngff_transform import _parameterization_name
-
-    if _parameterization_name(entry.transformType) != "DisplacementField":
-        return False
-    fixed = np.asarray(
-        [] if entry.fixedParameters is None else entry.fixedParameters, dtype=float
-    )
-    if fixed.size != 3 * dimension + dimension * dimension:
-        return False
-    size = fixed[:dimension]
-    origin = fixed[dimension : 2 * dimension]
-    spacing = fixed[2 * dimension : 3 * dimension]
-    direction = fixed[3 * dimension :].reshape(dimension, dimension)
-    if not np.allclose(direction, np.eye(dimension)) or np.any(spacing <= 0):
-        return False
-    low, high = grid_box
-    for component in range(dimension):
-        first = (low[component] - origin[component]) / spacing[component]
-        last = (high[component] - origin[component]) / spacing[component]
-        if min(first, last) < 0 or max(first, last) > size[component] - 1:
-            return False
-    return True
-
-
-def _accumulated_interval(entries, intervals, dimension: int, contained: bool):
-    """The range the displacement stages of ``entries`` can add, or ``None``.
-
-    ITK applies the last entry of a list first, so the walk runs from the
-    last entry outward, carrying what the stages seen so far can add. A
-    displacement stage adds its own range, since the linear list this widens
-    replaced that stage by the identity; an affine stage maps the range
-    through the signs of its matrix; an orthonormal stage bounds every
-    component by the range's Euclidean reach. Any other stage returns
-    ``None``, and the caller keeps the boundary walk.
-
-    Accumulating outward rather than folding each stage separately is what
-    lets a displacement stage sit outside another one: the range reaching it
-    is carried through, and its own range joins on top.
-
-    :param intervals: One :func:`_stage_interval` per entry, so a field's
-        parameters are scanned once for the whole list.
-    """
-    from .itk_transform_to_ngff_transform import (
-        _matrix_offset_from_itkwasm,
-        _parameterization_name,
-    )
-
-    low = np.zeros(dimension)
-    high = np.zeros(dimension)
-    for entry, interval in zip(reversed(entries), reversed(intervals)):
-        if interval is not None:
-            if not contained:
-                # ITK displaces a point beyond a stage's domain by nothing.
-                interval = (np.minimum(interval[0], 0.0), np.maximum(interval[1], 0.0))
-            low = low + interval[0]
-            high = high + interval[1]
-            continue
-        name = _parameterization_name(entry.transformType)
-        matrix = None
-        try:
-            decoded = _matrix_offset_from_itkwasm(entry, dimension)
-            if decoded is not None:
-                matrix = decoded[0]
-        except Exception:
-            matrix = None
-        if matrix is not None:
-            ends = matrix[:, None, :] * np.stack([low, high])[None, :, :]
-            low = ends.min(axis=1).sum(axis=1)
-            high = ends.max(axis=1).sum(axis=1)
-        elif name in _ORTHONORMAL_PARAMETERIZATIONS:
-            reach = float(np.linalg.norm(np.maximum(np.abs(low), np.abs(high))))
-            low = np.full(dimension, -reach)
-            high = np.full(dimension, reach)
-        else:
-            return None
-    return low, high
-
-
-def _nonlinear_interval(entries, dimension: int, grid_box=None):
-    """Split a transform list into its linear part and a displacement range.
-
-    :param grid_box: ``(low, high)`` per physical component of the fixed
-        grid, when the caller knows it. A lone ``DisplacementField`` whose
-        lattice contains the box keeps the values' own range; in every other
-        case zero joins the range, since ITK displaces a point beyond a
-        stage's domain by nothing.
-    :return: ``(affine_entries, (low, high))`` when every stage could be
-        carried: the entries with the displacement stages replaced by the
-        identity, whose boundary walk the pipeline reports exactly, and the
-        range to widen its region by. ``(entries, None)`` otherwise, and the
-        caller's boundary walk stands, with the miss its docstring names.
-    """
-    intervals = [_stage_interval(entry, dimension) for entry in entries]
-    indices = [
-        index for index, interval in enumerate(intervals) if interval is not None
-    ]
-    if not indices:
-        return entries, None
-    contained = (
-        len(entries) == 1
-        and grid_box is not None
-        and _box_inside_field_domain(entries[0], dimension, grid_box)
-    )
-    accumulated = _accumulated_interval(entries, intervals, dimension, contained)
-    if accumulated is None:
-        return entries, None
-    replaced = list(entries)
-    identity = _identity_transform_list(("z", "y", "x")[-dimension:])[0]
-    for index in indices:
-        replaced[index] = identity
-    return replaced, accumulated
-
-
-def _grid_physical_box(grid: NgffImage, itk_dims):
-    """The grid's physical extent per component, direction included.
-
-    The directions RFC-4 orientations produce are signed permutations, so
-    each physical component follows exactly one grid axis and the box is the
-    per-axis pair of endpoint positions. ``None`` for any other direction.
-    """
-    direction = _itk_direction(grid, itk_dims)
-    dims = tuple(grid.dims)
-    origin = np.array([float(grid.translation[dim]) for dim in itk_dims])
-    low = origin.copy()
-    high = origin.copy()
-    for axis, dim in enumerate(itk_dims):
-        column = direction[:, axis]
-        component = int(np.argmax(np.abs(column)))
-        if not np.isclose(abs(column[component]), 1.0) or np.count_nonzero(column) != 1:
-            return None
-        reach = (
-            column[component]
-            * (int(grid.data.shape[dims.index(dim)]) - 1)
-            * float(grid.scale[dim])
-        )
-        low[component] += min(reach, 0.0)
-        high[component] += max(reach, 0.0)
-    return low, high
-
-
-def _direction_bounds(interval, itk_dims, direction):
-    """The physical range as the two per-dimension mappings ``_grown`` takes.
-
-    The corners the region reports are physical positions keyed by dimension
-    name, so component ``j`` widens the dimension named ``itk_dims[j]``. The
-    start and size are indices, and an index moves through the direction's
-    transpose: with the signed permutations RFC-4 orientations produce, axis
-    ``k`` follows the one component its column names, sign included.
-    """
-    low, high = interval
-    corners = {dim: (float(low[j]), float(high[j])) for j, dim in enumerate(itk_dims)}
-    indices = {}
-    for k, dim in enumerate(itk_dims):
-        j = int(np.argmax(np.abs(direction[:, k])))
-        sign = float(np.sign(direction[j, k])) or 1.0
-        ends = (sign * low[j], sign * high[j])
-        indices[dim] = (min(ends), max(ends))
-    return corners, indices
-
-
-def _identity_region(
-    grid: NgffImage, moving: NgffImage, padding: int
-) -> "ResampleBoundingBox":
-    """The region the pipeline reports for the identity, computed directly.
-
-    A field transform's linear part is the identity, so its ungrown region is
-    plain arithmetic: the grid's own physical extent, read off in the moving
-    image's index space, floored and ceiled, padded. Equality with the
-    pipeline is pinned by ``test_the_identity_region_is_the_pipelines`` over
-    randomized geometry. Only :func:`~ngff_zarr.resample`'s per-block loop
-    uses it, where the pipeline round trip measured as three quarters of the
-    graph build; :func:`resample_bounding_box` itself stays on the pipeline.
-
-    ``grid`` must have at least one sample per spatial axis, which
-    :func:`resample_bounding_box` establishes before reaching a transform.
-    """
-    spatial = _spatial_dims(grid)
+def _grid_extent(grid: NgffImage) -> dict[str, tuple[float, float]]:
+    """The physical positions of a grid's first and last sample, per axis."""
     grid_dims = tuple(grid.dims)
+    extent = {}
+    for dim in _spatial_dims(grid):
+        first = float(grid.translation[dim])
+        last = first + (int(grid.data.shape[grid_dims.index(dim)]) - 1) * float(
+            grid.scale[dim]
+        )
+        extent[dim] = (min(first, last), max(first, last))
+    return extent
+
+
+def _extent_region(
+    extent: Mapping[str, tuple[float, float]], moving: NgffImage, padding: int
+) -> "ResampleBoundingBox":
+    """The region of ``moving`` that holds a physical ``extent``.
+
+    The arithmetic the pipeline applies to the points it walks: the extent in
+    the moving image's index space, floored and ceiled, padded. Equality with
+    the pipeline is pinned by ``test_the_extent_region_is_the_pipelines``.
+    """
     moving_dims = tuple(moving.dims)
     start_index = {}
     size = {}
@@ -699,25 +420,22 @@ def _identity_region(
     corners_max = {}
     padded_min = {}
     padded_max = {}
-    for dim in spatial:
-        extent = int(grid.data.shape[grid_dims.index(dim)])
-        first = float(grid.translation[dim])
-        last = first + (extent - 1) * float(grid.scale[dim])
+    for dim, (first, last) in extent.items():
         scale = float(moving.scale[dim])
         translation = float(moving.translation[dim])
-        low = (min(first, last) - translation) / scale
-        high = (max(first, last) - translation) / scale
+        low = (first - translation) / scale
+        high = (last - translation) / scale
         low, high = min(low, high), max(low, high)
         start = math.floor(low) - padding
         count = math.ceil(high) + padding - start + 1
         start_index[dim] = start
         size[dim] = count
-        corners_min[dim] = min(first, last)
-        corners_max[dim] = max(first, last)
+        corners_min[dim] = first
+        corners_max[dim] = last
         padded_min[dim] = translation + start * scale
         padded_max[dim] = translation + (start + count - 1) * scale
     return ResampleBoundingBox(
-        dims=tuple(spatial),
+        dims=tuple(extent),
         start_index=start_index,
         size=size,
         corners_min=corners_min,
@@ -725,42 +443,82 @@ def _identity_region(
         padded_corners_min=padded_min,
         padded_corners_max=padded_max,
         moving_shape={
-            dim: int(moving.data.shape[moving_dims.index(dim)]) for dim in spatial
+            dim: int(moving.data.shape[moving_dims.index(dim)]) for dim in extent
         },
     )
 
 
-def _field_stream(
+def _field_regions(
     transform,
-    fields: Mapping[str, object] | None,
-    fixed: NgffImage,
-    spatial: Sequence[str],
-    extent: Mapping[str, int],
-):
-    """The field a field transform names, its per-chunk range, and its window.
+    field: NgffImage,
+    grids: Mapping,
+    moving: NgffImage,
+    padding: int,
+) -> dict:
+    """The region a field transform makes each of ``grids`` read.
 
-    A ``displacements`` or ``coordinates`` transform is the identity plus a
-    displacement, so a region is the grid's own image moved and widened by
-    what the field can displace there. The range comes from the field's
-    values, read one chunk at a time and kept as two numbers per chunk, so a
-    field larger than memory is bounded without being held.
+    The walk the pipeline makes over the boundary of a grid, read off the
+    field samples that boundary lies between, in one pass over the field for
+    all the grids. A grid that touches no sample reads its own extent. One
+    that also has points beyond the field's lattice reads half a sample
+    further and its own extent as well: ITK displaces a point up to half a
+    sample beyond the lattice by what the nearest sample holds, and any
+    further point by nothing.
+    """
+    from .displacement_field_transform import field_boundary, field_reach
 
-    The field comes back carrying the axis type its component axis has, which
-    a field read from a multiscales keeps in the metadata rather than on the
-    image, so a crop of it is typed without consulting the transform again.
+    spatial = tuple(field.dims[1:])
+    boundaries = {
+        key: field_boundary(
+            field,
+            spatial,
+            grid.translation,
+            grid.scale,
+            [grid.data.shape[grid.dims.index(dim)] for dim in spatial],
+        )
+        for key, grid in grids.items()
+    }
+    reach = field_reach(
+        transform,
+        field,
+        spatial,
+        {key: slabs for key, (slabs, _outside) in boundaries.items()},
+    )
+    regions = {}
+    for key, grid in grids.items():
+        extent = _grid_extent(grid)
+        if key in reach:
+            outside = boundaries[key][1]
+            for dim, (first, last) in extent.items():
+                low, high = reach[key][dim]
+                if outside:
+                    half = abs(float(field.scale[dim])) / 2
+                    low = min(first, low - half)
+                    high = max(last, high + half)
+                extent[dim] = (low, high)
+        regions[key] = _extent_region(extent, moving, padding)
+    return regions
+
+
+def _typed_field(
+    transform, fields: Mapping[str, object] | None, spatial: Sequence[str]
+) -> NgffImage:
+    """The field a field transform names, carrying its component axis type.
+
+    A field read from a multiscales keeps that type in the metadata rather
+    than on the image, so it is set here and a crop of the field is typed
+    without consulting the transform again.
     """
     from .displacement_field_transform import (
         _fields_entry,
         check_unoriented_field,
-        field_displacement_bound,
         field_image,
-        field_window,
     )
 
     spatial = tuple(spatial)
     field = field_image(transform, _fields_entry(transform, fields), spatial)
     check_unoriented_field(field, spatial)
-    field = replace(
+    return replace(
         field,
         axes_types={
             **(field.axes_types or {}),
@@ -769,15 +527,6 @@ def _field_stream(
             ),
         },
     )
-    window, outside = field_window(
-        field,
-        spatial,
-        fixed.translation,
-        fixed.scale,
-        [extent[dim] for dim in spatial],
-    )
-    bound = field_displacement_bound(transform, field, spatial, window)
-    return field, bound, window, outside
 
 
 def _identity_transform_list(dims: Sequence[str]) -> list:
@@ -785,6 +534,90 @@ def _identity_transform_list(dims: Sequence[str]) -> list:
     from .v06.zarr_metadata import Identity
 
     return ngff_transform_to_itk_transform(Identity(), dims)
+
+
+def _windowed_fields(transform_list: list, grid) -> list:
+    """``transform_list`` with each displacement field cut to what ``grid`` reads.
+
+    The pipeline copies a transform's parameters into WebAssembly on every
+    call, and the parameters of a ``DisplacementField`` stage are the whole
+    field. A grid reads only the part of the field its points land in, so
+    each such stage is cut to that window first: the region the stages
+    applied before the field send the grid to, in the field's own index
+    space, with one sample of margin on every side. ITK applies the last
+    entry of a list first, so those stages are the entries after the field.
+    ITK displaces nothing beyond a field's lattice, so a grid that misses
+    the field takes the identity in its place.
+
+    :param grid: The grid as a metadata-only ITK-Wasm image.
+    """
+    from itkwasm import Image
+    from itkwasm_downsample import resample_bounding_box as itkwasm_bounding_box
+
+    from .itk_transform_to_ngff_transform import _parameterization_name
+
+    dimension = grid.imageType.dimension
+    axes = ("x", "y", "z")[:dimension]
+    identity = _identity_transform_list(axes[::-1])
+    windowed = list(transform_list)
+    # Innermost first: a field's window depends on the stages after it, and
+    # those are walked as already cut.
+    for position in reversed(range(len(windowed))):
+        entry = windowed[position]
+        if _parameterization_name(entry.transformType) != "DisplacementField":
+            continue
+        lattice = np.asarray(
+            [] if entry.fixedParameters is None else entry.fixedParameters,
+            dtype=float,
+        )
+        if entry.parameters is None or lattice.size != dimension * (3 + dimension):
+            continue
+        size = lattice[:dimension].astype(int)
+        origin = lattice[dimension : 2 * dimension]
+        spacing = lattice[2 * dimension : 3 * dimension]
+        direction = lattice[3 * dimension :].reshape(dimension, dimension)
+        result = itkwasm_bounding_box(
+            windowed[position + 1 :] or identity,
+            grid,
+            Image(
+                imageType=grid.imageType,
+                origin=origin.tolist(),
+                spacing=spacing.tolist(),
+                direction=direction,
+                size=size.tolist(),
+                metadata={},
+                data=np.empty((0,), dtype=np.uint8),
+            ),
+            padding=1,
+        )
+        _check_index_arrays(result, axes)
+        first = np.asarray(result["paddedStartIndex"], dtype=int)
+        start = np.clip(first, 0, size)
+        stop = np.clip(first + np.asarray(result["paddedSize"], dtype=int), 0, size)
+        if np.any(stop <= start):
+            windowed[position] = identity[0]
+            continue
+        if np.all(start == 0) and np.all(stop == size):
+            continue
+        # The parameters are one vector per lattice point, x fastest.
+        values = np.asarray(entry.parameters).reshape(*size[::-1], dimension)
+        window = values[
+            tuple(slice(*bounds) for bounds in zip(start[::-1], stop[::-1]))
+        ]
+        windowed[position] = replace(
+            entry,
+            numberOfParameters=window.size,
+            parameters=np.ascontiguousarray(window).reshape(-1),
+            fixedParameters=np.concatenate(
+                [
+                    stop - start,
+                    origin + direction @ (start * spacing),
+                    spacing,
+                    lattice[3 * dimension :],
+                ]
+            ),
+        )
+    return windowed
 
 
 def resample_bounding_box(
@@ -824,22 +657,21 @@ def resample_bounding_box(
     or a ``displacements`` or ``coordinates`` transformation whose field is
     passed in ``fields``.
 
-    A field transform is the identity plus a displacement, and the region it
-    reports is the grid's own image moved and widened by the range that
-    displacement takes. The range is read from the field one chunk at a time,
-    so a field larger than memory is never held; a field that shifts every
-    point the same way moves the region rather than widening it.
+    A field transform holds where each sample of its lattice goes, so its
+    region is the same boundary walk, read off the samples the boundary of
+    the grid lies between rather than made by the pipeline. It reports what
+    the pipeline reports for the field as an ITK transform, with the limits
+    named below, and the field is read one chunk at a time, so a field
+    larger than memory is never held.
 
-    An ITK transform is measured by walking the boundary of the transformed
-    grid, which reports a linear map exactly. A ``DisplacementField`` or
-    ``BSpline`` stage would be missed where it acts strictly inside the grid,
-    so such a stage is bounded the way a field is: the walk measures the list
-    with those stages replaced by the identity, and the range their values
-    can add, carried through the stages applied after them, widens the
-    result. A stage sitting outside another one carries the range reaching
-    it and adds its own on top, so several of them compose. Other non-linear
-    parameterizations, the velocity fields among them, still rely on the
-    walk alone and can under-report a strictly interior excursion.
+    An ITK transform is measured by walking every boundary pixel of the
+    grid through it. A transform that is continuous and does not fold
+    keeps the inside of the grid inside the image of its boundary, so the
+    walk reports it exactly, linear or not. Two things inside the grid
+    escape it: a fold, where the transform turns the grid over on itself,
+    and the edge of a displacement stage's domain, past which ITK
+    displaces nothing. Registration results rarely do either; a fixed grid
+    that reaches past a B-spline's domain is the one to watch for.
 
     In both cases the transform maps *fixed* points into *moving* space.
 
@@ -931,43 +763,26 @@ def resample_bounding_box(
             moving_shape=moving_shape,
         )
 
-    field_bound = None
-    field_index_bound = None
     if _is_ngff_transform(transform):
         if isinstance(transform, (Coordinates, Displacements)):
-            # A field transform is the identity plus a displacement: the
-            # pipeline measures the identity, and the displacement widens the
-            # result through the range read off the field.
-            _field, bound, window, outside = _field_stream(
-                transform, fields, fixed, fixed_spatial, fixed_extent
-            )
-            field_bound = bound.over(window, outside)
-            transform_list = _identity_transform_list(fixed.dims)
-        else:
-            transform_list = ngff_transform_to_itk_transform(
-                transform, fixed.dims, fields=fields
-            )
+            field = _typed_field(transform, fields, fixed_spatial)
+            return _field_regions(transform, field, {None: fixed}, moving, padding)[
+                None
+            ]
+        transform_list = ngff_transform_to_itk_transform(
+            transform, fixed.dims, fields=fields
+        )
         # An RFC-5 transformation is defined on the intrinsic coordinate
         # system, which carries no direction matrix.
         fixed_direction = np.eye(len(itk_dims))
         moving_direction = np.eye(len(itk_dims))
     else:
-        transform_list = _as_itk_transform_list(transform)
         fixed_direction = _itk_direction(fixed, itk_dims)
         moving_direction = _itk_direction(moving, itk_dims)
-        walked, interval = _nonlinear_interval(
-            transform_list, len(itk_dims), _grid_physical_box(fixed, itk_dims)
+        transform_list = _windowed_fields(
+            _as_itk_transform_list(transform),
+            _metadata_only_itk_image(fixed, itk_dims, fixed_direction),
         )
-        if interval is not None:
-            # The pipeline walks the boundary, which reports a linear map
-            # exactly and misses what a displacement does strictly inside the
-            # grid. The walk therefore measures the list with its
-            # displacement stages replaced by the identity, and the range
-            # those stages can add widens the result.
-            transform_list = walked
-            corners, indices = _direction_bounds(interval, itk_dims, moving_direction)
-            field_bound = corners
-            field_index_bound = indices
 
     result = itkwasm_bounding_box(
         transform_list,
@@ -986,7 +801,7 @@ def resample_bounding_box(
         indexed = dict(zip(itk_dims, values))
         return {dim: indexed[dim] for dim in fixed_spatial}
 
-    region = ResampleBoundingBox(
+    return ResampleBoundingBox(
         dims=tuple(fixed_spatial),
         start_index={k: int(v) for k, v in by_dim(result["paddedStartIndex"]).items()},
         size={k: int(v) for k, v in by_dim(result["paddedSize"]).items()},
@@ -1000,6 +815,3 @@ def resample_bounding_box(
         },
         moving_shape=moving_shape,
     )
-    if field_bound is None:
-        return region
-    return _grown(region, field_bound, moving, field_index_bound)
