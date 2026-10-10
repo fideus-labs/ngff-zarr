@@ -458,27 +458,31 @@ def _field_regions(
 ) -> dict:
     """The region a field transform makes each of ``grids`` read.
 
-    The walk the pipeline makes over the boundary of a grid, read off the
-    field samples that boundary lies between, in one pass over the field for
-    all the grids. A grid that touches no sample reads its own extent. One
-    that also has points beyond the field's lattice reads half a sample
-    further and its own extent as well: ITK displaces a point up to half a
-    sample beyond the lattice by what the nearest sample holds, and any
-    further point by nothing.
+    The box of the landing points of the samples the grid lies between, in
+    one pass over the field for all the grids. A point lands inside the hull
+    of the landing points of the samples around it, so the box holds every
+    point of the grid; it is the exact region when the field is at the grid's
+    resolution. A grid that touches no sample reads its own extent. One that
+    also has points beyond the field's lattice reads half a sample further and
+    its own extent as well: ITK displaces a point up to half a sample beyond
+    the lattice by what the nearest sample holds, and any further point by
+    nothing.
     """
-    from .displacement_field_transform import field_boundary, field_reach
+    from .displacement_field_transform import field_reach, field_window
 
     spatial = tuple(field.dims[1:])
-    boundaries = {
-        key: field_boundary(
+    boundaries = {}
+    for key, grid in grids.items():
+        window, outside = field_window(
             field,
             spatial,
             grid.translation,
             grid.scale,
             [grid.data.shape[grid.dims.index(dim)] for dim in spatial],
+            margin=0,
         )
-        for key, grid in grids.items()
-    }
+        empty = any(stop <= start for start, stop in window)
+        boundaries[key] = ((() if empty else (tuple(window),)), outside)
     reach = field_reach(
         transform,
         field,
@@ -619,6 +623,74 @@ def _windowed_fields(transform_list: list, grid) -> list:
             ),
         )
     return windowed
+
+
+def _stage_region(
+    transform_list: list,
+    fixed: NgffImage,
+    moving: NgffImage,
+    itk_dims: Sequence[str],
+    fixed_direction: np.ndarray,
+    moving_direction: np.ndarray,
+    padding: int,
+    fixed_spatial: Sequence[str],
+    moving_shape: Mapping[str, int],
+) -> ResampleBoundingBox | None:
+    """The region of ``moving`` a grid reads, from the stages of ``transform_list``.
+
+    The grid's box is carried through the stages: corners for a linear stage,
+    a lattice with its interpolation-error margin for a B-spline, the landing
+    points of the samples for a displacement field (see
+    :mod:`ngff_zarr._lattice_bound`). ``None`` when a stage is of another kind,
+    which the pipeline's boundary walk then sizes instead.
+    """
+    from ._lattice_bound import _corners, transform_box
+
+    dimension = len(itk_dims)
+    fixed_dims = tuple(fixed.dims)
+    origin = np.array([float(fixed.translation[dim]) for dim in itk_dims])
+    spacing = np.array([float(fixed.scale[dim]) for dim in itk_dims])
+    last = np.array(
+        [int(fixed.data.shape[fixed_dims.index(dim)]) - 1 for dim in itk_dims],
+        dtype=float,
+    )
+    corners = _corners(np.zeros(dimension), last) * spacing @ fixed_direction.T
+    low = corners.min(axis=0) + origin
+    high = corners.max(axis=0) + origin
+    voxel = np.abs(fixed_direction) @ np.abs(spacing)
+    result = transform_box(transform_list, dimension, low, high, voxel)
+    if result is None:
+        return None
+    low, high = result
+
+    moving_origin = np.array([float(moving.translation[dim]) for dim in itk_dims])
+    moving_spacing = np.array([float(moving.scale[dim]) for dim in itk_dims])
+    index = (
+        (_corners(low, high) - moving_origin)
+        @ np.linalg.inv(moving_direction).T
+        / moving_spacing
+    )
+    # The box along the moving image's index axes, in its physical units,
+    # which _extent_region floors, ceils and pads; the corners stay the box in
+    # moving physical space.
+    aligned_low = moving_origin + index.min(axis=0) * moving_spacing
+    aligned_high = moving_origin + index.max(axis=0) * moving_spacing
+    region = _extent_region(
+        {
+            dim: (
+                float(aligned_low[itk_dims.index(dim)]),
+                float(aligned_high[itk_dims.index(dim)]),
+            )
+            for dim in fixed_spatial
+        },
+        moving,
+        padding,
+    )
+    return replace(
+        region,
+        corners_min={dim: float(low[itk_dims.index(dim)]) for dim in region.dims},
+        corners_max={dim: float(high[itk_dims.index(dim)]) for dim in region.dims},
+    )
 
 
 def resample_bounding_box(
@@ -780,8 +852,24 @@ def resample_bounding_box(
     else:
         fixed_direction = _itk_direction(fixed, itk_dims)
         moving_direction = _itk_direction(moving, itk_dims)
+        transform_list = _as_itk_transform_list(transform)
+
+    region = _stage_region(
+        transform_list,
+        fixed,
+        moving,
+        itk_dims,
+        fixed_direction,
+        moving_direction,
+        padding,
+        fixed_spatial,
+        moving_shape,
+    )
+    if region is not None:
+        return region
+    if not _is_ngff_transform(transform):
         transform_list = _windowed_fields(
-            _as_itk_transform_list(transform),
+            transform_list,
             _metadata_only_itk_image(fixed, itk_dims, fixed_direction),
         )
 

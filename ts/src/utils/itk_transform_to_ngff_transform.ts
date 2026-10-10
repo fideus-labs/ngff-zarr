@@ -91,7 +91,7 @@ function multiply(left: number[][], right: number[][]): number[][] {
  * ITK-Wasm types these as `TypedArray`, which admits the BigInt variants even
  * though transform parameters are always floating point.
  */
-function asNumbers(values: unknown): number[] {
+export function asNumbers(values: unknown): number[] {
   if (values === undefined || values === null) return [];
   return Array.from(values as ArrayLike<number | bigint>, Number);
 }
@@ -213,6 +213,22 @@ function decode(
       `parameterization stores angles or a quaternion rather than a matrix. ` +
       `Convert it to an Affine transform first.`,
   );
+}
+
+/**
+ * The matrix and offset of a linear stage in ITK axis order, or `undefined`
+ * when the stage is not one this can decode (a deformation, a parameterization
+ * stored as angles, a 'Composite' header).
+ */
+export function linearStage(
+  entry: Transform,
+  dimension: number,
+): { matrix: number[][]; offset: number[] } | undefined {
+  try {
+    return decode(entry, dimension);
+  } catch {
+    return undefined;
+  }
 }
 
 /** The fixed and moving images a converted transform relates. */

@@ -212,20 +212,33 @@ float64 can.
 
 ### Non-linear transforms
 
-Deformable registration is supported. For a linear transform the region is
-derived from the transformed grid corners, which is exact because a linear map
-sends a rectangle to a convex region. For a non-linear one that would
-*under*-bound the region -- an interior edge point can map outside the hull of
-the transformed corners -- so the whole grid boundary is walked instead. Cost is
-proportional to the boundary, not the pixel count, and per block that boundary
-is small.
+Deformable registration is supported. The region is carried through the
+transform's stages one at a time, ITK's last entry first, and every rule holds
+whatever the deformation does inside a block, because a point moves by a convex
+combination of the control points or samples around it.
 
-The walk is exact for a transform that is continuous and does not fold the
-grid. Two things inside a block escape it: a fold, and the edge of a
-displacement stage's domain, past which ITK displaces nothing. Registration
-results rarely do either; a fixed grid that reaches past a B-spline's domain is
-the case to watch for. An RFC-5 `displacements` or `coordinates` field is sized
-by the same walk, read off the field's own samples.
+- A linear stage maps the grid's corners, which is exact because a linear map
+  sends a rectangle to a convex region.
+- A B-spline stage samples the transform on a lattice through the block,
+  takes the box of the landing points, and widens it by the interpolation
+  error between lattice points, read off the second differences of the control
+  points. The lattice step is half a control cell at most, a voxel at least,
+  and in between the coarsest whose margin stays within a voxel. The result is
+  intersected with the block plus the signed range of the nearby control
+  points, which is also what sizes a block that reaches past the B-spline's
+  domain, where ITK displaces nothing. On registrations the region is within a
+  few percent of the exact one, up to a fifth more on a rough field with
+  control points a few voxels apart.
+- A displacement-field stage takes the box of the landing points of the samples
+  under the block, intersected with the block plus the samples' signed range:
+  exact when the field is at the block's resolution.
+
+A stage of another kind (a thin-plate spline, say) is sized by the ITK-Wasm
+`resample-bounding-box` pipeline, which maps every boundary pixel of the block;
+that walk is exact for a continuous transform that does not fold, and blind to
+a fold or a domain edge inside the block. An RFC-5 `displacements` or
+`coordinates` field is sized by the box of its samples under the block, read off
+the field's own chunks.
 
 Displacement-field transforms work directly:
 

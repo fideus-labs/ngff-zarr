@@ -17,10 +17,18 @@ import { identityDirection, itkDirection } from "../utils/itk_direction.ts";
 export { itkDirection };
 import { ngffTransformToItkTransform } from "../utils/ngff_transform_to_itk_transform.ts";
 import {
+  absRowSums,
+  apply,
+  boxOf,
+  corners,
+  inverse,
+  transformBox,
+} from "./lattice_bound.ts";
+import {
   checkUnorientedField,
-  fieldBoundary,
   fieldImage,
   fieldReach,
+  fieldWindow,
 } from "../utils/displacement_field_transform.ts";
 
 const SPATIAL_DIMS = ["x", "y", "z"];
@@ -407,34 +415,33 @@ export async function resampleBoundingBoxShared(
     // built the way ngffImageToItkImage builds it, direction included.
     fixedDirection = itkDirection(fixed, itkDims);
     movingDirection = itkDirection(moving, itkDims);
-    transformList = await windowedFields(
-      pipeline,
-      transform,
-      metadataOnlyItkImage(fixed, itkDims, fixedDirection),
-    );
+    transformList = transform;
   } else if (isV06Transform(transform)) {
     if (
       transform.type === "displacements" ||
       transform.type === "coordinates"
     ) {
-      // The field holds where each of its samples goes, so the walk the
-      // pipeline makes over the boundary of the grid is read off the samples
-      // there, a chunk at a time, without a pipeline call.
+      // The field holds where each of its samples goes, and a point lands
+      // inside the hull of the landing points of the samples around it, so
+      // the box of those landing points holds the grid; it is read a chunk at
+      // a time, without a pipeline call.
       const image = fieldImage(
         transform,
         fieldFor(transform, options.fields),
         fixedSpatial,
       );
       checkUnorientedField(image, fixedSpatial);
-      const { slabs, outside } = fieldBoundary(
+      const { window, outside } = fieldWindow(
         image,
         fixedSpatial,
         fixed.translation,
         fixed.scale,
         fixedSpatial.map((dim) => fixed.data.shape[fixed.dims.indexOf(dim)]),
+        0,
       );
+      const empty = window.some(([start, stop]) => stop <= start);
       return fieldRegion(
-        await fieldReach(transform, image, fixedSpatial, slabs),
+        await fieldReach(transform, image, fixedSpatial, empty ? [] : [window]),
         outside,
         fixedSpatial,
         fixed,
@@ -453,6 +460,26 @@ export async function resampleBoundingBoxShared(
     throw new Error(
       `unsupported transform type. Expected an RFC-5 coordinate ` +
         `transformation or an ITK-Wasm TransformList.`,
+    );
+  }
+
+  const staged = stageRegion(
+    transformList,
+    fixed,
+    moving,
+    itkDims,
+    fixedDirection,
+    movingDirection,
+    padding,
+    fixedSpatial,
+    movingShape,
+  );
+  if (staged !== undefined) return staged;
+  if (Array.isArray(transform)) {
+    transformList = await windowedFields(
+      pipeline,
+      transformList,
+      metadataOnlyItkImage(fixed, itkDims, fixedDirection),
     );
   }
 
@@ -490,6 +517,91 @@ export async function resampleBoundingBoxShared(
     movingShape,
   });
   return region;
+}
+
+/**
+ * The region of `moving` a grid reads, from the stages of `transformList`.
+ *
+ * The grid's box is carried through the stages: corners for a linear stage, a
+ * lattice with its interpolation-error margin for a B-spline, the landing
+ * points of the samples for a displacement field (see `lattice_bound.ts`).
+ * `undefined` when a stage is of another kind, which the pipeline's boundary
+ * walk then sizes instead.
+ */
+function stageRegion(
+  transformList: TransformList,
+  fixed: NgffImage,
+  moving: NgffImage,
+  itkDims: string[],
+  fixedDirection: Float64Array,
+  movingDirection: Float64Array,
+  padding: number,
+  fixedSpatial: string[],
+  movingShape: Record<string, number>,
+): ResampleBoundingBox | undefined {
+  const dimension = itkDims.length;
+  const direction = Array.from(fixedDirection);
+  const origin = itkDims.map((dim) => fixed.translation[dim]);
+  const spacing = itkDims.map((dim) => fixed.scale[dim]);
+  const last = itkDims.map(
+    (dim, axis) =>
+      (fixed.data.shape[fixed.dims.indexOf(dim)] - 1) * spacing[axis],
+  );
+  const block = boxOf(
+    corners(new Array(dimension).fill(0), last).map((corner) =>
+      apply(direction, corner).map((value, axis) => value + origin[axis]),
+    ),
+  );
+  const voxel = absRowSums(direction, dimension, spacing.map(Math.abs));
+  const box = transformBox(
+    transformList,
+    dimension,
+    block.low,
+    block.high,
+    voxel,
+  );
+  if (box === undefined) return undefined;
+
+  // The box in the moving image's index space, through its direction matrix.
+  const movingOrigin = itkDims.map((dim) => moving.translation[dim]);
+  const movingSpacing = itkDims.map((dim) => moving.scale[dim]);
+  const movingInverse = inverse(Array.from(movingDirection), dimension);
+  const index = boxOf(
+    corners(box.low, box.high).map((corner) =>
+      apply(
+        movingInverse,
+        corner.map((value, axis) => value - movingOrigin[axis]),
+      ).map((value, axis) => value / movingSpacing[axis]),
+    ),
+  );
+  const start = index.low.map((value) => Math.floor(value) - padding);
+  const count = index.high.map(
+    (value, axis) => Math.ceil(value) + padding - start[axis] + 1,
+  );
+  const byDim = (values: number[]): Record<string, number> => {
+    const record: Record<string, number> = {};
+    for (const dim of fixedSpatial) record[dim] = values[itkDims.indexOf(dim)];
+    return record;
+  };
+  return new ResampleBoundingBox({
+    dims: fixedSpatial,
+    startIndex: byDim(start),
+    size: byDim(count),
+    cornersMin: byDim(box.low),
+    cornersMax: byDim(box.high),
+    paddedCornersMin: byDim(
+      start.map(
+        (value, axis) => movingOrigin[axis] + value * movingSpacing[axis],
+      ),
+    ),
+    paddedCornersMax: byDim(
+      start.map(
+        (value, axis) =>
+          movingOrigin[axis] + (value + count[axis] - 1) * movingSpacing[axis],
+      ),
+    ),
+    movingShape,
+  });
 }
 
 /**

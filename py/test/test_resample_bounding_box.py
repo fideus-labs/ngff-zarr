@@ -656,14 +656,34 @@ def test_itk_composite_transform_is_accepted():
     assert np.isclose(bounding_box.corners_max["y"], high[1])
 
 
-def test_index_range_overflow_is_reported_not_silently_empty():
+def test_a_grid_far_larger_than_the_moving_image_reads_all_of_it():
+    """A fixed/moving scale mismatch of this size must not read as empty.
+
+    The region is computed in floating point from the grid's corners, so a
+    grid that covers the whole moving image many times over clamps to all of
+    it rather than wrapping an integer index.
+    """
+    fixed = _image("yx", {"y": 16, "x": 16}, {"y": 1e9, "x": 1e9}, {"y": 0, "x": 0})
+    moving = _image("yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
+
+    bounding_box = resample_bounding_box(_identity(2), fixed, moving, padding=1)
+
+    assert not bounding_box.is_empty
+    assert bounding_box.clamped() == {"y": (0, 64), "x": (0, 64)}
+
+
+def test_index_range_overflow_is_reported_not_silently_empty(monkeypatch):
     """A grid too large for the pipeline's index space must not read as empty.
 
-    The region is computed in 32-bit index space while the corners come back as
-    doubles, so a fixed/moving scale mismatch of this size wraps the integer
-    region. Reporting "no overlap" for a grid that covers the whole moving
-    image would be a silent, wrong answer.
+    On the pipeline path the region is computed in 32-bit index space while
+    the corners come back as doubles, so a fixed/moving scale mismatch of this
+    size wraps the integer region. Reporting "no overlap" for a grid that
+    covers the whole moving image would be a silent, wrong answer.
     """
+    import sys
+
+    module = sys.modules["ngff_zarr.resample_bounding_box"]
+    monkeypatch.setattr(module, "_stage_region", lambda *args, **kwargs: None)
     fixed = _image("yx", {"y": 16, "x": 16}, {"y": 1e9, "x": 1e9}, {"y": 0, "x": 0})
     moving = _image("yx", {"y": 64, "x": 64}, {"y": 1, "x": 1}, {"y": 0, "x": 0})
 
@@ -925,8 +945,14 @@ def _stub_result(padded_start_index, padded_size):
 def test_unusable_pipeline_index_arrays_are_rejected(
     monkeypatch, padded_start_index, padded_size, match
 ):
+    import sys
+
     import itkwasm_downsample
 
+    # The pipeline sizes the region only when the stages cannot be read
+    # directly; force that path.
+    module = sys.modules["ngff_zarr.resample_bounding_box"]
+    monkeypatch.setattr(module, "_stage_region", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         itkwasm_downsample,
         "resample_bounding_box",
@@ -1076,10 +1102,6 @@ def _interior_bump(extent, radius, peaks):
     return np.stack([peak * profile for peak in peaks]).astype(np.float32)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the boundary walk cannot see a fold strictly inside the grid",
-)
 def test_a_bump_inside_the_grid_widens_the_region():
     """The reported region has to contain what the field displaces onto.
 
@@ -1226,10 +1248,6 @@ def _bump_displacement_transform(itk, extent=64, radius=20, peaks=(60.0, -60.0))
     return transform, profile
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the boundary walk cannot see a fold strictly inside the grid",
-)
 def test_an_interior_bump_resamples_exactly_in_one_block():
     """One output block over the whole grid, against a whole-image call.
 
@@ -1388,11 +1406,6 @@ def test_a_bspline_with_non_trivial_coefficients_is_covered():
     _assert_region_reaches(region, _reached_corners(itk, spline, fixed))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the B-spline domain ends inside the grid, where its displacement "
-    "drops to zero; the boundary walk cannot see that edge",
-)
 def test_a_bspline_then_affine_composite_is_covered():
     itk = pytest.importorskip("itk")
     fixed, moving = _reaching_grids()

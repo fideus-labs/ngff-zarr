@@ -69,6 +69,29 @@ function itkTranslation(offset: number[]): any {
   ];
 }
 
+/**
+ * An ITK Euler2D entry at angle zero: the identity, in a parameterization the
+ * staged bound does not decode, so the pipeline sizes the region.
+ */
+const pipelineOnly = (): any => [
+  {
+    transformType: {
+      transformParameterization: "Euler2D",
+      parametersValueType: "float64",
+      inputDimension: 2,
+      outputDimension: 2,
+    },
+    name: "Euler2DTransform",
+    inputSpaceName: "",
+    outputSpaceName: "",
+    numberOfFixedParameters: 2,
+    numberOfParameters: 3,
+    fixedParameters: new Float64Array([0, 0]),
+    parameters: new Float64Array([0, 0, 0]),
+    metadata: new Map(),
+  },
+];
+
 const identity = (dimension: number): any =>
   itkTranslation(new Array(dimension).fill(0));
 
@@ -732,11 +755,42 @@ test("a 3D-only orientation on a 2D image falls back to identity", async () => {
   assertEquals(Array.from(direction), [1, 0, 0, 1]);
 });
 
+test("a grid far larger than the moving image reads all of it", async () => {
+  // The region is computed in floating point from the grid's corners, so a
+  // grid that covers the whole moving image many times over clamps to all of
+  // it rather than wrapping an integer index.
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 16, x: 16 },
+    {
+      y: 1e9,
+      x: 1e9,
+    },
+    { y: 0, x: 0 },
+  );
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 64, x: 64 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
+
+  const region = await resampleBoundingBox(identity(2), fixed, moving, {
+    padding: 1,
+  });
+
+  assert(!region.isEmpty);
+  assertEquals(region.clamped(), { y: [0, 64], x: [0, 64] });
+});
+
 test("an index range overflow is reported, not silently empty", async () => {
-  // The region is computed in 32-bit index space while the corners come back
-  // as doubles, so a fixed/moving scale mismatch this large wraps the integer
-  // region. Reporting "no overlap" for a grid covering the whole moving image
-  // would be a silent, wrong answer.
+  // On the pipeline path the region is computed in 32-bit index space while
+  // the corners come back as doubles, so a fixed/moving scale mismatch this
+  // large wraps the integer region. Reporting "no overlap" for a grid
+  // covering the whole moving image would be a silent, wrong answer.
   const fixed = await geometryImage(
     ["y", "x"],
     { y: 16, x: 16 },
@@ -758,7 +812,7 @@ test("an index range overflow is reported, not silently empty", async () => {
 
   await assertRejects(
     () =>
-      resampleBoundingBox(identity(2), fixed, moving, {
+      resampleBoundingBox(pipelineOnly(), fixed, moving, {
         padding: 1,
       }),
     Error,
@@ -1279,7 +1333,7 @@ test("unusable pipeline index arrays are rejected", async () => {
         },
       });
     await assertRejects(
-      () => resampleBoundingBoxShared(pipeline, identity(2), fixed, fixed),
+      () => resampleBoundingBoxShared(pipeline, pipelineOnly(), fixed, fixed),
       Error,
       message,
     );
@@ -1508,11 +1562,10 @@ function interiorBump(extent: number, radius: number, peaks: number[]) {
   return values;
 }
 
-test("a bump strictly inside the grid is beyond the boundary walk", async () => {
-  // A region is sized by walking the boundary of the transformed grid, for
-  // a field as for an ITK transform. A displacement that is zero there and
-  // large inside leaves the region covering the grid alone: the documented
-  // limit of the walk, pinned so a change of method shows up here.
+test("a bump strictly inside the grid widens the region", async () => {
+  // A region is the box of the landing points of the samples under the grid,
+  // so a displacement that is zero on the boundary and large inside reaches
+  // the region all the same.
   const extent = 64;
   const values = interiorBump(extent, 20, [60, -60]);
   const field = await bumpField(values, ["y", "x"], extent, 16);
@@ -1538,10 +1591,26 @@ test("a bump strictly inside the grid is beyond the boundary walk", async () => 
     moving,
     { fields: { warp: field } },
   );
-  const identity = await resampleBoundingBox(createIdentity(), fixed, moving);
-
-  assertEquals(region.startIndex, identity.startIndex);
-  assertEquals(region.size, identity.size);
+  // Every point the field displaces onto lies in the region.
+  const voxels = extent * extent;
+  ["y", "x"].forEach((dim, component) => {
+    let reachedMin = Infinity;
+    let reachedMax = -Infinity;
+    for (let y = 0; y < extent; y++) {
+      for (let x = 0; x < extent; x++) {
+        const reached =
+          (component === 0 ? y : x) +
+          values[component * voxels + y * extent + x];
+        reachedMin = Math.min(reachedMin, reached);
+        reachedMax = Math.max(reachedMax, reached);
+      }
+    }
+    assert(region.startIndex[dim] <= reachedMin, `${dim} start`);
+    assert(
+      region.startIndex[dim] + region.size[dim] >= reachedMax,
+      `${dim} end`,
+    );
+  });
 });
 
 test("a field's chunking does not change the region it reports", async () => {
@@ -1728,9 +1797,11 @@ test("an ITK displacement field reaches the pipeline as the grid's window", asyn
     received.push(transform[0].numberOfParameters);
     return resampleBoundingBoxNode(transform, ...rest);
   };
+  // A stage the staged bound cannot read keeps the list on the pipeline path,
+  // where the field is windowed before the call.
   const cut = await resampleBoundingBoxShared(
     recording,
-    whole as never,
+    [...whole, ...pipelineOnly()] as never,
     fixed,
     moving,
   );
@@ -1757,4 +1828,87 @@ test("an ITK displacement field reaches the pipeline as the grid's window", asyn
     x: uncut.paddedStartIndex[0],
   });
   assertEquals(cut.size, { y: uncut.paddedSize[1], x: uncut.paddedSize[0] });
+});
+
+test("a B-spline stage reports the region Python reports", async () => {
+  // The same control points as py/test/test_lattice_bound.py's cross-port
+  // case; the regions are Python's, to the pixel.
+  const size = [7, 6];
+  const parameters = new Float64Array([
+    2.0, 7.347244, 6.850978, 1.053526, -3.709612, -2.233242, 3.869248, 5.620471,
+    7.598251, 3.190661, -2.78565, -3.799723, 1.256629, 6.857785, 6.993303,
+    4.671437, -1.574518, -4.918935, -1.707008, 4.551243, 7.016754, 5.320731,
+    -0.20877, -5.355521, -4.495113, 1.432194, 5.948992, 4.11929, 1.177635,
+    -4.958891, -6.585839, -1.925269, 3.929714, 4.580737, -0.683641, -3.706987,
+    -7.564433, -4.9064, 1.362393, 4.391361, 0.870424, -5.352711, -5.0,
+    -1.939795, 3.288079, 7.316478, 7.482513, 3.781871, -1.147075, -4.126678,
+    -3.608427, 0.34028, 5.320348, 7.948683, 6.357554, 1.588895, -1.811789,
+    -3.608427, -1.97461, 2.442431, 6.685689, 7.665291, 4.477694, 1.13601,
+    -1.939795, -2.847932, -0.311933, 4.134731, 7.248253, 6.510182, 3.686969,
+    0.814569, -1.97461, -1.980565, 1.186932, 5.252123, 6.976352, 4.949962,
+    3.692486, 0.34028, -1.980565, -1.127957, 2.374206, 5.713358,
+  ]);
+  const spline = [
+    {
+      transformType: {
+        transformParameterization: "BSpline",
+        parametersValueType: "float64",
+        inputDimension: 2,
+        outputDimension: 2,
+      },
+      name: "BSplineTransform",
+      inputSpaceName: "",
+      outputSpaceName: "",
+      numberOfFixedParameters: 10,
+      numberOfParameters: parameters.length,
+      fixedParameters: new Float64Array([
+        ...size,
+        -16,
+        -16,
+        16,
+        16,
+        1,
+        0,
+        0,
+        1,
+      ]),
+      parameters,
+      metadata: new Map(),
+    },
+  ];
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 128, x: 128 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: -32, x: -32 },
+  );
+  const cases: [
+    number,
+    number,
+    number,
+    number,
+    Record<string, number>,
+    Record<string, number>,
+  ][] = [
+    [0, 0, 32, 32, { y: 28, x: 30 }, { y: 38, x: 34 }],
+    [20, 24, 24, 40, { y: 50, x: 50 }, { y: 33, x: 52 }],
+    [40, 8, 16, 48, { y: 67, x: 31 }, { y: 30, x: 66 }],
+  ];
+  for (const [y, x, height, width, startIndex, size] of cases) {
+    const fixed = await geometryImage(
+      ["y", "x"],
+      { y: height, x: width },
+      {
+        y: 1,
+        x: 1,
+      },
+      { y, x },
+    );
+    const region = await resampleBoundingBox(spline as never, fixed, moving);
+    assertEquals(region.startIndex, startIndex);
+    assertEquals(region.size, size);
+  }
 });
