@@ -415,3 +415,79 @@ class TestOmeZarrVersionCLI:
             )
             assert result.returncode == 0, f"stderr: {result.stderr}"
             assert read_ozx_version(output_path) == "0.6"
+
+
+class TestExportGeometry:
+    """Exports from OME-Zarr keep each axis's size, spacing and unit."""
+
+    @staticmethod
+    def _store(tmp_path, unit="micrometer"):
+        import numpy as np
+        from ngff_zarr import to_multiscales, to_ngff_image, to_ome_zarr
+
+        data = np.arange(10 * 20 * 30, dtype=np.uint16).reshape(10, 20, 30)
+        image = to_ngff_image(
+            data,
+            dims=("z", "y", "x"),
+            scale={"z": 3.0, "y": 2.0, "x": 1.0},
+            axes_units=dict.fromkeys("zyx", unit),
+        )
+        store = tmp_path / "in.ome.zarr"
+        to_ome_zarr(store, to_multiscales(image, scale_factors=[]))
+        return store, data
+
+    def test_ome_zarr_to_nifti_is_xyz(self, tmp_path):
+        import nibabel as nib
+        import numpy as np
+
+        store, data = self._store(tmp_path)
+        output = tmp_path / "out.nii"
+        result = _run_ngff_zarr("-i", str(store), "-o", str(output))
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+
+        written = nib.load(output)
+        assert written.shape == (30, 20, 10)
+        np.testing.assert_allclose(written.header.get_zooms(), (1.0, 2.0, 3.0))
+        np.testing.assert_array_equal(np.asarray(written.dataobj), data.T)
+
+    def test_ome_zarr_channels_to_nifti_stay_on_the_vector_axis(self, tmp_path):
+        import nibabel as nib
+        import numpy as np
+        from ngff_zarr import to_multiscales, to_ngff_image, to_ome_zarr
+
+        data = np.arange(2 * 4 * 5 * 6, dtype=np.uint16).reshape(2, 4, 5, 6)
+        store = tmp_path / "in.ome.zarr"
+        image = to_ngff_image(data, dims=("c", "z", "y", "x"))
+        to_ome_zarr(store, to_multiscales(image, scale_factors=[]))
+        output = tmp_path / "out.nii"
+        result = _run_ngff_zarr("-i", str(store), "-o", str(output))
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+
+        # NIfTI keeps the fourth axis for time and the fifth for components.
+        written = np.asarray(nib.load(output).dataobj)
+        assert written.shape == (6, 5, 4, 1, 2)
+        np.testing.assert_array_equal(written[:, :, :, 0, :], data.T)
+
+    def test_ome_zarr_to_tiff_converts_units(self, tmp_path):
+        import tifffile
+
+        store, _ = self._store(tmp_path, unit="millimeter")
+        output = tmp_path / "out.tif"
+        result = _run_ngff_zarr("-i", str(store), "-o", str(output))
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+
+        with tifffile.TiffFile(output) as tif:
+            metadata = tif.shaped_metadata[0]
+        assert metadata["PhysicalSizeX"] == pytest.approx(1000.0)
+        assert metadata["PhysicalSizeZ"] == pytest.approx(3000.0)
+        assert metadata["PhysicalSizeXUnit"] == "µm"
+
+    def test_cache_dir_is_created(self, tmp_path):
+        store, _ = self._store(tmp_path)
+        cache = tmp_path / "missing" / "cache"
+        output = tmp_path / "out.ome.zarr"
+        result = _run_ngff_zarr(
+            "-i", str(store), "-o", str(output), "--cache-dir", str(cache)
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert cache.is_dir()

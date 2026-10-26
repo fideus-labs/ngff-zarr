@@ -9,6 +9,7 @@ import pytest
 from ngff_zarr.lif_to_ngff_image import (
     _extract_scale_translation,
     _map_lif_dims_to_ngff,
+    _reshape_for_flattened_channels,
     has_mosaic_dimension,
     lif_to_hcs_plate,
     lif_to_ngff_image,
@@ -182,6 +183,46 @@ class TestDimensionMapping:
         ngff_dims, ngff_shape = _map_lif_dims_to_ngff(lif_dims, lif_shape)
 
         assert "m" in ngff_dims
+
+
+class TestChannelAxisMove:
+    """Moving LIF's channel-like axes to NGFF ``c`` keeps every pixel's value.
+
+    The input counts up, so each value encodes its own position.
+    """
+
+    @staticmethod
+    def _convert(lif_dims, lif_shape):
+        import dask.array as da
+
+        data = np.arange(np.prod(lif_shape)).reshape(lif_shape)
+        ngff_dims, ngff_shape = _map_lif_dims_to_ngff(lif_dims, lif_shape)
+        out = _reshape_for_flattened_channels(
+            da.from_array(data), lif_dims, ngff_dims, ngff_shape
+        )
+        return data, ngff_dims, np.asarray(out)
+
+    def test_channel_between_z_and_y(self):
+        data, dims, out = self._convert(("Z", "C", "Y", "X"), (3, 2, 4, 5))
+        assert dims == ("c", "z", "y", "x")
+        np.testing.assert_array_equal(out, data.transpose(1, 0, 2, 3))
+
+    def test_rgb_samples_last(self):
+        data, dims, out = self._convert(("Y", "X", "S"), (4, 5, 3))
+        assert dims == ("c", "y", "x")
+        np.testing.assert_array_equal(out, data.transpose(2, 0, 1))
+
+    def test_channel_dims_apart_are_flattened(self):
+        data, dims, out = self._convert(("C", "Z", "λ", "Y", "X"), (2, 3, 4, 5, 6))
+        assert dims == ("c", "z", "y", "x")
+        # The flattened channel index is C * len(λ) + λ.
+        expected = data.transpose(0, 2, 1, 3, 4).reshape(8, 3, 5, 6)
+        np.testing.assert_array_equal(out, expected)
+
+    def test_single_channel_is_dropped(self):
+        data, dims, out = self._convert(("Z", "C", "Y", "X"), (3, 1, 4, 5))
+        assert dims == ("z", "y", "x")
+        np.testing.assert_array_equal(out, data[:, 0])
 
 
 class TestScaleTranslationExtraction:

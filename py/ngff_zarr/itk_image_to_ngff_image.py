@@ -53,23 +53,22 @@ def itk_image_to_ngff_image(
         raise RuntimeError(msg)
 
     data = dask.array.from_array(image_dict["data"])
-    ndim = data.ndim
-    if ndim == 3 and image_dict["imageType"]["components"] > 1:
-        dims = ("y", "x", "c")
-    elif ndim < 4:
-        dims = ("z", "y", "x")[-ndim:]
-    elif ndim < 5:
-        dims = ("z", "y", "x", "c")
-    elif ndim < 6:
-        dims = ("t", "z", "y", "x", "c")
+    dimension = image_dict["imageType"]["dimension"]
+    if not 1 <= dimension <= 4:
+        raise ValueError(f"Unsupported ITK image dimension: {dimension}")
+    # ITK axes run x, y, z, t; the array holds them reversed, components last.
+    itk_axes = ("x", "y", "z", "t")[:dimension]
+    dims = tuple(reversed(itk_axes))
+    if data.ndim == dimension + 1:
+        dims += ("c",)
     all_spatial_dims = {"x", "y", "z"}
     spatial_dims = [dim for dim in dims if dim in all_spatial_dims]
 
     spacing = image_dict["spacing"]
-    scale = {dim: spacing[::-1][idx] for idx, dim in enumerate(spatial_dims)}
+    scale = {dim: spacing[itk_axes.index(dim)] for dim in dims if dim in itk_axes}
 
     origin = image_dict["origin"]
-    translation = {dim: origin[::-1][idx] for idx, dim in enumerate(spatial_dims)}
+    translation = {dim: origin[itk_axes.index(dim)] for dim in dims if dim in itk_axes}
 
     # Add anatomical orientation if requested
     axes_orientations = None
@@ -83,7 +82,8 @@ def itk_image_to_ngff_image(
         has_direction = direction is not None and len(direction) > 0
         has_non_identity = False
         if has_direction:
-            dir_array = np.asarray(direction).reshape(n_spatial, n_spatial)
+            dir_array = np.asarray(direction).reshape(dimension, dimension)
+            dir_array = dir_array[:n_spatial, :n_spatial]
             has_non_identity = not np.array_equal(dir_array, np.eye(n_spatial))
 
         axes_orientations = {}

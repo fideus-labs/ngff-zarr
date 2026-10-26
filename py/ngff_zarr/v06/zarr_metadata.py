@@ -312,7 +312,11 @@ class ProjectAxis(BaseTransform):
                     f"{_PROJECT_AXIS_MAX_OPERATIONS} axes; got {indices}"
                 )
 
-    def validate(self, coordinateSystems: list[CoordinateSystem] | None = None) -> None:
+    def validate(
+        self,
+        coordinateSystems: list[CoordinateSystem] | None = None,
+        version: object | None = None,  # noqa: ARG002 - no version-dependent rule
+    ) -> None:
         self._check_intrinsic()
         dropped = self.droppedInputs or []
         created = self.createdOutputs or []
@@ -428,7 +432,10 @@ class ByDimensionItem:
 
     @classmethod
     def from_dict(
-        cls, data: dict, coordinateSystems: list[CoordinateSystem] | None = None
+        cls,
+        data: dict,
+        coordinateSystems: list[CoordinateSystem] | None = None,
+        version: object | None = None,
     ) -> "ByDimensionItem":
         # ngff-zarr 0.43.0 wrote these two keys in snake_case; the spec and the
         # 0.6 schema spell them inputAxes and outputAxes, which is what is
@@ -441,7 +448,7 @@ class ByDimensionItem:
             data, ("transformation", "inputAxes", "outputAxes"), "byDimension item"
         )
         (transformation,) = Metadata._parse_transforms(
-            [data["transformation"]], coordinateSystems or []
+            [data["transformation"]], coordinateSystems or [], version
         )
         return cls(
             transformation=transformation,
@@ -516,12 +523,15 @@ class ByDimension(BaseTransform):
 
     @classmethod
     def from_dict(
-        cls, data: dict, coordinateSystems: list[CoordinateSystem] | None = None
+        cls,
+        data: dict,
+        coordinateSystems: list[CoordinateSystem] | None = None,
+        version: object | None = None,
     ) -> "ByDimension":
         _require_keys(data, ("transformations",), "byDimension")
         return cls(
             transformations=[
-                ByDimensionItem.from_dict(item, coordinateSystems)
+                ByDimensionItem.from_dict(item, coordinateSystems, version)
                 for item in data["transformations"]
             ]
         )
@@ -557,12 +567,15 @@ class Bijection(BaseTransform):
 
     @classmethod
     def from_dict(
-        cls, data: dict, coordinateSystems: list[CoordinateSystem] | None = None
+        cls,
+        data: dict,
+        coordinateSystems: list[CoordinateSystem] | None = None,
+        version: object | None = None,
     ) -> "Bijection":
         _require_keys(data, ("forward", "inverse"), "bijection")
         systems = coordinateSystems or []
-        (forward,) = Metadata._parse_transforms([data["forward"]], systems)
-        (inverse,) = Metadata._parse_transforms([data["inverse"]], systems)
+        (forward,) = Metadata._parse_transforms([data["forward"]], systems, version)
+        (inverse,) = Metadata._parse_transforms([data["inverse"]], systems, version)
         return cls(forward=forward, inverse=inverse)
 
 
@@ -581,6 +594,19 @@ class TransformSequence(BaseTransform):
             transformation.validate(coordinateSystems, version)
 
 
+def _coordinate_system_named(
+    coordinate_systems: list[CoordinateSystem], name: str | None
+) -> CoordinateSystem:
+    for cs in coordinate_systems:
+        if cs.name == name:
+            return cs
+    raise ValueError(
+        f"Dataset coordinate transformations reference coordinate system "
+        f"{name!r}, which is not declared in coordinateSystems: "
+        f"{[cs.name for cs in coordinate_systems]}."
+    )
+
+
 def validate_transform(
     transformation: Transform,
     coordinateSystems: list[CoordinateSystem] | None = None,
@@ -592,7 +618,7 @@ def validate_transform(
     This also checks the ones that need the ``input`` and ``output``
     coordinate systems, when those resolve in ``coordinateSystems``.
     """
-    transformation.validate(coordinateSystems)
+    transformation.validate(coordinateSystems, version)
 
 
 @dataclass
@@ -653,8 +679,7 @@ class Metadata:
                 "This is out of spec for this ome-zarr 0.6."
             )
 
-        # find the cs in the list of coordinate systems with the same name as the output
-        return next(cs for cs in self.coordinateSystems if cs.name == output_cs[0].name)
+        return _coordinate_system_named(self.coordinateSystems, output_cs[0].name)
 
     @property
     def axes(self) -> list[Axis]:
@@ -899,9 +924,11 @@ class Metadata:
         omero = _parse_omero(root_attrs.get("ome", {}).get("omero"))
         root_attrs = root_attrs["ome"]["multiscales"][0]
 
+        from ..v09.zarr_metadata import _filter_axis_dict
+
         coordinate_systems = []
         for cs in root_attrs.get("coordinateSystems", []):
-            axes = [Axis(**axis) for axis in cs["axes"]]
+            axes = [Axis(**_filter_axis_dict(axis)) for axis in cs["axes"]]
 
             coordinate_systems.append(CoordinateSystem(name=cs["name"], axes=axes))
 
@@ -925,24 +952,25 @@ class Metadata:
                 data = data.astype(data.dtype.newbyteorder())
 
             # parse dataset coordinate transformations if present
-            dims = [ax.name for ax in coordinate_systems[0].axes]
-            scale = Scale(scale=[1.0 for d in dims])
-            translation = Translation(translation=[0.0 for d in dims])
-            coordinateTransformations: list[Transform] = [
-                TransformSequence(
-                    transformations=[scale, translation],
-                    input=CoordinateSystemIdentifier(path=dataset["path"]),
-                    output=CoordinateSystemIdentifier(name=coordinate_systems[0].name),
-                    name=f"scale_{index}_to_{coordinate_systems[0].name}",
-                )
-            ]
             if "coordinateTransformations" in dataset:
-                coordinateTransformations = cls._parse_transforms(
+                coordinateTransformations: list[Transform] = cls._parse_transforms(
                     dataset["coordinateTransformations"],
                     coordinate_systems,
                     declared_version,
                 )
+                # Read from the document: the parser drops undeclared names.
+                first = dataset["coordinateTransformations"][0]
+                output_name = (first.get("output") or {}).get("name")
+            else:
+                output_name = coordinate_systems[0].name
 
+            # The image's axes are those of the system its datasets map into,
+            # which need not be listed first.
+            cs_intrinsic = _coordinate_system_named(coordinate_systems, output_name)
+            dims = [ax.name for ax in cs_intrinsic.axes]
+            scale = Scale(scale=[1.0 for d in dims])
+            translation = Translation(translation=[0.0 for d in dims])
+            if "coordinateTransformations" in dataset:
                 # extract scale and translation for ngff_image convenience
                 for transform in coordinateTransformations:
                     if isinstance(transform, TransformSequence):
@@ -965,12 +993,15 @@ class Metadata:
                             "Unsupported transform type: "
                             f"{transform.type} in dataset {dataset['path']}"
                         )
-
-            cs_intrinsic = next(
-                cs
-                for cs in coordinate_systems
-                if cs.name == coordinateTransformations[0].output.name
-            )
+            else:
+                coordinateTransformations = [
+                    TransformSequence(
+                        transformations=[scale, translation],
+                        input=CoordinateSystemIdentifier(path=dataset["path"]),
+                        output=CoordinateSystemIdentifier(name=output_name),
+                        name=f"scale_{index}_to_{output_name}",
+                    )
+                ]
 
             datasets.append(
                 Dataset(
@@ -1054,9 +1085,13 @@ class Metadata:
                     ),
                 )
             elif transform["type"] == "byDimension":
-                transformation = ByDimension.from_dict(transform, coordinateSystems)
+                transformation = ByDimension.from_dict(
+                    transform, coordinateSystems, version
+                )
             elif transform["type"] == "bijection":
-                transformation = Bijection.from_dict(transform, coordinateSystems)
+                transformation = Bijection.from_dict(
+                    transform, coordinateSystems, version
+                )
             elif transform["type"] == "sequence":
                 # TODO: Undo nested sequences on import?
                 sub_transforms = cls._parse_transforms(
@@ -1103,4 +1138,4 @@ class Metadata:
 
     @property
     def dimension_names(self) -> tuple:
-        return tuple([ax.name for ax in self.coordinateSystems[0].axes])
+        return tuple(ax.name for ax in self.intrinsic_coordinate_system.axes)

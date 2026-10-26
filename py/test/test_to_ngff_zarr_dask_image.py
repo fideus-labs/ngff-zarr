@@ -244,3 +244,27 @@ def test_non_spatial_translation_preservation():
 #     multiscale = to_multiscale(image, scale_factors, method=Methods.DASK_IMAGE_MODE)
 #     baseline_name = "x2y4_x1y2/DASK_IMAGE_MODE"
 #     verify_against_baseline(dataset_name, baseline_name, multiscale)
+
+
+@pytest.mark.parametrize(
+    "method", [Methods.DASK_IMAGE_NEAREST, Methods.DASK_IMAGE_GAUSSIAN]
+)
+def test_low_memory_3d_matches_in_memory(monkeypatch, method):
+    """A volume over memory_target downsamples to the same level as one under
+    it: same shape, same values."""
+    import numpy as np
+
+    ramp = np.broadcast_to(
+        np.arange(1000, dtype=np.float32)[:, None, None], (1000, 64, 64)
+    ).copy()
+    image = to_ngff_image(ramp, dims=("z", "y", "x"))
+
+    def level_one(memory_target):
+        monkeypatch.setattr(config, "memory_target", memory_target)
+        multiscales = to_multiscales(image, [2], method=method, cache=False)
+        return np.asarray(multiscales.images[1].data)
+
+    in_memory = level_one(1e12)
+    low_memory = level_one(1e6)
+    assert low_memory.shape == in_memory.shape == (500, 32, 32)
+    np.testing.assert_allclose(low_memory, in_memory)

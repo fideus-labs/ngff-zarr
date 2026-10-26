@@ -348,6 +348,8 @@ def _convert_unit_value(value, source_unit, target_unit):
     """
     # Define conversion factors relative to meters
     unit_to_meters = {
+        "yoctometer": 1e-24,
+        "zeptometer": 1e-21,
         "attometer": 1e-18,
         "femtometer": 1e-15,
         "picometer": 1e-12,
@@ -358,6 +360,21 @@ def _convert_unit_value(value, source_unit, target_unit):
         "centimeter": 1e-2,
         "decimeter": 1e-1,
         "meter": 1.0,
+        "hectometer": 1e2,
+        "kilometer": 1e3,
+        "megameter": 1e6,
+        "gigameter": 1e9,
+        "terameter": 1e12,
+        "petameter": 1e15,
+        "exameter": 1e18,
+        "zettameter": 1e21,
+        "yottameter": 1e24,
+        "inch": 0.0254,
+        "foot": 0.3048,
+        "yard": 0.9144,
+        "mile": 1609.344,
+        # IAU 2015: 648000 / pi astronomical units.
+        "parsec": 3.0856775814913673e16,
     }
 
     # Normalize units using OME_UNIT_TO_NGFF mapping

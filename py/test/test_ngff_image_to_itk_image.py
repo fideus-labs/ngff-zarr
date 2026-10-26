@@ -3,7 +3,12 @@
 import itk
 import itkwasm
 import numpy as np
-from ngff_zarr import from_ngff_zarr, itk_image_to_ngff_image, ngff_image_to_itk_image
+from ngff_zarr import (
+    from_ngff_zarr,
+    itk_image_to_ngff_image,
+    ngff_image_to_itk_image,
+    to_ngff_image,
+)
 
 from ._data import test_data_dir
 
@@ -457,3 +462,68 @@ def test_direction_round_trip_flipped_y():
     assert np.array_equal(
         np.asarray(itk_back.direction).reshape(3, 3), original_direction
     )
+
+
+def test_x_before_y_is_transposed_for_itk():
+    """ITK arrays are laid out in reverse ITK axis order, whatever the
+    image's own axis order."""
+    from ngff_zarr import to_ngff_image
+
+    data = np.arange(12, dtype=np.float32).reshape(3, 4)
+    xy = to_ngff_image(data, dims=("x", "y"))
+    yx = to_ngff_image(data.T, dims=("y", "x"))
+
+    np.testing.assert_array_equal(ngff_image_to_itk_image(xy).data, data.T)
+    np.testing.assert_array_equal(ngff_image_to_itk_image(yx).data, data.T)
+    assert list(ngff_image_to_itk_image(xy).size) == [3, 4]
+
+
+def test_t_index_keeps_orientation():
+    from dataclasses import replace
+
+    from ngff_zarr import to_ngff_image
+    from ngff_zarr.rfc4 import RAS
+
+    image_3d = to_ngff_image(np.zeros((3, 4, 5), np.float32), dims=("z", "y", "x"))
+    image_3d = replace(image_3d, axes_orientations=RAS)
+    image_4d = to_ngff_image(
+        np.zeros((2, 3, 4, 5), np.float32), dims=("t", "z", "y", "x")
+    )
+    image_4d = replace(image_4d, axes_orientations=RAS)
+
+    expected = np.asarray(ngff_image_to_itk_image(image_3d).direction)
+    assert not np.array_equal(expected, np.eye(3))
+    direction = np.asarray(ngff_image_to_itk_image(image_4d, t_index=0).direction)
+    np.testing.assert_array_equal(direction, expected)
+
+
+def test_2d_coronal_direction_is_not_singular():
+    """A 2D slice whose orientation leaves the x/y plane falls back to the
+    identity direction, as resample and resample_bounding_box do."""
+    from dataclasses import replace
+
+    from ngff_zarr import to_ngff_image
+    from ngff_zarr.rfc4 import AnatomicalOrientation, AnatomicalOrientationValues
+
+    image = replace(
+        to_ngff_image(np.zeros((4, 5), np.float32), dims=("y", "x")),
+        axes_orientations={
+            "x": AnatomicalOrientation(AnatomicalOrientationValues.left_to_right),
+            "y": AnatomicalOrientation(
+                AnatomicalOrientationValues.superior_to_inferior
+            ),
+        },
+    )
+    direction = np.asarray(ngff_image_to_itk_image(image).direction)
+    np.testing.assert_array_equal(direction, np.eye(2))
+
+
+def test_time_axis_without_spacing():
+    """to_ngff_image gives spacing to x, y and z only; t defaults to 1."""
+    data = np.zeros((2, 3, 4, 5), dtype=np.float32)
+    ngff_image = to_ngff_image(data, dims=("t", "z", "y", "x"))
+
+    itk_image = ngff_image_to_itk_image(ngff_image)
+
+    assert list(itk_image.spacing) == [1.0, 1.0, 1.0, 1.0]
+    assert list(itk_image.origin) == [0.0, 0.0, 0.0, 0.0]

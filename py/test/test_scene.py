@@ -391,3 +391,19 @@ def test_upstream_registration_example():
     assert isinstance(field, Displacements)
     assert field.path == "coordinateTransformations/dfield"
     assert field.interpolation == "linear"
+
+
+def test_scene_axes_may_omit_type_or_carry_long_name():
+    """The 0.6 schema requires only an axis name; extra keys are allowed."""
+    systems, _ = _scene_from_dict(
+        {
+            "coordinateSystems": [
+                {
+                    "name": "world",
+                    "axes": [{"name": "y", "longName": "rows"}, {"name": "x"}],
+                }
+            ]
+        },
+        "0.6",
+    )
+    assert [axis.name for axis in systems[0].axes] == ["y", "x"]

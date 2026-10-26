@@ -534,6 +534,17 @@ def test_tiff_file_to_ngff_images_with_ome_translation(tmp_path):
                 ) == pytest.approx(expected_position[dim]), case_name
 
 
+def test_convert_unit_value_covers_every_space_unit():
+    """The CLI TIFF export converts any spatial unit an axis may carry."""
+    from ngff_zarr.tiff_to_ngff_image import _convert_unit_value
+    from ngff_zarr.v04.zarr_metadata import space_units
+
+    for unit in space_units:
+        assert _convert_unit_value(1.0, unit, "meter") > 0, unit
+    assert _convert_unit_value(1.0, "kilometer", "micrometer") == pytest.approx(1e9)
+    assert _convert_unit_value(1.0, "inch", "millimeter") == pytest.approx(25.4)
+
+
 def test_tiff_file_to_ngff_images_simple_rgb():
     """Test handling of simple RGB TIFF (YXS -> yxc)."""
     try:

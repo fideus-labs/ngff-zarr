@@ -7,8 +7,9 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+import pytest
 from ngff_zarr.cli import main
-from ngff_zarr.rfc4_conformance import conformance_report
+from ngff_zarr.rfc4_conformance import _classify, conformance_report
 
 Axis = dict[str, Any]
 
@@ -346,3 +347,19 @@ def test_conformance_report_without_axes_anywhere(tmp_path):
     report = conformance_report(str(tmp_path))
     assert report["rfc4_valid"] is False
     assert report["violations"] == ["input-not-ome-zarr"]
+
+
+@pytest.mark.parametrize(
+    ("orientation", "code"),
+    [
+        ("left-to-right", "bad-type"),
+        (["left-to-right"], "bad-type"),
+        ({"type": "anatomical", "value": ["left-to-right"]}, "bad-value"),
+    ],
+)
+def test_malformed_orientations_are_violations(orientation, code):
+    """Only an object with an anatomical string value is a valid orientation,
+    as validate_rfc4_orientation also requires."""
+    axis = {"name": "x", "type": "space", "orientation": orientation}
+    violations, _ = _classify([axis])
+    assert violations == [code]

@@ -143,20 +143,20 @@ def _classify(axes: list[dict[str, Any]]) -> tuple[list[str], list[str]]:
         if "orientation" in axis and orientation is None:
             warnings.append("null-orientation")
             continue
-        if not isinstance(orientation, dict) or not orientation:
+        if orientation is None or orientation == {}:
             continue
 
         if axis.get("type") != "space":
             violations.append("orientation-on-non-space")
             continue
-        if orientation.get("type") != "anatomical":
+        if not isinstance(orientation, dict) or orientation.get("type") != "anatomical":
             violations.append("bad-type")
             continue
         value = orientation.get("value")
         if value is None:
             violations.append("missing-value")
             continue
-        if value not in _ANATOMICAL_AXIS_OF:
+        if not isinstance(value, str) or value not in _ANATOMICAL_AXIS_OF:
             violations.append("bad-value")
             continue
 

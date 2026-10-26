@@ -243,100 +243,25 @@ def _map_lif_dims_to_ngff(
 def _reshape_for_flattened_channels(
     data: da.Array,
     lif_dims: Sequence[str],
-    lif_shape: Sequence[int],
     ngff_dims: Sequence[str],
     ngff_shape: Sequence[int],
 ) -> da.Array:
-    """
-    Reshape data array to flatten channel-like dimensions.
+    """Move LIF's channel-like axes (C, λ, Λ, S) to NGFF ``c`` and merge them.
 
-    This handles the case where LIF has multiple channel-like dimensions
-    (C, λ, Λ, S) that need to be flattened into a single channel dimension.
-
-    The function ensures channel dimensions are moved to be adjacent before
-    flattening, regardless of their original positions in the array.
+    The axes must be transposed: a reshape alone only relabels the shape, so
+    pixels of different channels and planes would be mixed.
     """
     channel_like_dims = {"C", "λ", "Λ", "S"}
-
-    # Count channel-like dimensions in the original
-    channel_dim_indices = [i for i, d in enumerate(lif_dims) if d in channel_like_dims]
-
-    if len(channel_dim_indices) <= 1:
-        # No flattening needed, just return reshaped if dims changed
-        if data.shape != ngff_shape:
-            return data.reshape(ngff_shape)
-        return data
-
-    # Need to flatten multiple channel dimensions
-    # Strategy:
-    # 1. Move all channel dimensions to be contiguous
-    # 2. Reshape to flatten them into a single dimension
-    # 3. Move the flattened channel dimension to its target position
-
-    # Check if channel dimensions are already contiguous
-    are_contiguous = all(
-        channel_dim_indices[i] + 1 == channel_dim_indices[i + 1]
-        for i in range(len(channel_dim_indices) - 1)
-    )
-
-    if are_contiguous:
-        # Dimensions are contiguous, safe to use reshape directly
-        return data.reshape(ngff_shape)
-
-    # Move channel dimensions to be adjacent
-    # Move them to the position of the first channel dimension
-    first_channel_pos = channel_dim_indices[0]
-
-    # Calculate new axis order: non-channel dims + channel dims
-    non_channel_indices = [
-        i for i in range(len(lif_dims)) if i not in channel_dim_indices
-    ]
-
-    # Insert channel dims at the position where the first one was
-    new_axis_order = (
-        non_channel_indices[:first_channel_pos]
-        + channel_dim_indices
-        + non_channel_indices[first_channel_pos:]
-    )
-
-    # Transpose to new order
-    data = data.transpose(new_axis_order)
-
-    # Now reshape to flatten the channel dimensions
-    # Calculate the intermediate shape after transposing
-    intermediate_shape = [lif_shape[i] for i in new_axis_order]
-
-    # Calculate flattened shape: replace the channel dimensions with their product
-    flattened_shape = (
-        intermediate_shape[:first_channel_pos]
-        + [
-            reduce(
-                lambda x, y: x * y,
-                [
-                    intermediate_shape[i]
-                    for i in range(
-                        first_channel_pos, first_channel_pos + len(channel_dim_indices)
-                    )
-                ],
-            )
-        ]
-        + intermediate_shape[first_channel_pos + len(channel_dim_indices) :]
-    )
-
-    data = data.reshape(flattened_shape)
-
-    # Now the data has the right shape, but might not match ngff_shape dimension order
-    # Find where 'c' is in ngff_dims
-    if "c" in ngff_dims:
-        target_c_pos = list(ngff_dims).index("c")
-        if target_c_pos != first_channel_pos:
-            # Move channel dimension to target position
-            current_order = list(range(len(flattened_shape)))
-            current_order.pop(first_channel_pos)
-            current_order.insert(target_c_pos, first_channel_pos)
-            data = data.transpose(current_order)
-
-    return data
+    channel = [i for i, d in enumerate(lif_dims) if d in channel_like_dims]
+    # Other axes keep their LIF order (see _map_lif_dims_to_ngff).
+    others = iter(i for i, d in enumerate(lif_dims) if d not in channel_like_dims)
+    order = []
+    for dim in ngff_dims:
+        order.extend(channel if dim == "c" else [next(others)])
+    if "c" not in ngff_dims:
+        # Size-1 channel axes, which the reshape drops.
+        order.extend(channel)
+    return data.transpose(order).reshape(ngff_shape)
 
 
 def lif_to_ngff_image(
@@ -389,11 +314,7 @@ def lif_to_ngff_image(
     # handle is closed.
     data = _delayed_lif_data(lif_image, lif_shape, dtype)
 
-    # Reshape if needed for flattened channels
-    if data.shape != ngff_shape:
-        data = _reshape_for_flattened_channels(
-            data, lif_dims, lif_shape, ngff_dims, ngff_shape
-        )
+    data = _reshape_for_flattened_channels(data, lif_dims, ngff_dims, ngff_shape)
 
     # Get image name
     if name is None:
@@ -635,9 +556,9 @@ def lif_to_hcs_plate(
                 if dim not in translation:
                     translation[dim] = 0.0
 
-        # Reshape if needed
-        if pos_data.shape != ngff_shape:
-            pos_data = pos_data.reshape(ngff_shape)
+        pos_data = _reshape_for_flattened_channels(
+            pos_data, new_dims, ngff_dims, ngff_shape
+        )
 
         ngff_image = NgffImage(
             data=pos_data,

@@ -389,7 +389,7 @@ def _gate_top_level_transforms(source, metadata, version: str) -> None:
                     "to name both its input and its output coordinate system"
                 )
         try:
-            validate_transform(transform, systems)
+            validate_transform(transform, systems, version)
         except ValueError as invalid:
             raise ValueError(
                 f"multiscales coordinateTransformations[{index}] "

@@ -268,11 +268,14 @@ def _scene_from_dict(
     document: dict[str, Any], version: str | None
 ) -> tuple[list[CoordinateSystem] | None, list[Transform]]:
     """Parse an ``ome.scene`` object into its coordinate systems and transformations."""
+    from .v09.zarr_metadata import _filter_axis_dict
+
     systems = None
     if document.get("coordinateSystems") is not None:
         systems = [
             CoordinateSystem(
-                name=entry["name"], axes=[Axis(**axis) for axis in entry["axes"]]
+                name=entry["name"],
+                axes=[Axis(**_filter_axis_dict(axis)) for axis in entry["axes"]],
             )
             for entry in document["coordinateSystems"]
         ]

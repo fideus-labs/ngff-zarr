@@ -165,6 +165,23 @@ def _get_axis_fields() -> set[str]:
     return {f.name for f in fields(Axis)}
 
 
+def _parse_multiscale_transforms(transforms: list | None) -> list | None:
+    """Model a multiscale's scale and translation; keep other entries as given.
+
+    Structural validation reads them as transform objects, and the schema pass
+    before it rejects any other entry.
+    """
+    if transforms is None:
+        return None
+    classes = {"scale": Scale, "translation": Translation}
+    return [
+        classes[t["type"]](t[t["type"]])
+        if isinstance(t, dict) and t.get("type") in classes
+        else t
+        for t in transforms
+    ]
+
+
 def _filter_axis_dict(axis_dict: dict) -> dict:
     """Filter an axis dictionary to only include valid Axis fields.
 
@@ -602,7 +619,9 @@ class Metadata:
             name=root_attrs.get("name", "image"),
             version=group_version or root_attrs.get("version", "0.4"),
             omero=omero,
-            coordinateTransformations=root_attrs.get("coordinateTransformations", None),
+            coordinateTransformations=_parse_multiscale_transforms(
+                root_attrs.get("coordinateTransformations")
+            ),
             extra=extra,
         )
 
