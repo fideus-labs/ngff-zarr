@@ -12,6 +12,28 @@
   "commitType": "docs",
   "contributorsPerLine": 7,
   "linkToUsage": false,
+  "types": {
+    "ideas": {
+      "symbol": "🤔",
+      "description": "Ideas, Planning, & Feedback",
+      "link": "https://github.com/<%= options.projectOwner %>/<%= options.projectName %>/issues?q=author%3A<%= contributor.login %>"
+    },
+    "projectManagement": {
+      "symbol": "📆",
+      "description": "Project Management",
+      "link": "https://github.com/<%= options.projectOwner %>/<%= options.projectName %>/issues?q=author%3A<%= contributor.login %>"
+    },
+    "maintenance": {
+      "symbol": "🚧",
+      "description": "Maintenance",
+      "link": "https://github.com/<%= options.projectOwner %>/<%= options.projectName %>/commits?author=<%= contributor.login %>"
+    },
+    "infra": {
+      "symbol": "🚇",
+      "description": "Infrastructure (Hosting, Build-Tools, etc)",
+      "link": "https://github.com/<%= options.projectOwner %>/<%= options.projectName %>/commits?author=<%= contributor.login %>"
+    }
+  },
   "contributors": [
     {
       "avatar_url": "https://avatars.githubusercontent.com/u/25432?v=4",
