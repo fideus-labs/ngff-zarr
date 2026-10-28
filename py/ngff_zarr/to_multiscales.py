@@ -70,14 +70,26 @@ def _ngff_image_scale_factors(ngff_image, min_length, out_chunks):
     double_chunks = np.array(
         [2 * s for d, s in out_chunks.items() if d in _spatial_dims]
     )
+    # The spacings compared in one unit, when every spatial axis declares a
+    # known one: 2 micrometer along z is coarser than 650 nanometer along x.
+    from .tiff_to_ngff_image import _convert_unit_value
+
+    units = ngff_image.axes_units or {}
+    try:
+        base = {
+            d: _convert_unit_value(ngff_image.scale.get(d, 1.0), units[d], "meter")
+            for d in previous
+        }
+    except (KeyError, ValueError):
+        base = {d: ngff_image.scale.get(d, 1.0) for d in previous}
     while (sizes_array >= double_chunks).any():
         max_size = np.array(list(sizes.values())).max()
         # Skip an axis that is already coarse: halving it keeps the anisotropy
         # at every level, so it waits until the others catch up. Without a
         # spacing to go by (a uniform scale), an axis half as long as the
         # longest stands in for a coarse one.
-        spacing = {d: ngff_image.scale.get(d, 1.0) * previous[d] for d in previous}
-        if len({ngff_image.scale.get(d, 1.0) for d in previous}) > 1:
+        spacing = {d: base[d] * previous[d] for d in previous}
+        if not np.allclose(list(base.values()), min(base.values()), rtol=1e-9, atol=0):
             finest = min(spacing.values())
             to_skip = {d: spacing[d] >= 2 * finest for d in previous}
             # A coarse axis still halves alone once the finer ones are down to
@@ -656,6 +668,9 @@ def to_multiscales(
         axes_orientations = orientation_from_name(orientation)
     else:
         axes_orientations = orientation
+    if orientation is not None:
+        # The base level declares it too: ``ngff_image`` is this call's copy.
+        ngff_image.axes_orientations = dict(axes_orientations)
 
     # The methods build each level from its pixels and grid alone. Carry the
     # input's per-image metadata onto every generated level, here, once for all
@@ -682,7 +697,12 @@ def to_multiscales(
                 else getattr(ngff_image, attr)
             )
             if getattr(img, attr) is None and source is not None:
-                setattr(img, attr, copy.copy(source))
+                # dict/list, not copy.copy: a mapping need not be copyable.
+                setattr(
+                    img,
+                    attr,
+                    list(source) if attr.startswith("channel_") else dict(source),
+                )
 
     axes_types = ngff_image.axes_types
     if axes_types:

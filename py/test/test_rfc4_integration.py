@@ -5,6 +5,7 @@
 import json
 import tempfile
 from pathlib import Path
+from types import MappingProxyType
 
 import numpy as np
 import pytest
@@ -228,12 +229,17 @@ def test_rfc4_orientation_keyword_overrides_image_orientations():
         scale={"x": 1.0, "y": 1.0, "z": 1.0},
         translation={"x": 0.0, "y": 0.0, "z": 0.0},
         axes_orientations=LPS,
+        # A read-only mapping: copied onto each level, not copy.copy'd.
+        axes_units=MappingProxyType(dict.fromkeys("zyx", "millimeter")),
     )
 
     # ...but the explicit orientation keyword (RAS) wins.
     multiscales = to_multiscales(ngff_image, scale_factors=[2], orientation="RAS")
-    # A generated level used on its own reports what the metadata declares.
-    assert multiscales.images[1].axes_orientations == RAS
+    # Every level, the base one included, reports what the metadata declares;
+    # the caller's image keeps its own.
+    assert [image.axes_orientations for image in multiscales.images] == [RAS, RAS]
+    assert ngff_image.axes_orientations == LPS
+    assert multiscales.images[1].axes_units == dict.fromkeys("zyx", "millimeter")
 
     with tempfile.TemporaryDirectory() as temp_dir:
         store_path = Path(temp_dir) / "test.zarr"

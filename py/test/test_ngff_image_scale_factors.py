@@ -116,3 +116,21 @@ def test_a_coarse_axis_halves_alone_when_the_finer_ones_are_at_their_chunk():
         "y": 1,
         "x": 1,
     }
+
+
+def test_scale_factors_compare_the_spacing_in_one_unit():
+    # 2 micrometer along z is coarser than 650 nanometer along x: on the raw
+    # numbers z looked 300x finer, and was halved first.
+    array = rng.random(size=(256, 256, 256), dtype=np.float32)
+    image = to_ngff_image(
+        array,
+        dims=["z", "y", "x"],
+        scale={"z": 2.031, "y": 650.0, "x": 650.0},
+        axes_units={"z": "micrometer", "y": "nanometer", "x": "nanometer"},
+    )
+    chunk_dims = dict.fromkeys(image.dims, 64)
+    assert _ngff_image_scale_factors(image, 64, chunk_dims)[0] == {
+        "x": 2,
+        "y": 2,
+        "z": 1,
+    }
