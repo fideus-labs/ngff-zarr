@@ -232,6 +232,8 @@ def test_rfc4_orientation_keyword_overrides_image_orientations():
 
     # ...but the explicit orientation keyword (RAS) wins.
     multiscales = to_multiscales(ngff_image, scale_factors=[2], orientation="RAS")
+    # A generated level used on its own reports what the metadata declares.
+    assert multiscales.images[1].axes_orientations == RAS
 
     with tempfile.TemporaryDirectory() as temp_dir:
         store_path = Path(temp_dir) / "test.zarr"

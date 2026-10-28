@@ -632,20 +632,6 @@ def to_multiscales(
             ngff_image, default_chunks, out_chunks, scale_factors
         )
 
-    # Propagate channel_names and channel_colors from the input image to
-    # all generated pyramid levels so that OMERO computation (which may
-    # use a lower-resolution level) can access them.
-    # Copy the lists to avoid shared-mutation aliasing between levels.
-    src_channel_names = ngff_image.channel_names
-    src_channel_colors = ngff_image.channel_colors
-    if src_channel_names is not None or src_channel_colors is not None:
-        for img in images:
-            if img is not ngff_image:  # skip the base level (already has them)
-                if img.channel_names is None and src_channel_names is not None:
-                    img.channel_names = list(src_channel_names)
-                if img.channel_colors is None and src_channel_colors is not None:
-                    img.channel_colors = list(src_channel_colors)
-
     # Resolve anatomical orientation (RFC 4). An explicit ``orientation``
     # argument (preset name or mapping) takes precedence over any orientations
     # carried on the input image.
@@ -655,6 +641,33 @@ def to_multiscales(
         axes_orientations = orientation_from_name(orientation)
     else:
         axes_orientations = orientation
+
+    # The methods build each level from its pixels and grid alone. Carry the
+    # input's per-image metadata onto every generated level, here, once for all
+    # methods: a level used on its own (a displacement field at a coarser level,
+    # OMERO computed from a low-resolution level) needs its axis types, units
+    # and orientations as much as the base level does. Copy the containers to
+    # avoid shared-mutation aliasing between levels.
+    for img in images:
+        if img is ngff_image:  # the base level already has them
+            continue
+        img.name = ngff_image.name
+        for attr in (
+            "axes_units",
+            "axes_orientations",
+            "axes_types",
+            "channel_names",
+            "channel_colors",
+        ):
+            # The generated levels take the orientation the metadata will
+            # declare, the explicit ``orientation`` included.
+            source = (
+                axes_orientations
+                if attr == "axes_orientations"
+                else getattr(ngff_image, attr)
+            )
+            if getattr(img, attr) is None and source is not None:
+                setattr(img, attr, copy.copy(source))
 
     axes_types = ngff_image.axes_types
     if axes_types:
