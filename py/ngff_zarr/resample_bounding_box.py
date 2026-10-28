@@ -951,12 +951,17 @@ def resample_bounding_box(
         # system, which carries no direction matrix.
         fixed_direction = np.eye(len(itk_dims))
         moving_direction = np.eye(len(itk_dims))
+        walk_grid = replace(fixed, axes_orientations=None)
     else:
         transform_list = _as_itk_transform_list(transform)
         fixed_direction = _itk_direction(fixed, itk_dims)
         moving_direction = _itk_direction(moving, itk_dims)
+        walk_grid = fixed
+    if field_bound is None:
+        # A displacement field stage, from ITK or from an RFC-5 sequence, is
+        # measured the same way.
         walked, interval = _nonlinear_interval(
-            transform_list, len(itk_dims), _grid_physical_box(fixed, itk_dims)
+            transform_list, len(itk_dims), _grid_physical_box(walk_grid, itk_dims)
         )
         if interval is not None:
             # The pipeline walks the boundary, which reports a linear map

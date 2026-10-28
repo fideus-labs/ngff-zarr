@@ -488,10 +488,12 @@ def resample(
         moving = replace(moving, axes_orientations=None)
     else:
         transform_list = _as_itk_transform_list(transform)
+    if field is None:
         # A displacement stage would have its whole field scanned once per
         # block below; the split and its range are loop constants, so they
         # are taken here. The graph's tasks keep the original list: only the
-        # regions walk the linear part.
+        # regions walk the linear part. A displacement field stage of an
+        # RFC-5 sequence is measured the same way.
         itk_dims = [dim for dim in ("x", "y", "z") if dim in fixed_spatial]
         walked_list, itk_interval = _nonlinear_interval(
             transform_list,
