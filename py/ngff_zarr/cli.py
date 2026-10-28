@@ -1389,12 +1389,70 @@ def _conformance_main(argv: list[str] | None = None) -> None:
     print(json.dumps(conformance_report(argv[0]), indent=2))
 
 
+def _transform_points_main(argv: list[str] | None = None) -> None:
+    """Handle the ``ngff-zarr transform-points`` subcommand.
+
+    Maps the points of a JSON file (a list of points, each in the order of the
+    transformation's input axes) through one transformation of an OME-Zarr
+    0.6 scene, and prints them as JSON, for a conformance driver to compare
+    with a store's expected answers.
+    """
+    import json
+
+    from .from_ngff_zarr import from_ome_zarr
+    from .scene import NgffScene, _image_systems
+    from .transform_chain import flatten_sequence
+    from .transform_points import transform_points
+    from .v06.zarr_metadata import Coordinates, Displacements
+
+    parser = argparse.ArgumentParser(prog="ngff-zarr transform-points")
+    parser.add_argument("scene", help="OME-Zarr 0.6 scene store (directory or .ozx)")
+    parser.add_argument("points", help="JSON file: a list of points")
+    parser.add_argument(
+        "--transform",
+        type=int,
+        default=0,
+        help="index of the scene's transformation (default: 0)",
+    )
+    args = parser.parse_args(argv)
+
+    scene = NgffScene.from_ome_zarr(args.scene)
+    transform = scene.coordinateTransformations[args.transform]
+    # The points are in the input coordinate system: an image's, or the scene's
+    # own when the reference names no image path.
+    reference = transform.input
+    systems = (
+        _image_systems(scene.images[reference.path])
+        if reference.path
+        else scene.coordinateSystems or []
+    )
+    system = next((s for s in systems if s.name == reference.name), None)
+    if system is None:
+        parser.error(
+            f"transformation {args.transform} starts in coordinate system "
+            f"{reference.name!r}, which {reference.path or 'the scene'} does not "
+            "declare"
+        )
+    dims = [axis.name for axis in system.axes if axis.type == "space"]
+    steps = flatten_sequence(transform)
+    fields = {
+        step.path: from_ome_zarr(f"{args.scene}/{step.path}")
+        for step in steps
+        if isinstance(step, (Displacements, Coordinates))
+    }
+    with open(args.points) as file:
+        points = json.load(file)
+    mapped = transform_points(transform, points, dims, fields=fields)
+    print(json.dumps({"dims": dims, "points": mapped.tolist()}))
+
+
 def main(argv: list[str] | None = None) -> None:
     """Entry point for the ``ngff-zarr`` command.
 
-    Dispatches to the ``upgrade`` or ``conformance`` subcommand when the first
-    token matches; otherwise runs the flat conversion command unchanged so
-    existing invocations behave exactly as before.
+    Dispatches to the ``upgrade``, ``conformance`` or ``transform-points``
+    subcommand when the first token matches; otherwise runs the flat
+    conversion command unchanged so existing invocations behave exactly as
+    before.
     """
     if argv is None:
         argv = sys.argv[1:]
@@ -1402,6 +1460,8 @@ def main(argv: list[str] | None = None) -> None:
         return _upgrade_main(argv[1:])
     if argv and argv[0] == "conformance":
         return _conformance_main(argv[1:])
+    if argv and argv[0] == "transform-points":
+        return _transform_points_main(argv[1:])
     try:
         return _convert_main(argv)
     except (CliInputError, OSError) as error:

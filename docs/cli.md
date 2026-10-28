@@ -252,6 +252,30 @@ supported by this subcommand. The output is the canonical contract used by the
 so the suite's driver can be pointed straight at this command. The
 [RFC-4 documentation](./rfc4.md) lists the violation and warning codes.
 
+### Map points through an RFC-5 transformation
+
+The `ngff-zarr transform-points` subcommand maps points through one
+transformation of an OME-Zarr 0.6 scene and prints where they land, so a store's
+expected answers can be checked whatever tool wrote it:
+
+```shell
+ngff-zarr transform-points path/to/scene.ome.zarr points.json
+```
+
+`points.json` holds a list of points, each in the order of the transformation's
+input coordinate system (`z`, `y`, `x` for an image's intrinsic system). The
+output names that order and the mapped points:
+
+```json
+{"dims": ["z", "y", "x"], "points": [[1.5, 2.0, 3.25]]}
+```
+
+`--transform N` picks the scene's N-th transformation (default 0). Affine,
+`sequence`, `displacements` and `coordinates` transformations are mapped, the
+fields read from the scene; directory stores and `.ozx` archives are both
+accepted. `py/examples/rfc5_test_stores.py` writes four scenes with exact
+expected answers and a manifest, to check any reader against.
+
 ### Read public OME-Zarr inputs from S3
 
 When the input is an OME-Zarr store on S3, the CLI passes fsspec
