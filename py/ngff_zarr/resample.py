@@ -8,6 +8,7 @@ from dataclasses import replace
 
 import numpy as np
 
+from ._itkwasm_pipelines import call_itkwasm
 from .displacement_field_transform import field_window
 from .ngff_image import NgffImage
 from .ngff_transform_to_itk_transform import ngff_transform_to_itk_transform
@@ -281,7 +282,8 @@ def _resample_block(
     # when the component type disagrees with the moving image, so align it.
     reference.imageType.componentType = _component_type(out_dtype)
 
-    resampled = resample_to_reference(
+    resampled = call_itkwasm(
+        resample_to_reference,
         ngff_image_to_itk_image(crop, wasm=True),
         reference,
         transform=transform_list,
