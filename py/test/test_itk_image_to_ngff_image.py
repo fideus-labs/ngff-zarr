@@ -1,8 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+import warnings
+
 import itk
 import itkwasm
 import numpy as np
+import pytest
 from ngff_zarr import itk_image_to_ngff_image
 
 from ._data import input_images, test_data_dir  # noqa: F401
@@ -125,3 +128,53 @@ def test_4d_vector_itkwasm_image():
 
     assert ngff_image.dims == ("t", "z", "y", "x", "c")
     assert ngff_image.scale == {"t": 10.0, "z": 0.7, "y": 0.6, "x": 0.5}
+
+
+def _oriented(direction):
+    itk_image = itk.image_from_array(np.zeros((4, 5, 6), np.float32))
+    itk_image.SetDirection(itk.matrix_from_array(np.asarray(direction, np.float64)))
+    return itk_image
+
+
+_FLIPPED = [[0, 0, -1], [1, 0, 0], [0, -1, 0]]
+_OBLIQUE = [
+    [np.cos(0.35), -np.sin(0.35), 0],
+    [np.sin(0.35), np.cos(0.35), 0],
+    [0, 0, 1],
+]
+
+
+def test_an_oblique_direction_warns_that_it_is_placed_axis_aligned():
+    # Snapped to the nearest axis-aligned grid, an oblique pair's rigid result
+    # converted to RFC-5 landed 19 voxels off without a word.
+    with pytest.warns(UserWarning, match="oblique"):
+        itk_image_to_ngff_image(_oriented(_OBLIQUE))
+
+
+def test_an_integer_shear_is_not_an_orientation():
+    with pytest.warns(UserWarning, match="oblique"):
+        itk_image_to_ngff_image(_oriented([[1, 1, 0], [0, 1, 0], [0, 0, 1]]))
+
+
+def test_a_reversed_time_axis_warns():
+    itk_image = itk.image_from_array(np.zeros((3, 4, 5, 6), np.float32))
+    itk_image.SetDirection(itk.matrix_from_array(np.diag([1.0, 1.0, 1.0, -1.0])))
+    with pytest.warns(UserWarning, match="time"):
+        itk_image_to_ngff_image(itk_image)
+
+
+def test_a_direction_dropped_without_orientation_warns():
+    with pytest.warns(UserWarning, match="add_anatomical_orientation is False"):
+        itk_image_to_ngff_image(_oriented(_FLIPPED), add_anatomical_orientation=False)
+
+
+@pytest.mark.parametrize(
+    ("direction", "oriented"),
+    [(np.eye(3), True), (np.eye(3), False), (_FLIPPED, True)],
+)
+def test_a_direction_the_image_carries_does_not_warn(direction, oriented):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        itk_image_to_ngff_image(
+            _oriented(direction), add_anatomical_orientation=oriented
+        )

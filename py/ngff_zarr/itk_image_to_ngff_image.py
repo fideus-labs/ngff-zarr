@@ -1,14 +1,61 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
+import warnings
 from dataclasses import asdict
 
 import dask.array
+import numpy as np
 
 from .ngff_image import NgffImage
 from .rfc4 import (
     itk_direction_to_anatomical_orientation,
     itk_lps_to_anatomical_orientation,
 )
+
+
+def _warn_lost_direction(direction, dimension, n_spatial, oriented):
+    """Warn when the NgffImage cannot carry the ITK ``direction``.
+
+    An NgffImage places its grid by scale and translation along its own axes,
+    and RFC-4 orientation adds per-axis flips and swaps. An oblique direction
+    is neither, and without orientation any non-identity one is dropped: the
+    image is then placed axis-aligned, and an ITK transform converted against
+    it (``itk_transform_to_ngff_transform``) no longer maps the voxels it maps
+    in ITK. A rigid result of an oblique pair landed 19 voxels off.
+    """
+    if direction is None or len(direction) == 0:
+        return
+    full = np.asarray(direction, dtype=np.float64).reshape(dimension, dimension)
+    matrix = full[:n_spatial, :n_spatial]
+    rest = full.copy()
+    rest[:n_spatial, :n_spatial] = np.eye(n_spatial)
+    if not np.allclose(rest, np.eye(dimension), atol=1e-6):
+        lost = "mixes time with space or reverses it, which an NgffImage cannot carry"
+    elif oriented:
+        # RFC-4 holds a signed permutation: one unit entry per row and column.
+        magnitudes = np.abs(matrix)
+        if np.allclose(magnitudes, np.round(magnitudes), atol=1e-6) and (
+            np.allclose(magnitudes.sum(axis=0), 1)
+            and np.allclose(magnitudes.sum(axis=1), 1)
+        ):
+            return
+        lost = (
+            "is oblique, and RFC-4 orientation only flips and swaps axes: the "
+            "image is placed on its nearest axis-aligned grid"
+        )
+    else:
+        if np.allclose(matrix, np.eye(n_spatial), atol=1e-6):
+            return
+        lost = (
+            "is dropped, as add_anatomical_orientation is False: the image is "
+            "placed axis-aligned"
+        )
+    warnings.warn(
+        f"The ITK direction {np.round(full, 6).tolist()} {lost}. An ITK "
+        "transform converted against this image no longer maps the voxels it "
+        "maps in ITK.",
+        stacklevel=3,
+    )
 
 
 def itk_image_to_ngff_image(
@@ -70,11 +117,16 @@ def itk_image_to_ngff_image(
     origin = image_dict["origin"]
     translation = {dim: origin[itk_axes.index(dim)] for dim in dims if dim in itk_axes}
 
+    _warn_lost_direction(
+        image_dict.get("direction"),
+        dimension,
+        len(spatial_dims),
+        add_anatomical_orientation,
+    )
+
     # Add anatomical orientation if requested
     axes_orientations = None
     if add_anatomical_orientation:
-        import numpy as np
-
         direction = image_dict.get("direction")
         n_spatial = len(spatial_dims)
 
