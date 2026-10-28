@@ -1417,10 +1417,23 @@ def _transform_points_main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     scene = NgffScene.from_ome_zarr(args.scene)
+    count = len(scene.coordinateTransformations)
+    if not 0 <= args.transform < count:
+        parser.error(
+            f"--transform {args.transform} is out of range: the scene has "
+            f"{count} transformation(s)"
+        )
     transform = scene.coordinateTransformations[args.transform]
     # The points are in the input coordinate system: an image's, or the scene's
     # own when the reference names no image path.
     reference = transform.input
+    if reference is None:
+        parser.error(f"transformation {args.transform} declares no input")
+    if reference.path and reference.path not in scene.images:
+        parser.error(
+            f"transformation {args.transform} starts in image "
+            f"{reference.path!r}, which the scene does not hold"
+        )
     systems = (
         _image_systems(scene.images[reference.path])
         if reference.path

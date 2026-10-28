@@ -129,6 +129,13 @@ def test_a_transformation_from_a_scene_coordinate_system_maps_its_points(
     assert result["dims"] == ["z", "y", "x"]
     np.testing.assert_allclose(result["points"], [[1.0, -2.0, 0.5], [2.0, 0.0, 3.5]])
 
+    # A transformation the scene does not have is a usage error, not a traceback
+    # (a negative index picked one from the end).
+    for index in ("1", "-1"):
+        with pytest.raises(SystemExit):
+            main(["transform-points", str(store), str(points), "--transform", index])
+        assert "out of range" in capsys.readouterr().err
+
 
 def test_a_float32_field_in_an_ozx_scene_maps_its_points(stores, tmp_path, capsys):
     # The compact form a registration stores: float32 values, zipped. A float32
