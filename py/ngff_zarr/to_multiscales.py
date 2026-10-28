@@ -72,7 +72,22 @@ def _ngff_image_scale_factors(ngff_image, min_length, out_chunks):
     )
     while (sizes_array >= double_chunks).any():
         max_size = np.array(list(sizes.values())).max()
-        to_skip = {d: sizes[d] <= max_size / 2 for d in previous}
+        # Skip an axis that is already coarse: halving it keeps the anisotropy
+        # at every level, so it waits until the others catch up. Without a
+        # spacing to go by (a uniform scale), an axis half as long as the
+        # longest stands in for a coarse one.
+        spacing = {d: ngff_image.scale.get(d, 1.0) * previous[d] for d in previous}
+        if len({ngff_image.scale.get(d, 1.0) for d in previous}) > 1:
+            finest = min(spacing.values())
+            to_skip = {d: spacing[d] >= 2 * finest for d in previous}
+            # A coarse axis still halves alone once the finer ones are down to
+            # their chunk: otherwise the pyramid would stop there.
+            if not any(
+                not to_skip[d] and sizes[d] / 2 >= out_chunks[d] for d in previous
+            ):
+                to_skip = dict.fromkeys(previous, False)
+        else:
+            to_skip = {d: sizes[d] <= max_size / 2 for d in previous}
         scale_factor = {}
         for dim in previous:
             if to_skip[dim] or sizes[dim] / 2 < out_chunks[dim]:
