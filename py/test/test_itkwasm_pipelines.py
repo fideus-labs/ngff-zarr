@@ -35,3 +35,30 @@ def test_first_calls_are_serialized_and_later_calls_are_not():
     assert results == list(range(8))
     assert started_before_any_finished == 1  # the first call ran alone
     assert overlap > 1  # the calls after it overlapped
+
+
+def test_every_itkwasm_downsample_call_goes_through_the_lock():
+    # resample_bounding_box and gaussian_kernel_radius ran their pipelines
+    # directly: a first call in two threads at once raced on the module cache.
+    import ast
+    from pathlib import Path
+
+    import ngff_zarr
+
+    direct = []
+    for path in Path(ngff_zarr.__file__).parent.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        pipelines = {
+            alias.asname or alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module == "itkwasm_downsample"
+            for alias in node.names
+        }
+        direct += [
+            f"{path.name}:{node.lineno}"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in pipelines
+        ]
+    assert not direct, f"call these through call_itkwasm: {direct}"

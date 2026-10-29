@@ -424,7 +424,9 @@ def _downsample_itkwasm(
         # Compute metadata for region splitting
         shrink_factors = [dim_factors[sd] for sd in spatial_dims]
         sigma_values = _compute_sigma(shrink_factors)
-        kernel_radius = gaussian_kernel_radius(size=block_0_size, sigma=sigma_values)
+        kernel_radius = call_itkwasm(
+            gaussian_kernel_radius, size=block_0_size, sigma=sigma_values
+        )
 
         dtype = block_0_input.dtype
         if smoothing != "bin_shrink":

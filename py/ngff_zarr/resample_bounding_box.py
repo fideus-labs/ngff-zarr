@@ -8,6 +8,7 @@ from dataclasses import dataclass, field, replace
 
 import numpy as np
 
+from ._itkwasm_pipelines import call_itkwasm
 from .ngff_image import NgffImage
 from .ngff_transform_to_itk_transform import ngff_transform_to_itk_transform
 from .rfc4 import anatomical_orientation_to_itk_direction
@@ -974,7 +975,8 @@ def resample_bounding_box(
             field_bound = corners
             field_index_bound = indices
 
-    result = itkwasm_bounding_box(
+    result = call_itkwasm(
+        itkwasm_bounding_box,
         transform_list,
         _metadata_only_itk_image(fixed, itk_dims, fixed_direction),
         _metadata_only_itk_image(moving, itk_dims, moving_direction),
