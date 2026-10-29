@@ -1401,7 +1401,7 @@ def _transform_points_main(argv: list[str] | None = None) -> None:
     import json
 
     from .from_ngff_zarr import from_ome_zarr
-    from .scene import NgffScene, _image_systems
+    from .scene import NgffScene, _check_image_path, _image_systems
     from .transform_chain import flatten_sequence
     from .transform_points import transform_points
     from .v06.zarr_metadata import Coordinates, Displacements
@@ -1430,38 +1430,58 @@ def _transform_points_main(argv: list[str] | None = None) -> None:
             f"{count} transformation(s)"
         )
     transform = scene.coordinateTransformations[args.transform]
-    # The points are in the input coordinate system: an image's, or the scene's
-    # own when the reference names no image path.
-    reference = transform.input
-    if reference is None:
-        parser.error(f"transformation {args.transform} declares no input")
-    if reference.path and reference.path not in scene.images:
-        parser.error(
-            f"transformation {args.transform} starts in image "
-            f"{reference.path!r}, which the scene does not hold"
+
+    def system_of(reference, role: str, where: str):
+        # An image's coordinate system, or the scene's own when the reference
+        # names no image path.
+        if reference is None:
+            parser.error(f"transformation {args.transform} declares no {role}")
+        if reference.path and reference.path not in scene.images:
+            parser.error(
+                f"transformation {args.transform} {where} image "
+                f"{reference.path!r}, which the scene does not hold"
+            )
+        systems = (
+            _image_systems(scene.images[reference.path])
+            if reference.path
+            else scene.coordinateSystems or []
         )
-    systems = (
-        _image_systems(scene.images[reference.path])
-        if reference.path
-        else scene.coordinateSystems or []
-    )
-    system = next((s for s in systems if s.name == reference.name), None)
-    if system is None:
+        system = next((s for s in systems if s.name == reference.name), None)
+        if system is None:
+            parser.error(
+                f"transformation {args.transform} {where} coordinate system "
+                f"{reference.name!r}, which {reference.path or 'the scene'} does "
+                "not declare"
+            )
+        return system
+
+    source = system_of(transform.input, "input", "starts in")
+    target = system_of(transform.output, "output", "ends in")
+    dims = [axis.name for axis in source.axes if axis.type == "space"]
+    target_dims = [axis.name for axis in target.axes if axis.type == "space"]
+    if target_dims != dims:
+        # The conversion reads both systems with one axis order.
         parser.error(
-            f"transformation {args.transform} starts in coordinate system "
-            f"{reference.name!r}, which {reference.path or 'the scene'} does not "
-            "declare"
+            f"transformation {args.transform} maps spatial axes {dims} to "
+            f"{target_dims}: transform-points needs the same ones, in the same order"
         )
-    dims = [axis.name for axis in system.axes if axis.type == "space"]
     steps = flatten_sequence(transform)
-    fields = {
-        step.path: from_ome_zarr(f"{args.scene}/{step.path}")
-        for step in steps
-        if isinstance(step, (Displacements, Coordinates))
-    }
+    fields = {}
+    for step in steps:
+        if isinstance(step, (Displacements, Coordinates)):
+            try:
+                # The path comes from the store's metadata and is joined to it.
+                _check_image_path(step.path, "scene")
+            except ValueError:
+                parser.error(
+                    f"transformation {args.transform} reads a field at "
+                    f"{step.path!r}, which is not a path inside the scene"
+                )
+            fields[step.path] = from_ome_zarr(f"{args.scene}/{step.path}")
     with open(args.points) as file:
         points = json.load(file)
-    mapped = transform_points(transform, points, dims, fields=fields)
+    axes = [axis.name for axis in source.axes]
+    mapped = transform_points(transform, points, axes, fields=fields)
     print(json.dumps({"dims": dims, "points": mapped.tolist()}))
 
 

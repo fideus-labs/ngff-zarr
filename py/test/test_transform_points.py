@@ -177,3 +177,106 @@ def test_points_follow_the_order_of_dims(dims):
         transform_points(affine, [[0.0, 0.0, 0.0]], list(dims)),
         [[shift[dim] for dim in dims]],
     )
+
+
+def test_a_time_axis_rides_along_with_the_spatial_points():
+    # The CLI gave the conversion the spatial axes alone, which then refused a
+    # scale over t, z, y, x: it has one value per axis of the input system.
+    from ngff_zarr.transform_points import transform_points
+    from ngff_zarr.v06.zarr_metadata import Scale
+
+    np.testing.assert_allclose(
+        transform_points(
+            Scale(scale=[5.0, 2.0, 3.0, 4.0]), [[1.0, 1.0, 1.0]], ["t", "z", "y", "x"]
+        ),
+        [[2.0, 3.0, 4.0]],
+    )
+
+
+def test_a_field_read_around_the_points_maps_them_as_the_whole_field():
+    # The whole field was loaded in float64 for a few points: 24 GiB for a
+    # 1024^3 field. Read around them, a point by an edge or outside the field
+    # must move as it does through the whole field.
+    from ngff_zarr import NgffImage
+    from ngff_zarr.transform_points import _point_field, transform_points
+    from ngff_zarr.v06.zarr_metadata import Displacements
+
+    scale = np.array([2.0, 1.5, 0.5])
+    origin = np.array([1.0, -2.0, 3.0])
+    grid = np.stack(
+        np.meshgrid(*[np.arange(n) for n in (6, 7, 8)], indexing="ij"), axis=-1
+    )
+    nodes = origin + grid * scale  # z, y, x at every node
+    matrix = np.array([[0.1, 0.0, 0.02], [0.03, -0.05, 0.0], [0.0, 0.04, 0.1]])
+    shift = np.array([0.5, -0.25, 0.75])
+    values = np.moveaxis(nodes @ matrix.T + shift, -1, 0)  # dz, dy, dx first
+    field = NgffImage(
+        data=values,
+        dims=("c", "z", "y", "x"),
+        scale={"c": 1.0, **dict(zip("zyx", scale))},
+        translation={"c": 0.0, **dict(zip("zyx", origin))},
+        axes_types={"c": "displacement"},
+    )
+    inside = np.array([[1.2, -1.9, 3.05], [10.8, 6.9, 6.45], [5.0, 2.0, 4.0]])
+    outside = np.array([[30.0, 2.0, 4.0]])
+    got = transform_points(
+        Displacements(path="f"),
+        np.vstack([inside, outside]),
+        ["z", "y", "x"],
+        fields={"f": field},
+    )
+    # A linear field interpolates exactly; outside the field nothing moves.
+    np.testing.assert_allclose(got[:3], inside + inside @ matrix.T + shift, atol=1e-9)
+    np.testing.assert_allclose(got[3:], outside)
+    # One point reads the nodes around it, not the 6 x 7 x 8 field.
+    assert _point_field(field, ["z", "y", "x"], inside[2:]).data.shape == (3, 3, 4, 3)
+
+
+def test_a_field_outside_the_scene_and_other_output_axes_are_refused(tmp_path, capsys):
+    # A field path from the metadata was joined to the store unchecked, and the
+    # output was labelled with the input's axes whatever the output's were.
+    import dask.array as da
+    import ngff_zarr as nz
+    from ngff_zarr import CoordinateSystemIdentifier
+    from ngff_zarr.v06.zarr_metadata import Affine, Axis, CoordinateSystem
+
+    image = nz.to_multiscales(
+        nz.NgffImage(
+            data=da.zeros((4, 5, 6), dtype=np.float32),
+            dims=("z", "y", "x"),
+            scale={"z": 1.0, "y": 1.0, "x": 1.0},
+            translation={"z": 0.0, "y": 0.0, "x": 0.0},
+            name="fixed",
+        ),
+        scale_factors=[],
+    )
+    plane = CoordinateSystem(
+        name="plane", axes=[Axis(name=dim, type="space") for dim in ("y", "x")]
+    )
+    affine = Affine(  # a projection onto the y, x plane
+        affine=[[0, 1, 0, 0.0], [0, 0, 1, 0.0]],
+        input=CoordinateSystemIdentifier(
+            path="fixed", name=image.metadata.intrinsic_coordinate_system.name
+        ),
+        output=CoordinateSystemIdentifier(name="plane"),
+    )
+    store = tmp_path / "scene.ome.zarr"
+    nz.NgffScene(
+        images={"fixed": image},
+        coordinateSystems=[plane],
+        coordinateTransformations=[affine],
+    ).to_ome_zarr(str(store))
+    points = tmp_path / "points.json"
+    points.write_text("[[0.0, 0.0, 0.0]]")
+    with pytest.raises(SystemExit):
+        main(["transform-points", str(store), str(points)])
+    assert "the same ones, in the same order" in capsys.readouterr().err
+
+    metadata = json.loads((store / "zarr.json").read_text())
+    (step,) = metadata["attributes"]["ome"]["scene"]["coordinateTransformations"]
+    step.update(type="displacements", path="../outside", output=step["input"])
+    step.pop("affine")
+    (store / "zarr.json").write_text(json.dumps(metadata))
+    with pytest.raises(SystemExit):
+        main(["transform-points", str(store), str(points)])
+    assert "not a path inside the scene" in capsys.readouterr().err
