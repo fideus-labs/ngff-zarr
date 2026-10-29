@@ -39,9 +39,6 @@ keywords:
   - multiscale
 identifiers:
   - type: doi
-    value: 10.25080/gewj5574
-    description: SciPy Proceedings paper
-  - type: doi
     value: 10.5281/zenodo.8092821
     description: Archived software releases on Zenodo
 preferred-citation:
