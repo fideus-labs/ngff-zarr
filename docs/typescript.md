@@ -1,13 +1,13 @@
 <!-- SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC -->
 <!-- SPDX-License-Identifier: MIT -->
-# 🦕 TypeScript / JavaScript Interface
+# 📘 TypeScript / JavaScript Interface
 
-NGFF-Zarr provides a TypeScript implementation for working with OME-Zarr data structures in Deno, Node.js, and browser environments. The TypeScript API mirrors the Python interface, providing a familiar and consistent experience across languages.
+NGFF-Zarr provides a TypeScript implementation for working with OME-Zarr data structures in Node.js and browser environments. The TypeScript API mirrors the Python interface, providing a familiar and consistent experience across languages.
 
 ## ✨ Features
 
-- 🦕 **Deno-first**: Built for Deno with first-class TypeScript support
-- 📦 **Universal compatibility**: Works in Deno, Node.js, and browsers
+- 📘 **TypeScript-first**: Written in TypeScript, shipped with declarations
+- 📦 **Universal compatibility**: Works in Node.js and browsers
 - 🔍 **Type-safe**: Full TypeScript support with Zod schema validation
 - 🗂️ **OME-Zarr support**: Read OME-Zarr v0.4, v0.5, and v0.6, and write v0.5 and v0.6 (v0.6 adds RFC-5 coordinate systems and transformations), plus the opt-in development version `0.9.dev1` which adopts RFC-3 (extended axis count, names, types and order)
 - 🧪 **Well-tested**: Comprehensive test suite with browser validation
@@ -16,24 +16,6 @@ NGFF-Zarr provides a TypeScript implementation for working with OME-Zarr data st
 - 🌐 **Web ready**: No filesystem dependencies, works with remote stores
 
 ## 📦 Installation
-
-### JSR (Deno and Node.js)
-
-The package is published to [JSR (JavaScript Registry)](https://jsr.io/) for use with Deno and modern Node.js:
-
-**Deno:**
-```typescript
-import * as ngffZarr from "jsr:@fideus-labs/ngff-zarr";
-```
-
-**Node.js with JSR support:**
-```bash
-npx jsr add @fideus-labs/ngff-zarr
-```
-
-```typescript
-import * as ngffZarr from "@fideus-labs/ngff-zarr";
-```
 
 ### npm (Node.js and Bundlers)
 
@@ -68,7 +50,7 @@ Read an OME-Zarr file and access the multiscale data:
 ```typescript
 import { fromOmeZarr } from "@fideus-labs/ngff-zarr";
 
-// Read from a local file (Deno/Node.js)
+// Read from a local file (Node.js)
 const multiscales = await fromOmeZarr("path/to/image.ome.zarr");
 
 // Read from a remote URL (works in all environments)
@@ -257,26 +239,14 @@ transformation model, including how to write an image and its transformation
 
 ## 🌍 Platform Support
 
-### Deno
-
-Full native support with TypeScript:
-
-```typescript
-import * as ngffZarr from "@fideus-labs/ngff-zarr";
-
-const multiscales = await ngffZarr.fromOmeZarr("./data.ome.zarr");
-```
-
 ### Node.js
 
-Compatible with Node.js 18+ (ESM and CommonJS):
+Compatible with Node.js 22.18, 24.11, and newer, as an ES module:
 
 ```typescript
-// ESM
 import { fromOmeZarr } from "@fideus-labs/ngff-zarr";
 
-// CommonJS
-const { fromOmeZarr } = require("@fideus-labs/ngff-zarr");
+const multiscales = await fromOmeZarr("./data.ome.zarr");
 ```
 
 ### Browser
@@ -877,7 +847,7 @@ const ms1 = await fromOmeZarr(memoryStore);
 const fetchStore = new zarr.FetchStore("https://example.com/data.ome.zarr");
 const ms2 = await fromOmeZarr(fetchStore);
 
-// File system store (Node.js/Deno only)
+// File system store (Node.js only)
 import { FileSystemStore } from "@zarrita/storage";
 const fsStore = new FileSystemStore("/path/to/data.ome.zarr");
 const ms3 = await fromOmeZarr(fsStore);
@@ -975,7 +945,7 @@ const target: MemoryStore = new Map();
 await upgradeOmeZarr(source, { output: target, version: "0.6" });
 ```
 
-In-place upgrade of a local **path** store is Node/Deno-only -- the browser build
+In-place upgrade of a local **path** store is Node-only -- the browser build
 ships no filesystem store -- while `MemoryStore` inputs work in every
 environment, consistent with the other I/O functions. In the browser, use a
 `MemoryStore` for an in-place upgrade, or pass `output`.
@@ -1059,8 +1029,6 @@ const shape = multiscales.images[0].data.shape; // Fast
 
 - [OME-Zarr Specification](https://ngff.openmicroscopy.org/)
 - [Zarrita Documentation](https://github.com/manzt/zarrita.js)
-- [Deno Manual](https://deno.land/manual)
-- [JSR Registry](https://jsr.io/)
 - [ITK-Wasm](https://wasm.itk.org/)
 
 ## 🤝 Contributing

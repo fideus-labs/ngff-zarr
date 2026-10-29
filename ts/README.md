@@ -4,28 +4,21 @@
 # ngff-zarr TypeScript
 
 [![npm - Version](https://img.shields.io/npm/v/@fideus-labs/ngff-zarr.svg)](https://www.npmjs.com/package/@fideus-labs/ngff-zarr)
-[![JSR - Version](https://img.shields.io/jsr/v/@fideus-labs/ngff-zarr.svg)](https://jsr.io/@fideus-labs/ngff-zarr)
 
 A TypeScript implementation of ngff-zarr for reading and writing OME-Zarr files,
-compatible with Deno, Node.js, and the browser.
+compatible with Node.js and the browser.
 
 ## Features
 
-- 🦕 **Deno-first**: Built for Deno with first-class TypeScript support
-- 📦 **npm compatible**: Automatically builds npm packages using @deno/dnt
+- 📘 **TypeScript-first**: Written in TypeScript, shipped with declarations
+- 📦 **npm package**: ESM build for Node.js, bundlers, and the browser
 - 🔍 **Type-safe**: Full TypeScript support with Zod schema validation
 - 🗂️ **OME-Zarr support**: Read OME-Zarr v0.4, v0.5, and v0.6, and write v0.5 and v0.6 (Zarr v3), using fizarrita
-- 🧪 **Well-tested**: Comprehensive test suite using @std/assert
+- 🧪 **Well-tested**: Comprehensive test suite run with Vitest, Node, and Playwright
 - 🏗️ **Mirrors Python API**: TypeScript classes and types mirror the Python
   dataclasses
 
 ## Installation
-
-### Deno
-
-```typescript
-import * as ngffZarr from "@fideus-labs/ngff-zarr";
-```
 
 ### Node.js/npm
 
@@ -76,13 +69,15 @@ const axes = [
   { name: "y", type: "space" },
   { name: "x", type: "space" },
 ];
-const datasets = [{
-  path: "0",
-  coordinateTransformations: [
-    { type: "scale", scale: [1.0, 1.0] },
-    { type: "translation", translation: [0.0, 0.0] },
-  ],
-}];
+const datasets = [
+  {
+    path: "0",
+    coordinateTransformations: [
+      { type: "scale", scale: [1.0, 1.0] },
+      { type: "translation", translation: [0.0, 0.0] },
+    ],
+  },
+];
 const metadata = createMetadata(axes, datasets);
 
 // Create multiscales
@@ -103,13 +98,15 @@ const metadata = {
     { name: "y", type: "space" },
     { name: "x", type: "space" },
   ],
-  datasets: [{
-    path: "0",
-    coordinateTransformations: [
-      { type: "scale", scale: [1.0, 1.0] },
-      { type: "translation", translation: [0.0, 0.0] },
-    ],
-  }],
+  datasets: [
+    {
+      path: "0",
+      coordinateTransformations: [
+        { type: "scale", scale: [1.0, 1.0] },
+        { type: "translation", translation: [0.0, 0.0] },
+      ],
+    },
+  ],
   name: "test_image",
   version: "0.4",
 };
@@ -151,54 +148,50 @@ const validatedMetadata2 = validateMetadata(metadata);
 
 ### Prerequisites
 
-- [Deno](https://deno.land/) >= 1.40.0
-- [Pixi](https://pixi.sh/) (optional, for environment management)
+- [Node.js](https://nodejs.org/) 22.18, 24.11, or newer (`npm` included)
+- [Pixi](https://pixi.sh/) (optional; provides Node.js and the task aliases
+  below)
+
+The toolchain is [Vite+](https://viteplus.dev) (`vp`), installed as a dev
+dependency: Vitest for tests, Oxlint and Oxfmt for linting and formatting,
+tsdown for the build.
 
 ### Setup
 
 ```bash
 cd ts/
-pixi install  # or ensure Deno is installed
+npm ci          # or: pixi run install
 ```
 
 ### Commands
 
 ```bash
 # Run tests
-pixi run test
-# or
-deno test --allow-all
+npm test                 # or: pixi run test
 
 # Format code
-pixi run fmt
-# or
-deno fmt
+npm run fmt              # or: pixi run fmt
 
 # Lint code
-pixi run lint
-# or
-deno lint
+npm run lint             # or: pixi run lint
 
-# Type check
-pixi run check
-# or
-deno check src/mod.ts
+# Format + lint + type check in one pass
+npm run check            # or: pixi run check
 
-# Build npm package
-pixi run build-npm
-# or
-deno task build:npm
+# Build the npm package into dist/
+npm run build            # or: pixi run build
+
+# Node tests against the built package
+npm run test:node        # or: pixi run test-node
 
 # Browser testing with Playwright
-pixi run test-browser
-# or
-deno task test:browser
+npm run test:browser     # or: pixi run test-browser
 
 # Browser testing with UI
-deno task test:browser:ui
+npm run test:browser:ui
 
 # Run all tests (including browser tests)
-deno task test:all
+npm run test:all         # or: pixi run test-all
 ```
 
 ### Browser Testing
@@ -217,14 +210,14 @@ browser environments.
 **Quick Start:**
 
 ```bash
-# Build npm package and run browser tests
-deno task test:browser:npm
+# Build the package, inline the worker, bundle, and run the browser tests
+npm run test:browser:bundle
 
 # Run browser tests with interactive UI
-deno task test:browser:ui
+npm run test:browser:ui
 
 # Debug browser tests
-deno task test:browser:debug
+npm run test:browser:debug
 ```
 
 **Test Files:**
@@ -248,7 +241,9 @@ ts/
 │   └── mod.ts         # Main module exports
 ├── test/              # Test files
 ├── scripts/           # Build scripts
-├── deno.json          # Deno configuration
+├── package.json       # npm package manifest and scripts
+├── vite.config.ts     # Vite+ configuration (test, lint, fmt, pack)
+├── tsconfig.json      # TypeScript configuration
 ├── pixi.toml          # Pixi environment
 └── README.md
 ```
@@ -268,7 +263,7 @@ This TypeScript package mirrors the Python ngff-zarr package:
 2. Create a feature branch
 3. Make your changes
 4. Add tests
-5. Run the test suite: `deno test --allow-all`
+5. Run the test suite: `npm test`
 6. Submit a pull request
 
 ## License

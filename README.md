@@ -24,7 +24,7 @@ This repository contains multiple packages implementing NGFF-Zarr support:
 - **[`py/`](./py/)** - Python package (ngff-zarr) - A lean and kind NGFF-Zarr
   implementation
 - **[`ts/`](./ts/)** - TypeScript/JavaScript package (@fideus-labs/ngff-zarr) -
-  Universal OME-Zarr for Deno, Node.js, and browsers
+  Universal OME-Zarr for Node.js and browsers
 - **[`mcp/`](./mcp/)** - Model Context Protocol (MCP) server (ngff-zarr-mcp) for
   AI integration
 
@@ -67,8 +67,8 @@ The TypeScript package provides universal OME-Zarr support for modern JavaScript
 
 ✨ **Features**
 
-- 🦕 **Deno-first** with first-class TypeScript support
-- 📦 **Universal compatibility** - Works in Deno, Node.js, and browsers
+- 📘 **TypeScript-first** with full type definitions
+- 📦 **Universal compatibility** - Works in Node.js and browsers
 - 🔍 **Type-safe** with Zod schema validation
 - 🗂️ **OME-Zarr v0.4, v0.5, and v0.6** support: reads all three and writes v0.5 and v0.6 (v0.6 adds RFC-5 coordinate systems and transformations), plus the opt-in development version `0.9.dev1` which adopts RFC-3 (expanded axis count, names, types and order)
 - 🌐 **Web ready** - No filesystem dependencies, works with remote stores
@@ -78,9 +78,6 @@ The TypeScript package provides universal OME-Zarr support for modern JavaScript
 📦 **Installation**
 
 ```bash
-# Deno
-import * as ngffZarr from "jsr:@fideus-labs/ngff-zarr";
-
 # Node.js / npm
 npm install @fideus-labs/ngff-zarr
 
