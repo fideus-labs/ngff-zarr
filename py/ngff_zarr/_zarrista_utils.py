@@ -33,6 +33,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import threading
 import time
 from collections.abc import Mapping, MutableMapping
@@ -43,6 +44,10 @@ import numpy as np
 
 from ._v2_store_reader import AttrsDict
 from .rfc9_zip import ZipReadStore, is_ozx_path
+
+# Pyodide ships no zarrista: zarr I/O goes through the @fideus-labs/ngff-zarr
+# JS package instead.
+_USE_JS = sys.platform == "emscripten"
 
 __all__ = [
     "LocalZarrArray",
@@ -826,6 +831,8 @@ def open_zarrista_array(path, component: str | None = None):
 
 def is_zarrista_array(obj) -> bool:
     """Whether *obj* is a raw ``zarrista.Array`` handle."""
+    if _USE_JS:
+        return False
     from zarrista import Array
 
     return isinstance(obj, Array)

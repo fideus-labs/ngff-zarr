@@ -43,7 +43,7 @@ dependencies = [
   "rich",
   "rich-argparse",
   "typing_extensions",
-  "zarrista",
+  "zarrista; sys_platform != \"emscripten\"",
 ]
 dynamic = ["version"]
 

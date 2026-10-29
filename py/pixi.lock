@@ -23277,7 +23277,7 @@ packages:
   - rich
   - rich-argparse
   - typing-extensions
-  - zarrista
+  - zarrista ; sys_platform != 'emscripten'
   - dask-image ; extra == 'all'
   - dask[distributed] ; extra == 'all'
   - deepdiff ; extra == 'all'
