@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 
-/** Node/Deno implementation: native WASM, no web worker. */
+/** Node implementation: native WASM, no web worker. */
 
 import { resampleBoundingBoxNode } from "@itk-wasm/downsample";
 import type { TransformList } from "itk-wasm";

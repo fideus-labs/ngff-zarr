@@ -1,9 +1,10 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
-import { assertEquals, assertExists, assertRejects } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertExists, assertRejects } from "./_assert.ts";
 import { fromNgffZarr, type MemoryStore, toNgffZarr } from "../src/mod.ts";
 
-Deno.test("convert v0.4 to v0.5", async () => {
+test("convert v0.4 to v0.5", async () => {
   // Use cross-platform path handling to access the Python test data
   const testStorePath = new URL(
     "../../py/test/data/input/v04/6001240.zarr",
@@ -49,7 +50,7 @@ Deno.test("convert v0.4 to v0.5", async () => {
   );
 });
 
-Deno.test("writing back to v0.4 is refused", async () => {
+test("writing back to v0.4 is refused", async () => {
   // OME-Zarr 0.4 is Zarr v2, which this package does not write.
   const testStorePath = new URL(
     "../../py/test/data/input/v04/6001240.zarr",

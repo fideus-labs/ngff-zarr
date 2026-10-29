@@ -234,7 +234,7 @@ export function parseV06Transforms(
   version?: string,
 ): V06Transform[] {
   return raw.map((entry) =>
-    parseV06Transform(entry, coordinateSystemNames, coordinateSystems, version)
+    parseV06Transform(entry, coordinateSystemNames, coordinateSystems, version),
   );
 }
 
@@ -281,13 +281,12 @@ function parseV06Transform(
     case "coordinates":
     case "displacements": {
       if (typeof entry.path !== "string") {
-        throw new Error(
-          `Invalid ${type} transform: 'path' must be a string`,
-        );
+        throw new Error(`Invalid ${type} transform: 'path' must be a string`);
       }
-      transform = type === "coordinates"
-        ? { type: "coordinates", path: entry.path }
-        : { type: "displacements", path: entry.path };
+      transform =
+        type === "coordinates"
+          ? { type: "coordinates", path: entry.path }
+          : { type: "displacements", path: entry.path };
       if (typeof entry.interpolation === "string") {
         transform.interpolation = entry.interpolation;
       }
@@ -500,12 +499,10 @@ export function validateV06Transform(
         "projectAxis must declare droppedInputs, createdOutputs, or both",
       );
     }
-    for (
-      const [name, indices] of [
-        ["droppedInputs", dropped],
-        ["createdOutputs", created],
-      ] as const
-    ) {
+    for (const [name, indices] of [
+      ["droppedInputs", dropped],
+      ["createdOutputs", created],
+    ] as const) {
       if (indices === undefined) {
         continue;
       }
@@ -641,9 +638,9 @@ export function validateV06Transform(
         throw new Error(
           "byDimension items must cover every output axis exactly once; " +
             `coordinate system '${transform.output?.name}' has ${count} axes ` +
-            `but the items produce [${
-              [...seenOutputAxes].sort((a, b) => a - b)
-            }]`,
+            `but the items produce [${[...seenOutputAxes].sort(
+              (a, b) => a - b,
+            )}]`,
         );
       }
     }
@@ -653,7 +650,8 @@ export function validateV06Transform(
     const inputCount = axisCount(transform.input, coordinateSystems);
     const outputCount = axisCount(transform.output, coordinateSystems);
     if (
-      inputCount !== undefined && outputCount !== undefined &&
+      inputCount !== undefined &&
+      outputCount !== undefined &&
       inputCount !== outputCount
     ) {
       throw new Error(
@@ -736,9 +734,7 @@ export function legacyTopLevelTransforms(
  * unchecked `as number[]` cast that surfaces as a confusing error downstream.
  */
 function asNumberArray(value: unknown, field: string): number[] {
-  if (
-    !Array.isArray(value) || !value.every((v) => typeof v === "number")
-  ) {
+  if (!Array.isArray(value) || !value.every((v) => typeof v === "number")) {
     throw new Error(
       `Invalid ${field} transform: '${field}' must be an array of numbers`,
     );
@@ -800,7 +796,8 @@ function dictToIdentifier(
   const dict = value as Record<string, unknown>;
   const id: CoordinateSystemIdentifier = {};
   if (
-    typeof dict.name === "string" && coordinateSystemNames.includes(dict.name)
+    typeof dict.name === "string" &&
+    coordinateSystemNames.includes(dict.name)
   ) {
     id.name = dict.name;
   }

@@ -4,8 +4,8 @@ import { FileSystemStore } from "@zarrita/storage";
 import * as zarr from "zarrita";
 import { toNgffZarr } from "../src/io/to_ngff_zarr.ts";
 import type { NgffMultiscales } from "../src/types/multiscales.ts";
-import { assert } from "@std/assert";
-import { fromFileUrl } from "@std/path";
+import { assert } from "./_assert.ts";
+import { fileURLToPath } from "node:url";
 import diff from "microdiff";
 
 /**
@@ -13,7 +13,7 @@ import diff from "microdiff";
  */
 export function getTestDataDir(): string {
   const testDir = new URL("../../py/test/data", import.meta.url);
-  return fromFileUrl(testDir);
+  return fileURLToPath(testDir);
 }
 
 /**
@@ -164,7 +164,7 @@ export async function storeEquals(
 
   for (const key of baselineKeys) {
     const isJsonKey = Array.from(jsonKeys).some((suffix) =>
-      key.endsWith(suffix)
+      key.endsWith(suffix),
     );
 
     if (isJsonKey) {
@@ -248,8 +248,7 @@ export async function verifyAgainstBaseline(
   version: "0.4" | "0.5" = "0.4",
 ): Promise<void> {
   const testDataDir = getTestDataDir();
-  const baselinePath =
-    `${testDataDir}/baseline/v${version}/${datasetName}/${baselineName}`;
+  const baselinePath = `${testDataDir}/baseline/v${version}/${datasetName}/${baselineName}`;
 
   const baselineStore = new FileSystemStore(baselinePath);
   const testStore = new Map<string, Uint8Array>();
@@ -271,8 +270,7 @@ export async function storeNewNgffMultiscales(
   version: "0.4" | "0.5" = "0.4",
 ): Promise<void> {
   const testDataDir = getTestDataDir();
-  const storePath =
-    `${testDataDir}/baseline/zarr3/v${version}/${datasetName}/${baselineName}`;
+  const storePath = `${testDataDir}/baseline/zarr3/v${version}/${datasetName}/${baselineName}`;
 
   await toNgffZarr(storePath, multiscales, { version });
 }

@@ -11,7 +11,8 @@
 // writer) and assert that `fromNgffZarr` decodes correct pixel values.
 //
 // See https://github.com/fideus-labs/ngff-zarr/issues/97
-import { assertEquals } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals } from "./_assert.ts";
 import * as zarr from "zarrita";
 import { fromNgffZarr, type MemoryStore } from "../src/io/from_ngff_zarr.ts";
 import { zarrGet } from "../src/utils/worker_pool.ts";
@@ -66,7 +67,10 @@ function bigEndianBytes(values: number[], info: DTypeInfo): Uint8Array {
 
 const SHAPE = [2, 3];
 const CHUNK = [2, 3];
-const AXES = [{ name: "y", type: "space" }, { name: "x", type: "space" }];
+const AXES = [
+  { name: "y", type: "space" },
+  { name: "x", type: "space" },
+];
 
 /** A 2x3 OME-Zarr 0.4 (Zarr v2) store with a big-endian array. */
 function buildV04(values: number[], info: DTypeInfo): MemoryStore {
@@ -74,31 +78,39 @@ function buildV04(values: number[], info: DTypeInfo): MemoryStore {
   s.set("/.zgroup", enc.encode(JSON.stringify({ zarr_format: 2 })));
   s.set(
     "/.zattrs",
-    enc.encode(JSON.stringify({
-      multiscales: [{
-        version: "0.4",
-        name: "image",
-        axes: AXES,
-        datasets: [{
-          path: "0",
-          coordinateTransformations: [{ type: "scale", scale: [1, 1] }],
-        }],
-      }],
-    })),
+    enc.encode(
+      JSON.stringify({
+        multiscales: [
+          {
+            version: "0.4",
+            name: "image",
+            axes: AXES,
+            datasets: [
+              {
+                path: "0",
+                coordinateTransformations: [{ type: "scale", scale: [1, 1] }],
+              },
+            ],
+          },
+        ],
+      }),
+    ),
   );
   s.set(
     "/0/.zarray",
-    enc.encode(JSON.stringify({
-      zarr_format: 2,
-      shape: SHAPE,
-      chunks: CHUNK,
-      dtype: info.v2,
-      compressor: null,
-      fill_value: 0,
-      order: "C",
-      filters: null,
-      dimension_separator: ".",
-    })),
+    enc.encode(
+      JSON.stringify({
+        zarr_format: 2,
+        shape: SHAPE,
+        chunks: CHUNK,
+        dtype: info.v2,
+        compressor: null,
+        fill_value: 0,
+        order: "C",
+        filters: null,
+        dimension_separator: ".",
+      }),
+    ),
   );
   s.set(
     "/0/.zattrs",
@@ -113,43 +125,53 @@ function buildV05(values: number[], info: DTypeInfo): MemoryStore {
   const s = new Map<string, Uint8Array>();
   s.set(
     "/zarr.json",
-    enc.encode(JSON.stringify({
-      zarr_format: 3,
-      node_type: "group",
-      attributes: {
-        ome: {
-          version: "0.5",
-          multiscales: [{
+    enc.encode(
+      JSON.stringify({
+        zarr_format: 3,
+        node_type: "group",
+        attributes: {
+          ome: {
             version: "0.5",
-            name: "image",
-            axes: AXES,
-            datasets: [{
-              path: "scale0",
-              coordinateTransformations: [{ type: "scale", scale: [1, 1] }],
-            }],
-          }],
+            multiscales: [
+              {
+                version: "0.5",
+                name: "image",
+                axes: AXES,
+                datasets: [
+                  {
+                    path: "scale0",
+                    coordinateTransformations: [
+                      { type: "scale", scale: [1, 1] },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
         },
-      },
-    })),
+      }),
+    ),
   );
   s.set(
     "/scale0/zarr.json",
-    enc.encode(JSON.stringify({
-      zarr_format: 3,
-      node_type: "array",
-      shape: SHAPE,
-      data_type: info.dataType,
-      chunk_grid: { name: "regular", configuration: { chunk_shape: CHUNK } },
-      chunk_key_encoding: {
-        name: "default",
-        configuration: { separator: "/" },
-      },
-      fill_value: 0,
-      codecs: [{ name: "bytes", configuration: { endian: "big" } }],
-      attributes: {},
-      dimension_names: ["y", "x"],
-      storage_transformers: [],
-    })),
+    enc.encode(
+      JSON.stringify({
+        zarr_format: 3,
+        node_type: "array",
+        shape: SHAPE,
+        data_type: info.dataType,
+        chunk_grid: { name: "regular", configuration: { chunk_shape: CHUNK } },
+        chunk_key_encoding: {
+          name: "default",
+          configuration: { separator: "/" },
+        },
+        fill_value: 0,
+        codecs: [{ name: "bytes", configuration: { endian: "big" } }],
+        attributes: {},
+        dimension_names: ["y", "x"],
+        storage_transformers: [],
+      }),
+    ),
   );
   s.set("/scale0/c/0/0", bigEndianBytes(values, info));
   return s;
@@ -164,16 +186,16 @@ async function readValues(store: MemoryStore): Promise<number[]> {
 const VALUES = [10, 20, 30, 40, 50, 60];
 
 for (const [name, info] of Object.entries(DTYPES)) {
-  Deno.test(`fromNgffZarr reads big-endian OME-Zarr 0.4 (${info.v2})`, async () => {
+  test(`fromNgffZarr reads big-endian OME-Zarr 0.4 (${info.v2})`, async () => {
     assertEquals(await readValues(buildV04(VALUES, info)), VALUES);
   });
 
-  Deno.test(`fromNgffZarr reads big-endian OME-Zarr 0.5 (${name}, endian:big)`, async () => {
+  test(`fromNgffZarr reads big-endian OME-Zarr 0.5 (${name}, endian:big)`, async () => {
     assertEquals(await readValues(buildV05(VALUES, info)), VALUES);
   });
 }
 
-Deno.test("big-endian values differ from a naive little-endian misread", async () => {
+test("big-endian values differ from a naive little-endian misread", async () => {
   // Guards against a regression that silently skips the byte swap: reading the
   // big-endian bytes as little-endian would yield byte-swapped values, not the
   // originals. 10 (0x000A) misread little-endian is 0x0A00 = 2560.
@@ -195,7 +217,7 @@ function assertNotMisread(actual: number[], misread: number[]): void {
   );
 }
 
-Deno.test("repeated reads of a big-endian array via zarrGet stay correct", async () => {
+test("repeated reads of a big-endian array via zarrGet stay correct", async () => {
   // The production read path (worker-accelerated `zarrGet`) must not corrupt
   // the backing store across repeated reads. A naive in-place byte swap on the
   // stored buffer would make the second read of an in-memory store wrong.

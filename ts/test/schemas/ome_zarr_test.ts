@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
-import { assertEquals, assertExists } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertExists } from "../_assert.ts";
 import {
   ImageSchemaV01,
   ImageSchemaV05,
@@ -12,7 +13,7 @@ import {
   WellSchemaV05,
 } from "../../src/schemas/ome_zarr.ts";
 
-Deno.test("OME-Zarr Version Schema", () => {
+test("OME-Zarr Version Schema", () => {
   const validVersions = ["0.1", "0.2", "0.3", "0.4", "0.5"];
 
   for (const version of validVersions) {
@@ -28,7 +29,7 @@ Deno.test("OME-Zarr Version Schema", () => {
   }
 });
 
-Deno.test("Image Schema V0.1 - basic validation", () => {
+test("Image Schema V0.1 - basic validation", () => {
   const imageV01 = {
     multiscales: [
       {
@@ -42,7 +43,7 @@ Deno.test("Image Schema V0.1 - basic validation", () => {
   assertEquals(result.success, true);
 });
 
-Deno.test("Image Schema V0.1 - with omero metadata", () => {
+test("Image Schema V0.1 - with omero metadata", () => {
   const imageV01WithOmero = {
     multiscales: [
       {
@@ -75,7 +76,7 @@ Deno.test("Image Schema V0.1 - with omero metadata", () => {
   assertEquals(result.success, true);
 });
 
-Deno.test("Image Schema V0.5 - basic validation", () => {
+test("Image Schema V0.5 - basic validation", () => {
   const imageV05 = {
     ome: {
       multiscales: [
@@ -115,7 +116,7 @@ Deno.test("Image Schema V0.5 - basic validation", () => {
   assertEquals(result.success, true);
 });
 
-Deno.test("Image Schema V0.5 - requires proper number of space axes", () => {
+test("Image Schema V0.5 - requires proper number of space axes", () => {
   const imageWithOneSpaceAxis = {
     ome: {
       multiscales: [
@@ -145,7 +146,7 @@ Deno.test("Image Schema V0.5 - requires proper number of space axes", () => {
   assertEquals(result.success, false);
 });
 
-Deno.test("Plate Schema V0.5 - basic validation", () => {
+test("Plate Schema V0.5 - basic validation", () => {
   const plateV05 = {
     ome: {
       plate: {
@@ -182,7 +183,7 @@ Deno.test("Plate Schema V0.5 - basic validation", () => {
   assertEquals(result.success, true);
 });
 
-Deno.test("Plate Schema V0.5 - with acquisitions", () => {
+test("Plate Schema V0.5 - with acquisitions", () => {
   const plateWithAcquisitions = {
     ome: {
       plate: {
@@ -215,7 +216,7 @@ Deno.test("Plate Schema V0.5 - with acquisitions", () => {
   assertEquals(result.success, true);
 });
 
-Deno.test("Plate Schema V0.5 - rejects invalid well path format", () => {
+test("Plate Schema V0.5 - rejects invalid well path format", () => {
   const plateWithInvalidWellPath = {
     ome: {
       plate: {
@@ -237,7 +238,7 @@ Deno.test("Plate Schema V0.5 - rejects invalid well path format", () => {
   assertEquals(result.success, false);
 });
 
-Deno.test("Well Schema V0.5 - basic validation", () => {
+test("Well Schema V0.5 - basic validation", () => {
   const wellV05 = {
     ome: {
       well: {
@@ -259,7 +260,7 @@ Deno.test("Well Schema V0.5 - basic validation", () => {
   assertEquals(result.success, true);
 });
 
-Deno.test("Well Schema V0.5 - accepts paths with allowed special characters", () => {
+test("Well Schema V0.5 - accepts paths with allowed special characters", () => {
   const validPaths = ["0_a-b.image", "my-image", "img_01", "test.v2", "a", "0"];
   for (const path of validPaths) {
     const well = {
@@ -273,7 +274,7 @@ Deno.test("Well Schema V0.5 - accepts paths with allowed special characters", ()
   }
 });
 
-Deno.test("Well Schema V0.5 - rejects invalid image path format", () => {
+test("Well Schema V0.5 - rejects invalid image path format", () => {
   const wellWithInvalidPath = {
     ome: {
       well: {
@@ -291,7 +292,7 @@ Deno.test("Well Schema V0.5 - rejects invalid image path format", () => {
   assertEquals(result.success, false);
 });
 
-Deno.test("Well Schema V0.5 - rejects periods-only paths", () => {
+test("Well Schema V0.5 - rejects periods-only paths", () => {
   const invalidPaths = [".", ".."];
   for (const path of invalidPaths) {
     const well = {
@@ -305,7 +306,7 @@ Deno.test("Well Schema V0.5 - rejects periods-only paths", () => {
   }
 });
 
-Deno.test("Well Schema V0.5 - rejects paths starting with __", () => {
+test("Well Schema V0.5 - rejects paths starting with __", () => {
   const well = {
     ome: {
       well: { images: [{ path: "__something" }] },
@@ -316,7 +317,7 @@ Deno.test("Well Schema V0.5 - rejects paths starting with __", () => {
   assertEquals(result.success, false);
 });
 
-Deno.test("Well Schema V0.5 - rejects paths with forbidden characters", () => {
+test("Well Schema V0.5 - rejects paths with forbidden characters", () => {
   const invalidPaths = ["!@#$%^&*()+={}[]", "path with spaces", ""];
   for (const path of invalidPaths) {
     const well = {
@@ -330,7 +331,7 @@ Deno.test("Well Schema V0.5 - rejects paths with forbidden characters", () => {
   }
 });
 
-Deno.test("Label Schema V0.4 - basic validation", () => {
+test("Label Schema V0.4 - basic validation", () => {
   const labelV04 = {
     "image-label": {
       colors: [
@@ -359,7 +360,7 @@ Deno.test("Label Schema V0.4 - basic validation", () => {
   assertEquals(result.success, true);
 });
 
-Deno.test("Label Schema V0.4 - validates without optional fields", () => {
+test("Label Schema V0.4 - validates without optional fields", () => {
   const minimalLabel = {
     "image-label": {},
   };
@@ -368,7 +369,7 @@ Deno.test("Label Schema V0.4 - validates without optional fields", () => {
   assertEquals(result.success, true);
 });
 
-Deno.test("Label Schema V0.4 - rejects invalid RGBA values", () => {
+test("Label Schema V0.4 - rejects invalid RGBA values", () => {
   const labelWithInvalidRGBA = {
     "image-label": {
       colors: [
@@ -384,7 +385,7 @@ Deno.test("Label Schema V0.4 - rejects invalid RGBA values", () => {
   assertEquals(result.success, false);
 });
 
-Deno.test("OME Metadata Schema - basic validation", () => {
+test("OME Metadata Schema - basic validation", () => {
   const omeMetadata = {
     ome: {
       series: [{ image: "image1" }, { image: "image2" }],
@@ -396,115 +397,112 @@ Deno.test("OME Metadata Schema - basic validation", () => {
   assertEquals(result.success, true);
 });
 
-Deno.test(
-  "Comprehensive OME-Zarr Metadata Schema - validates different types",
-  () => {
-    const testCases = [
-      {
-        name: "Image V0.1",
-        data: {
+test("Comprehensive OME-Zarr Metadata Schema - validates different types", () => {
+  const testCases = [
+    {
+      name: "Image V0.1",
+      data: {
+        multiscales: [
+          {
+            datasets: [{ path: "0" }],
+          },
+        ],
+      },
+    },
+    {
+      name: "Image V0.5",
+      data: {
+        ome: {
           multiscales: [
             {
-              datasets: [{ path: "0" }],
+              datasets: [
+                {
+                  path: "0",
+                  coordinateTransformations: [
+                    {
+                      type: "scale",
+                      scale: [1.0, 1.0],
+                    },
+                  ],
+                },
+              ],
+              axes: [
+                { name: "y", type: "space" },
+                { name: "x", type: "space" },
+              ],
+            },
+          ],
+          version: "0.5",
+        },
+      },
+    },
+    {
+      name: "Plate V0.5",
+      data: {
+        ome: {
+          plate: {
+            columns: [{ name: "1" }],
+            rows: [{ name: "A" }],
+            wells: [
+              {
+                path: "A/1",
+                rowIndex: 0,
+                columnIndex: 0,
+              },
+            ],
+          },
+          version: "0.5",
+        },
+      },
+    },
+    {
+      name: "Well V0.5",
+      data: {
+        ome: {
+          well: {
+            images: [{ path: "0" }],
+          },
+          version: "0.5",
+        },
+      },
+    },
+    {
+      name: "Label V0.4",
+      data: {
+        "image-label": {
+          colors: [
+            {
+              "label-value": 1,
+              rgba: [255, 0, 0, 255],
             },
           ],
         },
       },
-      {
-        name: "Image V0.5",
-        data: {
-          ome: {
-            multiscales: [
-              {
-                datasets: [
-                  {
-                    path: "0",
-                    coordinateTransformations: [
-                      {
-                        type: "scale",
-                        scale: [1.0, 1.0],
-                      },
-                    ],
-                  },
-                ],
-                axes: [
-                  { name: "y", type: "space" },
-                  { name: "x", type: "space" },
-                ],
-              },
-            ],
-            version: "0.5",
-          },
+    },
+    {
+      name: "OME Metadata",
+      data: {
+        ome: {
+          series: [{ image: "test" }],
+          version: "0.4",
         },
       },
-      {
-        name: "Plate V0.5",
-        data: {
-          ome: {
-            plate: {
-              columns: [{ name: "1" }],
-              rows: [{ name: "A" }],
-              wells: [
-                {
-                  path: "A/1",
-                  rowIndex: 0,
-                  columnIndex: 0,
-                },
-              ],
-            },
-            version: "0.5",
-          },
-        },
-      },
-      {
-        name: "Well V0.5",
-        data: {
-          ome: {
-            well: {
-              images: [{ path: "0" }],
-            },
-            version: "0.5",
-          },
-        },
-      },
-      {
-        name: "Label V0.4",
-        data: {
-          "image-label": {
-            colors: [
-              {
-                "label-value": 1,
-                rgba: [255, 0, 0, 255],
-              },
-            ],
-          },
-        },
-      },
-      {
-        name: "OME Metadata",
-        data: {
-          ome: {
-            series: [{ image: "test" }],
-            version: "0.4",
-          },
-        },
-      },
-    ];
+    },
+  ];
 
-    for (const testCase of testCases) {
-      const result = OmeZarrMetadataSchema.safeParse(testCase.data);
-      assertEquals(
-        result.success,
-        true,
-        `${testCase.name} should be valid: ${
-          result.success ? "" : result.error?.message
-        }`,
-      );
-    }
-  },
-);
+  for (const testCase of testCases) {
+    const result = OmeZarrMetadataSchema.safeParse(testCase.data);
+    assertEquals(
+      result.success,
+      true,
+      `${testCase.name} should be valid: ${
+        result.success ? "" : result.error?.message
+      }`,
+    );
+  }
+});
 
-Deno.test("Error Handling - provides meaningful error messages", () => {
+test("Error Handling - provides meaningful error messages", () => {
   const invalidImage = {
     ome: {
       multiscales: [

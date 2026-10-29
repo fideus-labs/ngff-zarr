@@ -568,8 +568,7 @@ export interface ComputeOmeroOptions {
 /**
  * Options for computing OMERO metadata from multiscales.
  */
-export interface ComputeOmeroFromMultiscalesOptions
-  extends ComputeOmeroOptions {}
+export interface ComputeOmeroFromMultiscalesOptions extends ComputeOmeroOptions {}
 
 /**
  * Build Omero metadata from channel accumulators.

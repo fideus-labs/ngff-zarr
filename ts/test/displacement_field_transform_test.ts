@@ -8,7 +8,8 @@
 // point. Layout and component order are pinned with one known vector, and
 // the reverse conversion must give back the entry it was built from.
 
-import { assertAlmostEquals, assertEquals, assertRejects } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertAlmostEquals, assertEquals, assertRejects } from "./_assert.ts";
 import type { Image, Transform } from "itk-wasm";
 import * as zarr from "zarrita";
 import {
@@ -32,7 +33,7 @@ function noise(seed: number): () => number {
   let state = seed >>> 0 || 1;
   return () => {
     state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
-    return state / 0x100000000 * 6 - 3;
+    return (state / 0x100000000) * 6 - 3;
   };
 }
 
@@ -50,10 +51,10 @@ function fieldTransform(
   const next = noise(seed + 1);
   const parameters = new Values(voxels * dimension);
   for (let i = 0; i < parameters.length; i++) parameters[i] = next();
-  const rows = direction ??
-    Array.from(
-      { length: dimension },
-      (_, r) => Array.from({ length: dimension }, (_, c) => +(r === c)),
+  const rows =
+    direction ??
+    Array.from({ length: dimension }, (_, r) =>
+      Array.from({ length: dimension }, (_, c) => +(r === c)),
     );
   const fixed = new Float64Array([
     ...size,
@@ -139,9 +140,12 @@ function phi(
 ): number[] {
   const direction = directionRows(itkDirection(image, itkDims), itkDims.length);
   const origin = itkDims.map((dim) => image.translation[dim]);
-  return direction.map((row, i) =>
-    row.reduce((sum, value, j) => sum + value * (pointItk[j] - origin[j]), 0) +
-    origin[i]
+  return direction.map(
+    (row, i) =>
+      row.reduce(
+        (sum, value, j) => sum + value * (pointItk[j] - origin[j]),
+        0,
+      ) + origin[i],
   );
 }
 
@@ -155,7 +159,7 @@ function assertAllClose(
   }
 }
 
-Deno.test("components follow dims order", async () => {
+test("components follow dims order", async () => {
   // One vector (dx=7, dy=9) at ITK index x=2, y=1. RFC-5 components follow
   // the axes of dims, so a yx field reads (9, 7) at [y=1, x=2] and an xy
   // field reads (7, 9) at [x=2, y=1].
@@ -197,10 +201,13 @@ Deno.test("components follow dims order", async () => {
 
 // The canonical orders, and one of each dimensionality that reversing would
 // bind to the wrong ITK axis.
-for (
-  const dims of [["y", "x"], ["x", "y"], ["z", "y", "x"], ["x", "z", "y"]]
-) {
-  Deno.test(`round trip gives back the entry (${dims.join("")})`, async () => {
+for (const dims of [
+  ["y", "x"],
+  ["x", "y"],
+  ["z", "y", "x"],
+  ["x", "z", "y"],
+]) {
+  test(`round trip gives back the entry (${dims.join("")})`, async () => {
     const ndim = dims.length;
     const size = [5, 4, 3].slice(0, ndim);
     const spacing = [0.5, 2.0, 1.5].slice(0, ndim);
@@ -242,7 +249,7 @@ for (
   });
 }
 
-Deno.test("a vector image converts like the transform holding it", async () => {
+test("a vector image converts like the transform holding it", async () => {
   const size = [4, 3];
   const entry = fieldTransform(size, [1.0, 1.5], [2.0, -1.0], undefined, 3);
   const image = {
@@ -275,12 +282,13 @@ Deno.test("a vector image converts like the transform holding it", async () => {
       path: "w",
     },
   );
-  const fromList = await itkDisplacementFieldToNgffTransform([entry], [
-    "y",
-    "x",
-  ], {
-    path: "w",
-  });
+  const fromList = await itkDisplacementFieldToNgffTransform(
+    [entry],
+    ["y", "x"],
+    {
+      path: "w",
+    },
+  );
   for (const candidate of [fromImage, fromList]) {
     assertEquals(candidate.transform, fromEntry.transform);
     assertEquals(candidate.field.dims, fromEntry.field.dims);
@@ -294,7 +302,7 @@ Deno.test("a vector image converts like the transform holding it", async () => {
 });
 
 for (const moving of ["same", "none"] as const) {
-  Deno.test(`frames are applied point by point (moving: ${moving})`, async () => {
+  test(`frames are applied point by point (moving: ${moving})`, async () => {
     // phi_out(q + d(q)) must equal phi_in(q) + v(q) at every grid point q,
     // whether the two images share a frame (d = D^-1 v) or not.
     const size = [4, 3, 5];
@@ -310,7 +318,11 @@ for (const moving of ["same", "none"] as const) {
       moving === "same" ? RAS : undefined,
     );
     const directionIn = directionRows(itkDirection(fixed, itkDims), 3);
-    assertEquals(directionIn, [[-1, 0, 0], [0, -1, 0], [0, 0, 1]]);
+    assertEquals(directionIn, [
+      [-1, 0, 0],
+      [0, -1, 0],
+      [0, 0, 1],
+    ]);
     const entry = fieldTransform(size, spacing, origin, directionIn, 7);
 
     const { transform, field } = await itkDisplacementFieldToNgffTransform(
@@ -323,21 +335,30 @@ for (const moving of ["same", "none"] as const) {
     const data = await fieldData(field);
     const shape = field.data.shape;
     const voxels = shape[1] * shape[2] * shape[3];
-    for (const index of [[0, 0, 0], [1, 2, 3], [4, 1, 0], [2, 2, 2]]) {
+    for (const index of [
+      [0, 0, 0],
+      [1, 2, 3],
+      [4, 1, 0],
+      [2, 2, 2],
+    ]) {
       // index is in dims order (z, y, x).
-      const q = dims.map((dim, i) =>
-        field.translation[dim] + field.scale[dim] * index[i]
+      const q = dims.map(
+        (dim, i) => field.translation[dim] + field.scale[dim] * index[i],
       );
       const offset = (index[0] * shape[2] + index[1]) * shape[3] + index[2];
       const d = [0, 1, 2].map((c) => data[c * voxels + offset]);
       const qItk = [...q].reverse();
       const dItk = [...d].reverse();
       const v = vectorAt(entry, size, [...index].reverse());
-      const expected = phi(fixed, qItk, itkDims).map((value, i) =>
-        value + v[i]
+      const expected = phi(fixed, qItk, itkDims).map(
+        (value, i) => value + v[i],
       );
       assertAllClose(
-        phi(movingImage, qItk.map((value, i) => value + dItk[i]), itkDims),
+        phi(
+          movingImage,
+          qItk.map((value, i) => value + dItk[i]),
+          itkDims,
+        ),
         expected,
       );
     }
@@ -362,13 +383,18 @@ for (const moving of ["same", "none"] as const) {
   });
 }
 
-Deno.test("the grid direction must match the fixed image", async () => {
+test("the grid direction must match the fixed image", async () => {
   const size = [4, 3, 5];
-  const flipped = fieldTransform(size, [1, 1, 1], [0, 0, 0], [
-    [-1, 0, 0],
-    [0, -1, 0],
-    [0, 0, 1],
-  ]);
+  const flipped = fieldTransform(
+    size,
+    [1, 1, 1],
+    [0, 0, 0],
+    [
+      [-1, 0, 0],
+      [0, -1, 0],
+      [0, 0, 1],
+    ],
+  );
   await assertRejects(
     () =>
       itkDisplacementFieldToNgffTransform(flipped, CANONICAL[3], { path: "w" }),
@@ -388,7 +414,7 @@ Deno.test("the grid direction must match the fixed image", async () => {
   );
 });
 
-Deno.test("refusals", async () => {
+test("refusals", async () => {
   const entry = fieldTransform([3, 2], [1, 1], [0, 0]);
   const { transform, field } = await itkDisplacementFieldToNgffTransform(
     entry,
@@ -464,7 +490,7 @@ Deno.test("refusals", async () => {
   );
 });
 
-Deno.test("interpolation other than linear still converts", async () => {
+test("interpolation other than linear still converts", async () => {
   const entry = fieldTransform([3, 2], [1, 1], [0, 0]);
   const { field } = await itkDisplacementFieldToNgffTransform(
     entry,
@@ -497,7 +523,7 @@ Deno.test("interpolation other than linear still converts", async () => {
   assertEquals(warnings[0].includes("'nearest' interpolation"), true);
 });
 
-Deno.test("single precision is preserved", async () => {
+test("single precision is preserved", async () => {
   const entry = fieldTransform(
     [3, 2],
     [1, 1],
@@ -544,10 +570,12 @@ async function asCoordinates(
   for (let component = 0; component < dims.length; component++) {
     const dim = dims[component];
     for (let voxel = 0; voxel < voxels; voxel++) {
-      const index = Math.floor(voxel / strides[component]) %
-        shape[1 + component];
-      values[component * voxels + voxel] = source[component * voxels + voxel] +
-        field.translation[dim] + field.scale[dim] * index;
+      const index =
+        Math.floor(voxel / strides[component]) % shape[1 + component];
+      values[component * voxels + voxel] =
+        source[component * voxels + voxel] +
+        field.translation[dim] +
+        field.scale[dim] * index;
     }
   }
   const data = await zarr.create(zarr.root(new Map()).resolve("coords"), {
@@ -574,51 +602,51 @@ async function asCoordinates(
   });
 }
 
-for (const dims of [["y", "x"], ["z", "y", "x"]]) {
-  Deno.test(
-    `a coordinates field converts like the displacements it equals (${
-      dims.join("")
-    })`,
-    async () => {
-      const ndim = dims.length;
-      const size = [5, 4, 3].slice(0, ndim);
-      const entry = fieldTransform(
-        size,
-        [0.5, 2.0, 1.5].slice(0, ndim),
-        [10.0, 20.0, -3.0].slice(0, ndim),
-        undefined,
-        3,
-      );
-      const { transform, field } = await itkDisplacementFieldToNgffTransform(
-        entry,
-        dims,
-        { path: "warp" },
-      );
+for (const dims of [
+  ["y", "x"],
+  ["z", "y", "x"],
+]) {
+  test(`a coordinates field converts like the displacements it equals (${dims.join(
+    "",
+  )})`, async () => {
+    const ndim = dims.length;
+    const size = [5, 4, 3].slice(0, ndim);
+    const entry = fieldTransform(
+      size,
+      [0.5, 2.0, 1.5].slice(0, ndim),
+      [10.0, 20.0, -3.0].slice(0, ndim),
+      undefined,
+      3,
+    );
+    const { transform, field } = await itkDisplacementFieldToNgffTransform(
+      entry,
+      dims,
+      { path: "warp" },
+    );
 
-      const [viaDisplacements] = await ngffDisplacementFieldToItkTransform(
-        transform,
-        field,
-        dims,
-      );
-      const [viaCoordinates] = await ngffDisplacementFieldToItkTransform(
-        { type: "coordinates", path: "warp", interpolation: "linear" },
-        await asCoordinates(field, dims),
-        dims,
-      );
+    const [viaDisplacements] = await ngffDisplacementFieldToItkTransform(
+      transform,
+      field,
+      dims,
+    );
+    const [viaCoordinates] = await ngffDisplacementFieldToItkTransform(
+      { type: "coordinates", path: "warp", interpolation: "linear" },
+      await asCoordinates(field, dims),
+      dims,
+    );
 
-      assertAllClose(
-        viaCoordinates.parameters as unknown as ArrayLike<number>,
-        viaDisplacements.parameters as unknown as ArrayLike<number>,
-      );
-      assertAllClose(
-        viaCoordinates.fixedParameters as unknown as ArrayLike<number>,
-        viaDisplacements.fixedParameters as unknown as ArrayLike<number>,
-      );
-    },
-  );
+    assertAllClose(
+      viaCoordinates.parameters as unknown as ArrayLike<number>,
+      viaDisplacements.parameters as unknown as ArrayLike<number>,
+    );
+    assertAllClose(
+      viaCoordinates.fixedParameters as unknown as ArrayLike<number>,
+      viaDisplacements.fixedParameters as unknown as ArrayLike<number>,
+    );
+  });
 }
 
-Deno.test("a coordinates field changes frames like a displacements one", async () => {
+test("a coordinates field changes frames like a displacements one", async () => {
   const size = [4, 3, 5];
   const spacing = [1.0, 2.0, 0.5];
   const origin = [5.0, -2.0, 8.0];
@@ -654,7 +682,7 @@ Deno.test("a coordinates field changes frames like a displacements one", async (
   );
 });
 
-Deno.test("a coordinates transform wants a coordinate component axis", async () => {
+test("a coordinates transform wants a coordinate component axis", async () => {
   const entry = fieldTransform([3, 2], [1, 1.5], [0, -2]);
   const { field } = await itkDisplacementFieldToNgffTransform(
     entry,

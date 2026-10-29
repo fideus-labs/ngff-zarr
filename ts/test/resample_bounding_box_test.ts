@@ -13,12 +13,13 @@
  * order.
  */
 
+import { test } from "vite-plus/test";
 import {
   assertAlmostEquals,
   assertEquals,
   assertRejects,
   assertThrows,
-} from "@std/assert";
+} from "./_assert.ts";
 import * as zarr from "zarrita";
 import {
   createAffine,
@@ -42,50 +43,51 @@ import { RAS } from "../src/types/rfc4.ts";
 import type { AnatomicalOrientation } from "../src/types/rfc4.ts";
 
 /** An ITK-Wasm translation, in ITK (fastest-axis-first) order. */
-// deno-lint-ignore no-explicit-any
 function itkTranslation(offset: number[]): any {
-  return [{
-    transformType: {
-      transformParameterization: "Translation",
-      parametersValueType: "float64",
-      inputDimension: offset.length,
-      outputDimension: offset.length,
+  return [
+    {
+      transformType: {
+        transformParameterization: "Translation",
+        parametersValueType: "float64",
+        inputDimension: offset.length,
+        outputDimension: offset.length,
+      },
+      name: "TranslationTransform",
+      inputSpaceName: "",
+      outputSpaceName: "",
+      numberOfFixedParameters: 0,
+      numberOfParameters: offset.length,
+      fixedParameters: new Float64Array(0),
+      parameters: new Float64Array(offset),
+      metadata: new Map(),
     },
-    name: "TranslationTransform",
-    inputSpaceName: "",
-    outputSpaceName: "",
-    numberOfFixedParameters: 0,
-    numberOfParameters: offset.length,
-    fixedParameters: new Float64Array(0),
-    parameters: new Float64Array(offset),
-    metadata: new Map(),
-  }];
+  ];
 }
 
-// deno-lint-ignore no-explicit-any
 const identity = (dimension: number): any =>
   itkTranslation(new Array(dimension).fill(0));
 
 /** An ITK-Wasm affine, row-major matrix then translation, centre at the origin. */
-// deno-lint-ignore no-explicit-any
 function itkAffine(matrix: number[][], offset: number[]): any {
   const dimension = offset.length;
-  return [{
-    transformType: {
-      transformParameterization: "Affine",
-      parametersValueType: "float64",
-      inputDimension: dimension,
-      outputDimension: dimension,
+  return [
+    {
+      transformType: {
+        transformParameterization: "Affine",
+        parametersValueType: "float64",
+        inputDimension: dimension,
+        outputDimension: dimension,
+      },
+      name: "AffineTransform",
+      inputSpaceName: "",
+      outputSpaceName: "",
+      numberOfFixedParameters: dimension,
+      numberOfParameters: dimension * dimension + dimension,
+      fixedParameters: new Float64Array(dimension),
+      parameters: new Float64Array([...matrix.flat(), ...offset]),
+      metadata: new Map(),
     },
-    name: "AffineTransform",
-    inputSpaceName: "",
-    outputSpaceName: "",
-    numberOfFixedParameters: dimension,
-    numberOfParameters: dimension * dimension + dimension,
-    fixedParameters: new Float64Array(dimension),
-    parameters: new Float64Array([...matrix.flat(), ...offset]),
-    metadata: new Map(),
-  }];
+  ];
 }
 
 /** Reverse a square matrix's rows and columns: NGFF order <-> ITK order. */
@@ -141,9 +143,8 @@ function oracleRegion(
   // A linear map sends the fixed rectangle to a convex region, so sampling
   // the corners is exact.
   for (let mask = 0; mask < 1 << ndim; mask++) {
-    const corner = Array.from(
-      { length: ndim },
-      (_, i) => (mask >> i) & 1 ? fixedShape[i] - 1 : 0,
+    const corner = Array.from({ length: ndim }, (_, i) =>
+      (mask >> i) & 1 ? fixedShape[i] - 1 : 0,
     );
     const point = corner.map((c, i) => fixedTranslation[i] + fixedScale[i] * c);
     for (let row = 0; row < ndim; row++) {
@@ -151,8 +152,8 @@ function oracleRegion(
       for (let col = 0; col < ndim; col++) {
         moved += matrix[row][col] * point[col];
       }
-      const continuousIndex = (moved - movingTranslation[row]) /
-        movingScale[row];
+      const continuousIndex =
+        (moved - movingTranslation[row]) / movingScale[row];
       indexMin[row] = Math.min(indexMin[row], continuousIndex);
       indexMax[row] = Math.max(indexMax[row], continuousIndex);
     }
@@ -163,19 +164,29 @@ function oracleRegion(
   return { start, size: end.map((e, i) => Math.max(e - start[i] + 1, 0)) };
 }
 
-Deno.test("an NGFF translation reproduces the documented 2D example", async () => {
+test("an NGFF translation reproduces the documented 2D example", async () => {
   // The documentation states this in ITK order: fixed 16x16 spacing (2,2)
   // origin (10,20), moving 64x64 spacing (1,1) origin 0, translation (10,5),
   // padding 1. Written as RFC-5 the axes reverse, so the translation is
   // [5, 10] over ["y", "x"].
-  const fixed = await geometryImage(["y", "x"], { y: 16, x: 16 }, {
-    y: 2,
-    x: 2,
-  }, { y: 20, x: 10 });
-  const moving = await geometryImage(["y", "x"], { y: 64, x: 64 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 16, x: 16 },
+    {
+      y: 2,
+      x: 2,
+    },
+    { y: 20, x: 10 },
+  );
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 64, x: 64 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
 
   const boundingBox = await resampleBoundingBox(
     createTranslation([5, 10]),
@@ -192,33 +203,33 @@ Deno.test("an NGFF translation reproduces the documented 2D example", async () =
   assertEquals(boundingBox.paddedCornersMax, { y: 56, x: 51 });
 });
 
-Deno.test("padding is applied symmetrically", async () => {
-  const fixed = await geometryImage(["y", "x"], { y: 16, x: 16 }, {
-    y: 2,
-    x: 2,
-  }, { y: 20, x: 10 });
-  const moving = await geometryImage(["y", "x"], { y: 64, x: 64 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
+test("padding is applied symmetrically", async () => {
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 16, x: 16 },
+    {
+      y: 2,
+      x: 2,
+    },
+    { y: 20, x: 10 },
+  );
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 64, x: 64 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
   const transform = createTranslation([5, 10]);
 
-  const padded = await resampleBoundingBox(
-    transform,
-    fixed,
-    moving,
-    {
-      padding: 1,
-    },
-  );
-  const tight = await resampleBoundingBox(
-    transform,
-    fixed,
-    moving,
-    {
-      padding: 0,
-    },
-  );
+  const padded = await resampleBoundingBox(transform, fixed, moving, {
+    padding: 1,
+  });
+  const tight = await resampleBoundingBox(transform, fixed, moving, {
+    padding: 0,
+  });
 
   for (const dim of ["y", "x"]) {
     assertEquals(tight.startIndex[dim], padded.startIndex[dim] + 1);
@@ -229,21 +240,35 @@ Deno.test("padding is applied symmetrically", async () => {
   assertEquals(tight.cornersMax, padded.cornersMax);
 });
 
-Deno.test("an asymmetric 3D NGFF affine matches the oracle", async () => {
+test("an asymmetric 3D NGFF affine matches the oracle", async () => {
   const dims = ["z", "y", "x"];
-  const fixed = await geometryImage(dims, { z: 4, y: 8, x: 16 }, {
-    z: 3,
-    y: 2,
-    x: 1,
-  }, { z: 30, y: 20, x: 10 });
-  const moving = await geometryImage(dims, { z: 64, y: 128, x: 256 }, {
-    z: 1.5,
-    y: 0.5,
-    x: 0.25,
-  }, { z: -5, y: 7, x: 3 });
+  const fixed = await geometryImage(
+    dims,
+    { z: 4, y: 8, x: 16 },
+    {
+      z: 3,
+      y: 2,
+      x: 1,
+    },
+    { z: 30, y: 20, x: 10 },
+  );
+  const moving = await geometryImage(
+    dims,
+    { z: 64, y: 128, x: 256 },
+    {
+      z: 1.5,
+      y: 0.5,
+      x: 0.25,
+    },
+    { z: -5, y: 7, x: 3 },
+  );
 
   // Deliberately asymmetric, with shear, so any axis-order slip shows.
-  const matrix = [[1, 0.2, 0], [0, 2, 0.3], [0.5, 0, 1]];
+  const matrix = [
+    [1, 0.2, 0],
+    [0, 2, 0.3],
+    [0.5, 0, 1],
+  ];
   const offset = [4, -6, 11];
   const affine = matrix.map((row, i) => [...row, offset[i]]);
 
@@ -264,32 +289,50 @@ Deno.test("an asymmetric 3D NGFF affine matches the oracle", async () => {
     [-5, 7, 3],
     2,
   );
-  assertEquals(dims.map((d) => boundingBox.startIndex[d]), expected.start);
-  assertEquals(dims.map((d) => boundingBox.size[d]), expected.size);
+  assertEquals(
+    dims.map((d) => boundingBox.startIndex[d]),
+    expected.start,
+  );
+  assertEquals(
+    dims.map((d) => boundingBox.size[d]),
+    expected.size,
+  );
 });
 
-Deno.test("affine translation is the last column", () => {
+test("affine translation is the last column", () => {
   const { matrix, offset } = ngffTransformToItkMatrix(
-    createAffine([[1, 2, 3], [4, 5, 6]]),
+    createAffine([
+      [1, 2, 3],
+      [4, 5, 6],
+    ]),
     ["y", "x"],
   );
   // In NGFF terms: y = 1*y + 2*x + 3 and x = 4*y + 5*x + 6. ITK reverses the
   // axes, so both the matrix and the offset come back reversed.
   assertEquals(offset, [6, 3]);
-  assertEquals(matrix, [[5, 4], [2, 1]]);
+  assertEquals(matrix, [
+    [5, 4],
+    [2, 1],
+  ]);
 });
 
-Deno.test("an affine of the wrong shape is rejected", () => {
+test("an affine of the wrong shape is rejected", () => {
   let message = "";
   try {
-    ngffTransformToItkMatrix(createAffine([[1, 0], [0, 1]]), ["y", "x"]);
+    ngffTransformToItkMatrix(
+      createAffine([
+        [1, 0],
+        [0, 1],
+      ]),
+      ["y", "x"],
+    );
   } catch (error) {
     message = (error as Error).message;
   }
   assertEquals(message.includes("translation is the last column"), true);
 });
 
-Deno.test("a sequence applies its first entry first", () => {
+test("a sequence applies its first entry first", () => {
   // RFC-5 composes [f0, f1] as f1(f0(x)). ITK transform lists compose the
   // other way round, so a sequence passed through unreversed would silently
   // give 2x + 10 here instead of 2(x + 10).
@@ -313,26 +356,33 @@ Deno.test("a sequence applies its first entry first", () => {
   );
 });
 
-Deno.test("sequence order survives the whole pipeline", async () => {
+test("sequence order survives the whole pipeline", async () => {
   // Every other sequence test here reads the matrix out of
   // ngffTransformToItkMatrix. If the order inverted, the region the caller
   // actually gets would move, and nothing below that helper would notice.
   // Applying [translate 10, scale 2] the wrong way round gives 2x + 10
   // instead of 2(x + 10), so the x start moves by 10.
-  const fixed = await geometryImage(["y", "x"], { y: 16, x: 16 }, {
-    y: 2,
-    x: 2,
-  }, { y: 20, x: 10 });
-  const moving = await geometryImage(["y", "x"], { y: 512, x: 512 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 16, x: 16 },
+    {
+      y: 2,
+      x: 2,
+    },
+    { y: 20, x: 10 },
+  );
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 512, x: 512 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
 
   const region = await resampleBoundingBox(
-    createTransformSequence([
-      createTranslation([0, 10]),
-      createScale([1, 2]),
-    ]),
+    createTransformSequence([createTranslation([0, 10]), createScale([1, 2])]),
     fixed,
     moving,
     { padding: 0 },
@@ -340,7 +390,10 @@ Deno.test("sequence order survives the whole pipeline", async () => {
 
   // First entry first: y = x, x = 2(x + 10) = 2x + 20.
   const { start, size } = oracleRegion(
-    [[1, 0], [0, 2]],
+    [
+      [1, 0],
+      [0, 2],
+    ],
     [0, 20],
     [16, 16],
     [2, 2],
@@ -354,7 +407,7 @@ Deno.test("sequence order survives the whole pipeline", async () => {
   assertEquals(region.startIndex.x, 40); // 30 if the order inverted
 });
 
-Deno.test("nested sequences compose", () => {
+test("nested sequences compose", () => {
   const inner = createTransformSequence([
     createScale([1, 2]),
     createTranslation([0, 1]),
@@ -366,39 +419,55 @@ Deno.test("nested sequences compose", () => {
   );
 });
 
-Deno.test("identity, scale and rotation convert", () => {
+test("identity, scale and rotation convert", () => {
   const identity = ngffTransformToItkMatrix(createIdentity(), ["y", "x"]);
-  assertEquals(identity.matrix, [[1, 0], [0, 1]]);
+  assertEquals(identity.matrix, [
+    [1, 0],
+    [0, 1],
+  ]);
   assertEquals(identity.offset, [0, 0]);
 
   // Reversed to ITK order (x, y).
   const scale = ngffTransformToItkMatrix(createScale([2, 3]), ["y", "x"]);
-  assertEquals(scale.matrix, [[3, 0], [0, 2]]);
+  assertEquals(scale.matrix, [
+    [3, 0],
+    [0, 2],
+  ]);
 
   const rotation = ngffTransformToItkMatrix(
-    createRotation([[0, -1], [1, 0]]),
+    createRotation([
+      [0, -1],
+      [1, 0],
+    ]),
     ["y", "x"],
   );
   // Reversing both rows and columns of [[0,-1],[1,0]] gives [[0,1],[-1,0]].
-  assertEquals(rotation.matrix, [[0, 1], [-1, 0]]);
+  assertEquals(rotation.matrix, [
+    [0, 1],
+    [-1, 0],
+  ]);
 });
 
-Deno.test("a non-linear transformation is rejected", () => {
+test("a non-linear transformation is rejected", () => {
   let message = "";
   try {
-    ngffTransformToItkMatrix(
-      { type: "displacements", path: "field" },
-      ["y", "x"],
-    );
+    ngffTransformToItkMatrix({ type: "displacements", path: "field" }, [
+      "y",
+      "x",
+    ]);
   } catch (error) {
     message = (error as Error).message;
   }
   assertEquals(message.includes("cannot be converted"), true);
 });
 
-Deno.test("a transform coupling spatial and non-spatial axes is rejected", () => {
+test("a transform coupling spatial and non-spatial axes is rejected", () => {
   // y would depend on c.
-  const affine = [[1, 0, 0, 0], [0.5, 1, 0, 0], [0, 0, 1, 0]];
+  const affine = [
+    [1, 0, 0, 0],
+    [0.5, 1, 0, 0],
+    [0, 0, 1, 0],
+  ];
   let message = "";
   try {
     ngffTransformToItkMatrix(createAffine(affine), ["c", "y", "x"]);
@@ -408,16 +477,26 @@ Deno.test("a transform coupling spatial and non-spatial axes is rejected", () =>
   assertEquals(message.includes("couples spatial and non-spatial"), true);
 });
 
-Deno.test("mismatched spatial dims are rejected", async () => {
-  const fixed = await geometryImage(["z", "y", "x"], { z: 4, y: 4, x: 4 }, {
-    z: 1,
-    y: 1,
-    x: 1,
-  }, { z: 0, y: 0, x: 0 });
-  const moving = await geometryImage(["y", "x"], { y: 4, x: 4 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
+test("mismatched spatial dims are rejected", async () => {
+  const fixed = await geometryImage(
+    ["z", "y", "x"],
+    { z: 4, y: 4, x: 4 },
+    {
+      z: 1,
+      y: 1,
+      x: 1,
+    },
+    { z: 0, y: 0, x: 0 },
+  );
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 4, x: 4 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
 
   await assertRejects(
     () => resampleBoundingBox(identity(2), fixed, moving),
@@ -426,7 +505,7 @@ Deno.test("mismatched spatial dims are rejected", async () => {
   );
 });
 
-Deno.test("pixel data is never read", async () => {
+test("pixel data is never read", async () => {
   // A store that throws on any chunk read: if the pipeline touched pixels,
   // this would reject rather than return a region.
   const backing = new Map<string, Uint8Array>();
@@ -462,26 +541,28 @@ Deno.test("pixel data is never read", async () => {
     computedCallbacks: undefined,
   });
 
-  const boundingBox = await resampleBoundingBox(
-    identity(2),
-    image,
-    image,
-    { padding: 1 },
-  );
+  const boundingBox = await resampleBoundingBox(identity(2), image, image, {
+    padding: 1,
+  });
 
   assertEquals(boundingBox.startIndex, { y: -1, x: -1 });
   assertEquals(boundingBox.size, { y: 34, x: 34 });
 });
 
-Deno.test("non-spatial axes are passed through", async () => {
+test("non-spatial axes are passed through", async () => {
   const dims = ["t", "c", "z", "y", "x"];
-  const fixed = await geometryImage(dims, { t: 3, c: 2, z: 4, y: 8, x: 8 }, {
-    t: 1,
-    c: 1,
-    z: 1,
-    y: 1,
-    x: 1,
-  }, { t: 0, c: 0, z: 0, y: 0, x: 0 });
+  const fixed = await geometryImage(
+    dims,
+    { t: 3, c: 2, z: 4, y: 8, x: 8 },
+    {
+      t: 1,
+      c: 1,
+      z: 1,
+      y: 1,
+      x: 1,
+    },
+    { t: 0, c: 0, z: 0, y: 0, x: 0 },
+  );
   const moving = await geometryImage(
     dims,
     { t: 3, c: 2, z: 16, y: 32, x: 32 },
@@ -513,15 +594,25 @@ Deno.test("non-spatial axes are passed through", async () => {
   assertEquals(selection[4], zarr.slice(3, 11)); // x
 });
 
-Deno.test("a region outside the moving image is empty", async () => {
-  const fixed = await geometryImage(["y", "x"], { y: 4, x: 4 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
-  const moving = await geometryImage(["y", "x"], { y: 32, x: 32 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
+test("a region outside the moving image is empty", async () => {
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 4, x: 4 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 32, x: 32 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
 
   const boundingBox = await resampleBoundingBox(
     itkTranslation([1000, 1000]),
@@ -533,37 +624,54 @@ Deno.test("a region outside the moving image is empty", async () => {
   assertEquals(boundingBox.isEmpty, true);
 });
 
-Deno.test("a negative start index is clamped, not wrapped", async () => {
-  const fixed = await geometryImage(["y", "x"], { y: 4, x: 4 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
-  const moving = await geometryImage(["y", "x"], { y: 32, x: 32 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
-
-  const boundingBox = await resampleBoundingBox(
-    identity(2),
-    fixed,
-    moving,
-    { padding: 2 },
+test("a negative start index is clamped, not wrapped", async () => {
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 4, x: 4 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
   );
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 32, x: 32 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
+
+  const boundingBox = await resampleBoundingBox(identity(2), fixed, moving, {
+    padding: 2,
+  });
 
   assertEquals(boundingBox.startIndex, { y: -2, x: -2 });
   assertEquals(boundingBox.clamped(), { y: [0, 6], x: [0, 6] });
   assertEquals(boundingBox.isEmpty, false);
 });
 
-Deno.test("the cropped translation shifts by start * scale", async () => {
-  const fixed = await geometryImage(["y", "x"], { y: 64, x: 64 }, {
-    y: 1,
-    x: 1,
-  }, { y: 512, x: 1024 });
-  const moving = await geometryImage(["y", "x"], { y: 1024, x: 1024 }, {
-    y: 2,
-    x: 2,
-  }, { y: 0, x: 0 });
+test("the cropped translation shifts by start * scale", async () => {
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 64, x: 64 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 512, x: 1024 },
+  );
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 1024, x: 1024 },
+    {
+      y: 2,
+      x: 2,
+    },
+    { y: 0, x: 0 },
+  );
 
   const boundingBox = await resampleBoundingBox(
     itkTranslation([0, 0]),
@@ -582,10 +690,9 @@ Deno.test("the cropped translation shifts by start * scale", async () => {
   }
 });
 
-Deno.test("RAS orientation yields a non-identity direction", async () => {
-  const { itkDirection } = await import(
-    "../src/io/resample_bounding_box-shared.ts"
-  );
+test("RAS orientation yields a non-identity direction", async () => {
+  const { itkDirection } =
+    await import("../src/io/resample_bounding_box-shared.ts");
   const image = await geometryImage(
     ["z", "y", "x"],
     { z: 4, y: 8, x: 16 },
@@ -597,10 +704,9 @@ Deno.test("RAS orientation yields a non-identity direction", async () => {
   assertEquals(Array.from(direction), [-1, 0, 0, 0, -1, 0, 0, 0, 1]);
 });
 
-Deno.test("a 3D-only orientation on a 2D image falls back to identity", async () => {
-  const { itkDirection } = await import(
-    "../src/io/resample_bounding_box-shared.ts"
-  );
+test("a 3D-only orientation on a 2D image falls back to identity", async () => {
+  const { itkDirection } =
+    await import("../src/io/resample_bounding_box-shared.ts");
   const { AnatomicalOrientationValues, createAnatomicalOrientation } =
     await import("../src/types/rfc4.ts");
   // An inferior/superior axis points along LPS z; truncating its column to
@@ -621,19 +727,29 @@ Deno.test("a 3D-only orientation on a 2D image falls back to identity", async ()
   assertEquals(Array.from(direction), [1, 0, 0, 1]);
 });
 
-Deno.test("an index range overflow is reported, not silently empty", async () => {
+test("an index range overflow is reported, not silently empty", async () => {
   // The region is computed in 32-bit index space while the corners come back
   // as doubles, so a fixed/moving scale mismatch this large wraps the integer
   // region. Reporting "no overlap" for a grid covering the whole moving image
   // would be a silent, wrong answer.
-  const fixed = await geometryImage(["y", "x"], { y: 16, x: 16 }, {
-    y: 1e9,
-    x: 1e9,
-  }, { y: 0, x: 0 });
-  const moving = await geometryImage(["y", "x"], { y: 64, x: 64 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 16, x: 16 },
+    {
+      y: 1e9,
+      x: 1e9,
+    },
+    { y: 0, x: 0 },
+  );
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 64, x: 64 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
 
   await assertRejects(
     () =>
@@ -645,11 +761,16 @@ Deno.test("an index range overflow is reported, not silently empty", async () =>
   );
 });
 
-Deno.test("padding that is not a non-negative integer is rejected", async () => {
-  const fixed = await geometryImage(["y", "x"], { y: 4, x: 4 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
+test("padding that is not a non-negative integer is rejected", async () => {
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 4, x: 4 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
   for (const padding of [-1, 1.5, NaN, Infinity]) {
     await assertRejects(
       () =>
@@ -662,7 +783,7 @@ Deno.test("padding that is not a non-negative integer is rejected", async () => 
   }
 });
 
-Deno.test("unsupported spatial dimensionality is rejected", async () => {
+test("unsupported spatial dimensionality is rejected", async () => {
   const fixed = await geometryImage(["x"], { x: 8 }, { x: 1 }, { x: 0 });
   await assertRejects(
     () => resampleBoundingBox(identity(2), fixed, fixed),
@@ -671,13 +792,18 @@ Deno.test("unsupported spatial dimensionality is rejected", async () => {
   );
 });
 
-Deno.test("a missing scale entry is rejected rather than defaulted", async () => {
+test("a missing scale entry is rejected rather than defaulted", async () => {
   // Python raises here; TypeScript used to substitute spacing 1 and return a
   // plausible but wrong region.
-  const fixed = await geometryImage(["y", "x"], { y: 4, x: 4 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 4, x: 4 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
   const partial = new NgffImage({
     data: fixed.data,
     dims: ["y", "x"],
@@ -695,11 +821,16 @@ Deno.test("a missing scale entry is rejected rather than defaulted", async () =>
   );
 });
 
-Deno.test("a non-finite scale is rejected", async () => {
-  const fixed = await geometryImage(["y", "x"], { y: 4, x: 4 }, {
-    y: 1,
-    x: NaN,
-  }, { y: 0, x: 0 });
+test("a non-finite scale is rejected", async () => {
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 4, x: 4 },
+    {
+      y: 1,
+      x: NaN,
+    },
+    { y: 0, x: 0 },
+  );
   await assertRejects(
     () => resampleBoundingBox(identity(2), fixed, fixed),
     Error,
@@ -707,11 +838,16 @@ Deno.test("a non-finite scale is rejected", async () => {
   );
 });
 
-Deno.test("a zero scale is rejected", async () => {
-  const fixed = await geometryImage(["y", "x"], { y: 4, x: 4 }, {
-    y: 1,
-    x: 0,
-  }, { y: 0, x: 0 });
+test("a zero scale is rejected", async () => {
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 4, x: 4 },
+    {
+      y: 1,
+      x: 0,
+    },
+    { y: 0, x: 0 },
+  );
   await assertRejects(
     () => resampleBoundingBox(identity(2), fixed, fixed),
     Error,
@@ -719,26 +855,32 @@ Deno.test("a zero scale is rejected", async () => {
   );
 });
 
-Deno.test("a degenerate fixed grid yields an empty region", async () => {
-  const fixed = await geometryImage(["y", "x"], { y: 0, x: 4 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
-  const moving = await geometryImage(["y", "x"], { y: 32, x: 32 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
-
-  const boundingBox = await resampleBoundingBox(
-    identity(2),
-    fixed,
-    moving,
+test("a degenerate fixed grid yields an empty region", async () => {
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 0, x: 4 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
   );
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 32, x: 32 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
+
+  const boundingBox = await resampleBoundingBox(identity(2), fixed, moving);
 
   assertEquals(boundingBox.isEmpty, true);
 });
 
-Deno.test("the RFC-5 branch ignores anatomical orientation", async () => {
+test("the RFC-5 branch ignores anatomical orientation", async () => {
   // An RFC-5 transformation acts on the intrinsic coordinate system, where
   // a point is translation + scale * index and no direction matrix applies,
   // so the region it selects cannot depend on RFC-4 anatomical orientation:
@@ -782,7 +924,7 @@ Deno.test("the RFC-5 branch ignores anatomical orientation", async () => {
   assertEquals(oriented.size, plain.size);
 });
 
-Deno.test("an RFC-5 displacements transform reaches the same region", async () => {
+test("an RFC-5 displacements transform reaches the same region", async () => {
   // The RFC-5 branch has to reach the same region for a field as for an
   // affine, which means the field it points at has to reach the pipeline.
   const size = [8, 8];
@@ -805,19 +947,9 @@ Deno.test("an RFC-5 displacements transform reaches the same region", async () =
     outputSpaceName: "",
     numberOfFixedParameters: 10,
     numberOfParameters: parameters.length,
-    fixedParameters: new Float64Array([
-      ...size,
-      0,
-      0,
-      ...spacing,
-      1,
-      0,
-      0,
-      1,
-    ]),
+    fixedParameters: new Float64Array([...size, 0, 0, ...spacing, 1, 0, 0, 1]),
     parameters,
     metadata: new Map(),
-    // deno-lint-ignore no-explicit-any
   } as any;
 
   const fixed = await geometryImage(
@@ -829,10 +961,15 @@ Deno.test("an RFC-5 displacements transform reaches the same region", async () =
       x: 0,
     },
   );
-  const moving = await geometryImage(["y", "x"], { y: 64, x: 64 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 64, x: 64 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
 
   const viaItk = await resampleBoundingBox([warp], fixed, moving);
   const { transform, field } = await itkDisplacementFieldToNgffTransform(
@@ -840,12 +977,9 @@ Deno.test("an RFC-5 displacements transform reaches the same region", async () =
     ["y", "x"],
     { path: "warp" },
   );
-  const viaRfc5 = await resampleBoundingBox(
-    transform,
-    fixed,
-    moving,
-    { fields: { warp: field } },
-  );
+  const viaRfc5 = await resampleBoundingBox(transform, fixed, moving, {
+    fields: { warp: field },
+  });
 
   assertEquals(viaRfc5.startIndex, viaItk.startIndex);
   assertEquals(viaRfc5.size, viaItk.size);
@@ -858,7 +992,7 @@ Deno.test("an RFC-5 displacements transform reaches the same region", async () =
   );
 });
 
-Deno.test("converting with frames matches the ITK path on oriented images", async () => {
+test("converting with frames matches the ITK path on oriented images", async () => {
   // The acceptance test for the change of frame: an ITK transform acts on
   // physical space (direction matrix included), the RFC-5 branch on the
   // intrinsic systems. Converted with { fixed, moving }, the two paths must
@@ -881,45 +1015,30 @@ Deno.test("converting with frames matches the ITK path on oriented images", asyn
     ras,
   );
   // A sheared affine with translation, in ITK order: every frame error shows.
-  const transform = [{
-    transformType: {
-      transformParameterization: "Affine",
-      parametersValueType: "float64",
-      inputDimension: 3,
-      outputDimension: 3,
-    },
-    name: "AffineTransform",
-    inputSpaceName: "",
-    outputSpaceName: "",
-    numberOfFixedParameters: 3,
-    numberOfParameters: 12,
-    fixedParameters: new Float64Array(3),
-    parameters: new Float64Array([
-      0.9,
-      0.1,
-      0,
-      -0.1,
-      1.1,
-      0,
-      0,
-      0,
-      1,
-      2,
-      -3,
-      4,
-    ]),
-    metadata: new Map(),
-    // deno-lint-ignore no-explicit-any
-  } as any];
-
-  const viaItk = await resampleBoundingBox(
-    transform,
-    fixed,
-    moving,
+  const transform = [
     {
-      padding: 0,
-    },
-  );
+      transformType: {
+        transformParameterization: "Affine",
+        parametersValueType: "float64",
+        inputDimension: 3,
+        outputDimension: 3,
+      },
+      name: "AffineTransform",
+      inputSpaceName: "",
+      outputSpaceName: "",
+      numberOfFixedParameters: 3,
+      numberOfParameters: 12,
+      fixedParameters: new Float64Array(3),
+      parameters: new Float64Array([
+        0.9, 0.1, 0, -0.1, 1.1, 0, 0, 0, 1, 2, -3, 4,
+      ]),
+      metadata: new Map(),
+    } as any,
+  ];
+
+  const viaItk = await resampleBoundingBox(transform, fixed, moving, {
+    padding: 0,
+  });
   const converted = itkTransformToNgffTransform(
     transform,
     ["z", "y", "x"],
@@ -929,12 +1048,9 @@ Deno.test("converting with frames matches the ITK path on oriented images", asyn
       moving,
     },
   );
-  const viaRfc5 = await resampleBoundingBox(
-    converted,
-    fixed,
-    moving,
-    { padding: 0 },
-  );
+  const viaRfc5 = await resampleBoundingBox(converted, fixed, moving, {
+    padding: 0,
+  });
 
   assertEquals(viaRfc5.startIndex, viaItk.startIndex);
   assertEquals(viaRfc5.size, viaItk.size);
@@ -964,7 +1080,7 @@ Deno.test("converting with frames matches the ITK path on oriented images", asyn
   );
 });
 
-Deno.test("frames round trip through both converters", async () => {
+test("frames round trip through both converters", async () => {
   // RFC-5 -> ITK -> RFC-5 with frames must return the identical mapping.
   // On a 3-cycle orientation (z, y, x onto LPS x, z, y): a diagonal
   // direction such as RAS is its own inverse, so it cannot tell the reverse
@@ -1018,33 +1134,45 @@ Deno.test("frames round trip through both converters", async () => {
   }
 });
 
-Deno.test("an ITK-Wasm transform list is accepted", async () => {
-  const fixed = await geometryImage(["y", "x"], { y: 16, x: 16 }, {
-    y: 2,
-    x: 2,
-  }, { y: 20, x: 10 });
-  const moving = await geometryImage(["y", "x"], { y: 64, x: 64 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
+test("an ITK-Wasm transform list is accepted", async () => {
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 16, x: 16 },
+    {
+      y: 2,
+      x: 2,
+    },
+    { y: 20, x: 10 },
+  );
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 64, x: 64 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
 
   // Stated directly in ITK order (x, y).
-  const transformList = [{
-    transformType: {
-      transformParameterization: "Translation",
-      parametersValueType: "float64",
-      inputDimension: 2,
-      outputDimension: 2,
+  const transformList = [
+    {
+      transformType: {
+        transformParameterization: "Translation",
+        parametersValueType: "float64",
+        inputDimension: 2,
+        outputDimension: 2,
+      },
+      name: "TranslationTransform",
+      inputSpaceName: "",
+      outputSpaceName: "",
+      numberOfFixedParameters: 0,
+      numberOfParameters: 2,
+      fixedParameters: new Float64Array(0),
+      parameters: new Float64Array([10, 5]),
+      metadata: new Map(),
     },
-    name: "TranslationTransform",
-    inputSpaceName: "",
-    outputSpaceName: "",
-    numberOfFixedParameters: 0,
-    numberOfParameters: 2,
-    fixedParameters: new Float64Array(0),
-    parameters: new Float64Array([10, 5]),
-    metadata: new Map(),
-  }];
+  ];
 
   const boundingBox = await resampleBoundingBox(
     transformList as never,
@@ -1057,23 +1185,37 @@ Deno.test("an ITK-Wasm transform list is accepted", async () => {
   assertEquals(boundingBox.size, { y: 33, x: 33 });
 });
 
-Deno.test("an asymmetric 3D affine matches the oracle", () => {
+test("an asymmetric 3D affine matches the oracle", () => {
   // Stated in NGFF (z, y, x) order for the oracle; the transform itself is
   // built in ITK order, so both row and column ordering reverse.
-  const matrix = [[1, 0.2, 0], [0, 2, 0.3], [0.5, 0, 1]];
+  const matrix = [
+    [1, 0.2, 0],
+    [0, 2, 0.3],
+    [0.5, 0, 1],
+  ];
   const offset = [4, -6, 11];
   return (async () => {
     const dims = ["z", "y", "x"];
-    const fixed = await geometryImage(dims, { z: 4, y: 8, x: 16 }, {
-      z: 3,
-      y: 2,
-      x: 1,
-    }, { z: 30, y: 20, x: 10 });
-    const moving = await geometryImage(dims, { z: 64, y: 128, x: 256 }, {
-      z: 1.5,
-      y: 0.5,
-      x: 0.25,
-    }, { z: -5, y: 7, x: 3 });
+    const fixed = await geometryImage(
+      dims,
+      { z: 4, y: 8, x: 16 },
+      {
+        z: 3,
+        y: 2,
+        x: 1,
+      },
+      { z: 30, y: 20, x: 10 },
+    );
+    const moving = await geometryImage(
+      dims,
+      { z: 64, y: 128, x: 256 },
+      {
+        z: 1.5,
+        y: 0.5,
+        x: 0.25,
+      },
+      { z: -5, y: 7, x: 3 },
+    );
 
     const boundingBox = await resampleBoundingBox(
       itkAffine(reversed(matrix), [...offset].reverse()),
@@ -1092,16 +1234,27 @@ Deno.test("an asymmetric 3D affine matches the oracle", () => {
       [-5, 7, 3],
       2,
     );
-    assertEquals(dims.map((d) => boundingBox.startIndex[d]), expected.start);
-    assertEquals(dims.map((d) => boundingBox.size[d]), expected.size);
+    assertEquals(
+      dims.map((d) => boundingBox.startIndex[d]),
+      expected.start,
+    );
+    assertEquals(
+      dims.map((d) => boundingBox.size[d]),
+      expected.size,
+    );
   })();
 });
 
-Deno.test("unusable pipeline index arrays are rejected", async () => {
-  const fixed = await geometryImage(["y", "x"], { y: 4, x: 4 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
+test("unusable pipeline index arrays are rejected", async () => {
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 4, x: 4 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
   const corners = { min: [0, 0], max: [1, 1] };
   const cases: [number[], number[], string][] = [
     [[0], [4, 4], "1 paddedStartIndex values for 2 dimensions"],
@@ -1128,18 +1281,28 @@ Deno.test("unusable pipeline index arrays are rejected", async () => {
   }
 });
 
-Deno.test("a mapAxis region matches the oracle", async () => {
+test("a mapAxis region matches the oracle", async () => {
   const dims = ["z", "y", "x"];
-  const fixed = await geometryImage(dims, { z: 12, y: 20, x: 16 }, {
-    z: 2,
-    y: 1,
-    x: 0.5,
-  }, { z: 3, y: -4, x: 6 });
-  const moving = await geometryImage(dims, { z: 64, y: 64, x: 64 }, {
-    z: 1,
-    y: 1,
-    x: 1,
-  }, { z: 0, y: 0, x: 0 });
+  const fixed = await geometryImage(
+    dims,
+    { z: 12, y: 20, x: 16 },
+    {
+      z: 2,
+      y: 1,
+      x: 0.5,
+    },
+    { z: 3, y: -4, x: 6 },
+  );
+  const moving = await geometryImage(
+    dims,
+    { z: 64, y: 64, x: 64 },
+    {
+      z: 1,
+      y: 1,
+      x: 1,
+    },
+    { z: 0, y: 0, x: 0 },
+  );
 
   const region = await resampleBoundingBox(
     createMapAxis([1, 2, 0]),
@@ -1150,7 +1313,11 @@ Deno.test("a mapAxis region matches the oracle", async () => {
 
   // Output axis i takes input axis mapAxis[i], so row i selects that column.
   const { start, size } = oracleRegion(
-    [[0, 1, 0], [0, 0, 1], [1, 0, 0]],
+    [
+      [0, 1, 0],
+      [0, 0, 1],
+      [1, 0, 0],
+    ],
     [0, 0, 0],
     [12, 20, 16],
     [2, 1, 0.5],
@@ -1159,22 +1326,38 @@ Deno.test("a mapAxis region matches the oracle", async () => {
     [0, 0, 0],
     1,
   );
-  assertEquals(dims.map((dim) => region.startIndex[dim]), start);
-  assertEquals(dims.map((dim) => region.size[dim]), size);
+  assertEquals(
+    dims.map((dim) => region.startIndex[dim]),
+    start,
+  );
+  assertEquals(
+    dims.map((dim) => region.size[dim]),
+    size,
+  );
 });
 
-Deno.test("a byDimension region matches the oracle", async () => {
+test("a byDimension region matches the oracle", async () => {
   const dims = ["z", "y", "x"];
-  const fixed = await geometryImage(dims, { z: 10, y: 24, x: 24 }, {
-    z: 1,
-    y: 0.5,
-    x: 0.5,
-  }, { z: -2, y: 1, x: 4 });
-  const moving = await geometryImage(dims, { z: 64, y: 128, x: 128 }, {
-    z: 1,
-    y: 0.25,
-    x: 0.25,
-  }, { z: 0, y: 0, x: 0 });
+  const fixed = await geometryImage(
+    dims,
+    { z: 10, y: 24, x: 24 },
+    {
+      z: 1,
+      y: 0.5,
+      x: 0.5,
+    },
+    { z: -2, y: 1, x: 4 },
+  );
+  const moving = await geometryImage(
+    dims,
+    { z: 64, y: 128, x: 128 },
+    {
+      z: 1,
+      y: 0.25,
+      x: 0.25,
+    },
+    { z: 0, y: 0, x: 0 },
+  );
 
   const region = await resampleBoundingBox(
     createByDimension([
@@ -1184,7 +1367,10 @@ Deno.test("a byDimension region matches the oracle", async () => {
         outputAxes: [0],
       },
       {
-        transformation: createAffine([[0.8, -0.6, 2], [0.6, 0.8, -3]]),
+        transformation: createAffine([
+          [0.8, -0.6, 2],
+          [0.6, 0.8, -3],
+        ]),
         inputAxes: [1, 2],
         outputAxes: [1, 2],
       },
@@ -1195,7 +1381,11 @@ Deno.test("a byDimension region matches the oracle", async () => {
   );
 
   const { start, size } = oracleRegion(
-    [[1, 0, 0], [0, 0.8, -0.6], [0, 0.6, 0.8]],
+    [
+      [1, 0, 0],
+      [0, 0.8, -0.6],
+      [0, 0.6, 0.8],
+    ],
     [5, 2, -3],
     [10, 24, 24],
     [1, 0.5, 0.5],
@@ -1204,19 +1394,35 @@ Deno.test("a byDimension region matches the oracle", async () => {
     [0, 0, 0],
     2,
   );
-  assertEquals(dims.map((dim) => region.startIndex[dim]), start);
-  assertEquals(dims.map((dim) => region.size[dim]), size);
+  assertEquals(
+    dims.map((dim) => region.startIndex[dim]),
+    start,
+  );
+  assertEquals(
+    dims.map((dim) => region.size[dim]),
+    size,
+  );
 });
 
-Deno.test("a bijection region follows its forward direction", async () => {
-  const fixed = await geometryImage(["y", "x"], { y: 16, x: 16 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
-  const moving = await geometryImage(["y", "x"], { y: 128, x: 128 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
+test("a bijection region follows its forward direction", async () => {
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 16, x: 16 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 128, x: 128 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
   const forward = createScale([2, 4]);
 
   const region = await resampleBoundingBox(
@@ -1285,9 +1491,10 @@ function interiorBump(extent: number, radius: number, peaks: number[]) {
   for (let y = 0; y < extent; y++) {
     for (let x = 0; x < extent; x++) {
       const distance = Math.hypot(y - extent / 2, x - extent / 2);
-      const profile = distance < radius
-        ? 0.5 * (1 + Math.cos(Math.PI * distance / radius))
-        : 0;
+      const profile =
+        distance < radius
+          ? 0.5 * (1 + Math.cos((Math.PI * distance) / radius))
+          : 0;
       peaks.forEach((peak, component) => {
         values[component * voxels + y * extent + x] = peak * profile;
       });
@@ -1296,7 +1503,7 @@ function interiorBump(extent: number, radius: number, peaks: number[]) {
   return values;
 }
 
-Deno.test("a bump inside the grid widens the region", async () => {
+test("a bump inside the grid widens the region", async () => {
   // The pipeline sizes a region by walking the boundary of the transformed
   // grid, so a displacement that is zero there and large inside left the
   // region unchanged and the pixels it reaches unread.
@@ -1311,10 +1518,15 @@ Deno.test("a bump inside the grid widens the region", async () => {
     { y: 1, x: 1 },
     { y: 0, x: 0 },
   );
-  const moving = await geometryImage(["y", "x"], { y: 160, x: 160 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 160, x: 160 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
 
   const region = await resampleBoundingBox(
     { type: "displacements", path: "warp" },
@@ -1340,7 +1552,7 @@ Deno.test("a bump inside the grid widens the region", async () => {
   });
 });
 
-Deno.test("a field's chunking does not change the region it reports", async () => {
+test("a field's chunking does not change the region it reports", async () => {
   // The range is read a chunk at a time; over the whole grid that has to be
   // the same range whatever the chunks are.
   const extent = 64;
@@ -1351,10 +1563,15 @@ Deno.test("a field's chunking does not change the region it reports", async () =
     { y: 1, x: 1 },
     { y: 0, x: 0 },
   );
-  const moving = await geometryImage(["y", "x"], { y: 160, x: 160 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 160, x: 160 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
   const transform = { type: "displacements" as const, path: "warp" };
 
   const chunked = await resampleBoundingBox(transform, fixed, moving, {
@@ -1368,7 +1585,7 @@ Deno.test("a field's chunking does not change the region it reports", async () =
   assertEquals(chunked.size, whole.size);
 });
 
-Deno.test("a grid reaching past the field keeps its undisplaced part", async () => {
+test("a grid reaching past the field keeps its undisplaced part", async () => {
   // ITK displaces a point beyond the field by nothing, so zero belongs in the
   // range as much as the values do. A field that displaces every point it
   // covers the same way otherwise carries the region off the points it does
@@ -1383,10 +1600,15 @@ Deno.test("a grid reaching past the field keeps its undisplaced part", async () 
     { y: 1, x: 1 },
     { y: 0, x: 0 },
   );
-  const moving = await geometryImage(["y", "x"], { y: 160, x: 160 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 160, x: 160 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
 
   const region = await resampleBoundingBox(
     { type: "displacements", path: "warp" },
@@ -1403,7 +1625,7 @@ Deno.test("a grid reaching past the field keeps its undisplaced part", async () 
   }
 });
 
-Deno.test("an oriented field is refused by the bounding box", async () => {
+test("an oriented field is refused by the bounding box", async () => {
   // This branch works on the intrinsic systems, where no orientation applies,
   // so a field carrying one cannot be placed here.
   const { AnatomicalOrientationValues, createAnatomicalOrientation } =
@@ -1426,14 +1648,24 @@ Deno.test("an oriented field is refused by the bounding box", async () => {
     },
     computedCallbacks: undefined,
   });
-  const fixed = await geometryImage(["y", "x"], { y: 32, x: 32 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
-  const moving = await geometryImage(["y", "x"], { y: 64, x: 64 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 32, x: 32 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 64, x: 64 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
 
   await assertRejects(
     () =>
@@ -1452,7 +1684,6 @@ function displacementFieldEntry(
   vectors: Float64Array,
   size: number[],
   spacing: number[],
-  // deno-lint-ignore no-explicit-any
 ): any {
   const dimension = size.length;
   return {
@@ -1471,9 +1702,8 @@ function displacementFieldEntry(
       ...size,
       ...size.map(() => 0),
       ...spacing,
-      ...Array.from(
-        { length: dimension * dimension },
-        (_, index) => index % (dimension + 1) === 0 ? 1 : 0,
+      ...Array.from({ length: dimension * dimension }, (_, index) =>
+        index % (dimension + 1) === 0 ? 1 : 0,
       ),
     ]),
     parameters: vectors,
@@ -1481,12 +1711,11 @@ function displacementFieldEntry(
   };
 }
 
-Deno.test("the stage interval reads the layouts itk writes", async () => {
+test("the stage interval reads the layouts itk writes", async () => {
   // A field interleaves components per point; a B-spline blocks them per
   // component. Misreading the layout would produce plausible wrong bounds.
-  const { resampleBoundingBox } = await import(
-    "../src/io/resample_bounding_box.ts"
-  );
+  const { resampleBoundingBox } =
+    await import("../src/io/resample_bounding_box.ts");
   const vectors = new Float64Array(4 * 3 * 2);
   vectors[(1 * 4 + 2) * 2] = 7.0;
   vectors[(1 * 4 + 2) * 2 + 1] = -9.0;
@@ -1500,10 +1729,15 @@ Deno.test("the stage interval reads the layouts itk writes", async () => {
       x: 0,
     },
   );
-  const moving = await geometryImage(["y", "x"], { y: 64, x: 64 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 64, x: 64 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
 
   const region = await resampleBoundingBox([warp], fixed, moving, {
     padding: 0,
@@ -1516,19 +1750,17 @@ Deno.test("the stage interval reads the layouts itk writes", async () => {
   assertEquals(region.size, { y: 13, x: 11 });
 });
 
-Deno.test("an interior bump in an itk field widens the region", async () => {
-  const { resampleBoundingBox } = await import(
-    "../src/io/resample_bounding_box.ts"
-  );
+test("an interior bump in an itk field widens the region", async () => {
+  const { resampleBoundingBox } =
+    await import("../src/io/resample_bounding_box.ts");
   const extent = 64;
   const vectors = new Float64Array(extent * extent * 2);
   const reach = { y: [0, 0], x: [0, 0] };
   for (let y = 0; y < extent; y++) {
     for (let x = 0; x < extent; x++) {
       const distance = Math.hypot(y - extent / 2, x - extent / 2);
-      const profile = distance < 20
-        ? 0.5 * (1 + Math.cos(Math.PI * distance / 20))
-        : 0;
+      const profile =
+        distance < 20 ? 0.5 * (1 + Math.cos((Math.PI * distance) / 20)) : 0;
       const index = (y * extent + x) * 2;
       vectors[index] = -60 * profile;
       vectors[index + 1] = 60 * profile;
@@ -1549,10 +1781,15 @@ Deno.test("an interior bump in an itk field widens the region", async () => {
     { y: 1, x: 1 },
     { y: 0, x: 0 },
   );
-  const moving = await geometryImage(["y", "x"], { y: 256, x: 256 }, {
-    y: 1,
-    x: 1,
-  }, { y: 0, x: 0 });
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 256, x: 256 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
 
   const region = await resampleBoundingBox([warp], fixed, moving, {
     padding: 1,
@@ -1572,7 +1809,6 @@ function constantFieldEntry(
   shift: number[],
   size: number[],
   spacing: number[],
-  // deno-lint-ignore no-explicit-any
 ): any {
   const points = size.reduce((total, extent) => total * extent, 1);
   const vectors = new Float64Array(points * shift.length);
@@ -1589,19 +1825,15 @@ function constantFieldEntry(
  * The boundary walk sees only the zero, so a stage outside this one has to
  * carry the peak for the region to hold it. `peaks` is in ITK component
  * order (x, y); the returned entry's lattice is unit-spaced at the origin. */
-function bumpFieldEntry(
-  extent: number,
-  peaks: number[],
-  radius: number,
-  // deno-lint-ignore no-explicit-any
-): any {
+function bumpFieldEntry(extent: number, peaks: number[], radius: number): any {
   const vectors = new Float64Array(extent * extent * 2);
   for (let y = 0; y < extent; y++) {
     for (let x = 0; x < extent; x++) {
       const distance = Math.hypot(y - extent / 2, x - extent / 2);
-      const profile = distance < radius
-        ? 0.5 * (1 + Math.cos(Math.PI * distance / radius))
-        : 0;
+      const profile =
+        distance < radius
+          ? 0.5 * (1 + Math.cos((Math.PI * distance) / radius))
+          : 0;
       const index = (y * extent + x) * 2;
       vectors[index] = peaks[0] * profile;
       vectors[index + 1] = peaks[1] * profile;
@@ -1610,14 +1842,13 @@ function bumpFieldEntry(
   return displacementFieldEntry(vectors, [extent, extent], [1, 1]);
 }
 
-Deno.test("a field outside an interior bump carries its range", async () => {
+test("a field outside an interior bump carries its range", async () => {
   // ITK applies the last entry first, so the bump's range has to travel
   // through the constant field outside it, which is itself non-linear:
   // folding stage by stage stops there and the walk, which sees only the
   // bump's zero boundary, reports a region the composition leaves.
-  const { resampleBoundingBox } = await import(
-    "../src/io/resample_bounding_box.ts"
-  );
+  const { resampleBoundingBox } =
+    await import("../src/io/resample_bounding_box.ts");
   const extent = 64;
   const peaks = [-60, 60];
   const bump = bumpFieldEntry(extent, peaks, 20);
@@ -1629,10 +1860,15 @@ Deno.test("a field outside an interior bump carries its range", async () => {
     { y: 1, x: 1 },
     { y: 0, x: 0 },
   );
-  const moving = await geometryImage(["y", "x"], { y: 512, x: 512 }, {
-    y: 1,
-    x: 1,
-  }, { y: -128, x: -128 });
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 512, x: 512 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: -128, x: -128 },
+  );
 
   const region = await resampleBoundingBox([outer, bump], fixed, moving, {
     padding: 0,
@@ -1644,26 +1880,36 @@ Deno.test("a field outside an interior bump carries its range", async () => {
   assertEquals(region.cornersMin.x <= centre + peaks[0] + shift[0], true);
 });
 
-Deno.test("an affine outside two fields carries both their ranges", async () => {
-  const { resampleBoundingBox } = await import(
-    "../src/io/resample_bounding_box.ts"
-  );
+test("an affine outside two fields carries both their ranges", async () => {
+  const { resampleBoundingBox } =
+    await import("../src/io/resample_bounding_box.ts");
   const extent = 64;
   const peaks = [-60, 60];
   const bump = bumpFieldEntry(extent, peaks, 20);
   const shift = [-3, 11];
   const outer = constantFieldEntry(shift, [256, 256], [1, 1]);
-  const [affine] = itkAffine([[2, 0], [0, 3]], [4, -6]);
+  const [affine] = itkAffine(
+    [
+      [2, 0],
+      [0, 3],
+    ],
+    [4, -6],
+  );
   const fixed = await geometryImage(
     ["y", "x"],
     { y: extent, x: extent },
     { y: 1, x: 1 },
     { y: 0, x: 0 },
   );
-  const moving = await geometryImage(["y", "x"], { y: 1024, x: 1024 }, {
-    y: 1,
-    x: 1,
-  }, { y: -512, x: -512 });
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 1024, x: 1024 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: -512, x: -512 },
+  );
 
   const region = await resampleBoundingBox(
     [affine, outer, bump],

@@ -122,9 +122,7 @@ function onDiskVersion(rootAttrs: Record<string, unknown>): string | undefined {
  * tagged `0.6.dev4` or `0.6rc0` is rewritten to `0.6`. Matches the Python
  * port's `_ondisk_version_for`.
  */
-function onDiskVersionFor(
-  version: "0.4" | "0.5" | "0.6" | "0.9.dev1",
-): string {
+function onDiskVersionFor(version: "0.4" | "0.5" | "0.6" | "0.9.dev1"): string {
   return version === "0.6" ? V06_ONDISK_VERSION : version;
 }
 

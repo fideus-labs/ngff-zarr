@@ -1,4 +1,3 @@
-#!/usr/bin/env -S deno test --allow-all
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 
@@ -6,11 +5,12 @@
  * Test script to verify ITK-Wasm data writing functionality
  */
 
+import { test } from "vite-plus/test";
 import { itkImageToNgffImage } from "../src/io/itk_image_to_ngff_image.ts";
 import { AnatomicalOrientationValues } from "../src/types/rfc4.ts";
 import type { Image } from "itk-wasm";
 
-Deno.test("ITK-Wasm data writing test", async () => {
+test("ITK-Wasm data writing test", async () => {
   // Create a small test ITK image
   const testData = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
 
@@ -43,11 +43,9 @@ Deno.test("ITK-Wasm data writing test", async () => {
   // Verify anatomical orientations
   if (ngffImage.axesOrientations) {
     console.log("✅ Orientations present:");
-    for (
-      const [axis, orientation] of Object.entries(
-        ngffImage.axesOrientations,
-      )
-    ) {
+    for (const [axis, orientation] of Object.entries(
+      ngffImage.axesOrientations,
+    )) {
       console.log(`   ${axis}: ${orientation.value}`);
     }
   }
@@ -78,7 +76,7 @@ Deno.test("ITK-Wasm data writing test", async () => {
   }
 });
 
-Deno.test("Test anatomical orientation constants", () => {
+test("Test anatomical orientation constants", () => {
   console.log("✅ Testing RFC-4 orientation constants:");
   console.log(`   LeftToRight: ${AnatomicalOrientationValues.LeftToRight}`);
   console.log(`   RightToLeft: ${AnatomicalOrientationValues.RightToLeft}`);

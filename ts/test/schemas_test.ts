@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
-import { assertEquals, assertExists, assertThrows } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertExists, assertThrows } from "./_assert.ts";
 import {
   AxisSchema,
   IdentitySchema,
@@ -14,19 +15,17 @@ import {
 } from "../src/schemas/zarr_metadata.ts";
 import { MethodsSchema } from "../src/schemas/methods.ts";
 
-Deno.test("metadata schema islands use compiled validators", () => {
-  for (
-    const [name, schema] of Object.entries({
-      AxisSchema,
-      IdentitySchema,
-      MethodMetadataSchema,
-      OmeroChannelSchema,
-      OmeroSchema,
-      OmeroWindowSchema,
-      ScaleSchema,
-      TranslationSchema,
-    })
-  ) {
+test("metadata schema islands use compiled validators", () => {
+  for (const [name, schema] of Object.entries({
+    AxisSchema,
+    IdentitySchema,
+    MethodMetadataSchema,
+    OmeroChannelSchema,
+    OmeroSchema,
+    OmeroWindowSchema,
+    ScaleSchema,
+    TranslationSchema,
+  })) {
     const run = schema._zod.run as typeof schema._zod.run & {
       __originalRun?: unknown;
     };
@@ -37,7 +36,7 @@ Deno.test("metadata schema islands use compiled validators", () => {
   }
 });
 
-Deno.test("AxisSchema validation", () => {
+test("AxisSchema validation", () => {
   const validAxis = {
     name: "x",
     type: "space",
@@ -50,7 +49,7 @@ Deno.test("AxisSchema validation", () => {
   assertEquals(result.unit, "micrometer");
 });
 
-Deno.test("AxisSchema validation - invalid name", () => {
+test("AxisSchema validation - invalid name", () => {
   const invalidAxis = {
     name: "invalid",
     type: "space",
@@ -59,7 +58,7 @@ Deno.test("AxisSchema validation - invalid name", () => {
   assertThrows(() => AxisSchema.parse(invalidAxis));
 });
 
-Deno.test("ScaleSchema validation", () => {
+test("ScaleSchema validation", () => {
   const validScale = {
     type: "scale",
     scale: [1.0, 2.0, 3.0],
@@ -70,7 +69,7 @@ Deno.test("ScaleSchema validation", () => {
   assertEquals(result.scale, [1.0, 2.0, 3.0]);
 });
 
-Deno.test("TranslationSchema validation", () => {
+test("TranslationSchema validation", () => {
   const validTranslation = {
     type: "translation",
     translation: [0.0, 1.0, 2.0],
@@ -81,7 +80,7 @@ Deno.test("TranslationSchema validation", () => {
   assertEquals(result.translation, [0.0, 1.0, 2.0]);
 });
 
-Deno.test("OmeroChannelSchema validation", () => {
+test("OmeroChannelSchema validation", () => {
   const validChannel = {
     color: "FF0000",
     window: {
@@ -98,7 +97,7 @@ Deno.test("OmeroChannelSchema validation", () => {
   assertEquals(result.label, "Red Channel");
 });
 
-Deno.test("OmeroChannelSchema validation - invalid color", () => {
+test("OmeroChannelSchema validation - invalid color", () => {
   const invalidChannel = {
     color: "GG0000",
     window: {
@@ -112,7 +111,7 @@ Deno.test("OmeroChannelSchema validation - invalid color", () => {
   assertThrows(() => OmeroChannelSchema.parse(invalidChannel));
 });
 
-Deno.test("MetadataSchema validation", () => {
+test("MetadataSchema validation", () => {
   const validMetadata = {
     axes: [
       { name: "y", type: "space" },
@@ -138,7 +137,7 @@ Deno.test("MetadataSchema validation", () => {
   assertEquals(result.datasets.length, 1);
 });
 
-Deno.test("MethodsSchema validation", () => {
+test("MethodsSchema validation", () => {
   const validMethod = "itkwasm_gaussian";
   const result = MethodsSchema.parse(validMethod);
   assertEquals(result, "itkwasm_gaussian");

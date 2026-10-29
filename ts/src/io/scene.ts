@@ -9,7 +9,7 @@
  */
 import type * as zarr from "zarrita";
 
-/** The file system store at `store`, in Node.js and Deno. */
+/** The file system store at `store`, in Node.js. */
 export async function localStore(store: string): Promise<zarr.Mutable> {
   if (typeof window !== "undefined") {
     throw new Error(

@@ -106,8 +106,8 @@ export function parseOmero(
       start = Number(windowData.start);
       end = Number(windowData.end);
       // Use start/end as min/max if not present
-      minVal = ("min" in windowData) ? Number(windowData.min) : start;
-      maxVal = ("max" in windowData) ? Number(windowData.max) : end;
+      minVal = "min" in windowData ? Number(windowData.min) : start;
+      maxVal = "max" in windowData ? Number(windowData.max) : end;
     } else if ("min" in windowData && "max" in windowData) {
       // Old format with min/max only
       minVal = Number(windowData.min);
@@ -156,9 +156,7 @@ export function parseOmero(
 /**
  * Detect NGFF version from root attributes.
  */
-export function detectVersion(
-  rootAttrs: Record<string, unknown>,
-): NgffVersion {
+export function detectVersion(rootAttrs: Record<string, unknown>): NgffVersion {
   let versionStr: string | undefined = undefined;
 
   if ("ome" in rootAttrs && rootAttrs.ome) {

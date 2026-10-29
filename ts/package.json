@@ -1,0 +1,113 @@
+{
+  "name": "@fideus-labs/ngff-zarr",
+  "version": "0.39.0",
+  "description": "TypeScript implementation of ngff-zarr for reading and writing OME-Zarr files",
+  "keywords": [
+    "imaging",
+    "microscopy",
+    "ngff",
+    "ome-zarr",
+    "typescript",
+    "zarr"
+  ],
+  "homepage": "https://github.com/fideus-labs/ngff-zarr#readme",
+  "bugs": {
+    "url": "https://github.com/fideus-labs/ngff-zarr/issues"
+  },
+  "license": "MIT",
+  "author": "ngff-zarr contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fideus-labs/ngff-zarr.git",
+    "directory": "ts"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE.txt"
+  ],
+  "type": "module",
+  "main": "./dist/mod.js",
+  "browser": {
+    "./dist/methods/itkwasm.js": "./dist/methods/itkwasm-browser.js",
+    "./dist/methods/itkwasm-node.js": "./dist/methods/itkwasm-browser.js",
+    "./dist/process/to_multiscales-node.js": "./dist/process/to_multiscales-browser.js"
+  },
+  "types": "./dist/mod.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/mod.d.ts",
+      "browser": "./dist/browser-mod.js",
+      "node": "./dist/mod.js",
+      "import": "./dist/mod.js",
+      "default": "./dist/mod.js"
+    },
+    "./browser": {
+      "types": "./dist/browser-mod.d.ts",
+      "import": "./dist/browser-mod.js",
+      "default": "./dist/browser-mod.js"
+    },
+    "./methods/itkwasm-browser": {
+      "types": "./dist/methods/itkwasm-browser.d.ts",
+      "import": "./dist/methods/itkwasm-browser.js",
+      "default": "./dist/methods/itkwasm-browser.js"
+    },
+    "./methods/itkwasm-node": {
+      "types": "./dist/methods/itkwasm-node.d.ts",
+      "import": "./dist/methods/itkwasm-node.js",
+      "default": "./dist/methods/itkwasm-node.js"
+    },
+    "./process/to_multiscales-browser": {
+      "types": "./dist/process/to_multiscales-browser.d.ts",
+      "import": "./dist/process/to_multiscales-browser.js",
+      "default": "./dist/process/to_multiscales-browser.js"
+    },
+    "./process/to_multiscales-node": {
+      "types": "./dist/process/to_multiscales-node.d.ts",
+      "import": "./dist/process/to_multiscales-node.js",
+      "default": "./dist/process/to_multiscales-node.js"
+    }
+  },
+  "scripts": {
+    "build": "vp pack && node scripts/fix_worker_urls.ts",
+    "build:bundle": "npm run build && node scripts/inline_worker.ts && esbuild dist/browser-mod.js --bundle --format=esm --platform=browser --minify --outfile=test/browser-npm/ngff-zarr.bundle.js",
+    "check": "vp check",
+    "typecheck": "tsc --noEmit",
+    "lint": "vp lint",
+    "fmt": "vp fmt",
+    "fmt:check": "vp fmt --check",
+    "test": "vp test",
+    "test:node": "npm run build:bundle && node --test \"test/node/*.test.mjs\"",
+    "test:browser": "node scripts/run_playwright.mjs",
+    "test:browser:ui": "node scripts/run_playwright.mjs --ui",
+    "test:browser:debug": "node scripts/run_playwright.mjs --debug",
+    "test:browser:bundle": "npm run build:bundle && npm run test:browser",
+    "test:all": "npm test && npm run test:node && npm run test:browser"
+  },
+  "dependencies": {
+    "@fideus-labs/fizarrita": "^3.0.0",
+    "@fideus-labs/worker-pool": "^2.1.0",
+    "@itk-wasm/downsample": "^2.0.2",
+    "@zarrita/storage": "^0.2.0",
+    "fflate": "^0.8.2",
+    "itk-wasm": "^1.0.0-b.201",
+    "zarrita": "^0.7.5",
+    "zod": "^4.5.0"
+  },
+  "devDependencies": {
+    "@itk-wasm/image-io": "^1.6.0",
+    "@playwright/test": "^1.58.1",
+    "@types/node": "^26.0.0",
+    "esbuild": "^0.28.2",
+    "microdiff": "^1.5.0",
+    "typescript": "^5.9.3",
+    "vite-plus": "1.4.0"
+  },
+  "engines": {
+    "node": "^22.18.0 || ^24.11.0 || >=26.0.0"
+  },
+  "allowScripts": {
+    "esbuild": false,
+    "protobufjs": false
+  }
+}

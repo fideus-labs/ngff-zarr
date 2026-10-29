@@ -45,11 +45,10 @@ installBloscShuffleNormalization(registry as unknown as CodecRegistry);
 
 export type { ChunkCache } from "@fideus-labs/fizarrita";
 
-// fizarrita uses npm:zarrita while this project uses jsr:@zarrita/zarrita.
-// The types are structurally identical but TypeScript sees them as
-// incompatible due to differing #private class fields. We bridge with
-// explicit `as any` casts when calling into fizarrita.
-// deno-lint-ignore no-explicit-any
+// fizarrita's `getWorker`/`setWorker` re-derive their option types from the
+// array's store parameter, which under `exactOptionalPropertyTypes` does not
+// line up with the options built here. Casts at that boundary keep the call
+// sites simple.
 type AnyZarrArray = any;
 
 /** Whether SharedArrayBuffer is available in this environment. */
@@ -104,12 +103,15 @@ function getWritePool(): WorkerPool {
  * Whether `err` is one of zarrita's structured errors carrying one of `tags`.
  *
  * Matched on `_tag` rather than with `zarr.isZarritaError`, whose
- * `instanceof` test fails across module copies: fizarrita raises its errors
- * from npm:zarrita, while under Deno this package imports jsr:@zarrita/zarrita.
+ * `instanceof` test fails across module copies: when a consumer's dependency
+ * tree resolves fizarrita and this package to different zarrita copies, the
+ * errors fizarrita raises come from the other one.
  */
 function isZarritaErrorTagged(err: unknown, ...tags: string[]): boolean {
-  return err instanceof Error &&
-    tags.includes((err as { _tag?: unknown })._tag as string);
+  return (
+    err instanceof Error &&
+    tags.includes((err as { _tag?: unknown })._tag as string)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -120,9 +122,11 @@ function isZarritaErrorTagged(err: unknown, ...tags: string[]): boolean {
 type GetResult<
   D extends DataType,
   Sel extends (null | Slice | number)[],
-> = null extends Sel[number] ? Chunk<D>
-  : Slice extends Sel[number] ? Chunk<D>
-  : Scalar<D>;
+> = null extends Sel[number]
+  ? Chunk<D>
+  : Slice extends Sel[number]
+    ? Chunk<D>
+    : Scalar<D>;
 
 /**
  * Worker-accelerated zarr array read.
@@ -151,8 +155,6 @@ export async function zarrGet<
       useSharedArrayBuffer: USE_SHARED_ARRAY_BUFFER,
       ...opts,
     };
-    // Cast through AnyZarrArray to bridge jsr:zarrita ↔ npm:zarrita types;
-    // the store options are typed from the (npm) store, so they cross too.
     const result = await getWorker(
       arr as AnyZarrArray,
       selection ?? null,
@@ -197,7 +199,6 @@ export async function zarrSet<D extends DataType>(
       useSharedArrayBuffer: USE_SHARED_ARRAY_BUFFER,
       ...opts,
     };
-    // Cast through AnyZarrArray to bridge jsr:zarrita ↔ npm:zarrita types
     await setWorker(
       arr as AnyZarrArray,
       selection,

@@ -1,5 +1,3 @@
-#!/usr/bin/env -S deno test --allow-read --allow-write
-
 /**
  * Round-trip test for stent.ome.zarr dataset
  *
@@ -10,13 +8,14 @@
  * 4. The data remains consistent through the read-write-read cycle
  */
 
-import { assertEquals, assertExists } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertExists } from "./_assert.ts";
 import { fromNgffZarr } from "../src/io/from_ngff_zarr.ts";
 import { toNgffZarr } from "../src/io/to_ngff_zarr.ts";
 import type { MemoryStore } from "../src/io/from_ngff_zarr.ts";
 import * as zarr from "zarrita";
 
-Deno.test("Round-trip: stent.ome.zarr (OME-Zarr 0.5)", async () => {
+test("Round-trip: stent.ome.zarr (OME-Zarr 0.5)", async () => {
   // Read the original stent.ome.zarr dataset
   const storePath = new URL(
     "../../py/test/data/input/stent.ome.zarr",
@@ -69,9 +68,9 @@ Deno.test("Round-trip: stent.ome.zarr (OME-Zarr 0.5)", async () => {
   console.log(`First image scale:`, firstImage.scale);
   console.log(`First image translation:`, firstImage.translation);
   console.log(
-    `Metadata axes: ${
-      multiscalesOriginal.metadata.axes.map((a) => a.name).join(", ")
-    }`,
+    `Metadata axes: ${multiscalesOriginal.metadata.axes
+      .map((a) => a.name)
+      .join(", ")}`,
   );
 
   // Write to a memory store

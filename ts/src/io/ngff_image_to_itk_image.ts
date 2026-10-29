@@ -129,17 +129,17 @@ export async function ngffImageToItkImage(
       name: workingImage.name,
       axesUnits: workingImage.axesUnits
         ? Object.fromEntries(
-          Object.entries(workingImage.axesUnits).filter(
-            ([dim]) => dim !== "t",
-          ),
-        )
+            Object.entries(workingImage.axesUnits).filter(
+              ([dim]) => dim !== "t",
+            ),
+          )
         : undefined,
       axesOrientations: workingImage.axesOrientations
         ? Object.fromEntries(
-          Object.entries(workingImage.axesOrientations).filter(
-            ([dim]) => dim !== "t",
-          ),
-        )
+            Object.entries(workingImage.axesOrientations).filter(
+              ([dim]) => dim !== "t",
+            ),
+          )
         : undefined,
       computedCallbacks: workingImage.computedCallbacks,
     });
@@ -188,17 +188,17 @@ export async function ngffImageToItkImage(
       name: workingImage.name,
       axesUnits: workingImage.axesUnits
         ? Object.fromEntries(
-          Object.entries(workingImage.axesUnits).filter(
-            ([dim]) => dim !== "c",
-          ),
-        )
+            Object.entries(workingImage.axesUnits).filter(
+              ([dim]) => dim !== "c",
+            ),
+          )
         : undefined,
       axesOrientations: workingImage.axesOrientations
         ? Object.fromEntries(
-          Object.entries(workingImage.axesOrientations).filter(
-            ([dim]) => dim !== "c",
-          ),
-        )
+            Object.entries(workingImage.axesOrientations).filter(
+              ([dim]) => dim !== "c",
+            ),
+          )
         : undefined,
       computedCallbacks: workingImage.computedCallbacks,
     });
@@ -221,8 +221,8 @@ export async function ngffImageToItkImage(
   // sortedItkDims is already in physical space order [x, y, z]
   // Mapping from dims extracts the correct values from NGFF's array order [z, y, x]
   const spacing = sortedItkDims.map((dim) => workingImage.scale[dim] || 1.0);
-  const origin = sortedItkDims.map((dim) =>
-    workingImage.translation[dim] || 0.0
+  const origin = sortedItkDims.map(
+    (dim) => workingImage.translation[dim] || 0.0,
   );
   const size = sortedItkDims.map((dim) => data.shape[dims.indexOf(dim)]);
   const dimension = sortedItkDims.length;
@@ -263,11 +263,11 @@ export async function ngffImageToItkImage(
   const pixels = permutation.every((axis, i) => axis === i)
     ? dataChunk.data
     : transposeArray(
-      dataChunk.data,
-      [...data.shape],
-      permutation,
-      componentTypeOf(dataChunk.data),
-    );
+        dataChunk.data,
+        [...data.shape],
+        permutation,
+        componentTypeOf(dataChunk.data),
+      );
 
   // The direction comes from the RFC-4 orientations of the spatial axes, as
   // resample and resampleBoundingBox build it; time keeps an identity row.

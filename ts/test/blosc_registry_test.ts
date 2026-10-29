@@ -10,7 +10,8 @@
  * repeat installation, synchronous codec loaders).
  */
 
-import { assert, assertEquals } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assert, assertEquals } from "./_assert.ts";
 
 import { installBloscShuffleNormalization } from "../src/utils/blosc_registry.ts";
 import type { CodecRegistry } from "../src/utils/blosc_registry.ts";
@@ -59,23 +60,21 @@ async function callFromConfig(
 // Shuffle normalization
 // ---------------------------------------------------------------------------
 
-Deno.test("installer converts string shuffle to the numcodecs int", async () => {
+test("installer converts string shuffle to the numcodecs int", async () => {
   const { registry, recorder } = stubRegistry();
   installBloscShuffleNormalization(registry);
 
-  for (
-    const [name, int] of [
-      ["noshuffle", 0],
-      ["shuffle", 1],
-      ["bitshuffle", 2],
-    ] as const
-  ) {
+  for (const [name, int] of [
+    ["noshuffle", 0],
+    ["shuffle", 1],
+    ["bitshuffle", 2],
+  ] as const) {
     await callFromConfig(registry, { cname: "zstd", shuffle: name });
     assertEquals(recorder.configs.at(-1)?.shuffle, int, name);
   }
 });
 
-Deno.test("installer leaves an integer shuffle untouched", async () => {
+test("installer leaves an integer shuffle untouched", async () => {
   const { registry, recorder } = stubRegistry();
   installBloscShuffleNormalization(registry);
 
@@ -83,7 +82,7 @@ Deno.test("installer leaves an integer shuffle untouched", async () => {
   assertEquals(recorder.configs[0].shuffle, 2);
 });
 
-Deno.test("installer leaves an absent shuffle absent", async () => {
+test("installer leaves an absent shuffle absent", async () => {
   // Rewriting `undefined` to 0 would override the numcodecs default of
   // SHUFFLE for configs that never mentioned shuffle at all.
   const { registry, recorder } = stubRegistry();
@@ -93,7 +92,7 @@ Deno.test("installer leaves an absent shuffle absent", async () => {
   assertEquals("shuffle" in recorder.configs[0], false);
 });
 
-Deno.test("installer preserves the rest of the configuration", async () => {
+test("installer preserves the rest of the configuration", async () => {
   const { registry, recorder } = stubRegistry();
   installBloscShuffleNormalization(registry);
 
@@ -114,7 +113,7 @@ Deno.test("installer preserves the rest of the configuration", async () => {
   });
 });
 
-Deno.test("installer does not mutate the caller's config object", async () => {
+test("installer does not mutate the caller's config object", async () => {
   // The config comes straight from parsed zarr.json metadata, which the
   // caller may reuse for other purposes.
   const { registry } = stubRegistry();
@@ -129,7 +128,7 @@ Deno.test("installer does not mutate the caller's config object", async () => {
 // Installation
 // ---------------------------------------------------------------------------
 
-Deno.test("installer is idempotent", async () => {
+test("installer is idempotent", async () => {
   // worker_pool and the codec worker may both install onto one registry
   // when the module graphs happen to share a zarrita instance.
   const { registry, recorder } = stubRegistry();
@@ -143,13 +142,13 @@ Deno.test("installer is idempotent", async () => {
   assertEquals(recorder.configs[0].shuffle, 1);
 });
 
-Deno.test("installer is a no-op on a registry without blosc", () => {
+test("installer is a no-op on a registry without blosc", () => {
   const registry: CodecRegistry = new Map();
   installBloscShuffleNormalization(registry);
   assertEquals(registry.has("blosc"), false);
 });
 
-Deno.test("installer preserves the entry's other properties", async () => {
+test("installer preserves the entry's other properties", async () => {
   // The real entry is the numcodecs Blosc class, which carries codecId and
   // the shuffle constants; zarrita's CodecEntry type also allows a `kind`.
   // Narrowing the entry to just fromConfig would drop them.
@@ -169,7 +168,7 @@ Deno.test("installer preserves the entry's other properties", async () => {
   assertEquals(wrapped.SHUFFLE, 1);
 });
 
-Deno.test("installer leaves other codecs alone", async () => {
+test("installer leaves other codecs alone", async () => {
   const { registry } = stubRegistry();
   const gzip = () => ({ fromConfig: () => ({ id: "gzip" }) });
   registry.set("gzip", gzip);
@@ -180,7 +179,7 @@ Deno.test("installer leaves other codecs alone", async () => {
   assert(await registry.get("blosc")!(), "blosc entry still resolves");
 });
 
-Deno.test("installer supports a synchronous codec loader", async () => {
+test("installer supports a synchronous codec loader", async () => {
   // zarrita registers its bundled codecs as `() => Codec` rather than a
   // promise-returning dynamic import.
   const { registry, recorder } = stubRegistry(true);
@@ -190,7 +189,7 @@ Deno.test("installer supports a synchronous codec loader", async () => {
   assertEquals(recorder.configs[0].shuffle, 2);
 });
 
-Deno.test("installer defers loading the codec until first use", () => {
+test("installer defers loading the codec until first use", () => {
   // The registry entry is a lazy dynamic import; wrapping it must not
   // pull the blosc WASM module into every context that installs it.
   let loaded = 0;

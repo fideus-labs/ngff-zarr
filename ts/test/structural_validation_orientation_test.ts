@@ -23,7 +23,8 @@
  * mirrors `py/test/test_structural_validation_orientation.py`.
  */
 
-import { assertEquals, assertThrows } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertThrows } from "./_assert.ts";
 import {
   SpecRule,
   validateAxisOrientation,
@@ -87,14 +88,14 @@ function assertRuleViolation(
   assertEquals(error.location, expectedLocation);
 }
 
-Deno.test("validateAxisOrientation - no orientation is a no-op", () => {
+test("validateAxisOrientation - no orientation is a no-op", () => {
   // No spatial axis declares orientation: the rule returns without raising.
   validateAxisOrientation(
     metadataWithOrientations([undefined, undefined, undefined]),
   );
 });
 
-Deno.test("validateAxisOrientation - accepts a consistent orientation", () => {
+test("validateAxisOrientation - accepts a consistent orientation", () => {
   // The serialized `{ type, value }` form, as produced by the image read path.
   validateAxisOrientation(
     metadataWithOrientations(
@@ -114,7 +115,7 @@ Deno.test("validateAxisOrientation - accepts a consistent orientation", () => {
   );
 });
 
-Deno.test("validateAxisOrientation - rejects a non-anatomical type", () => {
+test("validateAxisOrientation - rejects a non-anatomical type", () => {
   // The "y" axis declares a type RFC 4 does not define.
   const metadata = metadataWithOrientations([
     { type: "anatomical", value: LPS_VALUES[0] },
@@ -128,7 +129,7 @@ Deno.test("validateAxisOrientation - rejects a non-anatomical type", () => {
   );
 });
 
-Deno.test("validateAxisOrientation - an empty orientation object is undefined", () => {
+test("validateAxisOrientation - an empty orientation object is undefined", () => {
   // Guards the Axis-to-record rendering: emitting `{}` as a populated
   // { type, value } object would read back as a real orientation and trip the
   // non-space or anatomical-type rule.
@@ -157,7 +158,7 @@ Deno.test("validateAxisOrientation - an empty orientation object is undefined", 
   validateAxisOrientation(metadata);
 });
 
-Deno.test("validateAxisOrientation - accepts partial orientation", () => {
+test("validateAxisOrientation - accepts partial orientation", () => {
   // Orientation is defined for "z" and "y" and left undefined on "x". RFC 4
   // makes orientation optional per spatial axis, so this is not a violation.
   const metadata = metadataWithOrientations([
@@ -168,7 +169,7 @@ Deno.test("validateAxisOrientation - accepts partial orientation", () => {
   validateAxisOrientation(metadata);
 });
 
-Deno.test("validateAxisOrientation - inert below the RFC-4 versions", () => {
+test("validateAxisOrientation - inert below the RFC-4 versions", () => {
   // RFC 4 orientation is normative from OME-Zarr 0.9.dev1 (ome/ngff-spec#190);
   // when the caller declares 0.4, 0.5 or 0.6 the same metadata passes. With no
   // version the rule stays on as a strictness choice, which every no-version
@@ -191,94 +192,88 @@ Deno.test("validateAxisOrientation - inert below the RFC-4 versions", () => {
   }
 });
 
-Deno.test(
-  "validateRfc4Orientation - messages carry the SpecRule mapping markers",
-  () => {
-    // validateAxisOrientation distinguishes the RFC 4 orientation failures by
-    // searching this function's message text for "must be anatomical",
-    // "non-space axes" and "same anatomical axis". Those markers are a
-    // load-bearing contract: editing the wording away makes the wrapper silently
-    // rethrow a plain Error instead of the mapped ValidationError. Asserting them
-    // here fails loudly at the source. Mirrors the Python
-    // test_rfc4_orientation_messages_carry_mapping_markers.
+test("validateRfc4Orientation - messages carry the SpecRule mapping markers", () => {
+  // validateAxisOrientation distinguishes the RFC 4 orientation failures by
+  // searching this function's message text for "must be anatomical",
+  // "non-space axes" and "same anatomical axis". Those markers are a
+  // load-bearing contract: editing the wording away makes the wrapper silently
+  // rethrow a plain Error instead of the mapped ValidationError. Asserting them
+  // here fails loudly at the source. Mirrors the Python
+  // test_rfc4_orientation_messages_carry_mapping_markers.
 
-    // A non-anatomical orientation type -> the marker the type rule maps.
-    assertThrows(
-      () =>
-        validateRfc4Orientation([
-          {
-            name: "y",
-            type: "space",
-            orientation: { type: "anatomical", value: "anterior-to-posterior" },
-          },
-          {
-            name: "x",
-            type: "space",
-            orientation: { type: "other", value: "right-to-left" },
-          },
-        ]),
-      Error,
-      "must be anatomical",
-    );
+  // A non-anatomical orientation type -> the marker the type rule maps.
+  assertThrows(
+    () =>
+      validateRfc4Orientation([
+        {
+          name: "y",
+          type: "space",
+          orientation: { type: "anatomical", value: "anterior-to-posterior" },
+        },
+        {
+          name: "x",
+          type: "space",
+          orientation: { type: "other", value: "right-to-left" },
+        },
+      ]),
+    Error,
+    "must be anatomical",
+  );
 
-    // Orientation on a non-spatial axis -> the on-non-space marker.
-    assertThrows(
-      () =>
-        validateRfc4Orientation([
-          {
-            name: "t",
-            type: "time",
-            orientation: { type: "anatomical", value: "inferior-to-superior" },
-          },
-        ]),
-      Error,
-      "non-space axes",
-    );
+  // Orientation on a non-spatial axis -> the on-non-space marker.
+  assertThrows(
+    () =>
+      validateRfc4Orientation([
+        {
+          name: "t",
+          type: "time",
+          orientation: { type: "anatomical", value: "inferior-to-superior" },
+        },
+      ]),
+    Error,
+    "non-space axes",
+  );
 
-    // Two spatial axes on one anatomical axis -> the unique-axis marker.
-    assertThrows(
-      () =>
-        validateRfc4Orientation([
-          {
-            name: "y",
-            type: "space",
-            orientation: { type: "anatomical", value: "left-to-right" },
-          },
-          {
-            name: "x",
-            type: "space",
-            orientation: { type: "anatomical", value: "right-to-left" },
-          },
-        ]),
-      Error,
-      "same anatomical axis",
-    );
-  },
-);
+  // Two spatial axes on one anatomical axis -> the unique-axis marker.
+  assertThrows(
+    () =>
+      validateRfc4Orientation([
+        {
+          name: "y",
+          type: "space",
+          orientation: { type: "anatomical", value: "left-to-right" },
+        },
+        {
+          name: "x",
+          type: "space",
+          orientation: { type: "anatomical", value: "right-to-left" },
+        },
+      ]),
+    Error,
+    "same anatomical axis",
+  );
+});
 
-Deno.test(
-  "validateRfc4Orientation - same-name spatial entries still collide",
-  () => {
-    // Malformed metadata can repeat an axis name. A name-keyed map would
-    // overwrite the first entry and let the opposing pair slip through, so the
-    // check keeps every [name, value] entry. Mirrors the Python
-    // test_validate_rfc4_orientation_duplicate_anatomical_axis_same_name.
-    assertThrows(
-      () =>
-        validateRfc4Orientation([
-          {
-            name: "x",
-            type: "space",
-            orientation: { type: "anatomical", value: "left-to-right" },
-          },
-          {
-            name: "x",
-            type: "space",
-            orientation: { type: "anatomical", value: "right-to-left" },
-          },
-        ]),
-      Error,
-      "same anatomical axis",
-    );
-  },
-);
+test("validateRfc4Orientation - same-name spatial entries still collide", () => {
+  // Malformed metadata can repeat an axis name. A name-keyed map would
+  // overwrite the first entry and let the opposing pair slip through, so the
+  // check keeps every [name, value] entry. Mirrors the Python
+  // test_validate_rfc4_orientation_duplicate_anatomical_axis_same_name.
+  assertThrows(
+    () =>
+      validateRfc4Orientation([
+        {
+          name: "x",
+          type: "space",
+          orientation: { type: "anatomical", value: "left-to-right" },
+        },
+        {
+          name: "x",
+          type: "space",
+          orientation: { type: "anatomical", value: "right-to-left" },
+        },
+      ]),
+    Error,
+    "same anatomical axis",
+  );
+});

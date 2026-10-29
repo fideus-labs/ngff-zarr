@@ -82,8 +82,10 @@ function* iterMatrixTransforms(transforms: unknown): Generator<JsonObject> {
 
 function describe(transform: JsonObject): string {
   const name = transform.name;
-  return `${transform.type} transformation` +
-    (typeof name === "string" && name !== "" ? ` '${name}'` : "");
+  return (
+    `${transform.type} transformation` +
+    (typeof name === "string" && name !== "" ? ` '${name}'` : "")
+  );
 }
 
 function namedPath(transform: JsonObject): string | undefined {
@@ -97,8 +99,12 @@ function namedPath(transform: JsonObject): string | undefined {
  * reserved `__` prefix.
  */
 function isNodeName(name: unknown): name is string {
-  return typeof name === "string" && NODE_NAME_CHARACTERS.test(name) &&
-    name.replace(/\./g, "") !== "" && !name.startsWith("__");
+  return (
+    typeof name === "string" &&
+    NODE_NAME_CHARACTERS.test(name) &&
+    name.replace(/\./g, "") !== "" &&
+    !name.startsWith("__")
+  );
 }
 
 /** `path`, refused when it could resolve outside the multiscales group. */
@@ -120,7 +126,8 @@ function checkedPath(path: string, transform: JsonObject): string {
 function isClaimed(path: string, claimed: Set<string>): boolean {
   for (const other of claimed) {
     if (
-      other === path || other.startsWith(`${path}/`) ||
+      other === path ||
+      other.startsWith(`${path}/`) ||
       path.startsWith(`${other}/`)
     ) {
       return true;
@@ -158,13 +165,12 @@ function generatedPath(transform: JsonObject, claimed: Set<string>): string {
 function toMatrixArray(values: unknown, transform: JsonObject): MatrixArray {
   if (
     !Array.isArray(values) ||
-    !values.every((row) =>
-      Array.isArray(row) && row.every((entry) => typeof entry === "number")
+    !values.every(
+      (row) =>
+        Array.isArray(row) && row.every((entry) => typeof entry === "number"),
     )
   ) {
-    throw new Error(
-      `${describe(transform)} does not hold a matrix of numbers`,
-    );
+    throw new Error(`${describe(transform)} does not hold a matrix of numbers`);
   }
   const rows = values as number[][];
   const columns = rows[0]?.length ?? 0;
@@ -187,8 +193,11 @@ function toMatrixArray(values: unknown, transform: JsonObject): MatrixArray {
 }
 
 function sameMatrix(a: MatrixArray, b: MatrixArray): boolean {
-  return a.shape[0] === b.shape[0] && a.shape[1] === b.shape[1] &&
-    a.data.every((value, index) => value === b.data[index]);
+  return (
+    a.shape[0] === b.shape[0] &&
+    a.shape[1] === b.shape[1] &&
+    a.data.every((value, index) => value === b.data[index])
+  );
 }
 
 /**
@@ -256,7 +265,8 @@ export function externalizeMatrixTransforms(
     const values = transform[kind];
     delete transform[kind];
     if (
-      values === undefined || values === null ||
+      values === undefined ||
+      values === null ||
       (Array.isArray(values) && values.length === 0)
     ) {
       if (namedPath(transform) === undefined) {
@@ -290,9 +300,7 @@ export function externalizeMatrixTransforms(
 async function storedNodeType(
   location: zarr.Location<zarr.Readable>,
 ): Promise<"array" | "group" | undefined> {
-  const document = await location.store.get(
-    location.resolve("zarr.json").path,
-  );
+  const document = await location.store.get(location.resolve("zarr.json").path);
   if (document !== undefined) {
     const nodeType = JSON.parse(new TextDecoder().decode(document)).node_type;
     return nodeType === "array" ? "array" : "group";
@@ -324,13 +332,13 @@ export async function checkMatrixDestinations(
     const occupied: string[] = [];
     for (let end = 1; end < segments.length; end++) {
       const ancestor = segments.slice(0, end).join("/");
-      if (await storedNodeType(root.resolve(ancestor)) === "array") {
+      if ((await storedNodeType(root.resolve(ancestor))) === "array") {
         occupied.push(ancestor);
       }
     }
     if (
       !replaceable.has(path) &&
-      await storedNodeType(root.resolve(path)) !== undefined
+      (await storedNodeType(root.resolve(path))) !== undefined
     ) {
       occupied.push(path);
     }
@@ -360,7 +368,7 @@ export async function writeMatrixArrays<Store extends zarr.Mutable>(
     for (let end = 1; end < segments.length; end++) {
       const group = root.resolve(segments.slice(0, end).join("/"));
       if (
-        await group.store.get(group.resolve("zarr.json").path) === undefined
+        (await group.store.get(group.resolve("zarr.json").path)) === undefined
       ) {
         await zarr.create(group, { attributes: {} });
       }
@@ -440,9 +448,9 @@ export async function resolveMatrixTransforms(
       // stores need more axes.
       if (array.shape.length !== 2 || array.shape.some((n) => n > 64)) {
         throw new Error(
-          `expected a 2D matrix of at most 64x64; got shape ${
-            array.shape.join("x")
-          }`,
+          `expected a 2D matrix of at most 64x64; got shape ${array.shape.join(
+            "x",
+          )}`,
         );
       }
       chunk = await zarr.get(array);

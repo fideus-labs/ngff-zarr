@@ -140,8 +140,8 @@ export function readOzxVersion(zipData: Uint8Array): string | null {
   }
 
   // Get comment length (little-endian uint16 at EOCD + 20)
-  const commentLength = zipData[eocdOffset + 20] |
-    (zipData[eocdOffset + 21] << 8);
+  const commentLength =
+    zipData[eocdOffset + 20] | (zipData[eocdOffset + 21] << 8);
 
   if (commentLength === 0) {
     return null;
@@ -197,8 +197,8 @@ export function readOzxJsonFirst(zipData: Uint8Array): boolean {
   }
 
   // Get comment length (little-endian uint16 at EOCD + 20)
-  const commentLength = zipData[eocdOffset + 20] |
-    (zipData[eocdOffset + 21] << 8);
+  const commentLength =
+    zipData[eocdOffset + 20] | (zipData[eocdOffset + 21] << 8);
 
   if (commentLength === 0) {
     return false;
@@ -272,10 +272,12 @@ export function getZipFileCompressionMethod(
       }
 
       // Get compressed size to skip to next header
-      const compressedSize = (zipData[offset + 18] |
-        (zipData[offset + 19] << 8) |
-        (zipData[offset + 20] << 16) |
-        (zipData[offset + 21] << 24)) >>> 0;
+      const compressedSize =
+        (zipData[offset + 18] |
+          (zipData[offset + 19] << 8) |
+          (zipData[offset + 20] << 16) |
+          (zipData[offset + 21] << 24)) >>>
+        0;
 
       offset = nameEnd + extraLength + compressedSize;
     } else {
@@ -314,10 +316,12 @@ export function getZipFileList(zipData: Uint8Array): string[] {
   }
 
   // Get central directory offset (little-endian uint32 at EOCD + 16)
-  let cdOffset = (zipData[eocdOffset + 16] |
-    (zipData[eocdOffset + 17] << 8) |
-    (zipData[eocdOffset + 18] << 16) |
-    (zipData[eocdOffset + 19] << 24)) >>> 0;
+  let cdOffset =
+    (zipData[eocdOffset + 16] |
+      (zipData[eocdOffset + 17] << 8) |
+      (zipData[eocdOffset + 18] << 16) |
+      (zipData[eocdOffset + 19] << 24)) >>>
+    0;
 
   // Get number of entries (little-endian uint16 at EOCD + 10)
   const numEntries = zipData[eocdOffset + 10] | (zipData[eocdOffset + 11] << 8);
@@ -341,8 +345,8 @@ export function getZipFileList(zipData: Uint8Array): string[] {
     const extraLength = zipData[cdOffset + 30] | (zipData[cdOffset + 31] << 8);
 
     // Get comment length (little-endian at offset + 32)
-    const commentLength = zipData[cdOffset + 32] |
-      (zipData[cdOffset + 33] << 8);
+    const commentLength =
+      zipData[cdOffset + 32] | (zipData[cdOffset + 33] << 8);
 
     // Extract filename
     const nameStart = cdOffset + 46;

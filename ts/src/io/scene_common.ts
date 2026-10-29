@@ -132,9 +132,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function checkImagePath(path: unknown): asserts path is string {
   if (!isPathBelowRoot(path)) {
     throw new Error(
-      `Image path '${
-        String(path)
-      }' must be a relative path below the scene group.`,
+      `Image path '${String(
+        path,
+      )}' must be a relative path below the scene group.`,
     );
   }
 }
@@ -144,10 +144,14 @@ function imageSystems(multiscales: NgffMultiscales): CoordinateSystem[] {
   const systems = multiscales.metadata.coordinateSystems;
   // The 0.6 writer declares the intrinsic system on an image that carries
   // no coordinate systems of its own.
-  return systems !== undefined && systems.length > 0 ? systems : [{
-    name: INTRINSIC_COORDINATE_SYSTEM_NAME,
-    axes: multiscales.metadata.axes,
-  }];
+  return systems !== undefined && systems.length > 0
+    ? systems
+    : [
+        {
+          name: INTRINSIC_COORDINATE_SYSTEM_NAME,
+          axes: multiscales.metadata.axes,
+        },
+      ];
 }
 
 /** The paths of the arrays and field groups the transformations reference. */
@@ -269,9 +273,9 @@ export function checkScene(scene: NgffScene, version: string = "0.6"): void {
       if (image === undefined) {
         throw new Error(
           `${where} references image '${reference.path}', which the scene ` +
-            `does not contain; its images are ${
-              JSON.stringify(Object.keys(scene.images).sort())
-            }.`,
+            `does not contain; its images are ${JSON.stringify(
+              Object.keys(scene.images).sort(),
+            )}.`,
         );
       }
       const declared = imageSystems(image);
@@ -279,9 +283,9 @@ export function checkScene(scene: NgffScene, version: string = "0.6"): void {
       if (system === undefined) {
         throw new Error(
           `${where} names coordinate system '${reference.name}' of image ` +
-            `'${reference.path}', which declares ${
-              JSON.stringify(declared.map((s) => s.name).sort())
-            }.`,
+            `'${reference.path}', which declares ${JSON.stringify(
+              declared.map((s) => s.name).sort(),
+            )}.`,
         );
       }
       ends.push(key(["image", reference.path]));
@@ -308,10 +312,14 @@ export function checkScene(scene: NgffScene, version: string = "0.6"): void {
       output: { name: names[1] },
     } as V06Transform;
     try {
-      validateV06Transform(probe, [
-        { name: names[0], axes: systems[0].axes },
-        { name: names[1], axes: systems[1].axes },
-      ], version);
+      validateV06Transform(
+        probe,
+        [
+          { name: names[0], axes: systems[0].axes },
+          { name: names[1], axes: systems[1].axes },
+        ],
+        version,
+      );
     } catch (invalid) {
       throw new Error(
         `${where} (${transform.type}) would be written as a transform this ` +
@@ -437,9 +445,9 @@ export async function readScene(
   const document = (rootAttrs.ome as Record<string, unknown>).scene;
   if (!isRecord(document)) {
     throw new Error(
-      `The 'ome.scene' entry must be an object; got ${
-        JSON.stringify(document)
-      }.`,
+      `The 'ome.scene' entry must be an object; got ${JSON.stringify(
+        document,
+      )}.`,
     );
   }
   const version = readVersion(rootAttrs, options);
@@ -485,7 +493,8 @@ export function readVersion(
   const detected = detectVersion(rootAttrs);
   const requested = options.version;
   if ((options.validate ?? false) && requested !== undefined) {
-    const versionsMatch = detected === requested ||
+    const versionsMatch =
+      detected === requested ||
       (isV06Version(detected) && isV06Version(requested));
     if (!versionsMatch) {
       throw new Error(
@@ -539,9 +548,9 @@ export async function writeSceneToStore(
   }
   if (fields.length > 0 && (options.overwrite ?? true)) {
     throw new Error(
-      `The scene's transformations reference the nodes ${
-        JSON.stringify(fields)
-      }; write those first with toOmeZarr() below the scene's store, then ` +
+      `The scene's transformations reference the nodes ${JSON.stringify(
+        fields,
+      )}; write those first with toOmeZarr() below the scene's store, then ` +
         "the scene with overwrite: false so they are kept.",
     );
   }
@@ -572,9 +581,7 @@ export async function writeSceneToStore(
   attributes.ome = { version: ondisk, scene: sceneToOmeValue(scene) };
   await zarr.create(root, { attributes });
 
-  const nodePaths = new Set<string>(
-    await storedNodePaths(store, root, fields),
-  );
+  const nodePaths = new Set<string>(await storedNodePaths(store, root, fields));
   const ensureAncestors = async (path: string): Promise<void> => {
     for (const ancestor of await ensureAncestorGroups(root, path)) {
       nodePaths.add(ancestor);
@@ -589,10 +596,10 @@ export async function writeSceneToStore(
   const { onProgress } = options;
   const totalChunks = onProgress
     ? Object.values(scene.images).reduce(
-      (total, multiscales) =>
-        total + countMultiscalesWrites(multiscales, options.chunksPerShard),
-      0,
-    )
+        (total, multiscales) =>
+          total + countMultiscalesWrites(multiscales, options.chunksPerShard),
+        0,
+      )
     : 0;
   let completedChunks = 0;
   for (const [path, multiscales] of Object.entries(scene.images)) {
@@ -643,7 +650,7 @@ export async function storedNodePaths(
 ): Promise<string[]> {
   const nodes: string[] = [];
   for (const path of fields) {
-    nodes.push(...await ensureAncestorGroups(root, path), path);
+    nodes.push(...(await ensureAncestorGroups(root, path)), path);
     const listed = await consolidatedNodePaths(
       storeBelow(store, path) as unknown as ConsolidatableStore,
     );
@@ -682,9 +689,9 @@ export function refuseStoredNodes(
   if (fields.length > 0) {
     throw new Error(
       `An .ozx archive is written in one piece, so a ${what} whose ` +
-        `transformations reference the stored nodes ${
-          JSON.stringify(fields)
-        } cannot be zipped with toOmeZarrOzx(). Stage it in a MemoryStore ` +
+        `transformations reference the stored nodes ${JSON.stringify(
+          fields,
+        )} cannot be zipped with toOmeZarrOzx(). Stage it in a MemoryStore ` +
         "or a directory instead: write each node with toOmeZarr(store, " +
         `node, { path }), then the ${what} with { overwrite: false }, and ` +
         "pack the store with storeToZip().",
@@ -710,10 +717,10 @@ export async function sceneToOzx(
     version,
     chunksPerShard: options.chunksPerShard ?? DEFAULT_OZX_CHUNKS_PER_SHARD,
     ...(options.codecs !== undefined && { codecs: options.codecs }),
-    ...(options.consolidateMetadata !== undefined &&
-      { consolidateMetadata: options.consolidateMetadata }),
-    ...(options.onProgress !== undefined &&
-      { onProgress: options.onProgress }),
+    ...(options.consolidateMetadata !== undefined && {
+      consolidateMetadata: options.consolidateMetadata,
+    }),
+    ...(options.onProgress !== undefined && { onProgress: options.onProgress }),
   });
   return memoryStoreToZip(store, { version });
 }

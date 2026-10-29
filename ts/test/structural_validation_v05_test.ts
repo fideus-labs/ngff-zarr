@@ -17,7 +17,8 @@
  * stay in lockstep.
  */
 
-import { assertEquals, assertThrows } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertThrows } from "./_assert.ts";
 import {
   SpecRule,
   validateOmeNamespace,
@@ -56,7 +57,7 @@ function validV05Metadata(): Metadata {
 
 // --- zarr-format -----------------------------------------------------------
 
-Deno.test("zarr-format rule is inert on v0.4 even with a stray key", () => {
+test("zarr-format rule is inert on v0.4 even with a stray key", () => {
   // Gated strictly on the v0.5 version: a v0.4 dataset is Zarr v2, so the rule
   // must not fire even if a zarr_format key is (anomalously) present in extra.
   const metadata = validV04Metadata();
@@ -64,22 +65,19 @@ Deno.test("zarr-format rule is inert on v0.4 even with a stray key", () => {
   validateZarrFormatForVersion(metadata);
 });
 
-Deno.test("zarr-format rule accepts clean v0.5", () => {
+test("zarr-format rule accepts clean v0.5", () => {
   // A clean v0.5 entry carries no zarr_format in extra; nothing to contradict
   // Zarr v3, so the rule is inert.
   validateZarrFormatForVersion(validV05Metadata());
 });
 
-Deno.test(
-  "zarr-format rule accepts v0.5 with an explicit zarr_format of 3",
-  () => {
-    const metadata = validV05Metadata();
-    metadata.extra = { zarr_format: 3 };
-    validateZarrFormatForVersion(metadata);
-  },
-);
+test("zarr-format rule accepts v0.5 with an explicit zarr_format of 3", () => {
+  const metadata = validV05Metadata();
+  metadata.extra = { zarr_format: 3 };
+  validateZarrFormatForVersion(metadata);
+});
 
-Deno.test("zarr-format rule rejects v0.5 with a non-3 zarr_format", () => {
+test("zarr-format rule rejects v0.5 with a non-3 zarr_format", () => {
   // A v0.5 entry that declares a non-3 zarr_format is incompatible with the
   // v0.5 => Zarr v3 requirement and must be rejected.
   const metadata = validV05Metadata();
@@ -94,23 +92,20 @@ Deno.test("zarr-format rule rejects v0.5 with a non-3 zarr_format", () => {
 
 // --- ome-namespace ---------------------------------------------------------
 
-Deno.test(
-  "ome-namespace rule is inert on v0.4 even with a residual wrapper",
-  () => {
-    // Gated strictly on the v0.5 version: a v0.4 store has no ome wrapper, so
-    // the rule must not fire on v0.4 metadata regardless of extra.
-    const metadata = validV04Metadata();
-    metadata.extra = { ome: { version: "0.5" } };
-    validateOmeNamespace(metadata);
-  },
-);
+test("ome-namespace rule is inert on v0.4 even with a residual wrapper", () => {
+  // Gated strictly on the v0.5 version: a v0.4 store has no ome wrapper, so
+  // the rule must not fire on v0.4 metadata regardless of extra.
+  const metadata = validV04Metadata();
+  metadata.extra = { ome: { version: "0.5" } };
+  validateOmeNamespace(metadata);
+});
 
-Deno.test("ome-namespace rule accepts clean v0.5", () => {
+test("ome-namespace rule accepts clean v0.5", () => {
   // A cleanly-unwrapped v0.5 entry retains no group-level wrapper key.
   validateOmeNamespace(validV05Metadata());
 });
 
-Deno.test("ome-namespace rule rejects a residual ome wrapper", () => {
+test("ome-namespace rule rejects a residual ome wrapper", () => {
   // A v0.5 entry that still carries the group-level ome key is
   // double-namespaced / malformed.
   const metadata = validV05Metadata();
@@ -123,7 +118,7 @@ Deno.test("ome-namespace rule rejects a residual ome wrapper", () => {
   assertEquals(error.location, "multiscales[0]");
 });
 
-Deno.test("ome-namespace rule rejects a residual multiscales wrapper", () => {
+test("ome-namespace rule rejects a residual multiscales wrapper", () => {
   // The multiscales array is also a group-level key; it must not appear inside
   // a multiscale entry.
   const metadata = validV05Metadata();
@@ -138,13 +133,13 @@ Deno.test("ome-namespace rule rejects a residual multiscales wrapper", () => {
 
 // --- end-to-end through validateStructural ---------------------------------
 
-Deno.test("validateStructural accepts clean v0.5", () => {
+test("validateStructural accepts clean v0.5", () => {
   // End-to-end through the orchestrator: a clean v0.5 metadata passes every
   // rule (the new v0.5 namespacing rules included).
   validateStructural(validV05Metadata());
 });
 
-Deno.test("validateStructural flags a malformed v0.5 ome namespace", () => {
+test("validateStructural flags a malformed v0.5 ome namespace", () => {
   const metadata = validV05Metadata();
   metadata.extra = { ome: { version: "0.5" } };
   const error = assertThrows(
@@ -154,7 +149,7 @@ Deno.test("validateStructural flags a malformed v0.5 ome namespace", () => {
   assertEquals(error.rule, SpecRule.OmeNamespace);
 });
 
-Deno.test("validateStructural flags a malformed v0.5 zarr_format", () => {
+test("validateStructural flags a malformed v0.5 zarr_format", () => {
   const metadata = validV05Metadata();
   metadata.extra = { zarr_format: 2 };
   const error = assertThrows(

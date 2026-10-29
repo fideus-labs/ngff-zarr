@@ -12,7 +12,8 @@
  * that what was written matches what was declared.
  */
 
-import { assert, assertEquals, assertNotEquals } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assert, assertEquals, assertNotEquals } from "./_assert.ts";
 import * as zarr from "zarrita";
 
 import { toNgffZarr } from "../src/io/to_ngff_zarr.ts";
@@ -133,8 +134,9 @@ function declaredBloscConfig(store: MemoryStore): Record<string, unknown> {
   );
   assert(key, "no scale0 array metadata in store");
   const meta = JSON.parse(new TextDecoder().decode(store.get(key)!));
-  const blosc = (meta.codecs as { name: string; configuration: never }[])
-    .find((c) => c.name === "blosc");
+  const blosc = (meta.codecs as { name: string; configuration: never }[]).find(
+    (c) => c.name === "blosc",
+  );
   assert(blosc, "no blosc codec declared in array metadata");
   return blosc.configuration;
 }
@@ -155,34 +157,31 @@ function totalChunkBytes(store: MemoryStore): number {
 // ---------------------------------------------------------------------------
 
 for (const dtype of ["uint8", "uint16", "int16", "float32"]) {
-  Deno.test(
-    `toNgffZarr writes ${dtype} chunks matching the declared shuffle mode`,
-    async () => {
-      const store = await writeStore(dtype);
-      const declared = declaredBloscConfig(store).shuffle;
+  test(`toNgffZarr writes ${dtype} chunks matching the declared shuffle mode`, async () => {
+    const store = await writeStore(dtype);
+    const declared = declaredBloscConfig(store).shuffle;
 
-      // Spec compliance: Zarr v3 requires the string enum, not the
-      // Zarr v2 integer.
+    // Spec compliance: Zarr v3 requires the string enum, not the
+    // Zarr v2 integer.
+    assertEquals(
+      typeof declared,
+      "string",
+      "shuffle must be declared as a Zarr v3 string",
+    );
+
+    const written = chunks(store);
+    assert(written.length > 0, "no chunks written");
+    for (const chunk of written) {
       assertEquals(
-        typeof declared,
-        "string",
-        "shuffle must be declared as a Zarr v3 string",
+        frameShuffle(chunk),
+        declared,
+        `chunk frame disagrees with declared shuffle for ${dtype}`,
       );
-
-      const written = chunks(store);
-      assert(written.length > 0, "no chunks written");
-      for (const chunk of written) {
-        assertEquals(
-          frameShuffle(chunk),
-          declared,
-          `chunk frame disagrees with declared shuffle for ${dtype}`,
-        );
-      }
-    },
-  );
+    }
+  });
 }
 
-Deno.test("default shuffle mode follows the data type width", async () => {
+test("default shuffle mode follows the data type width", async () => {
   // Byte shuffle only has meaning for multi-byte elements.
   assertEquals(
     declaredBloscConfig(await writeStore("uint8")).shuffle,
@@ -194,7 +193,7 @@ Deno.test("default shuffle mode follows the data type width", async () => {
   );
 });
 
-Deno.test("declared typesize matches the data type", async () => {
+test("declared typesize matches the data type", async () => {
   for (const dtype of ["uint8", "uint16", "float32"]) {
     assertEquals(
       declaredBloscConfig(await writeStore(dtype)).typesize,
@@ -224,45 +223,39 @@ function bloscCodecs(dtype: string, shuffle: string): ZarrCodec[] {
   ];
 }
 
-Deno.test(
-  "each string shuffle mode produces distinct chunk bytes",
-  async () => {
-    // Before the string→integer normalization every mode silently encoded
-    // as noshuffle, so all three stores came out byte-identical.
-    const sizes = new Map<string, number>();
-    for (const shuffle of ["noshuffle", "shuffle", "bitshuffle"]) {
-      const store = await writeStore("uint16", bloscCodecs("uint16", shuffle));
-      assertEquals(
-        frameShuffle(chunks(store)[0]),
-        shuffle,
-        `frame does not record ${shuffle}`,
-      );
-      sizes.set(shuffle, totalChunkBytes(store));
-    }
+test("each string shuffle mode produces distinct chunk bytes", async () => {
+  // Before the string→integer normalization every mode silently encoded
+  // as noshuffle, so all three stores came out byte-identical.
+  const sizes = new Map<string, number>();
+  for (const shuffle of ["noshuffle", "shuffle", "bitshuffle"]) {
+    const store = await writeStore("uint16", bloscCodecs("uint16", shuffle));
+    assertEquals(
+      frameShuffle(chunks(store)[0]),
+      shuffle,
+      `frame does not record ${shuffle}`,
+    );
+    sizes.set(shuffle, totalChunkBytes(store));
+  }
 
-    assertNotEquals(sizes.get("shuffle"), sizes.get("noshuffle"));
-    assertNotEquals(sizes.get("bitshuffle"), sizes.get("noshuffle"));
-  },
-);
+  assertNotEquals(sizes.get("shuffle"), sizes.get("noshuffle"));
+  assertNotEquals(sizes.get("bitshuffle"), sizes.get("noshuffle"));
+});
 
-Deno.test(
-  "an explicit integer shuffle still encodes correctly",
-  async () => {
-    // Zarr v2 style integers reach numcodecs untouched; accepting them
-    // keeps user-supplied codec pipelines working.
-    const codecs = bloscCodecs("uint16", "shuffle");
-    codecs[1].configuration.shuffle = 1;
-    const store = await writeStore("uint16", codecs);
-    assertEquals(frameShuffle(chunks(store)[0]), "shuffle");
-  },
-);
+test("an explicit integer shuffle still encodes correctly", async () => {
+  // Zarr v2 style integers reach numcodecs untouched; accepting them
+  // keeps user-supplied codec pipelines working.
+  const codecs = bloscCodecs("uint16", "shuffle");
+  codecs[1].configuration.shuffle = 1;
+  const store = await writeStore("uint16", codecs);
+  assertEquals(frameShuffle(chunks(store)[0]), "shuffle");
+});
 
 // ---------------------------------------------------------------------------
 // Round-trip
 // ---------------------------------------------------------------------------
 
 for (const dtype of ["uint8", "uint16", "float32"]) {
-  Deno.test(`shuffled ${dtype} chunks round-trip unchanged`, async () => {
+  test(`shuffled ${dtype} chunks round-trip unchanged`, async () => {
     const image = await makeImage(dtype);
     const multiscales = await toMultiscales(image, { scaleFactors: [] });
     const store: MemoryStore = new Map<string, Uint8Array>();

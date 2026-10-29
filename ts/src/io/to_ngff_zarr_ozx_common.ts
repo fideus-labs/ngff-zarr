@@ -65,8 +65,8 @@ function axisViews(
   version: string,
 ): Array<{ location: string; axes: Axis[] }> {
   const systems = metadata.coordinateSystems ?? [];
-  const serializesSystems = version === "0.6" ||
-    version === NgffVersion.V09dev1;
+  const serializesSystems =
+    version === "0.6" || version === NgffVersion.V09dev1;
   if (serializesSystems && systems.length > 0) {
     // `buildV06MultiscalesEntry` serializes the first system from
     // `metadata.axes` and the later ones verbatim, and `MetadataInterface`
@@ -92,10 +92,7 @@ function axisViews(
  *    one of them (see {@link axisViews}), while the structural pass reduces the
  *    metadata to the intrinsic system's axes.
  */
-function gateAxisModel(
-  metadata: MetadataInterface,
-  version: string,
-): void {
+function gateAxisModel(metadata: MetadataInterface, version: string): void {
   gateAxisViews(axisViews(metadata, version), version);
 }
 
@@ -159,9 +156,10 @@ export function gateSpans(
   const named = new Set<number>();
   for (const side of ["input", "output"]) {
     const reference = record[side] as { name?: unknown } | undefined;
-    const count = typeof reference?.name === "string"
-      ? systems.get(reference.name)
-      : undefined;
+    const count =
+      typeof reference?.name === "string"
+        ? systems.get(reference.name)
+        : undefined;
     if (count !== undefined) {
       named.add(count);
     }
@@ -181,7 +179,12 @@ export function gateSpans(
   const members = record.transformations;
   if (Array.isArray(members)) {
     members.forEach((member, position) =>
-      gateSpans(member, `${where}.transformations[${position}]`, systems, spans)
+      gateSpans(
+        member,
+        `${where}.transformations[${position}]`,
+        systems,
+        spans,
+      ),
     );
   }
 }
@@ -227,7 +230,7 @@ function gateTransformArity(
         `${where} coordinateTransformations[${index}]`,
         systems,
         new Set([intrinsic]),
-      )
+      ),
     );
   }
 }
@@ -237,9 +240,7 @@ function gateTransformArity(
  * Anatomical orientation (RFC 4) is included whenever an axis carries it;
  * axes without orientation simply omit the field.
  */
-export function processAxes(
-  axes: Axis[],
-): Record<string, unknown>[] {
+export function processAxes(axes: Axis[]): Record<string, unknown>[] {
   return axes.map((axis) => {
     const result: Record<string, unknown> = {
       name: axis.name,
@@ -361,18 +362,19 @@ export function buildRootDocument(
   };
 
   // Neither version carries a rotation or an affine, so no matrix arrays.
-  const attributes = version === "0.5"
-    ? {
-      ome: {
-        version,
-        multiscales: [multiscalesMetadata],
-        ...(metadata.omero && { omero: metadata.omero }),
-      },
-    }
-    : {
-      multiscales: [multiscalesMetadata],
-      ...(metadata.omero && { omero: metadata.omero }),
-    };
+  const attributes =
+    version === "0.5"
+      ? {
+          ome: {
+            version,
+            multiscales: [multiscalesMetadata],
+            ...(metadata.omero && { omero: metadata.omero }),
+          },
+        }
+      : {
+          multiscales: [multiscalesMetadata],
+          ...(metadata.omero && { omero: metadata.omero }),
+        };
   return { attributes, matrixArrays: new Map() };
 }
 
@@ -461,11 +463,13 @@ export function storeToZipData(
   const attributes = root.attributes ?? {};
   const ome = attributes.ome as { version?: unknown } | undefined;
   const multiscales = attributes.multiscales;
-  const declaresVersion = (ome?.version !== undefined) ||
+  const declaresVersion =
+    ome?.version !== undefined ||
     (Array.isArray(multiscales) && multiscales.length > 0);
-  const declared = options.version === undefined && declaresVersion
-    ? detectVersion(attributes)
-    : undefined;
+  const declared =
+    options.version === undefined && declaresVersion
+      ? detectVersion(attributes)
+      : undefined;
   const version = gateOzxVersion(options.version ?? declared);
   return memoryStoreToZip(store, { version });
 }

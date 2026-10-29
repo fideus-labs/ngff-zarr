@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
-import { assertEquals, assertExists, assertNotEquals } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertExists, assertNotEquals } from "./_assert.ts";
 import { fromNgffZarr, type MemoryStore } from "../src/io/from_ngff_zarr.ts";
 import { toNgffZarr } from "../src/io/to_ngff_zarr.ts";
 import {
@@ -81,7 +82,7 @@ function createMultiscalesFromImage(
   return createNgffMultiscales([image], metadata);
 }
 
-Deno.test("from_ngff_zarr basic round trip", async () => {
+test("from_ngff_zarr basic round trip", async () => {
   // Create synthetic test data
   const image = await createTestLungSeriesData();
   // Create multiscales with undefined optional fields
@@ -121,7 +122,7 @@ Deno.test("from_ngff_zarr basic round trip", async () => {
   console.log("✓ Basic from_ngff_zarr round trip test passed");
 });
 
-Deno.test("omero zarr from_ngff_zarr to_ngff_zarr", async () => {
+test("omero zarr from_ngff_zarr to_ngff_zarr", async () => {
   const datasetName = "13457537";
   // Use better cross-platform path handling
   const storePath = new URL(
@@ -174,7 +175,7 @@ Deno.test("omero zarr from_ngff_zarr to_ngff_zarr", async () => {
   console.log("✓ OMERO zarr round trip test passed");
 });
 
-Deno.test("from_ngff_zarr with storage_options", async () => {
+test("from_ngff_zarr with storage_options", async () => {
   // This test is equivalent to Python's test for zarr v3 storage_options
   // For TypeScript/zarrita, we test that various store configurations work
 
@@ -210,7 +211,7 @@ Deno.test("from_ngff_zarr with storage_options", async () => {
   console.log("✓ Storage options test passed");
 });
 
-Deno.test("omero metadata backward compatibility", async () => {
+test("omero metadata backward compatibility", async () => {
   // Test that OMERO metadata with only min/max or only start/end is handled correctly
   // This is equivalent to Python's test_omero_metadata_backward_compatibility
 
@@ -491,7 +492,7 @@ Deno.test("omero metadata backward compatibility", async () => {
   console.log("✓ OMERO metadata backward compatibility test passed");
 });
 
-Deno.test("fromNgffZarr accepts cache option", async () => {
+test("fromNgffZarr accepts cache option", async () => {
   // Create synthetic test data and write to memory store
   const image = await createTestLungSeriesData();
   const multiscales = createMultiscalesFromImage(image);
@@ -513,7 +514,7 @@ Deno.test("fromNgffZarr accepts cache option", async () => {
   console.log("✓ fromNgffZarr accepts cache option test passed");
 });
 
-Deno.test("zarrGet populates cache on read", async () => {
+test("zarrGet populates cache on read", async () => {
   // Create a small in-memory zarr array
   const store = new Map<string, Uint8Array>();
   const root = zarr.root(store);
@@ -560,7 +561,7 @@ Deno.test("zarrGet populates cache on read", async () => {
   );
 });
 
-Deno.test("zarrGet cache serves repeated reads", async () => {
+test("zarrGet cache serves repeated reads", async () => {
   // Create a zarr array with multiple chunks to verify caching across chunks
   const store = new Map<string, Uint8Array>();
   const root = zarr.root(store);

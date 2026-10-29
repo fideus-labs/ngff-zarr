@@ -5,7 +5,8 @@
  * Ported from py/test/test_rfc4.py
  */
 
-import { assertEquals, assertThrows } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertThrows } from "./_assert.ts";
 import {
   addAnatomicalOrientationToAxis,
   anatomicalOrientationToItkDirection,
@@ -18,7 +19,7 @@ import {
   removeAnatomicalOrientationFromAxis,
 } from "../src/types/rfc4.ts";
 
-Deno.test("createAnatomicalOrientation - creates valid object", () => {
+test("createAnatomicalOrientation - creates valid object", () => {
   const orientation = createAnatomicalOrientation(
     AnatomicalOrientationValues.LeftToRight,
   );
@@ -26,14 +27,14 @@ Deno.test("createAnatomicalOrientation - creates valid object", () => {
   assertEquals(orientation.value, AnatomicalOrientationValues.LeftToRight);
 });
 
-Deno.test("itkLpsToAnatomicalOrientation - x axis returns right-to-left", () => {
+test("itkLpsToAnatomicalOrientation - x axis returns right-to-left", () => {
   const xOrientation = itkLpsToAnatomicalOrientation("x");
   assertEquals(xOrientation !== undefined, true);
   assertEquals(xOrientation?.type, "anatomical");
   assertEquals(xOrientation?.value, AnatomicalOrientationValues.RightToLeft);
 });
 
-Deno.test("itkLpsToAnatomicalOrientation - y axis returns anterior-to-posterior", () => {
+test("itkLpsToAnatomicalOrientation - y axis returns anterior-to-posterior", () => {
   const yOrientation = itkLpsToAnatomicalOrientation("y");
   assertEquals(yOrientation !== undefined, true);
   assertEquals(yOrientation?.type, "anatomical");
@@ -43,7 +44,7 @@ Deno.test("itkLpsToAnatomicalOrientation - y axis returns anterior-to-posterior"
   );
 });
 
-Deno.test("itkLpsToAnatomicalOrientation - z axis returns inferior-to-superior", () => {
+test("itkLpsToAnatomicalOrientation - z axis returns inferior-to-superior", () => {
   const zOrientation = itkLpsToAnatomicalOrientation("z");
   assertEquals(zOrientation !== undefined, true);
   assertEquals(zOrientation?.type, "anatomical");
@@ -53,7 +54,7 @@ Deno.test("itkLpsToAnatomicalOrientation - z axis returns inferior-to-superior",
   );
 });
 
-Deno.test("itkLpsToAnatomicalOrientation - non-spatial axis returns undefined", () => {
+test("itkLpsToAnatomicalOrientation - non-spatial axis returns undefined", () => {
   const cOrientation = itkLpsToAnatomicalOrientation("c");
   assertEquals(cOrientation, undefined);
 
@@ -61,7 +62,7 @@ Deno.test("itkLpsToAnatomicalOrientation - non-spatial axis returns undefined", 
   assertEquals(tOrientation, undefined);
 });
 
-Deno.test("orientationFromName - resolves LPS and RAS presets", () => {
+test("orientationFromName - resolves LPS and RAS presets", () => {
   assertEquals(orientationFromName("LPS"), LPS);
   assertEquals(orientationFromName("RAS"), RAS);
   // Case-insensitive
@@ -69,7 +70,7 @@ Deno.test("orientationFromName - resolves LPS and RAS presets", () => {
   assertEquals(orientationFromName("ras"), RAS);
 });
 
-Deno.test("orientationFromName - throws on unknown preset", () => {
+test("orientationFromName - throws on unknown preset", () => {
   assertThrows(
     () => orientationFromName("FOO"),
     Error,
@@ -77,7 +78,7 @@ Deno.test("orientationFromName - throws on unknown preset", () => {
   );
 });
 
-Deno.test("addAnatomicalOrientationToAxis - adds orientation to axis dict", () => {
+test("addAnatomicalOrientationToAxis - adds orientation to axis dict", () => {
   const axisDict = { name: "x", type: "space", unit: "micrometer" };
   const orientation = createAnatomicalOrientation(
     AnatomicalOrientationValues.LeftToRight,
@@ -96,7 +97,7 @@ Deno.test("addAnatomicalOrientationToAxis - adds orientation to axis dict", () =
   );
 });
 
-Deno.test("removeAnatomicalOrientationFromAxis - removes orientation from axis dict", () => {
+test("removeAnatomicalOrientationFromAxis - removes orientation from axis dict", () => {
   const axisDict = {
     name: "x",
     type: "space",
@@ -112,7 +113,7 @@ Deno.test("removeAnatomicalOrientationFromAxis - removes orientation from axis d
   assertEquals(result.unit, "micrometer");
 });
 
-Deno.test("removeAnatomicalOrientationFromAxis - handles axis without orientation", () => {
+test("removeAnatomicalOrientationFromAxis - handles axis without orientation", () => {
   const axisDict = { name: "y", type: "space" };
 
   const result = removeAnatomicalOrientationFromAxis(axisDict);
@@ -122,7 +123,7 @@ Deno.test("removeAnatomicalOrientationFromAxis - handles axis without orientatio
   assertEquals(result.type, "space");
 });
 
-Deno.test("AnatomicalOrientationValues enum - correct string values", () => {
+test("AnatomicalOrientationValues enum - correct string values", () => {
   assertEquals(AnatomicalOrientationValues.LeftToRight, "left-to-right");
   assertEquals(AnatomicalOrientationValues.RightToLeft, "right-to-left");
   assertEquals(
@@ -156,7 +157,7 @@ Deno.test("AnatomicalOrientationValues enum - correct string values", () => {
   assertEquals(AnatomicalOrientationValues.BaseToApex, "base-to-apex");
 });
 
-Deno.test("LPS coordinate system - correct orientations", () => {
+test("LPS coordinate system - correct orientations", () => {
   assertEquals(LPS.x.type, "anatomical");
   assertEquals(LPS.x.value, AnatomicalOrientationValues.RightToLeft);
 
@@ -167,7 +168,7 @@ Deno.test("LPS coordinate system - correct orientations", () => {
   assertEquals(LPS.z.value, AnatomicalOrientationValues.InferiorToSuperior);
 });
 
-Deno.test("RAS coordinate system - correct orientations", () => {
+test("RAS coordinate system - correct orientations", () => {
   assertEquals(RAS.x.type, "anatomical");
   assertEquals(RAS.x.value, AnatomicalOrientationValues.LeftToRight);
 
@@ -180,7 +181,7 @@ Deno.test("RAS coordinate system - correct orientations", () => {
 
 // --- Tests for anatomicalOrientationToItkDirection ---
 
-Deno.test("anatomicalOrientationToItkDirection - RightToLeft → [1,0,0]", () => {
+test("anatomicalOrientationToItkDirection - RightToLeft → [1,0,0]", () => {
   assertEquals(
     anatomicalOrientationToItkDirection(
       AnatomicalOrientationValues.RightToLeft,
@@ -189,7 +190,7 @@ Deno.test("anatomicalOrientationToItkDirection - RightToLeft → [1,0,0]", () =>
   );
 });
 
-Deno.test("anatomicalOrientationToItkDirection - LeftToRight → [-1,0,0]", () => {
+test("anatomicalOrientationToItkDirection - LeftToRight → [-1,0,0]", () => {
   assertEquals(
     anatomicalOrientationToItkDirection(
       AnatomicalOrientationValues.LeftToRight,
@@ -198,7 +199,7 @@ Deno.test("anatomicalOrientationToItkDirection - LeftToRight → [-1,0,0]", () =
   );
 });
 
-Deno.test("anatomicalOrientationToItkDirection - A→P → [0,1,0]", () => {
+test("anatomicalOrientationToItkDirection - A→P → [0,1,0]", () => {
   assertEquals(
     anatomicalOrientationToItkDirection(
       AnatomicalOrientationValues.AnteriorToPosterior,
@@ -207,7 +208,7 @@ Deno.test("anatomicalOrientationToItkDirection - A→P → [0,1,0]", () => {
   );
 });
 
-Deno.test("anatomicalOrientationToItkDirection - P→A → [0,-1,0]", () => {
+test("anatomicalOrientationToItkDirection - P→A → [0,-1,0]", () => {
   assertEquals(
     anatomicalOrientationToItkDirection(
       AnatomicalOrientationValues.PosteriorToAnterior,
@@ -216,7 +217,7 @@ Deno.test("anatomicalOrientationToItkDirection - P→A → [0,-1,0]", () => {
   );
 });
 
-Deno.test("anatomicalOrientationToItkDirection - I→S → [0,0,1]", () => {
+test("anatomicalOrientationToItkDirection - I→S → [0,0,1]", () => {
   assertEquals(
     anatomicalOrientationToItkDirection(
       AnatomicalOrientationValues.InferiorToSuperior,
@@ -225,7 +226,7 @@ Deno.test("anatomicalOrientationToItkDirection - I→S → [0,0,1]", () => {
   );
 });
 
-Deno.test("anatomicalOrientationToItkDirection - S→I → [0,0,-1]", () => {
+test("anatomicalOrientationToItkDirection - S→I → [0,0,-1]", () => {
   assertEquals(
     anatomicalOrientationToItkDirection(
       AnatomicalOrientationValues.SuperiorToInferior,
@@ -234,7 +235,7 @@ Deno.test("anatomicalOrientationToItkDirection - S→I → [0,0,-1]", () => {
   );
 });
 
-Deno.test("anatomicalOrientationToItkDirection - non-LPS returns undefined", () => {
+test("anatomicalOrientationToItkDirection - non-LPS returns undefined", () => {
   assertEquals(
     anatomicalOrientationToItkDirection(
       AnatomicalOrientationValues.DorsalToVentral,
@@ -279,15 +280,11 @@ Deno.test("anatomicalOrientationToItkDirection - non-LPS returns undefined", () 
     undefined,
   );
   assertEquals(
-    anatomicalOrientationToItkDirection(
-      AnatomicalOrientationValues.ApexToBase,
-    ),
+    anatomicalOrientationToItkDirection(AnatomicalOrientationValues.ApexToBase),
     undefined,
   );
   assertEquals(
-    anatomicalOrientationToItkDirection(
-      AnatomicalOrientationValues.BaseToApex,
-    ),
+    anatomicalOrientationToItkDirection(AnatomicalOrientationValues.BaseToApex),
     undefined,
   );
 });

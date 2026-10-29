@@ -12,8 +12,6 @@ import type { NgffMultiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import { canonicalAxisOrder } from "../utils/axis_order.ts";
 import type { ZarrCodec } from "../utils/codecs.ts";
-// deno-lint-ignore no-unused-vars
-import { bytesOnlyCodecs, defaultCodecs } from "../utils/codecs.ts";
 import {
   createAxis,
   createDataset,
@@ -104,9 +102,9 @@ export async function toMultiscalesCore(
 
   if (axisOrder !== "canonical" && axisOrder !== "preserve") {
     throw new Error(
-      `axisOrder must be "canonical" or "preserve"; got ${
-        JSON.stringify(axisOrder)
-      }`,
+      `axisOrder must be "canonical" or "preserve"; got ${JSON.stringify(
+        axisOrder,
+      )}`,
     );
   }
   // OME-Zarr orders axes time, then channel, then space. Channel-last input
@@ -115,14 +113,16 @@ export async function toMultiscalesCore(
   // writer would refuse below 0.9.dev1 never reaches it. An order the caller
   // chose is kept on request: RFC-3 lifts the ordering rule, and the reorder is
   // silent otherwise.
-  const image = axisOrder === "canonical"
-    ? await canonicalAxisOrder(inputImage, codecs)
-    : inputImage;
+  const image =
+    axisOrder === "canonical"
+      ? await canonicalAxisOrder(inputImage, codecs)
+      : inputImage;
   // A positional `chunks` array indexes the caller's dims, so it follows them
   // through the reordering. The dim-keyed and scalar forms need no change.
-  const _chunks = Array.isArray(requestedChunks) && image !== inputImage
-    ? image.dims.map((dim) => requestedChunks[inputImage.dims.indexOf(dim)])
-    : requestedChunks;
+  const _chunks =
+    Array.isArray(requestedChunks) && image !== inputImage
+      ? image.dims.map((dim) => requestedChunks[inputImage.dims.indexOf(dim)])
+      : requestedChunks;
 
   // The vector-component axis type (RFC-5 displacement/coordinate fields) is
   // carried on the input image, mirroring axesUnits / axesOrientations.
@@ -145,8 +145,8 @@ export async function toMultiscalesCore(
     orientation === undefined
       ? image.axesOrientations
       : typeof orientation === "string"
-      ? orientationFromName(orientation)
-      : orientation;
+        ? orientationFromName(orientation)
+        : orientation;
 
   let images: NgffImage[];
 
@@ -157,11 +157,12 @@ export async function toMultiscalesCore(
     method === Methods.ITKWASM_LABEL_IMAGE
   ) {
     // Perform actual downsampling using ITK-Wasm
-    const smoothing = method === Methods.ITKWASM_GAUSSIAN
-      ? "gaussian"
-      : method === Methods.ITKWASM_BIN_SHRINK
-      ? "bin_shrink"
-      : "label_image";
+    const smoothing =
+      method === Methods.ITKWASM_GAUSSIAN
+        ? "gaussian"
+        : method === Methods.ITKWASM_BIN_SHRINK
+          ? "bin_shrink"
+          : "label_image";
 
     images = await downsampleItkWasm(
       image,

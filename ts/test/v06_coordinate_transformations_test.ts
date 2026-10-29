@@ -10,12 +10,14 @@
  * relying on downloaded fixtures.
  */
 
+import { test } from "vite-plus/test";
+import { readTextFile } from "./_fs.ts";
 import {
   assertEquals,
   assertExists,
   assertRejects,
   assertThrows,
-} from "@std/assert";
+} from "./_assert.ts";
 import {
   AnatomicalOrientationValues,
   createAffine,
@@ -51,7 +53,7 @@ import {
   parseV06Transforms,
   validateV06Transform,
 } from "../src/utils/v06_metadata.ts";
-import { fromFileUrl } from "@std/path";
+import { fileURLToPath } from "node:url";
 import type { CoordinateSystem } from "../src/types/zarr_metadata.ts";
 
 async function buildMultiscales(): Promise<NgffMultiscales> {
@@ -64,7 +66,7 @@ async function buildMultiscales(): Promise<NgffMultiscales> {
   return await toMultiscales(image, { scaleFactors: [2], chunks: 16 });
 }
 
-Deno.test("toMultiscales exposes the intrinsic coordinate system", async () => {
+test("toMultiscales exposes the intrinsic coordinate system", async () => {
   const multiscales = await buildMultiscales();
   assertExists(multiscales.metadata.coordinateSystems);
   const names = multiscales.metadata.coordinateSystems!.map((cs) => cs.name);
@@ -78,8 +80,10 @@ function readOmeAttributes(store: MemoryStore): Record<string, unknown> {
     if (!key.endsWith("zarr.json")) continue;
     const node = JSON.parse(new TextDecoder().decode(bytes));
     if (
-      node.node_type === "group" && node.attributes &&
-      typeof node.attributes === "object" && "ome" in node.attributes
+      node.node_type === "group" &&
+      node.attributes &&
+      typeof node.attributes === "object" &&
+      "ome" in node.attributes
     ) {
       return node.attributes.ome as Record<string, unknown>;
     }
@@ -99,8 +103,10 @@ function mutateRootEntry(
     if (!key.endsWith("zarr.json")) continue;
     const node = JSON.parse(new TextDecoder().decode(bytes));
     if (
-      node.node_type === "group" && node.attributes &&
-      typeof node.attributes === "object" && "ome" in node.attributes
+      node.node_type === "group" &&
+      node.attributes &&
+      typeof node.attributes === "object" &&
+      "ome" in node.attributes
     ) {
       const ome = node.attributes.ome as {
         multiscales: Array<Record<string, unknown>>;
@@ -121,8 +127,10 @@ function setOmeVersion(store: MemoryStore, version: string): void {
     if (!key.endsWith("zarr.json")) continue;
     const node = JSON.parse(new TextDecoder().decode(bytes));
     if (
-      node.node_type === "group" && node.attributes &&
-      typeof node.attributes === "object" && "ome" in node.attributes
+      node.node_type === "group" &&
+      node.attributes &&
+      typeof node.attributes === "object" &&
+      "ome" in node.attributes
     ) {
       (node.attributes.ome as { version: string }).version = version;
       store.set(key, new TextEncoder().encode(JSON.stringify(node)));
@@ -132,7 +140,7 @@ function setOmeVersion(store: MemoryStore, version: string): void {
   throw new Error("No root group with an 'ome' attribute found in the store");
 }
 
-Deno.test("v0.6 write produces coordinate systems and sequence transforms", async () => {
+test("v0.6 write produces coordinate systems and sequence transforms", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.6" });
@@ -153,7 +161,10 @@ Deno.test("v0.6 write produces coordinate systems and sequence transforms", asyn
     axes: Array<{ name: string }>;
   }>;
   assertEquals(coordinateSystems[0].name, "intrinsic");
-  assertEquals(coordinateSystems[0].axes.map((a) => a.name), ["z", "y", "x"]);
+  assertEquals(
+    coordinateSystems[0].axes.map((a) => a.name),
+    ["z", "y", "x"],
+  );
 
   const datasets = entry.datasets as Array<{
     coordinateTransformations: Array<Record<string, unknown>>;
@@ -173,7 +184,7 @@ Deno.test("v0.6 write produces coordinate systems and sequence transforms", asyn
   assertEquals(sequence.transformations[1].type, "translation");
 });
 
-Deno.test("v0.6 round-trip preserves multiscale structure", async () => {
+test("v0.6 round-trip preserves multiscale structure", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.6" });
@@ -236,42 +247,39 @@ function transformsToRoundTrip(): V06Transform[] {
 }
 
 for (const transform of transformsToRoundTrip()) {
-  Deno.test(
-    `v0.6 round-trips a top-level ${transform.type} transform`,
-    async () => {
-      const multiscales = await buildMultiscales();
+  test(`v0.6 round-trips a top-level ${transform.type} transform`, async () => {
+    const multiscales = await buildMultiscales();
 
-      const outputCs = createCoordinateSystem("output", [
-        createAxis("z", "space"),
-        createAxis("y", "space"),
-        createAxis("x", "space"),
-      ]);
-      const intrinsic = multiscales.metadata.coordinateSystems![0];
-      transform.input = { name: intrinsic.name };
-      transform.output = { name: outputCs.name };
-      transform.name = `additional_${transform.type}`;
+    const outputCs = createCoordinateSystem("output", [
+      createAxis("z", "space"),
+      createAxis("y", "space"),
+      createAxis("x", "space"),
+    ]);
+    const intrinsic = multiscales.metadata.coordinateSystems![0];
+    transform.input = { name: intrinsic.name };
+    transform.output = { name: outputCs.name };
+    transform.name = `additional_${transform.type}`;
 
-      multiscales.metadata.coordinateSystems!.push(outputCs);
-      multiscales.metadata.coordinateTransformations = [transform];
+    multiscales.metadata.coordinateSystems!.push(outputCs);
+    multiscales.metadata.coordinateTransformations = [transform];
 
-      const store: MemoryStore = new Map();
-      await toOmeZarr(store, multiscales, { version: "0.6" });
+    const store: MemoryStore = new Map();
+    await toOmeZarr(store, multiscales, { version: "0.6" });
 
-      const imported = await fromOmeZarr(store);
-      const importedTransforms = imported.metadata.coordinateTransformations;
-      assertExists(importedTransforms);
-      assertEquals(importedTransforms!.length, 1);
-      assertEquals(imported.metadata.coordinateSystems!.length, 2);
+    const imported = await fromOmeZarr(store);
+    const importedTransforms = imported.metadata.coordinateTransformations;
+    assertExists(importedTransforms);
+    assertEquals(importedTransforms!.length, 1);
+    assertEquals(imported.metadata.coordinateSystems!.length, 2);
 
-      const roundTripped = importedTransforms![0];
-      assertEquals(roundTripped.type, transform.type);
-      assertEquals(roundTripped.input, { name: intrinsic.name });
-      assertEquals(roundTripped.output, { name: outputCs.name });
-    },
-  );
+    const roundTripped = importedTransforms![0];
+    assertEquals(roundTripped.type, transform.type);
+    assertEquals(roundTripped.input, { name: intrinsic.name });
+    assertEquals(roundTripped.output, { name: outputCs.name });
+  });
 }
 
-Deno.test("rotation and affine payloads survive the round-trip", async () => {
+test("rotation and affine payloads survive the round-trip", async () => {
   const multiscales = await buildMultiscales();
   const rotation = createRotation([
     [0.0, -1.0, 0.0],
@@ -310,7 +318,7 @@ Deno.test("rotation and affine payloads survive the round-trip", async () => {
 
 // Mirrors test_convert_ome_zarr_version.py::test_conversion, adapted to a
 // self-contained in-memory multiscale image.
-Deno.test("convert across v0.5 and v0.6", async () => {
+test("convert across v0.5 and v0.6", async () => {
   const multiscales = await buildMultiscales();
   // This package writes Zarr v3 only, so 0.5 and later.
   for (const version of ["0.5", "0.6"] as const) {
@@ -323,7 +331,7 @@ Deno.test("convert across v0.5 and v0.6", async () => {
   }
 });
 
-Deno.test("convert v0.6 -> v0.5 chain preserves scale", async () => {
+test("convert v0.6 -> v0.5 chain preserves scale", async () => {
   const multiscales = await buildMultiscales();
 
   const s6: MemoryStore = new Map();
@@ -340,7 +348,7 @@ Deno.test("convert v0.6 -> v0.5 chain preserves scale", async () => {
   assertEquals(m5.images[1].scale, multiscales.images[1].scale);
 });
 
-Deno.test("v0.6 round-trip via browser modules", async () => {
+test("v0.6 round-trip via browser modules", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
   await toOmeZarrBrowser(store, multiscales, { version: "0.6" });
@@ -357,16 +365,18 @@ Deno.test("v0.6 round-trip via browser modules", async () => {
 // Downgrading v0.6 -> v0.5 keeps the simple scale/translation subset of
 // top-level transforms but drops richer ones (rotation/affine/sequence), which
 // v0.4/v0.5 cannot represent. Exercises legacyTopLevelTransforms.
-Deno.test("downgrade keeps a top-level scale but drops a rotation", async () => {
+test("downgrade keeps a top-level scale but drops a rotation", async () => {
   const intrinsicName = "intrinsic";
 
   const withScale = await buildMultiscales();
-  withScale.metadata.coordinateTransformations = [{
-    type: "scale",
-    scale: [2.0, 2.0, 2.0],
-    input: { name: intrinsicName },
-    output: { name: intrinsicName },
-  }];
+  withScale.metadata.coordinateTransformations = [
+    {
+      type: "scale",
+      scale: [2.0, 2.0, 2.0],
+      input: { name: intrinsicName },
+      output: { name: intrinsicName },
+    },
+  ];
   const scaleStore: MemoryStore = new Map();
   await toOmeZarr(scaleStore, withScale, { version: "0.5" });
   const scaleBack = await fromOmeZarr(scaleStore, { version: "0.5" });
@@ -375,11 +385,13 @@ Deno.test("downgrade keeps a top-level scale but drops a rotation", async () => 
   assertEquals(keptTransforms[0].type, "scale");
 
   const withRotation = await buildMultiscales();
-  withRotation.metadata.coordinateTransformations = [createRotation([
-    [0.0, -1.0, 0.0],
-    [1.0, 0.0, 0.0],
-    [0.0, 0.0, 1.0],
-  ])];
+  withRotation.metadata.coordinateTransformations = [
+    createRotation([
+      [0.0, -1.0, 0.0],
+      [1.0, 0.0, 0.0],
+      [0.0, 0.0, 1.0],
+    ]),
+  ];
   withRotation.metadata.coordinateTransformations[0].input = {
     name: intrinsicName,
   };
@@ -399,7 +411,7 @@ Deno.test("downgrade keeps a top-level scale but drops a rotation", async () => 
 
 // Writing v0.6 from metadata that lacks coordinateSystems (e.g. built via
 // createMetadata) synthesizes the implicit "intrinsic" system from the axes.
-Deno.test("v0.6 write synthesizes intrinsic system when absent", async () => {
+test("v0.6 write synthesizes intrinsic system when absent", async () => {
   const multiscales = await buildMultiscales();
   delete (multiscales.metadata as { coordinateSystems?: unknown })
     .coordinateSystems;
@@ -418,19 +430,25 @@ Deno.test("v0.6 write synthesizes intrinsic system when absent", async () => {
 
 // rotation/affine may carry an external `path` to binary parameters; it must
 // survive the v0.6 round-trip.
-Deno.test("v0.6 preserves the path field on rotation and affine", async () => {
+test("v0.6 preserves the path field on rotation and affine", async () => {
   const multiscales = await buildMultiscales();
   const intrinsicName = multiscales.metadata.coordinateSystems![0].name;
   const rotation: V06Transform = {
     type: "rotation",
-    rotation: [[0.0, -1.0], [1.0, 0.0]],
+    rotation: [
+      [0.0, -1.0],
+      [1.0, 0.0],
+    ],
     path: "transforms/rotation",
     input: { name: intrinsicName },
     output: { name: intrinsicName },
   };
   const affine: V06Transform = {
     type: "affine",
-    affine: [[1.0, 0.0], [0.0, 1.0]],
+    affine: [
+      [1.0, 0.0],
+      [0.0, 1.0],
+    ],
     path: "transforms/affine",
     input: { name: intrinsicName },
     output: { name: intrinsicName },
@@ -452,7 +470,7 @@ Deno.test("v0.6 preserves the path field on rotation and affine", async () => {
 // An input/output `name` is retained only when it names a known coordinate
 // system; an unknown name is dropped while a `path` reference is always kept.
 // Mirrors the Python _parse_transforms identifier resolution.
-Deno.test("v0.6 read drops unknown coordinate-system names, keeps paths", async () => {
+test("v0.6 read drops unknown coordinate-system names, keeps paths", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.6" });
@@ -460,12 +478,14 @@ Deno.test("v0.6 read drops unknown coordinate-system names, keeps paths", async 
   // multiscale-level transform naming no output system is exactly what the
   // 0.6 writer refuses, and this test is about what the reader does with one.
   mutateRootEntry(store, (entry) => {
-    entry.coordinateTransformations = [{
-      type: "scale",
-      scale: [2.0, 2.0, 2.0],
-      input: { name: "does-not-exist" },
-      output: { path: "scale0" },
-    }];
+    entry.coordinateTransformations = [
+      {
+        type: "scale",
+        scale: [2.0, 2.0, 2.0],
+        input: { name: "does-not-exist" },
+        output: { path: "scale0" },
+      },
+    ];
   });
   const imported = await fromOmeZarr(store);
 
@@ -478,12 +498,14 @@ Deno.test("v0.6 read drops unknown coordinate-system names, keeps paths", async 
 // From 0.6 a multiscale-level transform maps between two named coordinate
 // systems and the schema requires both references, so the writer refuses the
 // model rather than produce a store its own validated reader rejects.
-Deno.test("v0.6 write refuses a top-level transform without references", async () => {
+test("v0.6 write refuses a top-level transform without references", async () => {
   const multiscales = await buildMultiscales();
-  multiscales.metadata.coordinateTransformations = [{
-    type: "scale",
-    scale: [2.0, 2.0, 2.0],
-  }];
+  multiscales.metadata.coordinateTransformations = [
+    {
+      type: "scale",
+      scale: [2.0, 2.0, 2.0],
+    },
+  ];
 
   const store: MemoryStore = new Map();
   await assertRejects(
@@ -496,7 +518,7 @@ Deno.test("v0.6 write refuses a top-level transform without references", async (
 // A dataset whose transforms are a bare [scale, translation] (not wrapped in a
 // sequence, as another writer might emit) must still yield the per-axis scale
 // and translation. Exercises the non-sequence branch of extractScaleTranslation.
-Deno.test("v0.6 read handles bare per-dataset scale and translation", async () => {
+test("v0.6 read handles bare per-dataset scale and translation", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.6" });
@@ -519,47 +541,41 @@ Deno.test("v0.6 read handles bare per-dataset scale and translation", async () =
   assertEquals(imported.images[1].translation, { z: 1, y: 1, x: 1 });
 });
 
-Deno.test("v0.6 read rejects metadata missing coordinateSystems", async () => {
+test("v0.6 read rejects metadata missing coordinateSystems", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.6" });
   mutateRootEntry(store, (entry) => {
     delete entry.coordinateSystems;
   });
-  await assertRejects(
-    () => fromOmeZarr(store),
-    Error,
-    "coordinateSystems",
-  );
+  await assertRejects(() => fromOmeZarr(store), Error, "coordinateSystems");
 });
 
-Deno.test("v0.6 read rejects empty datasets", async () => {
+test("v0.6 read rejects empty datasets", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.6" });
   mutateRootEntry(store, (entry) => {
     entry.datasets = [];
   });
-  await assertRejects(
-    () => fromOmeZarr(store),
-    Error,
-    "datasets",
-  );
+  await assertRejects(() => fromOmeZarr(store), Error, "datasets");
 });
 
-Deno.test("v0.6 read rejects a malformed scale transform", async () => {
+test("v0.6 read rejects a malformed scale transform", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.6" });
   mutateRootEntry(store, (entry) => {
     // `scale` must be an array of numbers; a string is rejected rather than
     // passed through an unchecked cast.
-    entry.coordinateTransformations = [{
-      type: "scale",
-      scale: "not-an-array",
-      input: { name: "intrinsic" },
-      output: { name: "intrinsic" },
-    }];
+    entry.coordinateTransformations = [
+      {
+        type: "scale",
+        scale: "not-an-array",
+        input: { name: "intrinsic" },
+        output: { name: "intrinsic" },
+      },
+    ];
   });
   await assertRejects(
     () => fromOmeZarr(store),
@@ -568,16 +584,18 @@ Deno.test("v0.6 read rejects a malformed scale transform", async () => {
   );
 });
 
-Deno.test("v0.6 read rejects an unknown transform type", async () => {
+test("v0.6 read rejects an unknown transform type", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.6" });
   mutateRootEntry(store, (entry) => {
-    entry.coordinateTransformations = [{
-      type: "notARealTransform",
-      input: { name: "intrinsic" },
-      output: { name: "intrinsic" },
-    }];
+    entry.coordinateTransformations = [
+      {
+        type: "notARealTransform",
+        input: { name: "intrinsic" },
+        output: { name: "intrinsic" },
+      },
+    ];
   });
   await assertRejects(
     () => fromOmeZarr(store),
@@ -588,7 +606,7 @@ Deno.test("v0.6 read rejects an unknown transform type", async () => {
 
 // Anatomical orientation (RFC 4) and axis units carried on the intrinsic
 // coordinate system survive a v0.6 round-trip.
-Deno.test("v0.6 round-trips axis units and anatomical orientation", async () => {
+test("v0.6 round-trips axis units and anatomical orientation", async () => {
   const shape = [16, 16, 16];
   const data = new Uint8Array(shape[0] * shape[1] * shape[2]);
   const base = await toNgffImage(data, { dims: ["z", "y", "x"], shape });
@@ -628,17 +646,17 @@ Deno.test("v0.6 round-trips axis units and anatomical orientation", async () => 
     y: "micrometer",
     x: "micrometer",
   });
-  assertEquals(
-    imported.images[0].axesOrientations?.x,
-    { type: "anatomical", value: AnatomicalOrientationValues.RightToLeft },
-  );
+  assertEquals(imported.images[0].axesOrientations?.x, {
+    type: "anatomical",
+    value: AnatomicalOrientationValues.RightToLeft,
+  });
   const intrinsicAxes = imported.metadata.coordinateSystems![0].axes;
   assertEquals(intrinsicAxes[2].unit, "micrometer");
 });
 
 // The requested-version mismatch is a validation concern: it is enforced only
 // under `validate`, consistent with the node reader and the v0.4/v0.5 path.
-Deno.test("browser reader gates v0.6 version mismatch behind validate", async () => {
+test("browser reader gates v0.6 version mismatch behind validate", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
   await toOmeZarrBrowser(store, multiscales, { version: "0.6" });
@@ -658,15 +676,15 @@ Deno.test("browser reader gates v0.6 version mismatch behind validate", async ()
 // Under validate=true the v0.6 reader runs the same structural pass as v0.4/v0.5
 // over the normalized metadata, so a dataset scale whose length disagrees with
 // the axis count is rejected.
-Deno.test("v0.6 read validates per-dataset scale length under validate", async () => {
+test("v0.6 read validates per-dataset scale length under validate", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.6" });
   mutateRootEntry(store, (entry) => {
     const datasets = entry.datasets as Array<Record<string, unknown>>;
-    const seq = (datasets[0].coordinateTransformations as Array<
-      Record<string, unknown>
-    >)[0];
+    const seq = (
+      datasets[0].coordinateTransformations as Array<Record<string, unknown>>
+    )[0];
     const transforms = seq.transformations as Array<Record<string, unknown>>;
     // Drop a component so the scale vector no longer matches the 3 axes.
     transforms[0].scale = [2.0, 2.0];
@@ -675,10 +693,7 @@ Deno.test("v0.6 read validates per-dataset scale length under validate", async (
   // Lenient read tolerates it; strict validation rejects it.
   const lenient = await fromOmeZarr(store);
   assertEquals(lenient.images.length, multiscales.images.length);
-  await assertRejects(
-    () => fromOmeZarr(store, { validate: true }),
-    Error,
-  );
+  await assertRejects(() => fromOmeZarr(store, { validate: true }), Error);
 });
 
 // The `ome` attributes of the root group inside a .ozx archive.
@@ -695,13 +710,15 @@ async function ozxOmeAttributes(
 // A v0.5 .ozx archive cannot represent v0.6-only transforms; the writer must
 // reduce them to the scale/translation subset so they never leak into the
 // store, as the directory writer does at 0.5.
-Deno.test("RFC-9 at 0.5 drops a v0.6-only rotation but keeps a scale", async () => {
+test("RFC-9 at 0.5 drops a v0.6-only rotation but keeps a scale", async () => {
   const withRotation = await buildMultiscales();
-  withRotation.metadata.coordinateTransformations = [createRotation([
-    [0.0, -1.0, 0.0],
-    [1.0, 0.0, 0.0],
-    [0.0, 0.0, 1.0],
-  ])];
+  withRotation.metadata.coordinateTransformations = [
+    createRotation([
+      [0.0, -1.0, 0.0],
+      [1.0, 0.0, 0.0],
+      [0.0, 0.0, 1.0],
+    ]),
+  ];
   const rotOme = await ozxOmeAttributes(await toOmeZarrOzxData(withRotation));
   assertEquals(rotOme.version, "0.5");
   const rotEntry = (rotOme.multiscales as Array<Record<string, unknown>>)[0];
@@ -711,8 +728,9 @@ Deno.test("RFC-9 at 0.5 drops a v0.6-only rotation but keeps a scale", async () 
   const withScale = await buildMultiscales();
   withScale.metadata.coordinateTransformations = [createScale([2, 2, 2])];
   const scaleOme = await ozxOmeAttributes(await toOmeZarrOzxData(withScale));
-  const scaleEntry =
-    (scaleOme.multiscales as Array<Record<string, unknown>>)[0];
+  const scaleEntry = (
+    scaleOme.multiscales as Array<Record<string, unknown>>
+  )[0];
   const kept = scaleEntry.coordinateTransformations as Array<
     Record<string, unknown>
   >;
@@ -725,7 +743,7 @@ Deno.test("RFC-9 at 0.5 drops a v0.6-only rotation but keeps a scale", async () 
 
 // At 0.6 the same archive keeps the rotation: RFC-9 is defined on Zarr v3,
 // so a v0.6 store zips like a v0.5 one and loses nothing in the process.
-Deno.test("RFC-9 at 0.6 keeps a v0.6-only rotation", async () => {
+test("RFC-9 at 0.6 keeps a v0.6-only rotation", async () => {
   const withRotation = await buildMultiscales();
   const rotation = createRotation([
     [0.0, -1.0, 0.0],
@@ -758,7 +776,7 @@ const V06_PRERELEASE_TAGS = ["0.6.dev4", "0.6rc0"] as const;
 
 // Writing version "0.6" tags the store "0.6" on disk, the same string the
 // in-memory metadata version reads back as.
-Deno.test("v0.6 write tags the store 0.6 and reads back as 0.6", async () => {
+test("v0.6 write tags the store 0.6 and reads back as 0.6", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.6" });
@@ -772,7 +790,7 @@ Deno.test("v0.6 write tags the store 0.6 and reads back as 0.6", async () => {
 
 // Round-trip with an explicit requested version "0.6" and validation: the
 // "0.6" tag on disk satisfies the requested "0.6".
-Deno.test("v0.6 round-trip with validate accepts the 0.6 on-disk tag", async () => {
+test("v0.6 round-trip with validate accepts the 0.6 on-disk tag", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.6" });
@@ -784,7 +802,7 @@ Deno.test("v0.6 round-trip with validate accepts the 0.6 on-disk tag", async () 
 
 // A store tagged with a plain "0.6", set explicitly so the assertion does not
 // depend on what the writer emits, reads as v0.6 with validation on.
-Deno.test("reader accepts a plain 0.6 on-disk version tag", async () => {
+test("reader accepts a plain 0.6 on-disk version tag", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.6" });
@@ -796,7 +814,7 @@ Deno.test("reader accepts a plain 0.6 on-disk version tag", async () => {
 });
 
 // A future draft tag in the 0.6 family (e.g. "0.6.dev5") is also read as v0.6.
-Deno.test("reader accepts a future 0.6 draft tag", async () => {
+test("reader accepts a future 0.6 draft tag", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.6" });
@@ -810,7 +828,7 @@ Deno.test("reader accepts a future 0.6 draft tag", async () => {
 // pre-release tags, and with `validate` on the family match satisfies a
 // requested "0.6".
 for (const tag of V06_PRERELEASE_TAGS) {
-  Deno.test(`reader accepts the historical ${tag} on-disk tag`, async () => {
+  test(`reader accepts the historical ${tag} on-disk tag`, async () => {
     const multiscales = await buildMultiscales();
     const store: MemoryStore = new Map();
     await toOmeZarr(store, multiscales, { version: "0.6" });
@@ -830,7 +848,7 @@ for (const tag of V06_PRERELEASE_TAGS) {
 }
 
 // The browser writer tags the store the same way as the node writer.
-Deno.test("browser v0.6 write tags the store 0.6 and reads back as 0.6", async () => {
+test("browser v0.6 write tags the store 0.6 and reads back as 0.6", async () => {
   const multiscales = await buildMultiscales();
   const store: MemoryStore = new Map();
   await toOmeZarrBrowser(store, multiscales, { version: "0.6" });
@@ -845,29 +863,26 @@ Deno.test("browser v0.6 write tags the store 0.6 and reads back as 0.6", async (
 
 // The browser reader follows the same family rule for the historical tags.
 for (const tag of V06_PRERELEASE_TAGS) {
-  Deno.test(
-    `browser reader accepts the historical ${tag} on-disk tag`,
-    async () => {
-      const multiscales = await buildMultiscales();
-      const store: MemoryStore = new Map();
-      await toOmeZarrBrowser(store, multiscales, { version: "0.6" });
-      setOmeVersion(store, tag);
-      assertEquals(
-        (readOmeAttributes(store) as { version: string }).version,
-        tag,
-      );
+  test(`browser reader accepts the historical ${tag} on-disk tag`, async () => {
+    const multiscales = await buildMultiscales();
+    const store: MemoryStore = new Map();
+    await toOmeZarrBrowser(store, multiscales, { version: "0.6" });
+    setOmeVersion(store, tag);
+    assertEquals(
+      (readOmeAttributes(store) as { version: string }).version,
+      tag,
+    );
 
-      const imported = await fromOmeZarrBrowser(store, { version: "0.6" });
-      assertEquals(imported.metadata.version, "0.6");
-      assertEquals(imported.images.length, multiscales.images.length);
-    },
-  );
+    const imported = await fromOmeZarrBrowser(store, { version: "0.6" });
+    assertEquals(imported.metadata.version, "0.6");
+    assertEquals(imported.images.length, multiscales.images.length);
+  });
 }
 
 // The 0.6 pre-release tags left `SUPPORTED_VERSIONS` with the 0.6 release:
 // a caller should ask for "0.6", but stores carrying either tag are still
 // read through the `isV06Version` family check.
-Deno.test("the 0.6 pre-release tags are readable but not supported versions", () => {
+test("the 0.6 pre-release tags are readable but not supported versions", () => {
   assertEquals(isSupportedVersion("0.6rc0"), false);
   assertEquals(isSupportedVersion("0.6.dev4"), false);
   assertEquals(isV06Version("0.6rc0"), true);
@@ -880,7 +895,7 @@ Deno.test("the 0.6 pre-release tags are readable but not supported versions", ()
 // ngff-zarr 0.29.0 wrote the byDimension axis keys in snake_case; the spec
 // spells them inputAxes and outputAxes, which is what is written now. A store
 // from that release must still read.
-Deno.test("v0.6 read accepts the snake_case byDimension axis keys", async () => {
+test("v0.6 read accepts the snake_case byDimension axis keys", async () => {
   const multiscales = await buildMultiscales();
   const intrinsic = multiscales.metadata.coordinateSystems![0];
   const byDimension = createByDimension([
@@ -905,9 +920,9 @@ Deno.test("v0.6 read accepts the snake_case byDimension axis keys", async () => 
     const [written] = entry.coordinateTransformations as Array<
       Record<string, unknown>
     >;
-    for (
-      const item of written.transformations as Array<Record<string, unknown>>
-    ) {
+    for (const item of written.transformations as Array<
+      Record<string, unknown>
+    >) {
       item.input_axes = item.inputAxes;
       item.output_axes = item.outputAxes;
       delete item.inputAxes;
@@ -918,19 +933,19 @@ Deno.test("v0.6 read accepts the snake_case byDimension axis keys", async () => 
   const imported = await fromOmeZarr(store);
   const transform = imported.metadata.coordinateTransformations![0];
   if (transform.type !== "byDimension") throw new Error("expected byDimension");
-  assertEquals(transform.transformations.map((item) => item.inputAxes), [
-    [0, 1],
-    [2],
-  ]);
-  assertEquals(transform.transformations.map((item) => item.outputAxes), [[
-    0,
-    1,
-  ], [2]]);
+  assertEquals(
+    transform.transformations.map((item) => item.inputAxes),
+    [[0, 1], [2]],
+  );
+  assertEquals(
+    transform.transformations.map((item) => item.outputAxes),
+    [[0, 1], [2]],
+  );
 });
 
 // Mirrors test_coordinate_transformations.py: the mapAxis, byDimension and
 // bijection payloads survive the round-trip by value, not just by type.
-Deno.test("the writer refuses a transform it could not read back", async () => {
+test("the writer refuses a transform it could not read back", async () => {
   // A projection dropping one axis between two systems of equal size does not
   // reconcile them, so it is refused at write. Mirrors
   // test_the_writer_refuses_a_transform_it_could_not_read_back.
@@ -958,7 +973,7 @@ Deno.test("the writer refuses a transform it could not read back", async () => {
   }
 });
 
-Deno.test("the writer checks against the intrinsic system it will serialize", async () => {
+test("the writer checks against the intrinsic system it will serialize", async () => {
   // With no explicit coordinateSystems the writer builds the intrinsic one from
   // the axes and serializes it, so that is what the reader resolves against and
   // what the transform must reconcile.
@@ -984,7 +999,7 @@ Deno.test("the writer checks against the intrinsic system it will serialize", as
   );
 });
 
-Deno.test("the writer refuses an invalid transform nested in a wrapper", async () => {
+test("the writer refuses an invalid transform nested in a wrapper", async () => {
   // A wrapper is only as valid as what it holds, and the reader validates each
   // child as it parses it. The writer has to reach the same verdict.
   const bad = {
@@ -992,18 +1007,16 @@ Deno.test("the writer refuses an invalid transform nested in a wrapper", async (
     droppedInputs: [0, 0],
   };
 
-  for (
-    const wrapper of [
-      { type: "sequence" as const, transformations: [bad] },
-      { type: "bijection" as const, forward: bad, inverse: bad },
-      {
-        type: "byDimension" as const,
-        transformations: [
-          { transformation: bad, inputAxes: [0], outputAxes: [0] },
-        ],
-      },
-    ]
-  ) {
+  for (const wrapper of [
+    { type: "sequence" as const, transformations: [bad] },
+    { type: "bijection" as const, forward: bad, inverse: bad },
+    {
+      type: "byDimension" as const,
+      transformations: [
+        { transformation: bad, inputAxes: [0], outputAxes: [0] },
+      ],
+    },
+  ]) {
     const multiscales = await buildMultiscales();
     const intrinsic = multiscales.metadata.coordinateSystems![0];
     multiscales.metadata.coordinateTransformations = [
@@ -1024,7 +1037,7 @@ Deno.test("the writer refuses an invalid transform nested in a wrapper", async (
   }
 });
 
-Deno.test("a projectAxis payload survives the round-trip", async () => {
+test("a projectAxis payload survives the round-trip", async () => {
   // Before projectAxis was modelled, a document using it passed the bundled
   // schema and the reader threw on an unsupported transform type.
   const multiscales = await buildMultiscales();
@@ -1062,7 +1075,7 @@ Deno.test("a projectAxis payload survives the round-trip", async () => {
   assertEquals(projection.output?.name, "plane");
 });
 
-Deno.test("mapAxis, byDimension and bijection payloads survive the round-trip", async () => {
+test("mapAxis, byDimension and bijection payloads survive the round-trip", async () => {
   const multiscales = await buildMultiscales();
   const intrinsic = multiscales.metadata.coordinateSystems![0];
 
@@ -1131,7 +1144,7 @@ Deno.test("mapAxis, byDimension and bijection payloads survive the round-trip", 
 });
 
 // The RFC 5 constraints the schema cannot express are enforced at read time.
-Deno.test("invalid mapAxis, byDimension and bijection metadata are rejected", async () => {
+test("invalid mapAxis, byDimension and bijection metadata are rejected", async () => {
   const cases: Array<{ name: string; transform: V06Transform }> = [
     // Not a permutation: index 1 missing, index 2 duplicated.
     { name: "mapAxis gap", transform: createMapAxis([2, 0, 2]) },
@@ -1186,7 +1199,7 @@ Deno.test("invalid mapAxis, byDimension and bijection metadata are rejected", as
 
 // byDimension items must cover every output axis of a resolved coordinate
 // system exactly once; two items over three output axes leave one uncovered.
-Deno.test("byDimension incomplete output coverage is rejected", async () => {
+test("byDimension incomplete output coverage is rejected", async () => {
   const multiscales = await buildMultiscales();
   const intrinsic = multiscales.metadata.coordinateSystems![0];
   const byDimension = createByDimension([
@@ -1211,7 +1224,7 @@ Deno.test("byDimension incomplete output coverage is rejected", async () => {
 
 // A byDimension item may wrap any transformation, including a sequence; the
 // round-trip and the zod schema both accept the nesting.
-Deno.test("byDimension items nest wrapper transformations", async () => {
+test("byDimension items nest wrapper transformations", async () => {
   const multiscales = await buildMultiscales();
   const intrinsic = multiscales.metadata.coordinateSystems![0];
   const byDimension = createByDimension([
@@ -1265,7 +1278,7 @@ Deno.test("byDimension items nest wrapper transformations", async () => {
 
 // Programmatically built transforms are validated with the same rules the
 // reader applies to on-disk metadata.
-Deno.test("validateV06Transform rejects fractional and out-of-range axes", () => {
+test("validateV06Transform rejects fractional and out-of-range axes", () => {
   assertThrows(
     () => validateV06Transform(createMapAxis([0.5, 1, 2]), []),
     Error,
@@ -1295,7 +1308,7 @@ Deno.test("validateV06Transform rejects fractional and out-of-range axes", () =>
 
 // OME-Zarr coordinate systems hold 2 to 5 axes; a mapAxis of another length
 // is rejected on read as well as by the zod schema.
-Deno.test("the mapAxis arity bound stands down at 0.9.dev1", () => {
+test("the mapAxis arity bound stands down at 0.9.dev1", () => {
   // RFC-3 lifts the five-axis cap and the 0.9.dev1 mapAxis definition declares
   // neither minItems nor maxItems, so a permutation over six axes is a valid
   // 0.9.dev1 document. Mirrors test_map_axis_arity_is_unbounded_at_0_9_dev1.
@@ -1316,7 +1329,7 @@ Deno.test("the mapAxis arity bound stands down at 0.9.dev1", () => {
   );
 });
 
-Deno.test("validateV06Transform bounds the mapAxis arity", () => {
+test("validateV06Transform bounds the mapAxis arity", () => {
   for (const indices of [[0], [], [5, 4, 3, 2, 1, 0]]) {
     assertThrows(
       () => validateV06Transform(createMapAxis(indices), []),
@@ -1329,11 +1342,11 @@ Deno.test("validateV06Transform bounds the mapAxis arity", () => {
 // rfc5_transform_cases.json is shared with the Python suite: both readers must
 // give the same verdict on every case, so a rule enforced in one port and not
 // the other fails here.
-Deno.test("shared RFC-5 cases match the expected verdict", async () => {
-  const path = fromFileUrl(
+test("shared RFC-5 cases match the expected verdict", async () => {
+  const path = fileURLToPath(
     new URL("../../py/test/rfc5_transform_cases.json", import.meta.url),
   );
-  const spec = JSON.parse(await Deno.readTextFile(path));
+  const spec = JSON.parse(await readTextFile(path));
   const systems = spec.coordinateSystems as CoordinateSystem[];
   const names = systems.map((system) => system.name);
   for (const testCase of spec.cases) {
@@ -1347,7 +1360,7 @@ Deno.test("shared RFC-5 cases match the expected verdict", async () => {
   }
 });
 
-Deno.test("nested transforms are checked at the document's version", async () => {
+test("nested transforms are checked at the document's version", async () => {
   const { validateV06Transform } = await import("../src/utils/v06_metadata.ts");
   // 0.9.dev1 (RFC-3) lifts the five-axis cap; a wrapper must pass that on.
   const six = createMapAxis([5, 4, 3, 2, 1, 0]);
@@ -1360,25 +1373,29 @@ Deno.test("nested transforms are checked at the document's version", async () =>
   );
 });
 
-Deno.test("global transforms may map between systems of other sizes", async () => {
-  const { validateScaleLength } = await import(
-    "../src/utils/structural_validation.ts"
-  );
+test("global transforms may map between systems of other sizes", async () => {
+  const { validateScaleLength } =
+    await import("../src/utils/structural_validation.ts");
   // At 0.6 a multiscale-level scale acts in the coordinate system it maps
   // into, which need not have as many axes as the image.
   const axes = ["t", "z", "y", "x"].map((name) =>
-    createAxis(name as "t" | "z" | "y" | "x", name === "t" ? "time" : "space")
+    createAxis(name as "t" | "z" | "y" | "x", name === "t" ? "time" : "space"),
   );
   const world = createCoordinateSystem("world", axes.slice(1));
-  validateScaleLength({
-    axes,
-    datasets: [{
-      path: "s0",
-      coordinateTransformations: [createScale([1, 1, 1, 1])],
-    }],
-    coordinateTransformations: [createScale([2, 2, 2])],
-    coordinateSystems: [createCoordinateSystem("intrinsic", axes), world],
-    name: "image",
-    version: "0.6",
-  } as never, "0.6");
+  validateScaleLength(
+    {
+      axes,
+      datasets: [
+        {
+          path: "s0",
+          coordinateTransformations: [createScale([1, 1, 1, 1])],
+        },
+      ],
+      coordinateTransformations: [createScale([2, 2, 2])],
+      coordinateSystems: [createCoordinateSystem("intrinsic", axes), world],
+      name: "image",
+      version: "0.6",
+    } as never,
+    "0.6",
+  );
 });

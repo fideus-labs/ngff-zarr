@@ -40,26 +40,16 @@ async function main() {
     const testDir = join(__dirname, "../test/browser-npm");
     const projectRoot = join(__dirname, "..");
 
-    // Note: We're now using deno bundle instead of npm package
-    console.log("📋 Using bundle instead of npm package...");
-
-    // Install npm dependencies first
-    await runCommand("npm", ["install"], { cwd: testDir });
-
     // Install Playwright browsers
     await runCommand("npx", ["playwright", "install"], { cwd: testDir });
 
     // Start the test server in the background
     console.log("🚀 Starting test server...");
-    const serverProcess = spawn(
-      "deno",
-      ["run", "--allow-all", "test/browser/server.ts"],
-      {
-        cwd: projectRoot,
-        stdio: ["pipe", "pipe", "pipe"],
-        detached: false,
-      },
-    );
+    const serverProcess = spawn(process.execPath, ["test/browser/server.ts"], {
+      cwd: projectRoot,
+      stdio: ["pipe", "pipe", "pipe"],
+      detached: false,
+    });
 
     // Handle server process termination
     serverProcess.on("exit", (code, signal) => {
@@ -108,7 +98,7 @@ async function main() {
             await new Promise((resolve) => setTimeout(resolve, 2000));
             return true;
           }
-        } catch (_error) {
+        } catch {
           // Server not ready yet, continue waiting
         }
         console.log(`⏳ Waiting for server... (${i + 1}/30)`);

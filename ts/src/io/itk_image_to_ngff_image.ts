@@ -152,9 +152,10 @@ export async function itkImageToNgffImage(
   const root = zarr.root(store);
 
   // Determine appropriate chunk size based on options
-  const chunkShape = typeof chunks === "number"
-    ? shape.map((s) => Math.min(s, chunks))
-    : shape.map((s, i) => Math.min(s, chunks[i] ?? 256));
+  const chunkShape =
+    typeof chunks === "number"
+      ? shape.map((s) => Math.min(s, chunks))
+      : shape.map((s, i) => Math.min(s, chunks[i] ?? 256));
 
   const zarrArray = await zarr.create(root.resolve(path), {
     shape: shape,
@@ -193,23 +194,22 @@ export async function itkImageToNgffImage(
     // reads its spatial block.
     const dimension = imageType.dimension;
     const fullDirection = itkImage.direction;
-    const direction = fullDirection && fullDirection.length > 0
-      ? Array.from(
-        { length: nSpatial * nSpatial },
-        (_, k) =>
-          Number(
-            fullDirection[
-              Math.floor(k / nSpatial) * dimension + (k % nSpatial)
-            ],
-          ),
-      )
-      : fullDirection;
+    const direction =
+      fullDirection && fullDirection.length > 0
+        ? Array.from({ length: nSpatial * nSpatial }, (_, k) =>
+            Number(
+              fullDirection[
+                Math.floor(k / nSpatial) * dimension + (k % nSpatial)
+              ],
+            ),
+          )
+        : fullDirection;
 
     // Check whether the direction matrix is available and has a
     // non-identity rotation (permutation or oblique).
     const hasDirection = direction !== undefined && direction.length > 0;
-    const hasNonIdentityDirection = hasDirection &&
-      !isIdentityDirection(direction, nSpatial);
+    const hasNonIdentityDirection =
+      hasDirection && !isIdentityDirection(direction, nSpatial);
 
     if (hasNonIdentityDirection) {
       // Use the direction cosine matrix to determine each axis'

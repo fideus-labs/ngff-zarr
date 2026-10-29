@@ -5,21 +5,22 @@
  * Constants for ngff-zarr package.
  */
 
-export enum NgffVersion {
-  V01 = "0.1",
-  V02 = "0.2",
-  V03 = "0.3",
-  V04 = "0.4",
-  V05 = "0.5",
-  V06 = "0.6",
+export const NgffVersion = {
+  V01: "0.1",
+  V02: "0.2",
+  V03: "0.3",
+  V04: "0.4",
+  V05: "0.5",
+  V06: "0.6",
   /**
    * OME-Zarr 0.9 in development: v0.6 plus RFC-3 (any axis count, names,
    * types and ordering). This is the on-disk string. {@link LATEST} stays
    * `0.6`, so 0.9.dev1 is opt-in.
    */
-  V09dev1 = "0.9.dev1",
-  LATEST = "0.6",
-}
+  V09dev1: "0.9.dev1",
+  LATEST: "0.6",
+} as const;
+export type NgffVersion = (typeof NgffVersion)[keyof typeof NgffVersion];
 
 /**
  * The on-disk `ome.version` string written for OME-Zarr v0.6. Since the 0.6

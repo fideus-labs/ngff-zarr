@@ -5,7 +5,8 @@
  * channels and RFC-4 orientations. (This package writes 0.5 and later; both
  * readers parse 0.4 with the same fromZarrAttrsV04.)
  */
-import { assertEquals, assertExists } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertExists } from "./_assert.ts";
 import * as zarr from "zarrita";
 
 import { fromOmeZarr as fromBrowser } from "../src/io/from_ngff_zarr-browser.ts";
@@ -53,10 +54,12 @@ async function writeStore(version: "0.5") {
     version,
   );
   metadata.omero = {
-    channels: [{
-      color: "FF0000",
-      window: { min: 0, max: 255, start: 0, end: 255 },
-    }],
+    channels: [
+      {
+        color: "FF0000",
+        window: { min: 0, max: 255, start: 0, end: 255 },
+      },
+    ],
   } as never;
   const store = new Map<string, Uint8Array>();
   await toOmeZarr(store, createMultiscales([image], metadata), { version });
@@ -64,7 +67,7 @@ async function writeStore(version: "0.5") {
 }
 
 for (const version of ["0.5"] as const) {
-  Deno.test(`browser reader matches the Node reader at ${version}`, async () => {
+  test(`browser reader matches the Node reader at ${version}`, async () => {
     const store = await writeStore(version);
     const node = await fromNode(store);
     const browser = await fromBrowser(store);

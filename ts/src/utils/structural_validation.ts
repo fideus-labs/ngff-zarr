@@ -313,8 +313,9 @@ export function validateAxisType(
       "multiscales[0].axes",
     );
   }
-  const channelCount =
-    metadata.axes.filter((ax) => ax.type === "channel").length;
+  const channelCount = metadata.axes.filter(
+    (ax) => ax.type === "channel",
+  ).length;
   if (channelCount > 1) {
     throw new ValidationError(
       SpecRule.AxisType,
@@ -351,12 +352,10 @@ export function validateAxisOrder(
     const following = axes[i + 1];
     // An axis with no `type` has no rank, mirroring the Python port's dict
     // `.get()`; the pair is then skipped by the guard below.
-    const currentRank = current.type === undefined
-      ? undefined
-      : AXIS_TYPE_RANK[current.type];
-    const followingRank = following.type === undefined
-      ? undefined
-      : AXIS_TYPE_RANK[following.type];
+    const currentRank =
+      current.type === undefined ? undefined : AXIS_TYPE_RANK[current.type];
+    const followingRank =
+      following.type === undefined ? undefined : AXIS_TYPE_RANK[following.type];
     if (currentRank === undefined || followingRank === undefined) {
       continue;
     }
@@ -512,10 +511,11 @@ export function validateScaleLength(
   const axesLen = metadata.axes.length;
   // From 0.6 on, a multiscale-level transform acts between the coordinate
   // systems it names, which need not have the image's axis count.
-  const globalTransforms = version !== undefined &&
-      (isV06Version(version) || version === NgffVersion.V09dev1)
-    ? undefined
-    : metadata.coordinateTransformations;
+  const globalTransforms =
+    version !== undefined &&
+    (isV06Version(version) || version === NgffVersion.V09dev1)
+      ? undefined
+      : metadata.coordinateTransformations;
   if (globalTransforms) {
     for (let j = 0; j < globalTransforms.length; j++) {
       const mismatch = transformLenMismatch(globalTransforms[j], axesLen);

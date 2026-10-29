@@ -200,7 +200,7 @@ export async function toOmeZarr(
     // RFC-9 is defined on Zarr v3, so any version stored in Zarr v3 can be
     // zipped; 0.4 (Zarr v2) is refused. Omitted, the version defaults to 0.5,
     // or to 0.6 for a scene or a transformation.
-    if (options.overwrite === false && await pathExists(store)) {
+    if (options.overwrite === false && (await pathExists(store))) {
       throw new Error(
         `'${store}' already exists; pass overwrite: true to replace it.`,
       );
@@ -208,21 +208,22 @@ export async function toOmeZarr(
     await toOmeZarrOzx(store, multiscales, {
       codecs: options.codecs,
       consolidateMetadata: options.consolidateMetadata,
-      version: options.version === undefined
-        ? undefined
-        : gateOzxVersion(options.version),
+      version:
+        options.version === undefined
+          ? undefined
+          : gateOzxVersion(options.version),
       chunksPerShard: options.chunksPerShard,
       onProgress: options.onProgress,
     });
     return;
   }
 
-  const resolved = store instanceof Map
-    ? store as unknown as zarr.Mutable
-    : await localStore(store);
-  const target = path === undefined
-    ? resolved
-    : await writableStoreBelow(resolved, path);
+  const resolved =
+    store instanceof Map
+      ? (store as unknown as zarr.Mutable)
+      : await localStore(store);
+  const target =
+    path === undefined ? resolved : await writableStoreBelow(resolved, path);
   await writeToStore(target, multiscales, arrayWriter, rest);
 }
 
@@ -263,10 +264,9 @@ export async function toOmeZarrOzx(
   // Get the ZIP data
   const zipData = await toOmeZarrOzxData(multiscales, options);
 
-  // Write to file using fs module (works in both Node.js and Deno)
+  // Write to file using the Node.js fs module
   try {
-    // Use dynamic import for Node.js fs module
-    // Deno also supports node:fs/promises via its Node compatibility layer
+    // Dynamic import keeps browser bundles from resolving node:fs
     const { writeFile } = await import("node:fs/promises");
     await writeFile(path, zipData);
   } catch (error) {
@@ -280,7 +280,10 @@ export async function toOmeZarrOzx(
 
 async function pathExists(path: string): Promise<boolean> {
   const { access } = await import("node:fs/promises");
-  return access(path).then(() => true, () => false);
+  return access(path).then(
+    () => true,
+    () => false,
+  );
 }
 
 /** @deprecated Use {@link toOmeZarrOzx} instead. */
@@ -431,9 +434,8 @@ export function storeToZip(
           "storeToZip(store) returns the archive's bytes.",
       );
     }
-    const store = typeof source === "string"
-      ? await readDirectoryStore(source)
-      : source;
+    const store =
+      typeof source === "string" ? await readDirectoryStore(source) : source;
     const zipData = storeToZipData(store, options);
     const { writeFile } = await import("node:fs/promises");
     await writeFile(zipPath, zipData);

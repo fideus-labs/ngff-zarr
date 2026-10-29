@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 
-import { assertEquals, assertExists, assertRejects } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertExists, assertRejects } from "./_assert.ts";
 import * as zarr from "zarrita";
 import { NgffImage } from "../src/types/ngff_image.ts";
 import {
@@ -46,9 +47,10 @@ async function createTestImage(
   });
 
   // Write data to the array with proper format
-  const typedData = dtype === "uint8"
-    ? new Uint8Array(data as number[])
-    : new Float32Array(data as number[]);
+  const typedData =
+    dtype === "uint8"
+      ? new Uint8Array(data as number[])
+      : new Float32Array(data as number[]);
 
   await zarr.set(zarrArray, null, {
     data: typedData,
@@ -78,7 +80,7 @@ async function createTestImage(
 // Tests for single-channel images
 // ============================================================================
 
-Deno.test("compute basic statistics for single channel", async () => {
+test("compute basic statistics for single channel", async () => {
   // Create array with values 0-99
   const data = Array.from({ length: 100 }, (_, i) => i);
   const image = await createTestImage(data, [10, 10], ["y", "x"]);
@@ -100,7 +102,7 @@ Deno.test("compute basic statistics for single channel", async () => {
   assertEquals(channel.window.end! >= 94 && channel.window.end! <= 99, true);
 });
 
-Deno.test("single channel uses white color", async () => {
+test("single channel uses white color", async () => {
   const data = Array(100).fill(1);
   const image = await createTestImage(data, [10, 10], ["y", "x"]);
 
@@ -109,7 +111,7 @@ Deno.test("single channel uses white color", async () => {
   assertEquals(omero.channels[0].color, "FFFFFF");
 });
 
-Deno.test("custom quantiles are respected", async () => {
+test("custom quantiles are respected", async () => {
   const data = Array.from({ length: 100 }, (_, i) => i);
   const image = await createTestImage(data, [10, 10], ["y", "x"]);
 
@@ -120,14 +122,11 @@ Deno.test("custom quantiles are respected", async () => {
 
   const channel = omero.channels[0];
   // 10% of 100 values is ~10, 90% is ~90
-  assertEquals(
-    channel.window.start! >= 5 && channel.window.start! <= 15,
-    true,
-  );
+  assertEquals(channel.window.start! >= 5 && channel.window.start! <= 15, true);
   assertEquals(channel.window.end! >= 85 && channel.window.end! <= 95, true);
 });
 
-Deno.test("custom color is applied", async () => {
+test("custom color is applied", async () => {
   const data = Array(100).fill(1);
   const image = await createTestImage(data, [10, 10], ["y", "x"]);
 
@@ -138,7 +137,7 @@ Deno.test("custom color is applied", async () => {
   assertEquals(omero.channels[0].color, "FF0000");
 });
 
-Deno.test("custom label is applied", async () => {
+test("custom label is applied", async () => {
   const data = Array(100).fill(1);
   const image = await createTestImage(data, [10, 10], ["y", "x"]);
 
@@ -149,7 +148,7 @@ Deno.test("custom label is applied", async () => {
   assertEquals(omero.channels[0].label, "DAPI");
 });
 
-Deno.test("default label is empty string", async () => {
+test("default label is empty string", async () => {
   const data = Array(100).fill(1);
   const image = await createTestImage(data, [10, 10], ["y", "x"]);
 
@@ -162,7 +161,7 @@ Deno.test("default label is empty string", async () => {
 // Tests for multi-channel images
 // ============================================================================
 
-Deno.test("per-channel statistics are computed", async () => {
+test("per-channel statistics are computed", async () => {
   // 3 channels with different values
   // Channel 0: all 0s, Channel 1: all 100s, Channel 2: all 255s
   const ch0 = Array(100).fill(0);
@@ -188,7 +187,7 @@ Deno.test("per-channel statistics are computed", async () => {
   assertEquals(omero.channels[2].window.max, 255);
 });
 
-Deno.test("multi-channel uses glasbey colors", async () => {
+test("multi-channel uses glasbey colors", async () => {
   const data = Array(300).fill(1); // 3 channels * 10*10
   const image = await createTestImage(data, [3, 10, 10], ["c", "y", "x"]);
 
@@ -199,7 +198,7 @@ Deno.test("multi-channel uses glasbey colors", async () => {
   assertEquals(omero.channels[2].color, GLASBEY_COLORS[2]); // Blue
 });
 
-Deno.test("many channels cycle colors", async () => {
+test("many channels cycle colors", async () => {
   const nChannels = GLASBEY_COLORS.length + 5;
   const data = Array(nChannels * 100).fill(1);
   const image = await createTestImage(
@@ -211,17 +210,14 @@ Deno.test("many channels cycle colors", async () => {
   const omero = await computeOmeroFromNgffImage(image);
 
   // Check that colors cycle
-  assertEquals(
-    omero.channels[GLASBEY_COLORS.length].color,
-    GLASBEY_COLORS[0],
-  );
+  assertEquals(omero.channels[GLASBEY_COLORS.length].color, GLASBEY_COLORS[0]);
   assertEquals(
     omero.channels[GLASBEY_COLORS.length + 1].color,
     GLASBEY_COLORS[1],
   );
 });
 
-Deno.test("custom colors for channels", async () => {
+test("custom colors for channels", async () => {
   const data = Array(300).fill(1);
   const image = await createTestImage(data, [3, 10, 10], ["c", "y", "x"]);
 
@@ -234,7 +230,7 @@ Deno.test("custom colors for channels", async () => {
   assertEquals(omero.channels[2].color, "112233");
 });
 
-Deno.test("custom labels for channels", async () => {
+test("custom labels for channels", async () => {
   const data = Array(300).fill(1);
   const image = await createTestImage(data, [3, 10, 10], ["c", "y", "x"]);
 
@@ -247,7 +243,7 @@ Deno.test("custom labels for channels", async () => {
   assertEquals(omero.channels[2].label, "RFP");
 });
 
-Deno.test("insufficient colors throws error", async () => {
+test("insufficient colors throws error", async () => {
   const data = Array(300).fill(1);
   const image = await createTestImage(data, [3, 10, 10], ["c", "y", "x"]);
 
@@ -262,7 +258,7 @@ Deno.test("insufficient colors throws error", async () => {
   );
 });
 
-Deno.test("insufficient labels throws error", async () => {
+test("insufficient labels throws error", async () => {
   const data = Array(300).fill(1);
   const image = await createTestImage(data, [3, 10, 10], ["c", "y", "x"]);
 
@@ -281,7 +277,7 @@ Deno.test("insufficient labels throws error", async () => {
 // Tests for higher-dimensional images
 // ============================================================================
 
-Deno.test("3D image without channel dimension", async () => {
+test("3D image without channel dimension", async () => {
   const data = Array.from({ length: 1000 }, (_, i) => i);
   const image = await createTestImage(data, [10, 10, 10], ["z", "y", "x"]);
 
@@ -292,19 +288,18 @@ Deno.test("3D image without channel dimension", async () => {
   assertEquals(omero.channels[0].window.max, 999);
 });
 
-Deno.test("4D image with channel dimension", async () => {
+test("4D image with channel dimension", async () => {
   // Shape: [c, z, y, x] = [2, 5, 10, 10] = 1000 values
   // Channel 0: all 0s, Channel 1: all 100s
   const ch0 = Array(500).fill(0);
   const ch1 = Array(500).fill(100);
   const data = [...ch0, ...ch1];
 
-  const image = await createTestImage(data, [2, 5, 10, 10], [
-    "c",
-    "z",
-    "y",
-    "x",
-  ]);
+  const image = await createTestImage(
+    data,
+    [2, 5, 10, 10],
+    ["c", "z", "y", "x"],
+  );
   const omero = await computeOmeroFromNgffImage(image);
 
   assertEquals(omero.channels.length, 2);
@@ -318,7 +313,7 @@ Deno.test("4D image with channel dimension", async () => {
 // Tests for special values
 // ============================================================================
 
-Deno.test("handles NaN values", async () => {
+test("handles NaN values", async () => {
   const data = [1, 2, NaN, 4, NaN, 6, 7, 8, 9];
   const image = await createTestImage(data, [3, 3], ["y", "x"]);
 
@@ -329,7 +324,7 @@ Deno.test("handles NaN values", async () => {
   assertEquals(omero.channels[0].window.max, 9);
 });
 
-Deno.test("constant value array", async () => {
+test("constant value array", async () => {
   const data = Array(100).fill(42);
   const image = await createTestImage(data, [10, 10], ["y", "x"]);
 
@@ -341,7 +336,7 @@ Deno.test("constant value array", async () => {
   assertEquals(omero.channels[0].window.end, 42);
 });
 
-Deno.test("integer dtype works correctly", async () => {
+test("integer dtype works correctly", async () => {
   const data = Array.from({ length: 256 }, (_, i) => i);
   const image = await createTestImage(data, [16, 16], ["y", "x"], "uint8");
 
@@ -355,17 +350,12 @@ Deno.test("integer dtype works correctly", async () => {
 // Tests for computeOmeroFromMultiscales
 // ============================================================================
 
-Deno.test("computeOmeroFromMultiscales uses highest resolution", async () => {
+test("computeOmeroFromMultiscales uses highest resolution", async () => {
   const data = Array.from({ length: 64 }, (_, i) => i);
   const image = await createTestImage(data, [8, 8], ["y", "x"]);
 
-  const axes = [
-    createAxis("y", "space"),
-    createAxis("x", "space"),
-  ];
-  const datasets = [
-    createDataset("0", [1.0, 1.0], [0.0, 0.0]),
-  ];
+  const axes = [createAxis("y", "space"), createAxis("x", "space")];
+  const datasets = [createDataset("0", [1.0, 1.0], [0.0, 0.0])];
   const metadata = createMetadata(axes, datasets, "test");
   const multiscales = createMultiscales(
     [image],
@@ -382,7 +372,7 @@ Deno.test("computeOmeroFromMultiscales uses highest resolution", async () => {
   assertEquals(omero.channels[0].window.max, 63);
 });
 
-Deno.test("computeOmeroFromMultiscales passes through options", async () => {
+test("computeOmeroFromMultiscales passes through options", async () => {
   const data = Array(200).fill(1); // 2 channels * 10*10
   const image = await createTestImage(data, [2, 10, 10], ["c", "y", "x"]);
 
@@ -391,9 +381,7 @@ Deno.test("computeOmeroFromMultiscales passes through options", async () => {
     createAxis("y", "space"),
     createAxis("x", "space"),
   ];
-  const datasets = [
-    createDataset("0", [1.0, 1.0, 1.0], [0.0, 0.0, 0.0]),
-  ];
+  const datasets = [createDataset("0", [1.0, 1.0, 1.0], [0.0, 0.0, 0.0])];
   const metadata = createMetadata(axes, datasets, "test");
   const multiscales = createMultiscales(
     [image],
@@ -414,14 +402,9 @@ Deno.test("computeOmeroFromMultiscales passes through options", async () => {
   assertEquals(omero.channels[1].label, "Green");
 });
 
-Deno.test("computeOmeroFromMultiscales throws error for empty multiscales", async () => {
-  const axes = [
-    createAxis("y", "space"),
-    createAxis("x", "space"),
-  ];
-  const datasets = [
-    createDataset("0", [1.0, 1.0], [0.0, 0.0]),
-  ];
+test("computeOmeroFromMultiscales throws error for empty multiscales", async () => {
+  const axes = [createAxis("y", "space"), createAxis("x", "space")];
+  const datasets = [createDataset("0", [1.0, 1.0], [0.0, 0.0])];
   const metadata = createMetadata(axes, datasets, "test");
   const multiscales = createMultiscales(
     [], // Empty images array
@@ -443,18 +426,18 @@ Deno.test("computeOmeroFromMultiscales throws error for empty multiscales", asyn
 // Tests for GLASBEY_COLORS constant
 // ============================================================================
 
-Deno.test("GLASBEY_COLORS has at least 20 colors", () => {
+test("GLASBEY_COLORS has at least 20 colors", () => {
   assertEquals(GLASBEY_COLORS.length >= 20, true);
 });
 
-Deno.test("GLASBEY_COLORS contains valid hex strings", () => {
+test("GLASBEY_COLORS contains valid hex strings", () => {
   const hexPattern = /^[0-9A-Fa-f]{6}$/;
   for (const color of GLASBEY_COLORS) {
     assertEquals(hexPattern.test(color), true, `Invalid color: ${color}`);
   }
 });
 
-Deno.test("first GLASBEY_COLORS values match glasbey_hv", () => {
+test("first GLASBEY_COLORS values match glasbey_hv", () => {
   assertEquals(GLASBEY_COLORS[0], "30A2DA");
   assertEquals(GLASBEY_COLORS[1], "FC4F30");
   assertEquals(GLASBEY_COLORS[2], "E5AE38");
@@ -464,13 +447,13 @@ Deno.test("first GLASBEY_COLORS values match glasbey_hv", () => {
 // Tests for getDefaultColors helper
 // ============================================================================
 
-Deno.test("getDefaultColors returns white for single channel", () => {
+test("getDefaultColors returns white for single channel", () => {
   const colors = getDefaultColors(1);
   assertEquals(colors.length, 1);
   assertEquals(colors[0], "FFFFFF");
 });
 
-Deno.test("getDefaultColors returns glasbey for multiple channels", () => {
+test("getDefaultColors returns glasbey for multiple channels", () => {
   const colors = getDefaultColors(3);
   assertEquals(colors.length, 3);
   assertEquals(colors[0], GLASBEY_COLORS[0]);
@@ -478,7 +461,7 @@ Deno.test("getDefaultColors returns glasbey for multiple channels", () => {
   assertEquals(colors[2], GLASBEY_COLORS[2]);
 });
 
-Deno.test("getDefaultColors cycles for many channels", () => {
+test("getDefaultColors cycles for many channels", () => {
   const nChannels = GLASBEY_COLORS.length + 3;
   const colors = getDefaultColors(nChannels);
   assertEquals(colors.length, nChannels);
@@ -489,7 +472,7 @@ Deno.test("getDefaultColors cycles for many channels", () => {
 // Tests for explicit undefined values (exactOptionalPropertyTypes support)
 // ============================================================================
 
-Deno.test("undefined colors and labels are handled correctly", async () => {
+test("undefined colors and labels are handled correctly", async () => {
   const data = Array(300).fill(1); // 3 channels * 10*10
   const image = await createTestImage(data, [3, 10, 10], ["c", "y", "x"]);
 

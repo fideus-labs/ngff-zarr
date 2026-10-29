@@ -10,7 +10,8 @@
  * `py/test/test_rfc4_vocabulary.py`.
  */
 
-import { assertEquals } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals } from "./_assert.ts";
 import { AnatomicalOrientationValues } from "../src/types/rfc4.ts";
 import { AnatomicalOrientationValuesSchema } from "../src/schemas/rfc4.ts";
 import { ANATOMICAL_AXIS_OF } from "../src/utils/rfc4_validation.ts";
@@ -31,13 +32,13 @@ function schemaValues(): Set<string> {
   return new Set(options);
 }
 
-Deno.test("the enum and the pair table hold the same values", () => {
+test("the enum and the pair table hold the same values", () => {
   const fromEnum = new Set<string>(Object.values(AnatomicalOrientationValues));
   const fromTable = new Set(Object.keys(ANATOMICAL_AXIS_OF));
   assertEquals([...fromEnum].sort(), [...fromTable].sort());
 });
 
-Deno.test("the schema holds exactly the values of the pair table", () => {
+test("the schema holds exactly the values of the pair table", () => {
   // Both directions: a value added to the schema alone would otherwise pass,
   // and validateRfc4Orientation would accept it before looking it up as an
   // undefined axis key. Mirrors the Python twin's set comparison.
@@ -58,7 +59,7 @@ Deno.test("the schema holds exactly the values of the pair table", () => {
   );
 });
 
-Deno.test("the vocabulary has not changed size", () => {
+test("the vocabulary has not changed size", () => {
   assertEquals(
     Object.values(AnatomicalOrientationValues).length,
     EXPECTED_COUNT,
@@ -67,7 +68,7 @@ Deno.test("the vocabulary has not changed size", () => {
   assertEquals(schemaValues().size, EXPECTED_COUNT);
 });
 
-Deno.test("every anatomical axis carries exactly two directions", () => {
+test("every anatomical axis carries exactly two directions", () => {
   const perAxis = new Map<string, string[]>();
   for (const [value, axis] of Object.entries(ANATOMICAL_AXIS_OF)) {
     perAxis.set(axis, [...(perAxis.get(axis) ?? []), value]);

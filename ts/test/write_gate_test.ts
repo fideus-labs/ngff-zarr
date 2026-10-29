@@ -8,7 +8,8 @@
  * 0.4, 0.5 or 0.6 throws. Mirrors `py/test/test_rfc3_axes.py`.
  */
 
-import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertStringIncludes, assertThrows } from "./_assert.ts";
 import { buildRootDocument } from "../src/io/to_ngff_zarr_ozx_common.ts";
 import {
   type Axis,
@@ -45,14 +46,13 @@ function space(name: string): Axis {
 const RFC3_SHAPES: Array<[label: string, axes: Axis[]]> = [
   ["ramp_6d", ["a", "b", "c", "d", "e", "f"].map(space)],
   ["ecg_1d", [{ name: "t", type: "time", unit: undefined }]],
-  ["astronaut_xcy", [
-    space("x"),
-    { name: "c", type: "channel", unit: undefined },
-    space("y"),
-  ]],
+  [
+    "astronaut_xcy",
+    [space("x"), { name: "c", type: "channel", unit: undefined }, space("y")],
+  ],
 ];
 
-Deno.test("write gate - refuses RFC-3 axis models below 0.9.dev1", () => {
+test("write gate - refuses RFC-3 axis models below 0.9.dev1", () => {
   for (const [label, axes] of RFC3_SHAPES) {
     for (const version of PRE_RFC3) {
       const error = assertThrows(
@@ -67,24 +67,24 @@ Deno.test("write gate - refuses RFC-3 axis models below 0.9.dev1", () => {
   }
 });
 
-Deno.test("write gate - accepts RFC-3 axis models at 0.9.dev1", () => {
+test("write gate - accepts RFC-3 axis models at 0.9.dev1", () => {
   for (const [, axes] of RFC3_SHAPES) {
     const attrs = buildRootDocument(buildMetadata(axes), "0.9.dev1")
       .attributes as {
-        ome: { version: string };
-      };
+      ome: { version: string };
+    };
     assertEquals(attrs.ome.version, "0.9.dev1");
   }
 });
 
-Deno.test("write gate - conventional axes still write at every version", () => {
+test("write gate - conventional axes still write at every version", () => {
   const axes = ["z", "y", "x"].map(space);
   for (const version of [...PRE_RFC3, "0.9.dev1"] as TargetVersion[]) {
     buildRootDocument(buildMetadata(axes), version);
   }
 });
 
-Deno.test("write gate - a non-canonical class order is refused below 0.9.dev1", () => {
+test("write gate - a non-canonical class order is refused below 0.9.dev1", () => {
   // Axis order is a spec MUST: the writer refuses what validateStructural
   // rejects, rather than reporting it and writing anyway.
   const channelLast = buildMetadata([
@@ -104,7 +104,7 @@ Deno.test("write gate - a non-canonical class order is refused below 0.9.dev1", 
   buildRootDocument(channelLast, "0.9.dev1");
 });
 
-Deno.test("write gate - repeated axis names are refused at every version", () => {
+test("write gate - repeated axis names are refused at every version", () => {
   // RFC-3 *adds* the unique-name rule rather than lifting one, so 0.9.dev1
   // is not a way out of this one.
   const axes = [space("y"), space("y"), space("x")];
@@ -117,7 +117,7 @@ Deno.test("write gate - repeated axis names are refused at every version", () =>
   }
 });
 
-Deno.test("the gate reads the axes the writer serializes", () => {
+test("the gate reads the axes the writer serializes", () => {
   // `buildV06MultiscalesEntry` writes the first coordinate system from
   // `metadata.axes`; `coordinateSystems[0].axes` is not tied to it, so a gate
   // reading the declared list would miss what actually lands on disk.
@@ -143,7 +143,7 @@ Deno.test("the gate reads the axes the writer serializes", () => {
   );
 });
 
-Deno.test("the gate skips coordinate systems the target version drops", () => {
+test("the gate skips coordinate systems the target version drops", () => {
   // v0.4 and v0.5 serialize the flat `axes` and drop `coordinateSystems`, so a
   // system the downgrade discards must not block the write. Mirrors Python,
   // which gates after `Metadata.to_version`.
@@ -157,10 +157,7 @@ Deno.test("the gate skips coordinate systems the target version drops", () => {
     buildRootDocument(metadata, version);
   }
   // 0.6 writes both systems, so there the six-axis one is refused.
-  const error = assertThrows(
-    () => buildRootDocument(metadata, "0.6"),
-    Error,
-  );
+  const error = assertThrows(() => buildRootDocument(metadata, "0.6"), Error);
   assertStringIncludes(
     error.message,
     "multiscales[0].coordinateSystems[1].axes",
@@ -183,7 +180,7 @@ const CANONICAL_GATE_MESSAGE_AXIS_COUNT =
   'version="0.9.dev1" to write it: 0.9.dev1 is the only OME-Zarr version ' +
   "that adopts RFC-3 (arbitrary axis count, names, types and ordering).";
 
-Deno.test("write gate - message bytes match the Python port", () => {
+test("write gate - message bytes match the Python port", () => {
   const repeated = assertThrows(
     () =>
       buildRootDocument(
@@ -211,8 +208,11 @@ const CANONICAL_GATE_MESSAGE_SPAN =
   "values for the 3 axes it applies to; a transform that does not span its " +
   "axes cannot be applied by a reader.";
 
-for (const values of [[2.0, 2.0], [2.0, 2.0, 2.0, 2.0]]) {
-  Deno.test(`a transform of ${values.length} values over 3 axes is refused`, () => {
+for (const values of [
+  [2.0, 2.0],
+  [2.0, 2.0, 2.0, 2.0],
+]) {
+  test(`a transform of ${values.length} values over 3 axes is refused`, () => {
     // The 0.4 and 0.5 models validate nothing of their own and the schemas
     // constrain what these vectors hold, not how many. Short and long both.
     const metadata = buildMetadata([space("z"), space("y"), space("x")]);
@@ -228,7 +228,7 @@ for (const values of [[2.0, 2.0], [2.0, 2.0, 2.0, 2.0]]) {
   });
 }
 
-Deno.test("a dataset-level transform is checked too", () => {
+test("a dataset-level transform is checked too", () => {
   const metadata = buildMetadata([space("z"), space("y"), space("x")]);
   metadata.datasets[0].coordinateTransformations = [createScale([2.0, 2.0])];
   assertThrows(
@@ -238,22 +238,24 @@ Deno.test("a dataset-level transform is checked too", () => {
   );
 });
 
-Deno.test("a transform naming a coordinate system spans that system", () => {
+test("a transform naming a coordinate system spans that system", () => {
   const metadata = buildMetadata([space("y"), space("x")]);
   metadata.coordinateSystems = [
     { name: "intrinsic", axes: metadata.axes },
     { name: "volume", axes: [space("z"), space("y"), space("x")] },
   ];
-  metadata.coordinateTransformations = [{
-    type: "scale",
-    scale: [1.0, 1.0, 1.0],
-    input: { name: "volume" },
-    output: { name: "volume" },
-  }];
+  metadata.coordinateTransformations = [
+    {
+      type: "scale",
+      scale: [1.0, 1.0, 1.0],
+      input: { name: "volume" },
+      output: { name: "volume" },
+    },
+  ];
   buildRootDocument(metadata, "0.6");
 });
 
-Deno.test("the first system spans the axes the writer serializes", () => {
+test("the first system spans the axes the writer serializes", () => {
   // `buildV06MultiscalesEntry` writes the first coordinate system from
   // `metadata.axes`, so a vector is checked against those axes, not against
   // the axes the system declares.
@@ -261,12 +263,14 @@ Deno.test("the first system spans the axes the writer serializes", () => {
   metadata.coordinateSystems = [
     { name: "intrinsic", axes: [space("z"), space("y"), space("x")] },
   ];
-  metadata.coordinateTransformations = [{
-    type: "scale",
-    scale: [1.0, 1.0, 1.0],
-    input: { name: "intrinsic" },
-    output: { name: "intrinsic" },
-  }];
+  metadata.coordinateTransformations = [
+    {
+      type: "scale",
+      scale: [1.0, 1.0, 1.0],
+      input: { name: "intrinsic" },
+      output: { name: "intrinsic" },
+    },
+  ];
   assertThrows(
     () => buildRootDocument(metadata, "0.6"),
     Error,
@@ -274,7 +278,7 @@ Deno.test("the first system spans the axes the writer serializes", () => {
   );
 });
 
-Deno.test("the browser reader routes a 0.9.dev1 store through the v0.6 reader", async () => {
+test("the browser reader routes a 0.9.dev1 store through the v0.6 reader", async () => {
   // The browser build dispatched on `isV06Version` alone, which does not cover
   // 0.9.dev1, so a store this package's own 0.9 writer produced fell through to
   // the v0.4/v0.5 parser and failed on its absent flat `axes`.
@@ -300,7 +304,7 @@ Deno.test("the browser reader routes a 0.9.dev1 store through the v0.6 reader", 
   assertEquals(read.metadata.version, "0.9.dev1");
 });
 
-Deno.test("0.9.dev1 round-trip goes through the v0.6 reader", async () => {
+test("0.9.dev1 round-trip goes through the v0.6 reader", async () => {
   // `isV06Version` does not cover 0.9.dev1, so a store tagged 0.9.dev1 would
   // otherwise fall through to the v0.4 reader and fail on its coordinate
   // systems.

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
-import { assertEquals, assertThrows } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertThrows } from "./_assert.ts";
 import {
   AffineTransformationSchema,
   AnatomicalOrientationSchema,
@@ -21,7 +22,7 @@ import {
 } from "../src/schemas/index.ts";
 
 // RFC4 Tests
-Deno.test("AnatomicalOrientationValuesSchema validation", () => {
+test("AnatomicalOrientationValuesSchema validation", () => {
   const validValues = [
     "left-to-right",
     "right-to-left",
@@ -43,11 +44,11 @@ Deno.test("AnatomicalOrientationValuesSchema validation", () => {
   });
 
   assertThrows(() =>
-    AnatomicalOrientationValuesSchema.parse("invalid-orientation")
+    AnatomicalOrientationValuesSchema.parse("invalid-orientation"),
   );
 });
 
-Deno.test("AnatomicalOrientationSchema validation", () => {
+test("AnatomicalOrientationSchema validation", () => {
   const validOrientation = {
     type: "anatomical",
     value: "left-to-right",
@@ -60,11 +61,11 @@ Deno.test("AnatomicalOrientationSchema validation", () => {
   // Test missing fields
   assertThrows(() => AnatomicalOrientationSchema.parse({ type: "anatomical" }));
   assertThrows(() =>
-    AnatomicalOrientationSchema.parse({ value: "left-to-right" })
+    AnatomicalOrientationSchema.parse({ value: "left-to-right" }),
   );
 });
 
-Deno.test("SpaceAxisSchema validation", () => {
+test("SpaceAxisSchema validation", () => {
   const validSpaceAxis = {
     name: "x",
     type: "space",
@@ -94,7 +95,7 @@ Deno.test("SpaceAxisSchema validation", () => {
   assertEquals(result2.orientation, undefined);
 });
 
-Deno.test("SpaceAxisSchema validation - invalid names", () => {
+test("SpaceAxisSchema validation - invalid names", () => {
   const invalidSpaceAxis = {
     name: "t", // time axis name not allowed for space
     type: "space",
@@ -104,7 +105,7 @@ Deno.test("SpaceAxisSchema validation - invalid names", () => {
   assertThrows(() => SpaceAxisSchema.parse(invalidSpaceAxis));
 });
 
-Deno.test("TimeAxisSchema validation", () => {
+test("TimeAxisSchema validation", () => {
   const validTimeAxis = {
     name: "t",
     type: "time",
@@ -127,7 +128,7 @@ Deno.test("TimeAxisSchema validation", () => {
   assertEquals(result2.unit, "millisecond");
 });
 
-Deno.test("ChannelAxisSchema validation", () => {
+test("ChannelAxisSchema validation", () => {
   const validChannelAxis = {
     name: "c",
     type: "channel",
@@ -142,12 +143,12 @@ Deno.test("ChannelAxisSchema validation", () => {
     ChannelAxisSchema.parse({
       name: "x",
       type: "channel",
-    })
+    }),
   );
 });
 
 // RFC5 Tests
-Deno.test("ScaleTransformationSchema validation", () => {
+test("ScaleTransformationSchema validation", () => {
   const validScale = {
     type: "scale",
     scale: [0.5, 1.2, 0.8],
@@ -178,11 +179,11 @@ Deno.test("ScaleTransformationSchema validation", () => {
       type: "scale",
       input: "array_coords",
       output: "physical_coords",
-    })
+    }),
   );
 });
 
-Deno.test("TranslationTransformationSchema validation", () => {
+test("TranslationTransformationSchema validation", () => {
   const validTranslation = {
     type: "translation",
     translation: [10.0, 20.0, 0.0],
@@ -195,7 +196,7 @@ Deno.test("TranslationTransformationSchema validation", () => {
   assertEquals(result.translation, [10.0, 20.0, 0.0]);
 });
 
-Deno.test("AffineTransformationSchema validation", () => {
+test("AffineTransformationSchema validation", () => {
   const validAffine = {
     type: "affine",
     affine: [
@@ -214,7 +215,7 @@ Deno.test("AffineTransformationSchema validation", () => {
   assertEquals(result.affine?.[0].length, 4);
 });
 
-Deno.test("CoordinateSystemSchema validation", () => {
+test("CoordinateSystemSchema validation", () => {
   const validCoordinateSystem = {
     name: "physical_coords",
     axes: [
@@ -233,11 +234,11 @@ Deno.test("CoordinateSystemSchema validation", () => {
     CoordinateSystemSchema.parse({
       name: "",
       axes: [],
-    })
+    }),
   );
 });
 
-Deno.test("SequenceTransformationSchema validation", () => {
+test("SequenceTransformationSchema validation", () => {
   const validSequence = {
     type: "sequence",
     transformations: [
@@ -253,7 +254,7 @@ Deno.test("SequenceTransformationSchema validation", () => {
   assertEquals(result.transformations.length, 2);
 });
 
-Deno.test("CoordinateTransformationSchema union validation", () => {
+test("CoordinateTransformationSchema union validation", () => {
   // Test that union accepts scale transformation
   const scaleTransform = {
     type: "scale",
@@ -281,12 +282,12 @@ Deno.test("CoordinateTransformationSchema union validation", () => {
     CoordinateTransformationSchema.parse({
       type: "invalid_type",
       data: [1, 2, 3],
-    })
+    }),
   );
 });
 
 // Enhanced metadata tests with RFC4 support
-Deno.test("Enhanced AxisSchema with orientation", () => {
+test("Enhanced AxisSchema with orientation", () => {
   const spaceAxisWithOrientation = {
     name: "x",
     type: "space",
@@ -305,7 +306,7 @@ Deno.test("Enhanced AxisSchema with orientation", () => {
   assertEquals(result.orientation?.value, "left-to-right");
 });
 
-Deno.test("Enhanced MetadataSchema with RFC4 and RFC5 features", () => {
+test("Enhanced MetadataSchema with RFC4 and RFC5 features", () => {
   const enhancedMetadata = {
     axes: [
       { name: "c", type: "channel" },

@@ -21,7 +21,7 @@
  *
  * Run from the `ts/` directory:
  *
- *     deno run examples/validate_structural_demo.ts
+ *     node examples/validate_structural_demo.ts
  *
  * The process exits non-zero if the valid metadata is rejected, if any broken
  * copy fails to raise, or if a raised rule does not match the expected one, so
@@ -244,5 +244,5 @@ function main(): number {
 }
 
 if (import.meta.main) {
-  Deno.exit(main());
+  process.exit(main());
 }
