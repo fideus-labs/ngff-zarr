@@ -1392,10 +1392,11 @@ def _conformance_main(argv: list[str] | None = None) -> None:
 def _transform_points_main(argv: list[str] | None = None) -> None:
     """Handle the ``ngff-zarr transform-points`` subcommand.
 
-    Maps the points of a JSON file (a list of points, each in the order of the
-    transformation's input axes) through one transformation of an OME-Zarr
-    0.6 scene, and prints them as JSON, for a conformance driver to compare
-    with a store's expected answers.
+    Maps the points of a JSON file (a list of points, each a position along the
+    spatial axes of the transformation's input coordinate system, in their
+    units and order) through one transformation of an OME-Zarr 0.6 scene, and
+    prints them as JSON, for a conformance driver to compare with a store's
+    expected answers.
     """
     import json
 
@@ -1407,7 +1408,12 @@ def _transform_points_main(argv: list[str] | None = None) -> None:
 
     parser = argparse.ArgumentParser(prog="ngff-zarr transform-points")
     parser.add_argument("scene", help="OME-Zarr 0.6 scene store (directory or .ozx)")
-    parser.add_argument("points", help="JSON file: a list of points")
+    parser.add_argument(
+        "points",
+        help="JSON file: a list of points, each along the spatial axes of the "
+        "transformation's input coordinate system (their units and order, not "
+        "array indices)",
+    )
     parser.add_argument(
         "--transform",
         type=int,
