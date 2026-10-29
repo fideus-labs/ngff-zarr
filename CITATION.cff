@@ -1,0 +1,82 @@
+# SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
+# SPDX-License-Identifier: MIT
+cff-version: 1.2.0
+message: If you use ngff-zarr, please cite the SciPy Proceedings paper below.
+type: software
+title: ngff-zarr
+abstract: >-
+  A lean and kind OME-Zarr toolkit for bioimaging, with Python and
+  TypeScript packages and a Model Context Protocol server for AI agents.
+authors:
+  - family-names: McCormick
+    given-names: Matt
+    orcid: https://orcid.org/0000-0001-9475-3756
+    affiliation: Fideus Labs LLC
+  - family-names: Soltwedel
+    given-names: Johannes
+    orcid: https://orcid.org/0000-0003-1273-2412
+    affiliation: German BioImaging e.V.
+  - family-names: Vierdag
+    given-names: Wouter-Michiel
+    orcid: https://orcid.org/0000-0003-1666-5421
+    affiliation: Cellonautica Inc, scverse
+  - family-names: Boussot
+    given-names: Valentin
+    orcid: https://orcid.org/0009-0003-2465-5458
+    affiliation: Fideus Labs LLC
+  - family-names: Moore
+    given-names: Josh
+    orcid: https://orcid.org/0000-0003-4028-811X
+    affiliation: German BioImaging e.V.
+repository-code: https://github.com/fideus-labs/ngff-zarr
+url: https://ngff-zarr.readthedocs.io
+license: MIT
+keywords:
+  - OME-Zarr
+  - NGFF
+  - Zarr
+  - bioimaging
+  - multiscale
+identifiers:
+  - type: doi
+    value: 10.25080/gewj5574
+    description: SciPy Proceedings paper
+  - type: doi
+    value: 10.5281/zenodo.8092821
+    description: Archived software releases on Zenodo
+preferred-citation:
+  type: conference-paper
+  title: "ngff-zarr: A Lean and Kind OME-Zarr Toolkit for Bioimaging"
+  authors:
+    - family-names: McCormick
+      given-names: Matt
+      orcid: https://orcid.org/0000-0001-9475-3756
+      affiliation: Fideus Labs LLC
+    - family-names: Soltwedel
+      given-names: Johannes
+      orcid: https://orcid.org/0000-0003-1273-2412
+      affiliation: German BioImaging e.V.
+    - family-names: Vierdag
+      given-names: Wouter-Michiel
+      orcid: https://orcid.org/0000-0003-1666-5421
+      affiliation: Cellonautica Inc, scverse
+    - family-names: Boussot
+      given-names: Valentin
+      orcid: https://orcid.org/0009-0003-2465-5458
+      affiliation: Fideus Labs LLC
+    - family-names: Moore
+      given-names: Josh
+      orcid: https://orcid.org/0000-0003-4028-811X
+      affiliation: German BioImaging e.V.
+  collection-title: Proceedings of the 25th Python in Science Conference
+  conference:
+    name: Python in Science Conference (SciPy 2026)
+  publisher:
+    name: SciPy
+  issn: 2575-9752
+  start: 295
+  end: 302
+  year: 2026
+  month: 7
+  doi: 10.25080/gewj5574
+  url: https://doi.org/10.25080/gewj5574

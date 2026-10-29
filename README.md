@@ -8,7 +8,7 @@
 [![npm - Version](https://img.shields.io/npm/v/@fideus-labs/ngff-zarr.svg)](https://www.npmjs.com/package/@fideus-labs/ngff-zarr)
 [![Typescript CI Testing](https://github.com/fideus-labs/ngff-zarr/actions/workflows/typescript.yml/badge.svg)](https://github.com/fideus-labs/ngff-zarr/actions/workflows/typescript.yml)
 [![MCP CI Testing](https://github.com/fideus-labs/ngff-zarr/actions/workflows/mcp-ci.yml/badge.svg)](https://github.com/fideus-labs/ngff-zarr/actions/workflows/mcp-ci.yml)
-[![DOI](https://zenodo.org/badge/541840158.svg)](https://zenodo.org/badge/latestdoi/541840158)
+[![DOI](https://img.shields.io/badge/DOI-10.25080%2Fgewj5574-blue)](https://doi.org/10.25080/gewj5574)
 [![Documentation Status](https://readthedocs.org/projects/ngff-zarr/badge/?version=latest)](https://ngff-zarr.readthedocs.io/en/latest/?badge=latest)
 
 ---
@@ -184,6 +184,30 @@ on an issue or pull request.
 <!-- prettier-ignore-end -->
 
 <!-- ALL-CONTRIBUTORS-LIST:END -->
+
+## Citation
+
+If you use ngff-zarr in your work, please cite the
+[SciPy Proceedings paper](https://doi.org/10.25080/gewj5574):
+
+> McCormick, M., Soltwedel, J., Vierdag, W.-M., Boussot, V., & Moore, J.
+> (2026). ngff-zarr: A Lean and Kind OME-Zarr Toolkit for Bioimaging. In
+> _Proceedings of the 25th Python in Science Conference_ (pp. 295-302).
+> https://doi.org/10.25080/gewj5574
+
+```bibtex
+@inproceedings{mccormick2026ngffzarr,
+  title     = {ngff-zarr: A Lean and Kind OME-Zarr Toolkit for Bioimaging},
+  author    = {McCormick, Matt and Soltwedel, Johannes and Vierdag, Wouter-Michiel and Boussot, Valentin and Moore, Josh},
+  booktitle = {Proceedings of the 25th Python in Science Conference},
+  pages     = {295--302},
+  year      = {2026},
+  doi       = {10.25080/gewj5574},
+}
+```
+
+The same reference is in [`CITATION.cff`](./CITATION.cff), which GitHub shows as
+"Cite this repository".
 
 ## See also
 
