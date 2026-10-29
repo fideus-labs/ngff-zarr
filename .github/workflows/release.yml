@@ -27,7 +27,7 @@ jobs:
       url: https://pypi.org/p/ngff-zarr
     permissions:
       contents: write  # Required to create releases
-      id-token: write  # Required for trusted publishing (PyPI, NPM, JSR via OIDC)
+      id-token: write  # Required for trusted publishing (PyPI, NPM via OIDC)
 
     steps:
       - name: Checkout repository
@@ -154,50 +154,27 @@ jobs:
       # TypeScript Package Build (ts/)
       # ============================================================================
 
-      - name: Setup pixi (for Python test data)
-        if: steps.identify.outputs.project == 'ts'
-        uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11
-        with:
-          manifest-path: ./py/pyproject.toml
-          pixi-version: v0.69.0
-          frozen: true
-
-      - name: Install pixi environment (for TypeScript build)
-        if: steps.identify.outputs.project == 'ts'
-        run: pixi install --frozen
-        working-directory: ts
-
-      - name: Install deno (for TypeScript package)
-        if: steps.identify.outputs.project == 'ts'
-        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed  # v2.0.5
-        with:
-          deno-version: v2.x
-
       - name: Setup Node.js (for NPM package)
         if: steps.identify.outputs.project == 'ts'
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: ts/package-lock.json
 
-      - name: Download test data
-        if: steps.identify.outputs.project == 'ts'
-        run: pixi run -e test download-test-data
-        working-directory: py
-
-      - name: Build TypeScript packages
+      - name: Build TypeScript package
         if: steps.identify.outputs.project == 'ts'
         working-directory: ts
         run: |
-          echo "🔨 Building TypeScript/Deno package..."
-          pixi run build
-          echo "✅ Deno build complete"
+          echo "📦 Installing dependencies..."
+          npm ci
+          echo "✅ Dependencies installed"
 
           echo "🔨 Building NPM package..."
-          pixi run build-npm
+          npm run build:bundle
           echo "✅ NPM build complete"
 
           echo "📦 Creating NPM tarball..."
-          cd npm
           npm pack
           echo "✅ NPM tarball created"
 
@@ -207,8 +184,8 @@ jobs:
       - name: Verify TypeScript package artifacts
         if: steps.identify.outputs.project == 'ts'
         run: |
-          if [ ! -d "ts/npm" ] || [ -z "$(ls -A ts/npm/*.tgz 2>/dev/null)" ]; then
-            echo "❌ Error: No NPM tarball found in ts/npm/"
+          if [ -z "$(ls -A ts/*.tgz 2>/dev/null)" ]; then
+            echo "❌ Error: No NPM tarball found in ts/"
             exit 1
           fi
           echo "✅ TypeScript package artifacts verified"
@@ -262,7 +239,7 @@ jobs:
           prerelease: ${{ steps.identify.outputs.prerelease }}
           files: |
             ${{ steps.identify.outputs.project == 'py' && 'py/dist/*' || '' }}
-            ${{ steps.identify.outputs.project == 'ts' && 'ts/npm/*.tgz' || '' }}
+            ${{ steps.identify.outputs.project == 'ts' && 'ts/*.tgz' || '' }}
             ${{ steps.identify.outputs.project == 'mcp' && 'mcp/dist/*' || '' }}
           fail_on_unmatched_files: true
         env:
@@ -307,16 +284,8 @@ jobs:
 
       - name: Publish to NPM
         if: steps.identify.outputs.project == 'ts'
-        working-directory: ts/npm
+        working-directory: ts
         run: |
           # Trusted publishing (OIDC) needs npm >= 11.5.1.
           npm install -g npm@12.2.0
           npm publish --provenance --access public
-
-      # --- TypeScript Package Publishing (JSR - OIDC) ---
-
-      - name: Publish to JSR
-        if: steps.identify.outputs.project == 'ts'
-        working-directory: ts
-        run: |
-          deno publish --allow-dirty
