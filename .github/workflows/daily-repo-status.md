@@ -23,6 +23,7 @@ network: defaults
 engine:
   id: copilot
   model: gpt-5-mini
+  version: "1.0.98"
 
 tools:
   cli-proxy: false

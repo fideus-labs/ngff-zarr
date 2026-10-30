@@ -34,6 +34,7 @@ emoji: 📝
 engine:
   id: copilot
   model: gpt-5-mini
+  version: "1.0.98"
 name: Daily Documentation Updater
 strict: true
 timeout-minutes: 45
