@@ -62,4 +62,6 @@ description = "Check current package version"
 
 [tasks.bump]
 cmd = "../py/.pixi/envs/lint/bin/cz bump"
+# The pre_bump_hooks in .cz.toml format CHANGELOG.md with the local `vp`.
+depends-on = ["install"]
 description = "Bump TypeScript package version"
