@@ -20,8 +20,18 @@ import type {
   SetWorkerOptions,
 } from "@fideus-labs/fizarrita";
 import { getWorker, setWorker } from "@fideus-labs/fizarrita";
-import type { WorkerLike, WorkerPoolTask } from "@fideus-labs/worker-pool";
-import { WorkerPool } from "@fideus-labs/worker-pool";
+import type {
+  WorkerLike,
+  WorkerPoolProgressCallback,
+  WorkerPoolRunTasksOptions,
+  WorkerPoolRunTasksResult,
+  WorkerPoolTask,
+} from "@fideus-labs/worker-pool";
+import {
+  isNodeRuntime,
+  NodeWorker,
+  WorkerPool,
+} from "@fideus-labs/worker-pool";
 import type {
   Array as ZarrArray,
   Chunk,
@@ -36,6 +46,7 @@ import { registry } from "zarrita";
 
 import { installBloscShuffleNormalization } from "./blosc_registry.ts";
 import type { CodecRegistry } from "./blosc_registry.ts";
+import { runtimeSpecifier } from "./runtime_specifier.ts";
 import { config } from "../config.ts";
 
 // Chunk encoding normally happens in a codec worker (which installs this
@@ -55,29 +66,66 @@ type AnyZarrArray = any;
 const USE_SHARED_ARRAY_BUFFER = typeof SharedArrayBuffer !== "undefined";
 
 /**
- * Codec worker script backing the codec pool.
+ * Spawn this package's codec worker for the current runtime.
  *
- * This project's own worker rather than fizarrita's bundled one: it
- * speaks the same protocol but additionally normalizes Zarr v3 string
- * blosc shuffle modes — see {@link ./blosc_registry.ts}. Kept as a
- * single `new URL(..., import.meta.url)` expression so bundlers can
- * trace it, and so `scripts/inline_worker.ts` can swap in a blob URL for
- * the self-contained browser bundle.
+ * This project's own worker rather than fizarrita's bundled one: it speaks
+ * the same protocol but additionally normalizes Zarr v3 string blosc shuffle
+ * modes — see {@link ./blosc_registry.ts}. The codec pool here and the OMERO
+ * pool in `compute_omero.ts` both spawn through this function, so the package
+ * has one `new Worker(new URL(..., import.meta.url), { type: "module" })`
+ * expression: the form bundlers recognise as a worker entry point. The Node
+ * branch keeps its path behind {@link runtimeSpecifier} for the opposite
+ * reason — bundlers targeting the browser then leave it alone. This mirrors
+ * fizarrita's `createDefaultWorker`.
  */
-const CODEC_WORKER_URL = new URL(
-  "../workers/omero_codec_worker.ts",
-  import.meta.url,
-);
+export function createCodecWorker(): WorkerLike {
+  if (typeof Worker !== "undefined") {
+    return new Worker(
+      new URL("../workers/omero_codec_worker.ts", import.meta.url),
+      { type: "module" },
+    );
+  }
+  if (isNodeRuntime()) {
+    const nodeEntry = runtimeSpecifier("../workers/omero_codec_worker.ts");
+    return new NodeWorker(new URL(nodeEntry, import.meta.url));
+  }
+  throw new Error(
+    "No Worker implementation available: this runtime has no global `Worker` " +
+      "and is not Node.",
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Codec pool — used by getWorker/setWorker for codec operations
 // ---------------------------------------------------------------------------
 
+/**
+ * A pool whose tasks never see an empty slot.
+ *
+ * fizarrita fills an empty slot itself, from its `workerUrl` option, inside
+ * its own module — a spawn no consumer's bundler can trace. Filling the slot
+ * here keeps {@link createCodecWorker} the only spawn site. A caller-supplied
+ * `pool` in `opts` bypasses this and gets fizarrita's stock worker.
+ */
+class CodecWorkerPool extends WorkerPool {
+  override runTasks<T>(
+    taskFns: Array<WorkerPoolTask<T>>,
+    progressCallback?: WorkerPoolProgressCallback | null,
+    options?: WorkerPoolRunTasksOptions,
+  ): WorkerPoolRunTasksResult<T> {
+    return super.runTasks(
+      taskFns.map((task) => (worker) => task(worker ?? createCodecWorker())),
+      progressCallback,
+      options,
+    );
+  }
+}
+
 let _codecPool: WorkerPool | null = null;
 
 function getCodecPool(): WorkerPool {
   if (!_codecPool) {
-    _codecPool = new WorkerPool(config.workerPoolSize);
+    _codecPool = new CodecWorkerPool(config.workerPoolSize);
   }
   return _codecPool;
 }
@@ -151,7 +199,6 @@ export async function zarrGet<
   try {
     const mergedOpts: GetWorkerOptions<unknown> = {
       pool: getCodecPool(),
-      workerUrl: CODEC_WORKER_URL,
       useSharedArrayBuffer: USE_SHARED_ARRAY_BUFFER,
       ...opts,
     };
@@ -195,7 +242,6 @@ export async function zarrSet<D extends DataType>(
   try {
     const mergedOpts: SetWorkerOptions = {
       pool: getCodecPool(),
-      workerUrl: CODEC_WORKER_URL,
       useSharedArrayBuffer: USE_SHARED_ARRAY_BUFFER,
       ...opts,
     };

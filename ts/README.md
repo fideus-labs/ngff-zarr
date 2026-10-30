@@ -30,6 +30,11 @@ npm install @fideus-labs/ngff-zarr
 import * as ngffZarr from "@fideus-labs/ngff-zarr";
 ```
 
+The codec worker ships as a separate file in `dist/workers/` and is spawned
+with `new Worker(new URL("../workers/omero_codec_worker.js", import.meta.url), { type: "module" })`,
+the form bundlers such as Vite and webpack 5 recognise as a worker entry
+point and emit alongside your bundle without configuration.
+
 ## Quick Start
 
 ### Reading OME-Zarr files

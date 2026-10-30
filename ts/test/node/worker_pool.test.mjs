@@ -10,10 +10,9 @@
  * and this package's codec worker gained a Node branch; these tests exercise
  * that path end to end, in the runtime it was broken in.
  *
- * Run with `npm run test:node`, which first produces the published form of
- * `dist/` (`npm run build:bundle`), where `scripts/inline_worker.ts` has
- * inlined the worker as a `blob:` URL for browsers; these tests confirm the
- * Node branch still reaches the worker file in that form.
+ * Run with `npm run test:node`, which first runs `npm run build`: the clean
+ * `dist/` that `npm pack` ships, where the worker is a file beside the pool
+ * module and is spawned through `node:worker_threads`.
  */
 
 import assert from "node:assert/strict";

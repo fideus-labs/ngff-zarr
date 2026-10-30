@@ -39,7 +39,6 @@ import { registry } from "zarrita";
 
 import { installBloscShuffleNormalization } from "../utils/blosc_registry.ts";
 import type { CodecRegistry } from "../utils/blosc_registry.ts";
-import { runtimeSpecifier } from "../utils/runtime_specifier.ts";
 import {
   createAccumulator,
   extractChannel,
@@ -303,10 +302,10 @@ if (workerScope !== undefined) {
     );
   });
 } else if (isNodeRuntime()) {
-  const specifier = runtimeSpecifier("node:worker_threads");
-  const { parentPort } = await import(
-    /* @vite-ignore */ /* webpackIgnore: true */ specifier
-  );
+  // Synchronous, so the module has no top-level await and bundles as a plain
+  // (iife) worker, which is Vite's default; a static import would drag
+  // `node:worker_threads` into browser builds. Node 22.3+, below the floor.
+  const { parentPort } = process.getBuiltinModule("node:worker_threads");
 
   if (parentPort === null) {
     throw new Error(
@@ -317,9 +316,7 @@ if (workerScope !== undefined) {
 
   // A MessagePort queues incoming messages until the first 'message' listener
   // is attached, so nothing posted before this module finishes evaluating is
-  // lost. Awaiting here rather than chaining `.then()` keeps a failed startup
-  // a rejection of the module's own evaluation, instead of an unhandled
-  // rejection beside a worker that silently answers nothing.
+  // lost.
   parentPort.on("message", async (msg: WorkerMessage) => {
     const reply = await handleMessage(msg);
     if (!reply) return;

@@ -19,7 +19,7 @@ NGFF-Zarr provides a TypeScript implementation for working with OME-Zarr data st
 
 ### npm (Node.js and Bundlers)
 
-For traditional Node.js projects and bundlers like webpack, Vite, or esbuild:
+For Node.js projects and bundlers such as Vite or webpack:
 
 ```bash
 npm install @fideus-labs/ngff-zarr
@@ -28,6 +28,11 @@ npm install @fideus-labs/ngff-zarr
 ```typescript
 import * as ngffZarr from "@fideus-labs/ngff-zarr";
 ```
+
+The codec worker ships as a separate file in `dist/workers/` and is spawned
+with `new Worker(new URL("../workers/omero_codec_worker.js", import.meta.url), { type: "module" })`,
+the form bundlers such as Vite and webpack 5 recognise as a worker entry
+point and emit alongside your bundle without configuration.
 
 ### Browser (CDN)
 

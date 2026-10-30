@@ -170,11 +170,8 @@ jobs:
           npm ci
           echo "✅ Dependencies installed"
 
-          echo "🔨 Building NPM package..."
-          npm run build:bundle
-          echo "✅ NPM build complete"
-
-          echo "📦 Creating NPM tarball..."
+          echo "📦 Building and packing the NPM package..."
+          # `npm pack` runs the `prepack` script, which builds a clean dist/.
           npm pack
           echo "✅ NPM tarball created"
 

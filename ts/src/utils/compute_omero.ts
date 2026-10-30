@@ -16,15 +16,10 @@ import {
   readArrayMetadata,
 } from "@fideus-labs/fizarrita";
 import type { WorkerLike, WorkerPoolTask } from "@fideus-labs/worker-pool";
-import {
-  isNodeRuntime,
-  NodeWorker,
-  WorkerPool,
-} from "@fideus-labs/worker-pool";
+import { WorkerPool } from "@fideus-labs/worker-pool";
 import type { Array as ZarrArray, DataType, Readable } from "zarrita";
 
 import { config } from "../config.ts";
-import { runtimeSpecifier } from "../utils/runtime_specifier.ts";
 import type { NgffMultiscales } from "../types/multiscales.ts";
 import type { NgffImage } from "../types/ngff_image.ts";
 import type { Omero } from "../types/zarr_metadata.ts";
@@ -41,6 +36,7 @@ import {
   validateQuantiles,
 } from "./compute_omero-shared.ts";
 import { workerDecodeAndStats } from "./omero_worker_rpc.ts";
+import { createCodecWorker } from "./worker_pool.ts";
 
 // Re-export shared utilities for backward compatibility
 export {
@@ -66,34 +62,6 @@ function getOmeroPool(): WorkerPool {
     _omeroPool = new WorkerPool(config.workerPoolSize);
   }
   return _omeroPool;
-}
-
-/**
- * Create a new omero codec worker instance for the current runtime.
- *
- * The browser branch is written as a single
- * `new Worker(new URL(..., import.meta.url), { type: "module" })` expression
- * so bundlers recognise it as a worker entry point (and so
- * `scripts/inline_worker.ts` can swap in a blob URL). The Node branch keeps
- * its URL behind {@link runtimeSpecifier} for the opposite reason — bundlers
- * targeting the browser then leave it alone. This mirrors fizarrita's
- * `createDefaultWorker`.
- */
-function createOmeroWorker(): WorkerLike {
-  if (typeof Worker !== "undefined") {
-    return new Worker(
-      new URL("../workers/omero_codec_worker.ts", import.meta.url),
-      { type: "module" },
-    );
-  }
-  if (isNodeRuntime()) {
-    const nodeEntry = runtimeSpecifier("../workers/omero_codec_worker.ts");
-    return new NodeWorker(new URL(nodeEntry, import.meta.url));
-  }
-  throw new Error(
-    "No Worker implementation available: this runtime has no global `Worker` " +
-      "and is not Node.",
-  );
 }
 
 /**
@@ -388,7 +356,7 @@ export async function computeOmeroFromNgffImage(
     }
 
     tasks.push(async (workerSlot: WorkerLike | null) => {
-      const worker = workerSlot ?? createOmeroWorker();
+      const worker = workerSlot ?? createCodecWorker();
 
       // Fetch raw bytes from store on main thread
       const rawBytes = await image.data.store.get(chunkPath);

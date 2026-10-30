@@ -71,18 +71,19 @@
   "scripts": {
     "build": "vp pack && node scripts/fix_worker_urls.ts",
     "build:bundle": "npm run build && node scripts/inline_worker.ts && esbuild dist/browser-mod.js --bundle --format=esm --platform=browser --minify --outfile=test/browser-npm/ngff-zarr.bundle.js",
+    "prepack": "npm run build",
     "check": "vp check",
     "typecheck": "tsc --noEmit",
     "lint": "vp lint",
     "fmt": "vp fmt",
     "fmt:check": "vp fmt --check",
     "test": "vp test",
-    "test:node": "npm run build:bundle && node --test \"test/node/*.test.mjs\"",
+    "test:node": "npm run build && node --test \"test/node/*.test.mjs\"",
     "test:browser": "node scripts/run_playwright.mjs",
     "test:browser:ui": "node scripts/run_playwright.mjs --ui",
     "test:browser:debug": "node scripts/run_playwright.mjs --debug",
     "test:browser:bundle": "npm run build:bundle && npm run test:browser",
-    "test:all": "npm test && npm run test:node && npm run test:browser"
+    "test:all": "npm test && npm run test:node && npm run test:browser:bundle"
   },
   "dependencies": {
     "@fideus-labs/fizarrita": "^3.0.0",

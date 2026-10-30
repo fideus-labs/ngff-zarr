@@ -50,8 +50,9 @@ cmd = "npm run test:node"
 cmd = "npm run test:all"
 
 [tasks.build-npm]
-# The publishable form of dist/: built, worker inlined for browsers, and the
-# self-contained browser bundle for test/browser-npm/.
+# The self-contained browser bundle for test/browser-npm/: builds dist/, then
+# inlines the worker into it in place. Not the published form; `npm pack`
+# rebuilds a clean dist/ first.
 cmd = "npm run build:bundle"
 
 [tasks.commit]
