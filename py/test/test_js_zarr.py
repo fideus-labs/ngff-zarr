@@ -16,7 +16,16 @@ from unittest.mock import Mock
 import dask.array as da
 import numpy as np
 import pytest
-from ngff_zarr import Methods, _js_zarr, _zarrista_utils, to_multiscales
+from ngff_zarr import (
+    Methods,
+    PlateWell,
+    Well,
+    WellImage,
+    _js_zarr,
+    _zarrista_utils,
+    hcs,
+    to_multiscales,
+)
 from ngff_zarr._js_zarr import (
     TYPED_ARRAYS,
     JsArrayAdapter,
@@ -365,6 +374,42 @@ def test_from_ome_zarr_routes_urls_to_the_js_store_on_pyodide(use_js, monkeypatc
         from_ome_zarr("https://example.org/a.zarr")
 
     assert ("https://example.org/a.zarr", "zarr.json") in asked
+
+
+def test_hcs_plates_read_urls_through_the_js_store_on_pyodide(use_js, monkeypatch):
+    monkeypatch.setattr(hcs, "_USE_JS", True)
+    asked = []
+
+    def getitem(self, key):
+        asked.append((self.source, key))
+        raise KeyError(key)
+
+    monkeypatch.setattr(JsZarrStore, "__getitem__", getitem)
+
+    with pytest.raises(ValueError, match="group"):
+        hcs.from_hcs_zarr("https://example.org/plate.zarr")
+
+    assert ("https://example.org/plate.zarr", "zarr.json") in asked
+
+
+def test_hcs_wells_open_fields_as_prefixed_js_store_views(monkeypatch):
+    opened = []
+    monkeypatch.setattr(
+        hcs, "from_ome_zarr", lambda store: opened.append(store) or store
+    )
+    well = hcs.HCSWell(
+        JsZarrStore("https://example.org/plate.zarr"),
+        "A/1",
+        PlateWell(path="A/1", rowIndex=0, columnIndex=0),
+        Well(images=[WellImage(path="0")]),
+    )
+
+    assert well.get_image(0) is opened[0]
+
+    assert (opened[0].source, opened[0].prefix) == (
+        "https://example.org/plate.zarr",
+        "A/1/0",
+    )
 
 
 def test_every_zarr_v3_dtype_has_a_typed_array():

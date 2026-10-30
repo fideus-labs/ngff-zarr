@@ -44,3 +44,32 @@ jobs:
         timeout-minutes: 40
         run: |
           cd py && pytest -v
+
+  pyodide:
+    # The package inside Pyodide, hosted by Node (JSPI needs Node >= 25):
+    # py/test/pyodide/run.mjs installs the wheel with micropip and runs
+    # test_pyodide.py against the @fideus-labs/ngff-zarr JS package.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: py/test/pyodide/package-lock.json
+
+      - name: Build the wheel
+        run: python -m pip wheel py/ -w py/dist --no-deps
+
+      - name: Run the Pyodide harness
+        run: |
+          cd py/test/pyodide
+          npm ci
+          node run.mjs

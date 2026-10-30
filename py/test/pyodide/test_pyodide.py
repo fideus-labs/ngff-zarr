@@ -15,7 +15,21 @@ from dask.base import get_scheduler
 from dask.local import get_sync
 from itkwasm.pyodide import JsPackageConfig
 from itkwasm_downsample_emscripten.js_package import js_package
-from ngff_zarr import from_ome_zarr, to_multiscales, to_ngff_image, to_ome_zarr
+from ngff_zarr import (
+    HCSPlate,
+    Plate,
+    PlateColumn,
+    PlateRow,
+    PlateWell,
+    from_hcs_zarr,
+    from_ome_zarr,
+    open_array,
+    to_hcs_zarr,
+    to_multiscales,
+    to_ngff_image,
+    to_ome_zarr,
+    write_hcs_well_image,
+)
 from ngff_zarr._js_zarr import JsZarrStore, create_js_array, open_js_array, open_js_lazy
 from pyodide.ffi import can_run_sync
 
@@ -138,5 +152,67 @@ for name, kwargs in (
 
 to_ome_zarr(out / "img.ozx", multiscales, version="0.5")
 check(from_ome_zarr(out / "img.ozx"))
+
+# Phase 5: every dtype through the public API, a metadata-only store filled
+# through open_array, and an HCS plate read by path and by URL.
+small = np.arange(4 * 6 * 8).reshape(4, 6, 8) % 5
+for dtype in (
+    "uint8",
+    "uint16",
+    "int16",
+    "int32",
+    "int64",
+    "float32",
+    "float64",
+    "bool",
+):
+    values = small.astype(dtype)
+    typed = to_multiscales(to_ngff_image(values), scale_factors=[], chunks=4)
+    for version in ("0.4", "0.5"):
+        path = out / f"{dtype}_{version}.ome.zarr"
+        to_ome_zarr(path, typed, version=version)
+        for source in (path, f"{http_base}/{path.name}"):
+            back = from_ome_zarr(source).images[0].data
+            assert back.dtype == values.dtype, (source, back.dtype)
+            np.testing.assert_array_equal(back.compute(), values)
+        level0 = zarr.open_group(str(path), mode="r")[typed.metadata.datasets[0].path]
+        np.testing.assert_array_equal(level0[:], values)
+
+level0_path = multiscales.metadata.datasets[0].path
+to_ome_zarr(out / "empty.ome.zarr", multiscales, version="0.5", metadata_only=True)
+level0 = open_array(out / "empty.ome.zarr", level0_path)
+assert level0.shape == volume.shape, level0.shape
+assert level0.chunks == (32, 32, 32), level0.chunks
+assert level0[:4, :4, :4].max() == 0
+level0[:32] = volume[:32]
+level0[32:] = volume[32:]
+np.testing.assert_array_equal(level0[:, 5], volume[:, 5])
+np.testing.assert_array_equal(
+    from_ome_zarr(out / "empty.ome.zarr").images[0].data.compute(), volume
+)
+np.testing.assert_array_equal(
+    open_array(f"{http_base}/empty.ome.zarr", level0_path)[:], volume
+)
+
+field = to_multiscales(to_ngff_image(volume[:16, :16, :16]), scale_factors=[], chunks=8)
+for version in ("0.4", "0.5"):
+    plate_path = str(out / f"plate_{version}.ome.zarr")
+    plate = Plate(
+        columns=[PlateColumn(name="1")],
+        rows=[PlateRow(name="A")],
+        wells=[PlateWell(path="A/1", rowIndex=0, columnIndex=0)],
+        name="Pyodide",
+        version=version,
+    )
+    to_hcs_zarr(HCSPlate(None, plate), plate_path)
+    write_hcs_well_image(plate_path, field, plate, "A", "1", version=version)
+    for source in (plate_path, f"{http_base}/plate_{version}.ome.zarr"):
+        read = from_hcs_zarr(source)
+        assert read.name == "Pyodide", read.name
+        assert [well.path for well in read.wells] == ["A/1"]
+        image = read.get_well("A", "1").get_image(0)
+        np.testing.assert_array_equal(
+            image.images[0].data.compute(), volume[:16, :16, :16]
+        )
 
 print(f"ngff_zarr {ngff_zarr.__version__} on Pyodide, Python {sys.version}")
