@@ -18,7 +18,7 @@ major_version_zero = true
 # commit and CI's `npm run fmt:check` stays green.
 pre_bump_hooks = [
     "npm install --package-lock-only --ignore-scripts --no-audit --no-fund",
-    "npx vp fmt CHANGELOG.md",
+    "npm run fmt -- CHANGELOG.md",
 ]
 
 [tool.commitizen.customize]

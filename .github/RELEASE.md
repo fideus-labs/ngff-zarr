@@ -69,8 +69,7 @@ pixi run -e lint bump
 
 # TypeScript package
 cd ts
-# Use commitizen from py's pixi environment
-../py/.pixi/envs/lint/bin/cz bump
+pixi run bump
 
 # MCP package
 cd mcp
