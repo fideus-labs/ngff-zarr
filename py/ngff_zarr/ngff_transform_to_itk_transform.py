@@ -338,13 +338,15 @@ def ngff_transform_to_itk_transform(
     A linear transformation is collapsed into a single ``Affine`` entry, so
     the result is independent of ITK's own list-composition order. A
     ``displacements`` or ``coordinates`` transformation becomes a single
-    ``DisplacementField`` entry built from the field passed in ``fields``.
+    ``DisplacementField`` entry built from the field passed in ``fields``. A
+    ``sequence`` holding either becomes one entry per stage, with consecutive
+    linear stages folded into one ``Affine``.
 
     :param transform: An RFC-5 (OME-Zarr v0.6) coordinate transformation:
         a linear mapping -- ``identity``, ``scale``, ``translation``,
         ``rotation``, ``affine``, ``mapAxis``, ``byDimension``, ``bijection``,
-        or a ``sequence`` of them -- or a ``displacements`` or ``coordinates``
-        transformation.
+        or a ``sequence`` of them -- a ``displacements`` or ``coordinates``
+        transformation, or a ``sequence`` mixing them with linear stages.
     :type  transform: Transform
 
     :param dims: The axis names of the coordinate system the transformation is
@@ -367,9 +369,20 @@ def ngff_transform_to_itk_transform(
     :param moving: See ``fixed``. Pass both or neither.
     :type  moving: NgffImage, optional
 
-    :return: A single-entry ITK-Wasm ``TransformList``.
+    :return: An ITK-Wasm ``TransformList``: a single entry, or one per stage
+        for a ``sequence`` with field stages.
     :rtype: list[itkwasm.Transform]
     """
+    if isinstance(transform, TransformSequence):
+        from .transform_chain import (
+            has_deformation,
+            ngff_transform_chain_to_itk_transform,
+        )
+
+        if has_deformation(transform):
+            return ngff_transform_chain_to_itk_transform(
+                transform, dims, fields=fields, fixed=fixed, moving=moving
+            )
     if isinstance(transform, (Displacements, Coordinates)):
         from .displacement_field_transform import (
             _fields_entry,

@@ -252,6 +252,46 @@ supported by this subcommand. The output is the canonical contract used by the
 so the suite's driver can be pointed straight at this command. The
 [RFC-4 documentation](./rfc4.md) lists the violation and warning codes.
 
+### Map points through an RFC-5 transformation
+
+The `ngff-zarr transform-points` subcommand maps points through one
+transformation of an OME-Zarr 0.6 scene and prints where they land:
+
+```shell
+ngff-zarr transform-points path/to/scene.ome.zarr points.json
+```
+
+`points.json` is a JSON list of points, each a position along the spatial axes
+of the transformation's input coordinate system, in their units and order, not
+an array index; time and channel axes are not mapped. The output gives the same
+points in the output coordinate system: the command follows the transformation
+from its input to its output, without inverting it. For a registration stored
+from the fixed image to the moving one, as `resample` reads it, the points are
+in the fixed image's physical space and land in the moving image's.
+`--transform N` picks the scene's N-th transformation (default 0); directory
+stores and `.ozx` archives are both accepted.
+
+For example, in a scene whose images have a scale of 2 × 0.5 × 0.5 micrometers
+and whose transformation records that the sample moved 2 micrometers along `y`
+and −1 along `x`:
+
+```json
+{"type": "affine",
+ "affine": [[1, 0, 0, 0.0], [0, 1, 0, 2.0], [0, 0, 1, -1.0]],
+ "input": {"path": "fixed", "name": "intrinsic"},
+ "output": {"path": "moving", "name": "intrinsic"}}
+```
+
+the fixed image's voxel `z=2, y=20, x=40` is the point `[4.0, 10.0, 20.0]`
+micrometers. With `points.json` holding `[[4.0, 10.0, 20.0]]`, the command
+prints:
+
+```json
+{"dims": ["z", "y", "x"], "points": [[4.0, 12.0, 19.0]]}
+```
+
+Passing the voxel index `[2, 20, 40]` instead would map another point.
+
 ### Read public OME-Zarr inputs from S3
 
 When the input is an OME-Zarr store on S3, the CLI passes fsspec

@@ -662,7 +662,10 @@ def itk_transform_to_ngff_transform(
         direction matrix derived from RFC-4 anatomical orientation; an RFC-5
         transformation acts on the intrinsic coordinate systems. Passing both
         images lets the conversion change frames exactly. Omitting them is
-        exact only when neither image carries an anatomical orientation.
+        exact only when neither image carries an anatomical orientation. An
+        oblique ITK direction has no RFC-4 form, so an image converted from
+        one is axis-aligned and the conversion cannot be exact
+        (``itk_image_to_ngff_image`` warns).
     :type  fixed: NgffImage, optional
 
     :param moving: See ``fixed``. Pass both or neither.
