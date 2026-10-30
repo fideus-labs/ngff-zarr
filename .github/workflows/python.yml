@@ -51,9 +51,13 @@ jobs:
     # test_pyodide.py against the @fideus-labs/ngff-zarr JS package.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@v6
         with:

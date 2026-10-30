@@ -645,7 +645,7 @@ def _fill_scalar(dtype: np.dtype, fill_value) -> np.ndarray:
     return np.asarray(fill_value, dtype=dtype)
 
 
-def _v3_fill_value(fill_scalar: np.ndarray):
+def _json_fill_value(fill_scalar: np.ndarray):
     """The ``fill_value`` JSON field: non-finite floats are spelled out."""
     value = fill_scalar.item()
     if isinstance(value, float) and not np.isfinite(value):
@@ -737,7 +737,7 @@ def _array_doc(
             "chunks": list(chunks),
             "dtype": dtype.str,
             "compressor": _compressor_to_v2_config(compressor, dtype),
-            "fill_value": fill_scalar.item(),
+            "fill_value": _json_fill_value(fill_scalar),
             "order": "C",
             "filters": None,
             "dimension_separator": dimension_separator,
@@ -805,7 +805,7 @@ def _array_doc(
         },
         "chunk_key_encoding": chunk_key_encoding
         or {"name": "default", "configuration": {"separator": "/"}},
-        "fill_value": _v3_fill_value(fill_scalar),
+        "fill_value": _json_fill_value(fill_scalar),
         "codecs": chain,
         "attributes": dict(attributes or {}),
     }

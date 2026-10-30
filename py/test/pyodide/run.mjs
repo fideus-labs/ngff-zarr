@@ -61,42 +61,43 @@ const server = createServer((req, res) => {
 await new Promise((listening) => server.listen(0, "127.0.0.1", listening));
 const httpBase = `http://127.0.0.1:${server.address().port}`;
 
-const pyodide = await loadPyodide({
-  env: {
-    NGFF_ZARR_HTTP_BASE: httpBase,
-    NGFF_ZARR_ITKWASM_MODULE: pathToFileURL(resolve(here, "itkwasm-downsample-node.mjs")).href,
-  },
-});
-pyodide.mountNodeFS("/mnt", dirname(wheel));
-pyodide.mountNodeFS("/out", outDir);
-// The npm build inlines its codec worker as a blob: URL, which Node's
-// worker_threads refuse; an undefined workerUrl makes fizarrita pick its
-// packaged node worker entry instead.
-const nodeWorker = { workerUrl: undefined };
-pyodide.registerJsModule("ngff_zarr_js", {
-  ...ngffZarr,
-  zarr,
-  zarrGet: (arr, sel, opts) =>
-    ngffZarr.zarrGet(arr, sel, { ...nodeWorker, ...opts }),
-  zarrSet: (arr, sel, value, opts) =>
-    ngffZarr.zarrSet(arr, sel, value, { ...nodeWorker, ...opts }),
-});
-await pyodide.loadPackage("micropip");
-const micropip = pyodide.pyimport("micropip");
-await micropip.install(`emfs:/mnt/${basename(wheel)}`);
-await micropip.install("zarr"); // reference reader for the bridge's output
+let status = 0;
 try {
+  const pyodide = await loadPyodide({
+    env: {
+      NGFF_ZARR_HTTP_BASE: httpBase,
+      NGFF_ZARR_ITKWASM_MODULE: pathToFileURL(resolve(here, "itkwasm-downsample-node.mjs")).href,
+    },
+  });
+  pyodide.mountNodeFS("/mnt", dirname(wheel));
+  pyodide.mountNodeFS("/out", outDir);
+  // The npm build inlines its codec worker as a blob: URL, which Node's
+  // worker_threads refuse; an undefined workerUrl makes fizarrita pick its
+  // packaged node worker entry instead.
+  const nodeWorker = { workerUrl: undefined };
+  pyodide.registerJsModule("ngff_zarr_js", {
+    ...ngffZarr,
+    zarr,
+    zarrGet: (arr, sel, opts) =>
+      ngffZarr.zarrGet(arr, sel, { ...nodeWorker, ...opts }),
+    zarrSet: (arr, sel, value, opts) =>
+      ngffZarr.zarrSet(arr, sel, value, { ...nodeWorker, ...opts }),
+  });
+  await pyodide.loadPackage("micropip");
+  const micropip = pyodide.pyimport("micropip");
+  await micropip.install(`emfs:/mnt/${basename(wheel)}`);
+  await micropip.install("zarr"); // reference reader for the bridge's output
   await pyodide.runPythonAsync(
     readFileSync(resolve(here, process.argv[3] ?? "test_pyodide.py"), "utf8"),
   );
+  console.log("pyodide harness: OK");
 } catch (error) {
   // The Python traceback is the useful part; Node's default handler would
   // also dump pyodide.asm.mjs's minified source line.
   console.error(error.message);
-  process.exit(1);
+  status = 1;
 } finally {
   server.close();
   rmSync(outDir, { recursive: true, force: true });
 }
-console.log("pyodide harness: OK");
-process.exit(0); // the codec worker threads would otherwise keep Node alive
+process.exit(status); // the codec worker threads would otherwise keep Node alive

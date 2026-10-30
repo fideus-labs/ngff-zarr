@@ -78,6 +78,7 @@ DOC_CASES = {
         "fill_value": 1.5,
     },
     "f32_nan_fill": {"dtype": "float32", "zarr_format": 3, "fill_value": np.nan},
+    "f32_nan_fill_v2": {"dtype": "float32", "zarr_format": 2, "fill_value": np.nan},
     "i64_gzip": {"dtype": "int64", "zarr_format": 3, "compressor": {"id": "gzip"}},
     "u16_chain": {
         "dtype": "uint16",
