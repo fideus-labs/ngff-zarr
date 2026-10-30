@@ -12,16 +12,29 @@ function's pipeline exists, its runs are independent (one wasmtime store
 each), so only the first call of each function is serialized.
 """
 
+import importlib
 import threading
 from collections.abc import Callable
 from typing import Any
+
+from ._zarrista_utils import _USE_JS
 
 _lock = threading.Lock()
 _ready: set[Callable] = set()
 
 
 def call_itkwasm(function: Callable, *args: Any, **kwargs: Any) -> Any:
-    """``function(*args, **kwargs)``, its first call in the process under a lock."""
+    """``function(*args, **kwargs)``, its first call in the process under a lock.
+
+    On Emscripten the packages implement only the ``<name>_async`` twins, which
+    await JavaScript; JSPI lets this synchronous call wait for them.
+    """
+    if _USE_JS:
+        from ._js_zarr import _block_on
+
+        package = importlib.import_module(function.__module__.partition(".")[0])
+        twin = getattr(package, f"{function.__name__}_async")
+        return _block_on(twin(*args, **kwargs))
     if function in _ready:
         return function(*args, **kwargs)
     with _lock:

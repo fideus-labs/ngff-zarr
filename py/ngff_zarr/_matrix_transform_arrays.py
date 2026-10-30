@@ -275,7 +275,10 @@ def resolve_matrix_transforms(
     ``path``. ``path`` resolves against the multiscales group at ``subpath``
     within ``store``, and is refused when it could reach outside that group.
     """
-    from zarrista.exceptions import ZarristaError
+    try:
+        from zarrista.exceptions import ZarristaError
+    except ImportError:  # Pyodide: no zarrista, the JS bridge raises OSError
+        ZarristaError = OSError
 
     from ._zarrista_utils import open_lazy_array
 

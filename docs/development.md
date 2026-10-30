@@ -179,6 +179,16 @@ Run a single test with pytest directly:
 pixi run -e test pytest test/test_to_multiscales.py::test_downsamples_when_size_is_exactly_double_chunk
 ```
 
+Run the package inside Pyodide, hosted by Node 25 or newer (JSPI on by
+default; Node 24 needs `--experimental-wasm-jspi`). The harness installs the
+built wheel with micropip, registers the `@fideus-labs/ngff-zarr` npm package
+as the `ngff_zarr_js` module and runs `py/test/pyodide/test_pyodide.py`:
+
+```bash
+pip wheel py/ -w py/dist --no-deps        # from the repository root
+cd py/test/pyodide && npm ci && node run.mjs
+```
+
 ### 🔌 MCP server (`mcp/`)
 
 ```bash
@@ -213,6 +223,9 @@ The pixi tasks alias the npm scripts in `ts/package.json`, which run
 - 🟦 **TypeScript**: Vitest (`vp test`), plus `node --test` against the built
   package and Playwright in real browsers
 - 🔌 **MCP**: pytest with async patterns
+- 🌐 **Pyodide**: `py/test/pyodide/run.mjs` runs `test_pyodide.py` in Pyodide
+  under Node against the JavaScript package; the `pyodide` job of the Python
+  workflow runs it in CI
 
 Run the tests before submitting a pull request to ensure nothing is broken. ✅
 

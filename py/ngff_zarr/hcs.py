@@ -25,6 +25,7 @@ from typing import Optional
 from ._remote_reader import RemoteZarrStore, remote_read_available
 from ._supported_versions import WRITABLE_VERSIONS, _zarr_format_for_version
 from ._zarrista_utils import (
+    _USE_JS,
     create_zarrista_group,
     create_zarrista_subgroup,
     open_ozx_store,
@@ -32,7 +33,7 @@ from ._zarrista_utils import (
 )
 from .from_ngff_zarr import REMOTE_URL_SCHEMES, _open_root_node, from_ome_zarr
 from .multiscales import NgffMultiscales
-from .rfc9_zip import ZipReadStore, is_ozx_path, write_store_to_zip
+from .rfc9_zip import is_ozx_path, write_store_to_zip
 from .scene import _check_image_path
 from .to_ngff_zarr import to_ome_zarr
 from .v04.zarr_metadata import (
@@ -316,15 +317,9 @@ class HCSWell:
 
         # Cache images to avoid reloading
         if image_path not in self._images:
-            if isinstance(self.store, RemoteZarrStore):
-                # A view of the same remote store narrowed to this field's
-                # sub-hierarchy, sharing the obstore client.
-                self._images[image_path] = from_ome_zarr(
-                    self.store.with_prefix(image_path)
-                )
-            elif isinstance(self.store, ZipReadStore):
-                # A view of the same archive narrowed to this field's
-                # sub-hierarchy; from_ome_zarr reads it as a mapping store.
+            if hasattr(self.store, "with_prefix"):
+                # A view of the same store (remote, .ozx archive, or the JS
+                # store on Pyodide) narrowed to this field's sub-hierarchy.
                 self._images[image_path] = from_ome_zarr(
                     self.store.with_prefix(image_path)
                 )
@@ -397,13 +392,15 @@ def from_hcs_zarr(
         store = open_ozx_store(store)
 
     # Remote plate URLs read through zarrista's async API over obstore
-    # (the zarr-python/fsspec engine remains the fallback).
-    if (
-        isinstance(store, str)
-        and store.startswith(REMOTE_URL_SCHEMES)
-        and remote_read_available()
-    ):
-        store = RemoteZarrStore(store)
+    # (the zarr-python/fsspec engine remains the fallback); on Pyodide the
+    # JS bridge fetches them instead.
+    if isinstance(store, str) and store.startswith(REMOTE_URL_SCHEMES):
+        if _USE_JS:
+            from ._js_zarr import JsZarrStore
+
+            store = JsZarrStore(store)
+        elif remote_read_available():
+            store = RemoteZarrStore(store)
 
     root = _open_root_node(store, None)
     root_attrs = root.attrs.asdict()

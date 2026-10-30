@@ -12,6 +12,7 @@ from ._remote_reader import (
 )
 from ._store_types import StoreLike
 from ._zarrista_utils import (
+    _USE_JS,
     OME_ROOT_KEYS,
     _is_bytes_mapping,
     _is_local_path,
@@ -301,11 +302,20 @@ def from_ome_zarr(
         store = open_ozx_store(store)
 
     # Remote URL strings read through zarrista's async API over obstore
-    # (storage_options translated to obstore configuration).
+    # (storage_options translated to obstore configuration). On Pyodide the
+    # JS bridge fetches instead: metadata through the bytes-mapping reader,
+    # pixels through zarrita.
     if isinstance(store, str) and store.startswith(REMOTE_URL_SCHEMES):
-        if not remote_read_available():
-            raise _remote_backend_import_error(store, None)
-        store = RemoteZarrStore(store, storage_options=storage_options)
+        if _USE_JS:
+            from ._js_zarr import JsZarrStore
+            from ._zarrista_utils import _warn_unused_storage_options
+
+            _warn_unused_storage_options(storage_options)
+            store = JsZarrStore(store)
+        else:
+            if not remote_read_available():
+                raise _remote_backend_import_error(store, None)
+            store = RemoteZarrStore(store, storage_options=storage_options)
 
     # Open the root node with helpful error messages, dispatching on the
     # store type: local paths -> compat layer, bytes mappings -> store

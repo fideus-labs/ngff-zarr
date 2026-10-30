@@ -33,6 +33,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import threading
 import time
 from collections.abc import Mapping, MutableMapping
@@ -43,6 +44,10 @@ import numpy as np
 
 from ._v2_store_reader import AttrsDict
 from .rfc9_zip import ZipReadStore, is_ozx_path
+
+# Pyodide ships no zarrista: zarr I/O goes through the @fideus-labs/ngff-zarr
+# JS package instead.
+_USE_JS = sys.platform == "emscripten"
 
 __all__ = [
     "LocalZarrArray",
@@ -358,6 +363,8 @@ def _zarrista_filesystem_store_path(store) -> Path | None:
     parsed with ``ast.literal_eval``. Tests pin the format so upstream drift
     surfaces as a failure rather than a silently unresolvable store.
     """
+    if _USE_JS:
+        return None
     from zarrista.store import FilesystemStore
 
     if not isinstance(store, FilesystemStore):
@@ -540,9 +547,6 @@ def create_zarrista_group(
     ``zarrista.Group`` reads the documents back, hiding the hand-written JSON
     from callers.
     """
-    from zarrista import Group
-    from zarrista.store import FilesystemStore
-
     path = normalize_store(path)
     if overwrite and path.exists():
         shutil.rmtree(path)
@@ -563,6 +567,11 @@ def create_zarrista_group(
         _write_group_doc(path / "zarr.json", metadata)
     else:
         raise ValueError(f"Unsupported zarr format: {zarr_format}")
+    if _USE_JS:
+        return open_local_node(path, zarr_format=zarr_format)
+    from zarrista import Group
+    from zarrista.store import FilesystemStore
+
     return Group.open(FilesystemStore(path), "/")
 
 
@@ -629,6 +638,183 @@ def _normalize_array_metadata_doc(doc_path: Path, zarr_format: int, itemsize: in
     doc_path.write_text(json.dumps(doc, indent=4))
 
 
+def _fill_scalar(dtype: np.dtype, fill_value) -> np.ndarray:
+    """*fill_value* as a 0-d array of *dtype*; ``None`` is the dtype's zero."""
+    if fill_value is None:
+        return np.zeros((), dtype=dtype)
+    return np.asarray(fill_value, dtype=dtype)
+
+
+def _json_fill_value(fill_scalar: np.ndarray):
+    """The ``fill_value`` JSON field: non-finite floats are spelled out."""
+    value = fill_scalar.item()
+    if isinstance(value, float) and not np.isfinite(value):
+        return "NaN" if np.isnan(value) else ("Infinity" if value > 0 else "-Infinity")
+    return value
+
+
+def _v3_codec_config(compressor, dtype: np.dtype) -> dict | None:
+    """Map a compressor to its zarr format 3 bytes-to-bytes codec document."""
+    canonical = _canonical_compressor(compressor)
+    if canonical is None:
+        return None
+    name, params = canonical
+    if name == "blosc":
+        params = _evolve_blosc_params(compressor, params, dtype.itemsize)
+        configuration = {
+            "cname": params.get("cname", "lz4"),
+            "clevel": params.get("clevel", 5),
+            "shuffle": _BLOSC_SHUFFLE_TO_STR[
+                _blosc_shuffle_int(params.get("shuffle", 1), dtype.itemsize)
+            ],
+            "typesize": params.get("typesize") or dtype.itemsize,
+            "blocksize": 0,
+        }
+    elif name == "gzip":
+        configuration = {"level": params.get("level", 5)}
+    elif name == "zstd":
+        configuration = {
+            "level": params.get("level", 3),
+            "checksum": params.get("checksum", False),
+        }
+    else:
+        raise ValueError(
+            f"Compressor {name!r} is not supported by the zarrista "
+            "compatibility layer (supported: blosc, gzip, zstd)"
+        )
+    return {"name": name, "configuration": configuration}
+
+
+def _array_doc(
+    shape: tuple[int, ...],
+    dtype,
+    chunks: int | tuple[int, ...],
+    zarr_format: int,
+    compressor=None,
+    chunks_per_shard: int | tuple[int, ...] | None = None,
+    dimension_names: tuple[str, ...] | None = None,
+    dimension_separator: str = "/",
+    compressors=None,
+    shards: tuple[int, ...] | None = None,
+    fill_value=None,
+    attributes: dict | None = None,
+    chunk_key_encoding: dict | None = None,
+) -> dict:
+    """The metadata document of a new array: ``.zarray`` or ``zarr.json``.
+
+    Takes the array arguments of :func:`create_zarrista_array` and returns
+    what zarrista writes for them, so the JS bridge on Pyodide stores the
+    same document. Sharded format 3 arrays put the shard shape in the chunk
+    grid and the chunk shape inside the ``sharding_indexed`` codec.
+    """
+    dtype = np.dtype(dtype)
+    shape = tuple(int(s) for s in shape)
+    if isinstance(chunks, int):
+        chunks = (chunks,) * len(shape)
+    chunks = tuple(int(c) for c in chunks)
+    if len(chunks) != len(shape):
+        raise ValueError(f"chunks must have {len(shape)} dimensions, got {chunks}")
+    fill_scalar = _fill_scalar(dtype, fill_value)
+
+    if zarr_format == 2:
+        if chunks_per_shard is not None or shards is not None:
+            raise ValueError("Sharding is only supported for zarr format 3")
+        if dimension_names is not None:
+            raise ValueError("dimension_names requires zarr format 3")
+        if compressors is not None:
+            raise ValueError(
+                "compressors (a zarr v3 codec chain) requires zarr format 3; "
+                "pass a single compressor for zarr format 2"
+            )
+        if chunk_key_encoding is not None:
+            raise ValueError(
+                "chunk_key_encoding requires zarr format 3; pass "
+                "dimension_separator for zarr format 2"
+            )
+        return {
+            "zarr_format": 2,
+            "shape": list(shape),
+            "chunks": list(chunks),
+            "dtype": dtype.str,
+            "compressor": _compressor_to_v2_config(compressor, dtype),
+            "fill_value": _json_fill_value(fill_scalar),
+            "order": "C",
+            "filters": None,
+            "dimension_separator": dimension_separator,
+        }
+
+    if zarr_format != 3:
+        raise ValueError(f"Unsupported zarr format: {zarr_format}")
+
+    # ngff-zarr's dtype normalization also yields valid zarr v3 dtype names.
+    from .to_ngff_zarr import _numpy_to_zarr_dtype
+
+    if shards is not None:
+        if chunks_per_shard is not None:
+            raise ValueError("Pass either chunks_per_shard or shards, not both")
+        shards = tuple(int(s) for s in shards)
+        if len(shards) != len(shape):
+            raise ValueError(f"shards must have {len(shape)} dimensions, got {shards}")
+        grid_chunk_shape = shards
+    elif chunks_per_shard is None:
+        grid_chunk_shape = chunks
+    else:
+        if isinstance(chunks_per_shard, int):
+            chunks_per_shard = (chunks_per_shard,) * len(shape)
+        if len(chunks_per_shard) != len(shape):
+            raise ValueError(
+                f"chunks_per_shard must have {len(shape)} dimensions, "
+                f"got {chunks_per_shard}"
+            )
+        grid_chunk_shape = tuple(c * int(f) for c, f in zip(chunks, chunks_per_shard))
+
+    if compressors is not None:
+        codecs = [
+            codec
+            for codec in (_v3_codec_config(entry, dtype) for entry in compressors)
+            if codec is not None
+        ]
+    else:
+        codec = _v3_codec_config(compressor, dtype)
+        codecs = [codec] if codec is not None else []
+    # zarr-python omits the bytes codec's endian for single-byte dtypes.
+    little_endian = {"name": "bytes", "configuration": {"endian": "little"}}
+    chain = [little_endian if dtype.itemsize > 1 else {"name": "bytes"}, *codecs]
+    # Any shard request shards, even one whose shard equals the chunk: the
+    # writer's shard resolver collapses shards onto small pyramid levels.
+    if chunks_per_shard is not None or shards is not None:
+        chain = [
+            {
+                "name": "sharding_indexed",
+                "configuration": {
+                    "chunk_shape": list(chunks),
+                    "codecs": chain,
+                    "index_codecs": [little_endian, {"name": "crc32c"}],
+                    "index_location": "end",
+                },
+            }
+        ]
+    doc = {
+        "zarr_format": 3,
+        "node_type": "array",
+        "shape": list(shape),
+        "data_type": _numpy_to_zarr_dtype(dtype),
+        "chunk_grid": {
+            "name": "regular",
+            "configuration": {"chunk_shape": list(grid_chunk_shape)},
+        },
+        "chunk_key_encoding": chunk_key_encoding
+        or {"name": "default", "configuration": {"separator": "/"}},
+        "fill_value": _json_fill_value(fill_scalar),
+        "codecs": chain,
+        "attributes": dict(attributes or {}),
+    }
+    if dimension_names is not None:
+        doc["dimension_names"] = list(dimension_names)
+    doc["storage_transformers"] = []
+    return doc
+
+
 def create_zarrista_array(
     path,
     name: str,
@@ -664,20 +850,44 @@ def create_zarrista_array(
     chunk keys resolvable. The metadata is stored immediately; the returned
     ``zarrista.Array`` is ready for chunk writes.
     """
+    if _USE_JS:
+        from ._js_zarr import create_js_array
+
+        return create_js_array(
+            path,
+            name,
+            shape,
+            dtype,
+            chunks,
+            zarr_format,
+            compressor,
+            chunks_per_shard,
+            dimension_names,
+            dimension_separator,
+            compressors,
+            shards,
+            fill_value,
+            attributes,
+            chunk_key_encoding,
+        )
     path = normalize_store(path)
     path.mkdir(parents=True, exist_ok=True)
     node_path = "/" + str(name).strip("/")
     dtype = np.dtype(dtype)
-    shape = tuple(int(s) for s in shape)
-    if isinstance(chunks, int):
-        chunks = (chunks,) * len(shape)
-    chunks = tuple(int(c) for c in chunks)
-    if len(chunks) != len(shape):
-        raise ValueError(f"chunks must have {len(shape)} dimensions, got {chunks}")
-    fill_scalar = (
-        np.zeros((), dtype=dtype)
-        if fill_value is None
-        else np.asarray(fill_value, dtype=dtype)
+    doc = _array_doc(
+        shape,
+        dtype,
+        chunks,
+        zarr_format,
+        compressor,
+        chunks_per_shard,
+        dimension_names,
+        dimension_separator,
+        compressors,
+        shards,
+        fill_value,
+        attributes,
+        chunk_key_encoding,
     )
 
     from zarrista import Array, ArrayBuilder, ChunkGrid, DataType, FillValue
@@ -686,32 +896,7 @@ def create_zarrista_array(
     store = FilesystemStore(path)
 
     if zarr_format == 2:
-        if chunks_per_shard is not None or shards is not None:
-            raise ValueError("Sharding is only supported for zarr format 3")
-        if dimension_names is not None:
-            raise ValueError("dimension_names requires zarr format 3")
-        if compressors is not None:
-            raise ValueError(
-                "compressors (a zarr v3 codec chain) requires zarr format 3; "
-                "pass a single compressor for zarr format 2"
-            )
-        if chunk_key_encoding is not None:
-            raise ValueError(
-                "chunk_key_encoding requires zarr format 3; pass "
-                "dimension_separator for zarr format 2"
-            )
-        metadata = {
-            "zarr_format": 2,
-            "shape": list(shape),
-            "chunks": list(chunks),
-            "dtype": dtype.str,
-            "compressor": _compressor_to_v2_config(compressor, dtype),
-            "fill_value": fill_scalar.item(),
-            "order": "C",
-            "filters": None,
-            "dimension_separator": dimension_separator,
-        }
-        arr = Array.from_metadata(metadata, store, node_path)
+        arr = Array.from_metadata(doc, store, node_path)
         arr.store_metadata()
         node_dir = path.joinpath(*node_path.strip("/").split("/"))
         _normalize_array_metadata_doc(node_dir / ".zarray", zarr_format, dtype.itemsize)
@@ -721,38 +906,17 @@ def create_zarrista_array(
             zattrs_path.write_text(json.dumps(merged, indent=4))
         return arr
 
-    if zarr_format != 3:
-        raise ValueError(f"Unsupported zarr format: {zarr_format}")
-
-    # ngff-zarr's dtype normalization also yields valid zarr v3 dtype names.
-    from .to_ngff_zarr import _numpy_to_zarr_dtype
-
-    if shards is not None:
-        if chunks_per_shard is not None:
-            raise ValueError("Pass either chunks_per_shard or shards, not both")
-        shards = tuple(int(s) for s in shards)
-        if len(shards) != len(shape):
-            raise ValueError(f"shards must have {len(shape)} dimensions, got {shards}")
-        grid_chunk_shape = shards
-    elif chunks_per_shard is None:
-        grid_chunk_shape = chunks
-    else:
-        if isinstance(chunks_per_shard, int):
-            chunks_per_shard = (chunks_per_shard,) * len(shape)
-        if len(chunks_per_shard) != len(shape):
-            raise ValueError(
-                f"chunks_per_shard must have {len(shape)} dimensions, "
-                f"got {chunks_per_shard}"
-            )
-        grid_chunk_shape = tuple(c * int(f) for c, f in zip(chunks, chunks_per_shard))
-
-    grid = ChunkGrid.regular(list(shape), chunk_shape=list(grid_chunk_shape))
-    data_type = DataType.from_string(_numpy_to_zarr_dtype(dtype))
+    grid = ChunkGrid.regular(
+        doc["shape"], chunk_shape=doc["chunk_grid"]["configuration"]["chunk_shape"]
+    )
+    data_type = DataType.from_string(doc["data_type"])
+    fill_scalar = _fill_scalar(dtype, fill_value)
     builder = ArrayBuilder(
         grid, data_type, FillValue(_native_contiguous(fill_scalar).tobytes())
     )
-    if chunks_per_shard is not None or shards is not None:
-        builder = builder.subchunk_shape(list(chunks))
+    sharding = doc["codecs"][0]
+    if sharding["name"] == "sharding_indexed":
+        builder = builder.subchunk_shape(sharding["configuration"]["chunk_shape"])
     if chunk_key_encoding is not None:
         from zarrista import ChunkKeyEncoding
 
@@ -798,10 +962,13 @@ def write_dask_array(darr, zarrista_array, region=None) -> None:
     darr = dask.array.asarray(darr)
     if darr.size == 0:
         return
-    write_chunks = tuple(zarrista_array.chunk_shape([0] * zarrista_array.ndim))
+    if _USE_JS:  # a JsArrayAdapter is dask's target itself
+        write_chunks, target = zarrista_array.write_chunks, zarrista_array
+    else:
+        write_chunks = tuple(zarrista_array.chunk_shape([0] * zarrista_array.ndim))
+        target = _ZarristaArrayAdapter(zarrista_array)
     if darr.chunksize != write_chunks:
         darr = darr.rechunk(write_chunks)
-    target = _ZarristaArrayAdapter(zarrista_array)
     store_kwargs = {"lock": False}
     if region is not None:
         store_kwargs["regions"] = region
@@ -816,16 +983,23 @@ def open_zarrista_array(path, component: str | None = None):
     must be C-contiguous; :class:`_ZarristaArrayAdapter` or
     :func:`write_dask_array` handle that for adapter-mediated writes.
     """
+    path = normalize_store(path)
+    if _USE_JS:
+        from ._js_zarr import JsZarrStore, open_js_array
+
+        node = str(component).strip("/") if component else ""
+        return open_js_array(JsZarrStore(path), node or None, path, node)
     from zarrista import Array
     from zarrista.store import FilesystemStore
 
-    path = normalize_store(path)
     node_path = "/" + str(component).strip("/") if component else "/"
     return Array.open(FilesystemStore(path), node_path)
 
 
 def is_zarrista_array(obj) -> bool:
     """Whether *obj* is a raw ``zarrista.Array`` handle."""
+    if _USE_JS:
+        return False
     from zarrista import Array
 
     return isinstance(obj, Array)
@@ -854,7 +1028,10 @@ def open_zarrista_lazy(path, component: str | None = None) -> dask.array.Array:
     """Open the array at *component* within *path* as a lazy dask array."""
     path = normalize_store(path)
     node_path = str(component).strip("/") if component else ""
-    return zarrista_array_to_dask(open_zarrista_array(path, component), path, node_path)
+    arr = open_zarrista_array(path, component)
+    if _USE_JS:
+        return arr.to_dask()
+    return zarrista_array_to_dask(arr, path, node_path)
 
 
 def open_ozx_store(path):
@@ -875,6 +1052,14 @@ def open_zip_lazy(store: ZipReadStore, component: str | None = None):
     which only zarrista can decode. The node path combines the store's
     prefix (HCS well/field views) with *component*.
     """
+    if _USE_JS:
+        from ._js_zarr import JsZarrStore, open_js_lazy
+
+        # The mapping resolves keys under its own prefix. shortcut: a range
+        # read of a zip member decompresses the whole member (_PyStore.read),
+        # two reads per chunk of a sharded array; stream members with
+        # ZipFile.open().seek() if .ozx reads on Pyodide turn out slow.
+        return open_js_lazy(JsZarrStore(store), component)
     from zarrista import Array
     from zarrista.store import FilesystemStore, ZipStore
 
@@ -910,6 +1095,11 @@ def open_lazy_array(store, component: str | None = None) -> dask.array.Array:
     reader (either zarr format), and local paths through zarrista. Any other
     store object raises ``TypeError``.
     """
+    if _USE_JS:
+        from ._js_zarr import JsZarrStore, open_js_lazy
+
+        if isinstance(store, JsZarrStore):
+            return open_js_lazy(store, component)
     if isinstance(store, ZipReadStore):
         return open_zip_lazy(store, component)
     from ._remote_reader import RemoteZarrStore, open_remote_lazy
@@ -991,7 +1181,10 @@ class LocalZarrArray:
     def _array(self) -> _ZarristaArrayAdapter:
         if self._adapter is None:
             arr = open_zarrista_array(self._store_root, self.path or None)
-            self._adapter = _ZarristaArrayAdapter(arr, self._store_root, self.path)
+            if _USE_JS:
+                self._adapter = arr
+            else:
+                self._adapter = _ZarristaArrayAdapter(arr, self._store_root, self.path)
         return self._adapter
 
     @property
@@ -1001,6 +1194,8 @@ class LocalZarrArray:
     @property
     def chunks(self) -> tuple[int, ...]:
         """The stored chunk grid, the inner chunk shape of a sharded array."""
+        if _USE_JS:
+            return self._array().chunks
         arr = self._array()._arr
         if arr.is_sharded:
             return tuple(int(c) for c in arr.subchunk_shape)
@@ -1103,6 +1298,17 @@ def open_local_node(store, node_path=None, *, zarr_format: int):
     return LocalZarrGroup(root, path, zarr_format, doc)
 
 
+def _warn_unused_storage_options(storage_options: dict | None) -> None:
+    """Pyodide fetches with zarrita's FetchStore, which takes no options."""
+    if storage_options:
+        import warnings
+
+        warnings.warn(
+            "storage_options are ignored on Pyodide: URLs are fetched as-is",
+            stacklevel=3,
+        )
+
+
 def _remote_handle(store, storage_options: dict | None):
     """A handle on ``store``'s remote backend, or ``None`` when it has none.
 
@@ -1115,6 +1321,15 @@ def _remote_handle(store, storage_options: dict | None):
     from ._remote_reader import RemoteZarrStore, remote_read_available
     from .from_ngff_zarr import REMOTE_URL_SCHEMES, _remote_backend_import_error
 
+    if _USE_JS:
+        from ._js_zarr import JsZarrStore
+
+        if isinstance(store, JsZarrStore):
+            return store
+        if isinstance(store, str) and store.startswith(REMOTE_URL_SCHEMES):
+            _warn_unused_storage_options(storage_options)
+            return JsZarrStore(store)
+        return None
     if isinstance(store, RemoteZarrStore):
         return store
     if isinstance(store, str) and store.startswith(REMOTE_URL_SCHEMES):
@@ -1138,6 +1353,13 @@ def open_array(store, path: str | None = None, storage_options: dict | None = No
     engine, fsspec-style names included.
     """
     remote = _remote_handle(store, storage_options)
+    if remote is not None and _USE_JS:
+        from ._js_zarr import open_js_array
+
+        try:
+            return open_js_array(remote, path)
+        except (KeyError, OSError) as error:
+            raise FileNotFoundError(f"No array at '{path}' in '{remote}'.") from error
     if remote is not None:
         from ._remote_reader import RemoteZarrArray, open_remote_node
 

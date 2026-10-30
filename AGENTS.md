@@ -55,6 +55,15 @@ pixi run --as-is format                  # Format code
 > **Note:** The `lint` task runs all prek hooks including `ruff format`.
 > Always run `lint` before committing to catch both linting and formatting issues.
 
+Pyodide (Node >= 25; the Node harness installs the wheel with micropip and
+runs `py/test/pyodide/test_pyodide.py` against the `@fideus-labs/ngff-zarr`
+npm package registered as `ngff_zarr_js`; no pixi environment has Node):
+
+```bash
+pip wheel py/ -w py/dist --no-deps        # from the repository root
+cd py/test/pyodide && npm ci && node run.mjs
+```
+
 ### MCP Server (mcp/)
 
 ```bash
