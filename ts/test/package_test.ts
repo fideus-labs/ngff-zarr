@@ -8,6 +8,7 @@
 
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "vite-plus/test";
 
 import { assert, assertEquals } from "./_assert.ts";
@@ -65,7 +66,7 @@ function packageName(specifier: string): string {
 /** Bare (non-relative, non-builtin) package names imported by `src/`. */
 function importedPackages(): Set<string> {
   const names = new Set<string>();
-  const srcDir = new URL("../src/", import.meta.url).pathname;
+  const srcDir = fileURLToPath(new URL("../src/", import.meta.url));
   for (const file of sourceFiles(srcDir)) {
     for (const line of readTextFileSync(file).split("\n")) {
       // Doc comments quote consumer-side imports of this very package.
