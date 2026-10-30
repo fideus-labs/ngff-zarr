@@ -2,17 +2,19 @@
 # SPDX-License-Identifier: MIT
 """Checks run inside Pyodide by run.mjs; a failing assert fails the run."""
 
+import hashlib
 import os
 import shutil
 import sys
 from pathlib import Path
 
-import itkwasm_downsample
 import ngff_zarr
 import numpy as np
 import zarr
 from dask.base import get_scheduler
 from dask.local import get_sync
+from itkwasm.pyodide import JsPackageConfig
+from itkwasm_downsample_emscripten.js_package import js_package
 from ngff_zarr import from_ome_zarr, to_multiscales, to_ngff_image, to_ome_zarr
 from ngff_zarr._js_zarr import JsZarrStore, create_js_array, open_js_array, open_js_lazy
 from pyodide.ffi import can_run_sync
@@ -88,22 +90,27 @@ for dtype in ("uint8", "int64", "float32", "bool"):
             open_js_array(JsZarrStore(root / "out"), name)[:], expected
         )
 
-# Phase 3: the public API end to end. /out is a host directory run.mjs also
-# serves over HTTP, so the stores come back three ways: local path, URL, and
-# zarr-python as the independent reader.
+# Phase 3 + 4: the public API end to end, itkwasm downsampling included. /out
+# is a host directory run.mjs also serves over HTTP, so the stores come back
+# three ways: local path, URL, and zarr-python as the independent reader.
 out = Path("/out")
 http_base = os.environ["NGFF_ZARR_HTTP_BASE"]
-volume = np.arange(8 * 12 * 16, dtype=np.uint16).reshape(8, 12, 16)
+# The itkwasm wrapper imports the package's browser build; Node runs its Node
+# build instead through the shim run.mjs names here.
+js_package.config = JsPackageConfig(os.environ["NGFF_ZARR_ITKWASM_MODULE"])
+volume = np.random.default_rng(0).integers(0, 4096, (64, 64, 64), dtype=np.uint16)
 image = to_ngff_image(
     volume,
     dims=("z", "y", "x"),
     scale={"z": 2.0, "y": 0.5, "x": 0.5},
     translation={"z": 1.0, "y": 0.0, "x": 0.0},
 )
-# shortcut: Phase 4 routes itkwasm through run_sync; until then only the
-# sync name the empty-scale-factor path imports needs to exist.
-itkwasm_downsample.gaussian_kernel_radius = None
-multiscales = to_multiscales(image, scale_factors=[], chunks=4)
+multiscales = to_multiscales(image, scale_factors=[2, 4], chunks=32)
+levels = [level.data.compute() for level in multiscales.images]
+assert [level.shape for level in levels] == [(64,) * 3, (32,) * 3, (16,) * 3]
+# The same pyramid from the WASI build: test_js_zarr.py::PYRAMID_DIGESTS.
+digests = [hashlib.sha256(level.tobytes()).hexdigest()[:16] for level in levels]
+assert digests == ["257df0ff4ff55204", "7bd266d79dec4343", "fd60f9720d24832c"], digests
 
 
 def check(read):
@@ -111,8 +118,10 @@ def check(read):
     assert first.dims == ("z", "y", "x"), first.dims
     assert first.scale == {"z": 2.0, "y": 0.5, "x": 0.5}, first.scale
     assert first.translation == {"z": 1.0, "y": 0.0, "x": 0.0}, first.translation
-    assert first.data.chunksize == (4, 4, 4), first.data.chunksize
-    np.testing.assert_array_equal(first.data.compute(), volume)
+    assert first.data.chunksize == (32, 32, 32), first.data.chunksize
+    assert read.images[1].scale == {"z": 4.0, "y": 1.0, "x": 1.0}, read.images[1].scale
+    for image, level in zip(read.images, levels, strict=True):
+        np.testing.assert_array_equal(image.data.compute(), level)
 
 
 for name, kwargs in (

@@ -3,6 +3,7 @@
 """The Pyodide bridge's pure-Python parts; the JS half runs in test/pyodide."""
 
 import asyncio
+import hashlib
 import importlib
 import inspect
 import json
@@ -15,7 +16,7 @@ from unittest.mock import Mock
 import dask.array as da
 import numpy as np
 import pytest
-from ngff_zarr import _js_zarr, _zarrista_utils
+from ngff_zarr import Methods, _js_zarr, _zarrista_utils, to_multiscales
 from ngff_zarr._js_zarr import (
     TYPED_ARRAYS,
     JsArrayAdapter,
@@ -36,6 +37,7 @@ from ngff_zarr._zarrista_utils import (
     open_zarrista_lazy,
     write_dask_array,
 )
+from ngff_zarr.methods import _itkwasm
 from ngff_zarr.rfc9_zip import ZipReadStore
 from ngff_zarr.to_ngff_zarr import _numpy_to_zarr_dtype
 
@@ -370,3 +372,62 @@ def test_every_zarr_v3_dtype_has_a_typed_array():
         assert _numpy_to_zarr_dtype(np.dtype(name)) in TYPED_ARRAYS
     assert TYPED_ARRAYS["int64"] == "BigInt64Array"
     assert TYPED_ARRAYS["bool"] == "Uint8Array"
+
+
+@pytest.mark.parametrize(
+    ("method", "twins"),
+    [
+        (Methods.ITKWASM_GAUSSIAN, {"gaussian_kernel_radius", "downsample"}),
+        (Methods.ITKWASM_BIN_SHRINK, {"downsample_bin_shrink"}),
+        (
+            Methods.ITKWASM_LABEL_IMAGE,
+            {"gaussian_kernel_radius", "downsample_label_image"},
+        ),
+    ],
+)
+def test_itkwasm_downsampling_awaits_the_async_twins_on_pyodide(
+    method, twins, monkeypatch
+):
+    import itkwasm_downsample
+
+    volume = np.arange(16**3, dtype=np.uint16).reshape(16, 16, 16) % 7
+    native = [
+        image.data.compute()
+        for image in to_multiscales(volume, [2], method=method, chunks=8).images
+    ]
+    awaited = set()
+
+    def twin(name):
+        async def call(*args, **kwargs):
+            awaited.add(name)
+            return getattr(itkwasm_downsample, name)(*args, **kwargs)
+
+        return call
+
+    for name in twins:
+        monkeypatch.setattr(itkwasm_downsample, f"{name}_async", twin(name))
+    monkeypatch.setattr(_itkwasm, "_USE_JS", True)
+    monkeypatch.setattr(_js_zarr, "_block_on", asyncio.run)
+
+    images = to_multiscales(volume, [2], method=method, chunks=8).images
+
+    for image, expected in zip(images, native):
+        np.testing.assert_array_equal(image.data.compute(), expected)
+    assert awaited == twins
+
+
+#: sha256 prefixes of the uint16 pyramid below, computed with the WASI build of
+#: itkwasm-downsample 2.0.2; test/pyodide/test_pyodide.py checks the same
+#: values against the Emscripten build.
+PYRAMID_DIGESTS = ["257df0ff4ff55204", "7bd266d79dec4343", "fd60f9720d24832c"]
+
+
+def test_itkwasm_pyramid_matches_the_pyodide_reference():
+    volume = np.random.default_rng(0).integers(0, 4096, (64, 64, 64), dtype=np.uint16)
+
+    images = to_multiscales(volume, scale_factors=[2, 4], chunks=32).images
+
+    digests = [
+        hashlib.sha256(i.data.compute().tobytes()).hexdigest()[:16] for i in images
+    ]
+    assert digests == PYRAMID_DIGESTS

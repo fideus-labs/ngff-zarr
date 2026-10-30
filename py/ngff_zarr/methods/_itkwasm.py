@@ -7,6 +7,7 @@ import dask.array
 import numpy as np
 from dask.array import map_blocks, map_overlap
 
+from .._zarrista_utils import _USE_JS
 from ..ngff_image import NgffImage
 from ._support import (
     _align_chunks,
@@ -38,6 +39,22 @@ _WASM_BLOCK_LIMITS = {
     "label_image": int(1.25 * 1024**3),
     "bin_shrink": int(1.75 * 1024**3),
 }
+
+
+def _call_itkwasm_downsample(name, *args, **kwargs):
+    """Call ``itkwasm_downsample.<name>``.
+
+    On Emscripten the package implements only the ``<name>_async`` twins, which
+    await JavaScript; JSPI lets this synchronous dask task wait for them.
+    """
+    import itkwasm_downsample
+
+    if _USE_JS:
+        from .._js_zarr import _block_on
+
+        twin = getattr(itkwasm_downsample, f"{name}_async")
+        return _block_on(twin(*args, **kwargs))
+    return getattr(itkwasm_downsample, name)(*args, **kwargs)
 
 
 def _check_wasm_block_size(
@@ -133,16 +150,18 @@ def _itkwasm_blur_and_downsample(
         return None
 
     if smoothing == "gaussian":
-        from itkwasm_downsample import downsample
-
-        downsampled = downsample(
-            image, shrink_factors=shrink_factors, crop_radius=kernel_radius
+        downsampled = _call_itkwasm_downsample(
+            "downsample",
+            image,
+            shrink_factors=shrink_factors,
+            crop_radius=kernel_radius,
         )
     elif smoothing == "label_image":
-        from itkwasm_downsample import downsample_label_image
-
-        downsampled = downsample_label_image(
-            image, shrink_factors=shrink_factors, crop_radius=kernel_radius
+        downsampled = _call_itkwasm_downsample(
+            "downsample_label_image",
+            image,
+            shrink_factors=shrink_factors,
+            crop_radius=kernel_radius,
         )
     else:
         msg = f"Unknown smoothing method: {smoothing}"
@@ -170,7 +189,6 @@ def _itkwasm_chunk_bin_shrink(
 ):
     """Compute the local mean and downsample on a given image chunk"""
     import itkwasm
-    from itkwasm_downsample import downsample_bin_shrink
 
     # chunk does not have metadata attached, values are ITK defaults
     image = itkwasm.image_from_array(image_data, is_vector=is_vector)
@@ -180,7 +198,9 @@ def _itkwasm_chunk_bin_shrink(
     if any(block_len == 0 for block_len in block_size):
         return None
 
-    downsampled = downsample_bin_shrink(image, shrink_factors=shrink_factors)
+    downsampled = _call_itkwasm_downsample(
+        "downsample_bin_shrink", image, shrink_factors=shrink_factors
+    )
     return itkwasm.array_like_to_numpy_array(downsampled.data)
 
 
@@ -232,8 +252,6 @@ def _itkwasm_chunk_bin_shrink_nd(
 def _downsample_itkwasm(
     ngff_image: NgffImage, default_chunks, out_chunks, scale_factors, smoothing
 ):
-    from itkwasm_downsample import gaussian_kernel_radius
-
     multiscales = [
         ngff_image,
     ]
@@ -418,7 +436,9 @@ def _downsample_itkwasm(
         # Compute metadata for region splitting
         shrink_factors = [dim_factors[sd] for sd in spatial_dims]
         sigma_values = _compute_sigma(shrink_factors)
-        kernel_radius = gaussian_kernel_radius(size=block_0_size, sigma=sigma_values)
+        kernel_radius = _call_itkwasm_downsample(
+            "gaussian_kernel_radius", size=block_0_size, sigma=sigma_values
+        )
 
         dtype = block_0_input.dtype
         if smoothing != "bin_shrink":

@@ -17,7 +17,7 @@ import {
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import * as ngffZarr from "@fideus-labs/ngff-zarr";
 import { loadPyodide } from "pyodide";
@@ -61,7 +61,12 @@ const server = createServer((req, res) => {
 await new Promise((listening) => server.listen(0, "127.0.0.1", listening));
 const httpBase = `http://127.0.0.1:${server.address().port}`;
 
-const pyodide = await loadPyodide({ env: { NGFF_ZARR_HTTP_BASE: httpBase } });
+const pyodide = await loadPyodide({
+  env: {
+    NGFF_ZARR_HTTP_BASE: httpBase,
+    NGFF_ZARR_ITKWASM_MODULE: pathToFileURL(resolve(here, "itkwasm-downsample-node.mjs")).href,
+  },
+});
 pyodide.mountNodeFS("/mnt", dirname(wheel));
 pyodide.mountNodeFS("/out", outDir);
 // The npm build inlines its codec worker as a blob: URL, which Node's
