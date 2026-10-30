@@ -32,7 +32,7 @@ class NgffZarrConfig:
 
     # Pyodide only: where to import the @fideus-labs/ngff-zarr JS package
     # from when the host did not register it as the ``ngff_zarr_js`` module.
-    js_package_url: str = "https://esm.sh/@fideus-labs/ngff-zarr@0.39.0/browser"
+    js_package_url: str = "https://esm.sh/@fideus-labs/ngff-zarr@0.40.0/browser"
 
     # HCS cache settings
     hcs_image_cache_size: int = 100  # Max number of images to cache per well

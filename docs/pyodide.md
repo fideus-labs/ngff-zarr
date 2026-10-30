@@ -85,8 +85,7 @@ places:
 
    `zarr` is the [zarrita] instance the package itself depends on; register
    the same one so arrays opened by one are understood by the other.
-   `py/test/pyodide/run.mjs` in the repository is a complete Node example,
-   including the codec worker setting Node needs.
+   `py/test/pyodide/run.mjs` in the repository is a complete Node example.
 
 2. Otherwise, `ngff_zarr.config.js_package_url`, which defaults to the
    package's browser entry on esm.sh, pinned to the release the Python package

@@ -24,6 +24,7 @@ from ngff_zarr import (
     _itkwasm_pipelines,
     _js_zarr,
     _zarrista_utils,
+    config,
     hcs,
     to_multiscales,
 )
@@ -477,3 +478,11 @@ def test_itkwasm_pyramid_matches_the_pyodide_reference():
         hashlib.sha256(i.data.compute().tobytes()).hexdigest()[:16] for i in images
     ]
     assert digests == PYRAMID_DIGESTS
+
+
+def test_js_package_url_pins_the_release_the_harness_tests():
+    """docs/pyodide.md: the esm.sh default is the release test/pyodide ran."""
+    harness = json.loads((Path(__file__).parent / "pyodide/package.json").read_text())
+    version = harness["dependencies"]["@fideus-labs/ngff-zarr"]
+
+    assert f"/@fideus-labs/ngff-zarr@{version}/" in config.js_package_url

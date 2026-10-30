@@ -71,18 +71,7 @@ try {
   });
   pyodide.mountNodeFS("/mnt", dirname(wheel));
   pyodide.mountNodeFS("/out", outDir);
-  // The npm build inlines its codec worker as a blob: URL, which Node's
-  // worker_threads refuse; an undefined workerUrl makes fizarrita pick its
-  // packaged node worker entry instead.
-  const nodeWorker = { workerUrl: undefined };
-  pyodide.registerJsModule("ngff_zarr_js", {
-    ...ngffZarr,
-    zarr,
-    zarrGet: (arr, sel, opts) =>
-      ngffZarr.zarrGet(arr, sel, { ...nodeWorker, ...opts }),
-    zarrSet: (arr, sel, value, opts) =>
-      ngffZarr.zarrSet(arr, sel, value, { ...nodeWorker, ...opts }),
-  });
+  pyodide.registerJsModule("ngff_zarr_js", { ...ngffZarr, zarr });
   await pyodide.loadPackage("micropip");
   const micropip = pyodide.pyimport("micropip");
   await micropip.install(`emfs:/mnt/${basename(wheel)}`);
