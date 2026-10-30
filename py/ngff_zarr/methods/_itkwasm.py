@@ -7,6 +7,7 @@ import dask.array
 import numpy as np
 from dask.array import map_blocks, map_overlap
 
+from .._itkwasm_pipelines import call_itkwasm
 from ..ngff_image import NgffImage
 from ._support import (
     _align_chunks,
@@ -135,14 +136,17 @@ def _itkwasm_blur_and_downsample(
     if smoothing == "gaussian":
         from itkwasm_downsample import downsample
 
-        downsampled = downsample(
-            image, shrink_factors=shrink_factors, crop_radius=kernel_radius
+        downsampled = call_itkwasm(
+            downsample, image, shrink_factors=shrink_factors, crop_radius=kernel_radius
         )
     elif smoothing == "label_image":
         from itkwasm_downsample import downsample_label_image
 
-        downsampled = downsample_label_image(
-            image, shrink_factors=shrink_factors, crop_radius=kernel_radius
+        downsampled = call_itkwasm(
+            downsample_label_image,
+            image,
+            shrink_factors=shrink_factors,
+            crop_radius=kernel_radius,
         )
     else:
         msg = f"Unknown smoothing method: {smoothing}"
@@ -180,7 +184,9 @@ def _itkwasm_chunk_bin_shrink(
     if any(block_len == 0 for block_len in block_size):
         return None
 
-    downsampled = downsample_bin_shrink(image, shrink_factors=shrink_factors)
+    downsampled = call_itkwasm(
+        downsample_bin_shrink, image, shrink_factors=shrink_factors
+    )
     return itkwasm.array_like_to_numpy_array(downsampled.data)
 
 
@@ -418,7 +424,9 @@ def _downsample_itkwasm(
         # Compute metadata for region splitting
         shrink_factors = [dim_factors[sd] for sd in spatial_dims]
         sigma_values = _compute_sigma(shrink_factors)
-        kernel_radius = gaussian_kernel_radius(size=block_0_size, sigma=sigma_values)
+        kernel_radius = call_itkwasm(
+            gaussian_kernel_radius, size=block_0_size, sigma=sigma_values
+        )
 
         dtype = block_0_input.dtype
         if smoothing != "bin_shrink":

@@ -70,9 +70,36 @@ def _ngff_image_scale_factors(ngff_image, min_length, out_chunks):
     double_chunks = np.array(
         [2 * s for d, s in out_chunks.items() if d in _spatial_dims]
     )
+    # The spacings compared in one unit, when every spatial axis declares a
+    # known one: 2 micrometer along z is coarser than 650 nanometer along x.
+    from .tiff_to_ngff_image import _convert_unit_value
+
+    units = ngff_image.axes_units or {}
+    try:
+        base = {
+            d: _convert_unit_value(ngff_image.scale.get(d, 1.0), units[d], "meter")
+            for d in previous
+        }
+    except (KeyError, ValueError):
+        base = {d: ngff_image.scale.get(d, 1.0) for d in previous}
     while (sizes_array >= double_chunks).any():
         max_size = np.array(list(sizes.values())).max()
-        to_skip = {d: sizes[d] <= max_size / 2 for d in previous}
+        # Skip an axis that is already coarse: halving it keeps the anisotropy
+        # at every level, so it waits until the others catch up. Without a
+        # spacing to go by (a uniform scale), an axis half as long as the
+        # longest stands in for a coarse one.
+        spacing = {d: base[d] * previous[d] for d in previous}
+        if not np.allclose(list(base.values()), min(base.values()), rtol=1e-9, atol=0):
+            finest = min(spacing.values())
+            to_skip = {d: spacing[d] >= 2 * finest for d in previous}
+            # A coarse axis still halves alone once the finer ones are down to
+            # their chunk: otherwise the pyramid would stop there.
+            if not any(
+                not to_skip[d] and sizes[d] / 2 >= out_chunks[d] for d in previous
+            ):
+                to_skip = dict.fromkeys(previous, False)
+        else:
+            to_skip = {d: sizes[d] <= max_size / 2 for d in previous}
         scale_factor = {}
         for dim in previous:
             if to_skip[dim] or sizes[dim] / 2 < out_chunks[dim]:
@@ -632,20 +659,6 @@ def to_multiscales(
             ngff_image, default_chunks, out_chunks, scale_factors
         )
 
-    # Propagate channel_names and channel_colors from the input image to
-    # all generated pyramid levels so that OMERO computation (which may
-    # use a lower-resolution level) can access them.
-    # Copy the lists to avoid shared-mutation aliasing between levels.
-    src_channel_names = ngff_image.channel_names
-    src_channel_colors = ngff_image.channel_colors
-    if src_channel_names is not None or src_channel_colors is not None:
-        for img in images:
-            if img is not ngff_image:  # skip the base level (already has them)
-                if img.channel_names is None and src_channel_names is not None:
-                    img.channel_names = list(src_channel_names)
-                if img.channel_colors is None and src_channel_colors is not None:
-                    img.channel_colors = list(src_channel_colors)
-
     # Resolve anatomical orientation (RFC 4). An explicit ``orientation``
     # argument (preset name or mapping) takes precedence over any orientations
     # carried on the input image.
@@ -655,6 +668,41 @@ def to_multiscales(
         axes_orientations = orientation_from_name(orientation)
     else:
         axes_orientations = orientation
+    if orientation is not None:
+        # The base level declares it too: ``ngff_image`` is this call's copy.
+        ngff_image.axes_orientations = dict(axes_orientations)
+
+    # The methods build each level from its pixels and grid alone. Carry the
+    # input's per-image metadata onto every generated level, here, once for all
+    # methods: a level used on its own (a displacement field at a coarser level,
+    # OMERO computed from a low-resolution level) needs its axis types, units
+    # and orientations as much as the base level does. Copy the containers to
+    # avoid shared-mutation aliasing between levels.
+    for img in images:
+        if img is ngff_image:  # the base level already has them
+            continue
+        img.name = ngff_image.name
+        for attr in (
+            "axes_units",
+            "axes_orientations",
+            "axes_types",
+            "channel_names",
+            "channel_colors",
+        ):
+            # The generated levels take the orientation the metadata will
+            # declare, the explicit ``orientation`` included.
+            source = (
+                axes_orientations
+                if attr == "axes_orientations"
+                else getattr(ngff_image, attr)
+            )
+            if getattr(img, attr) is None and source is not None:
+                # dict/list, not copy.copy: a mapping need not be copyable.
+                setattr(
+                    img,
+                    attr,
+                    list(source) if attr.startswith("channel_") else dict(source),
+                )
 
     axes_types = ngff_image.axes_types
     if axes_types:

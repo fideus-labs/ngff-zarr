@@ -200,3 +200,78 @@ test("4D scalar image: spacing, origin and orientation", async () => {
     (await itkImageToNgffImage(image3d)).axesOrientations,
   );
 });
+
+// ---------------------------------------------------------------------------
+// Directions an NgffImage cannot carry
+// ---------------------------------------------------------------------------
+
+async function warningsOf(direction: number[], oriented: boolean) {
+  const image = mockItkImage([6, 5, 4], "float32");
+  image.direction = new Float64Array(direction);
+  const warnings: string[] = [];
+  const warn = console.warn;
+  console.warn = (message: string) => warnings.push(message);
+  try {
+    await itkImageToNgffImage(image, { addAnatomicalOrientation: oriented });
+  } finally {
+    console.warn = warn;
+  }
+  return warnings;
+}
+
+const FLIPPED = [0, 0, -1, 1, 0, 0, 0, -1, 0];
+const OBLIQUE = [
+  Math.cos(0.35),
+  -Math.sin(0.35),
+  0,
+  Math.sin(0.35),
+  Math.cos(0.35),
+  0,
+  0,
+  0,
+  1,
+];
+
+test("an oblique direction warns that it is placed axis-aligned", async () => {
+  // Snapped to the nearest axis-aligned grid, an oblique pair's rigid result
+  // converted to RFC-5 landed 19 voxels off without a word.
+  const warnings = await warningsOf(OBLIQUE, true);
+  assertEquals(warnings.length, 1);
+  assertEquals(warnings[0].includes("oblique"), true);
+});
+
+test("an integer shear is not an orientation", async () => {
+  const warnings = await warningsOf([1, 1, 0, 0, 1, 0, 0, 0, 1], true);
+  assertEquals(warnings.length, 1);
+  assertEquals(warnings[0].includes("oblique"), true);
+});
+
+test("a reversed time axis warns", async () => {
+  const image = mockItkImage([6, 5, 4, 3], "float32");
+  image.direction = new Float64Array([
+    1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1,
+  ]);
+  const warnings: string[] = [];
+  const warn = console.warn;
+  console.warn = (message: string) => warnings.push(message);
+  try {
+    await itkImageToNgffImage(image);
+  } finally {
+    console.warn = warn;
+  }
+  assertEquals(warnings.length, 1);
+  assertEquals(warnings[0].includes("time"), true);
+});
+
+test("a direction dropped without orientation warns", async () => {
+  const warnings = await warningsOf(FLIPPED, false);
+  assertEquals(warnings.length, 1);
+  assertEquals(warnings[0].includes("addAnatomicalOrientation is false"), true);
+});
+
+test("a direction the image carries does not warn", async () => {
+  const identity = Array.from(identityMatrix(3));
+  assertEquals(await warningsOf(identity, true), []);
+  assertEquals(await warningsOf(identity, false), []);
+  assertEquals(await warningsOf(FLIPPED, true), []);
+});
