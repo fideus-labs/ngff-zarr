@@ -1,3 +1,11 @@
+## ts-v0.40.0 (2026-10-30)
+
+### 🐛 Bug Fixes
+
+- **ts**: format the bump changelog with the local vp, not npx vp ([1e76420](https://github.com/fideus-labs/ngff-zarr/commit/1e76420f7f4367e8b3b14f081b43aed92c785ea7))
+- **ts**: terminate a spawned codec worker when its task rejects ([0b0c31d](https://github.com/fideus-labs/ngff-zarr/commit/0b0c31dfd7add7446a13dbc94a9a16cad00b12d3))
+- **py,ts**: warn when an ITK image's direction cannot be carried ([02bcda4](https://github.com/fideus-labs/ngff-zarr/commit/02bcda4c63ac28baa02ff4fcd411b12bf0d733d9))
+
 ## ts-v0.39.0 (2026-10-23)
 
 ### BREAKING CHANGE
