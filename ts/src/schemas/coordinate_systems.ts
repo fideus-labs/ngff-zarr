@@ -40,9 +40,9 @@ export const MapAxisTransformationSchema: z.ZodType<{
     .max(5)
     .refine(
       (indices) =>
-        [...indices].sort((a, b) => a - b).every(
-          (value, position) => value === position,
-        ),
+        [...indices]
+          .sort((a, b) => a - b)
+          .every((value, position) => value === position),
       {
         message:
           "mapAxis must be a permutation holding every zero-based input " +
@@ -230,102 +230,78 @@ type TransformationCommon = {
 export type CoordinateTransformation =
   | ({ type: "identity" } & TransformationCommon)
   | ({ type: "mapAxis"; mapAxis: number[] } & TransformationCommon)
-  | (
-    & {
+  | ({
       type: "projectAxis";
       droppedInputs?: number[] | undefined;
       createdOutputs?: number[] | undefined;
-    }
-    & TransformationCommon
-  )
-  | (
-    & {
+    } & TransformationCommon)
+  | ({
       type: "translation";
       translation?: number[] | undefined;
       path?: string | undefined;
-    }
-    & TransformationCommon
-  )
-  | (
-    & {
+    } & TransformationCommon)
+  | ({
       type: "scale";
       scale?: number[] | undefined;
       path?: string | undefined;
-    }
-    & TransformationCommon
-  )
-  | (
-    & {
+    } & TransformationCommon)
+  | ({
       type: "affine";
       affine?: number[][] | undefined;
       path?: string | undefined;
-    }
-    & TransformationCommon
-  )
-  | (
-    & {
+    } & TransformationCommon)
+  | ({
       type: "rotation";
       rotation?: number[][] | undefined;
       path?: string | undefined;
-    }
-    & TransformationCommon
-  )
-  | (
-    & { type: "coordinates"; path: string; interpolation?: string | undefined }
-    & TransformationCommon
-  )
-  | (
-    & {
+    } & TransformationCommon)
+  | ({
+      type: "coordinates";
+      path: string;
+      interpolation?: string | undefined;
+    } & TransformationCommon)
+  | ({
       type: "displacements";
       path: string;
       interpolation?: string | undefined;
-    }
-    & TransformationCommon
-  )
-  | (
-    & { type: "sequence"; transformations: CoordinateTransformation[] }
-    & TransformationCommon
-  )
-  | (
-    & {
+    } & TransformationCommon)
+  | ({
+      type: "sequence";
+      transformations: CoordinateTransformation[];
+    } & TransformationCommon)
+  | ({
       type: "bijection";
       forward: CoordinateTransformation;
       inverse: CoordinateTransformation;
-    }
-    & TransformationCommon
-  )
-  | (
-    & {
+    } & TransformationCommon)
+  | ({
       type: "byDimension";
       transformations: Array<{
         transformation: CoordinateTransformation;
         inputAxes: number[];
         outputAxes: number[];
       }>;
-    }
-    & TransformationCommon
-  );
+    } & TransformationCommon);
 
 // Complete coordinate transformation schema (union of all types). Lazy so the
 // wrapper schemas below can nest it recursively.
-export const CoordinateTransformationSchema: z.ZodType<
-  CoordinateTransformation
-> = z.lazy(() =>
-  z.union([
-    IdentityTransformationSchema,
-    MapAxisTransformationSchema,
-    ProjectAxisTransformationSchema,
-    TranslationTransformationSchema,
-    ScaleTransformationSchema,
-    AffineTransformationSchema,
-    RotationTransformationSchema,
-    CoordinatesTransformationSchema,
-    DisplacementsTransformationSchema,
-    SequenceTransformationSchema,
-    BijectionTransformationSchema,
-    ByDimensionTransformationSchema,
-  ])
-);
+export const CoordinateTransformationSchema: z.ZodType<CoordinateTransformation> =
+  z.lazy(() =>
+    z.union([
+      IdentityTransformationSchema,
+      MapAxisTransformationSchema,
+      ProjectAxisTransformationSchema,
+      TranslationTransformationSchema,
+      ScaleTransformationSchema,
+      AffineTransformationSchema,
+      RotationTransformationSchema,
+      CoordinatesTransformationSchema,
+      DisplacementsTransformationSchema,
+      SequenceTransformationSchema,
+      BijectionTransformationSchema,
+      ByDimensionTransformationSchema,
+    ]),
+  );
 
 // Sequence transformation (for chaining transformations)
 export const SequenceTransformationSchema: z.ZodType<

@@ -4,6 +4,7 @@
 import numpy as np
 from dask.array import concatenate, expand_dims, map_blocks, map_overlap, take
 
+from .._itkwasm_pipelines import call_itkwasm
 from ..ngff_image import NgffImage
 from ._support import (
     _align_chunks,
@@ -299,7 +300,9 @@ def _downsample_itk_gaussian(
         # Compute metadata for region splitting
         shrink_factors = [dim_factors[sd] for sd in spatial_dims]
         sigma_values = _compute_sigma(shrink_factors)
-        kernel_radius = gaussian_kernel_radius(size=block_0_size, sigma=sigma_values)
+        kernel_radius = call_itkwasm(
+            gaussian_kernel_radius, size=block_0_size, sigma=sigma_values
+        )
 
         dtype = block_0_input.dtype
 

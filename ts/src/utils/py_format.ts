@@ -16,10 +16,9 @@
  */
 export function pyRepr(value: string): string {
   const quote = value.includes("'") && !value.includes('"') ? '"' : "'";
-  const escaped = value.replaceAll("\\", "\\\\").replaceAll(
-    quote,
-    `\\${quote}`,
-  );
+  const escaped = value
+    .replaceAll("\\", "\\\\")
+    .replaceAll(quote, `\\${quote}`);
   return `${quote}${escaped}${quote}`;
 }
 

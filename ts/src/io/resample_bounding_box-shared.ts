@@ -138,7 +138,7 @@ export class ResampleBoundingBox {
     const order = dims ?? this.dims;
     const bounds = this.clamped();
     return order.map((dim) =>
-      dim in bounds ? zarr.slice(bounds[dim][0], bounds[dim][1]) : null
+      dim in bounds ? zarr.slice(bounds[dim][0], bounds[dim][1]) : null,
     );
   }
 
@@ -172,12 +172,10 @@ function checkGeometry(
   image: NgffImage,
   spatial: string[],
 ): void {
-  for (
-    const [name, values] of [
-      ["scale", image.scale],
-      ["translation", image.translation],
-    ] as const
-  ) {
+  for (const [name, values] of [
+    ["scale", image.scale],
+    ["translation", image.translation],
+  ] as const) {
     for (const dim of spatial) {
       const value = values[dim];
       if (value === undefined) {
@@ -192,9 +190,7 @@ function checkGeometry(
         );
       }
       if (name === "scale" && value === 0) {
-        throw new Error(
-          `${label} image scale for dimension '${dim}' is zero`,
-        );
+        throw new Error(`${label} image scale for dimension '${dim}' is zero`);
       }
     }
   }
@@ -313,7 +309,9 @@ function fieldFor(
 ): NgffImage | NgffMultiscales {
   const field = fields?.[transform.path];
   if (field === undefined) {
-    const available = Object.keys(fields ?? {}).sort().join(", ");
+    const available = Object.keys(fields ?? {})
+      .sort()
+      .join(", ");
     throw new Error(
       `the ${transform.type} transform points at '${transform.path}', but no ` +
         `field was passed for it (fields given: [${available}]). Load it ` +
@@ -366,9 +364,10 @@ function stageInterval(
   const high = new Array<number>(dimension).fill(Number.NEGATIVE_INFINITY);
   const block = values.length / dimension;
   for (let index = 0; index < values.length; index++) {
-    const component = name === "DisplacementField"
-      ? index % dimension
-      : Math.floor(index / block);
+    const component =
+      name === "DisplacementField"
+        ? index % dimension
+        : Math.floor(index / block);
     const value = values[index];
     if (value < low[component]) low[component] = value;
     if (value > high[component]) high[component] = value;
@@ -391,7 +390,7 @@ function boxInsideFieldDomain(
   // nothing about staying on the domain.
   if (
     String(entry.transformType.transformParameterization) !==
-      "DisplacementField"
+    "DisplacementField"
   ) {
     return false;
   }
@@ -448,10 +447,12 @@ function accumulatedInterval(
     const interval = intervals[position];
     if (interval !== undefined) {
       // ITK displaces a point beyond a stage's domain by nothing.
-      const ranged = contained ? interval : {
-        low: interval.low.map((value) => Math.min(value, 0)),
-        high: interval.high.map((value) => Math.max(value, 0)),
-      };
+      const ranged = contained
+        ? interval
+        : {
+            low: interval.low.map((value) => Math.min(value, 0)),
+            high: interval.high.map((value) => Math.max(value, 0)),
+          };
       low = low.map((value, i) => value + ranged.low[i]);
       high = high.map((value, i) => value + ranged.high[i]);
       continue;
@@ -517,8 +518,10 @@ function gridPhysicalBox(
     }
     if (component === -1) return undefined;
     const dim = itkDims[axis];
-    const reach = direction[component * dimension + axis] *
-      (grid.data.shape[grid.dims.indexOf(dim)] - 1) * grid.scale[dim];
+    const reach =
+      direction[component * dimension + axis] *
+      (grid.data.shape[grid.dims.indexOf(dim)] - 1) *
+      grid.scale[dim];
     low[component] += Math.min(reach, 0);
     high[component] += Math.max(reach, 0);
   }
@@ -540,7 +543,9 @@ function nonlinearInterval(
     if (interval !== undefined) indices.push(index);
   });
   if (indices.length === 0) return undefined;
-  const contained = entries.length === 1 && gridBox !== undefined &&
+  const contained =
+    entries.length === 1 &&
+    gridBox !== undefined &&
     boxInsideFieldDomain(entries[0], dimension, gridBox);
   const range = accumulatedInterval(entries, intervals, dimension, contained);
   if (range === undefined) return undefined;
@@ -592,8 +597,12 @@ function directionBounds(
 }
 
 function isV06Transform(value: unknown): value is V06Transform {
-  return typeof value === "object" && value !== null && "type" in value &&
-    typeof (value as { type: unknown }).type === "string";
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    typeof (value as { type: unknown }).type === "string"
+  );
 }
 
 /**
@@ -700,7 +709,8 @@ export async function resampleBoundingBoxShared(
     }
   } else if (isV06Transform(transform)) {
     if (
-      transform.type === "displacements" || transform.type === "coordinates"
+      transform.type === "displacements" ||
+      transform.type === "coordinates"
     ) {
       // A field transform is the identity plus a displacement. The identity
       // is what the pipeline measures; the displacement is read off the field
@@ -822,12 +832,10 @@ function grown(
     size[dim] += last - first;
     // The reported corners hold a first and a last index position, which swap
     // when an axis direction is negative; move the span either way.
-    for (
-      const [begin, stop] of [
-        [cornersMin, cornersMax],
-        [paddedCornersMin, paddedCornersMax],
-      ] as Record<string, number>[][]
-    ) {
+    for (const [begin, stop] of [
+      [cornersMin, cornersMax],
+      [paddedCornersMin, paddedCornersMax],
+    ] as Record<string, number>[][]) {
       if (begin[dim] <= stop[dim]) {
         begin[dim] += low;
         stop[dim] += high;

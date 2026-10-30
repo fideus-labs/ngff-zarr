@@ -62,10 +62,7 @@ export function calculateStride(shape: number[]): number[] {
 }
 
 /** Allocate a typed array of `length` elements of `componentType`. */
-function allocate(
-  componentType: ComponentType,
-  length: number,
-): AnyTypedArray {
+function allocate(componentType: ComponentType, length: number): AnyTypedArray {
   switch (componentType) {
     case "uint8":
       return new Uint8Array(length);

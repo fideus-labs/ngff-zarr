@@ -141,9 +141,9 @@ export function validateRfc4Orientation(
         ) {
           throw new Error(
             `Invalid orientation value '${orientationValue}' for axis '${axisName}'. ` +
-              `Valid values are: ${
-                [...VALID_ORIENTATION_VALUES].sort().join(", ")
-              }`,
+              `Valid values are: ${[...VALID_ORIENTATION_VALUES]
+                .sort()
+                .join(", ")}`,
           );
         }
         spatialOrientationValues.push([axisName, orientationValue]);

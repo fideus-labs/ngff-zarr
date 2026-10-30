@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
-import { assertEquals, assertNotEquals, assertThrows } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertNotEquals, assertThrows } from "./_assert.ts";
 import { fromHcsZarr, toHcsZarr } from "../src/io/hcs.ts";
 import { HCSPlate as HCSPlateClass } from "../src/types/hcs.ts";
 import type {
@@ -15,8 +16,8 @@ import {
   validatePlate,
   ValidationLevel,
 } from "../src/utils/structural_validation.ts";
-import { existsSync } from "jsr:@std/fs@0.224.0";
-import { resolve } from "jsr:@std/path@0.224.0";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 
 // Test data path - using the Python test data
 const TEST_DATA_DIR = resolve("../py/test/data/input");
@@ -50,7 +51,7 @@ function fixturePlate(validate = false): HCSPlateClass {
   });
 }
 
-Deno.test("test_hcs_data_exists", () => {
+test("test_hcs_data_exists", () => {
   assertEquals(existsSync(HCS_DATA_PATH), true, "HCS test data should exist");
   assertEquals(
     existsSync(resolve(HCS_DATA_PATH, ".zattrs")),
@@ -59,7 +60,7 @@ Deno.test("test_hcs_data_exists", () => {
   );
 });
 
-Deno.test("test_from_hcs_zarr_basic", () => {
+test("test_from_hcs_zarr_basic", () => {
   const plate = fixturePlate();
 
   assertEquals(
@@ -94,7 +95,7 @@ Deno.test("test_from_hcs_zarr_basic", () => {
   assertEquals(wellPaths.includes("B/2"), true, "Should include well B/2");
 });
 
-Deno.test("test_from_hcs_zarr_acquisitions", () => {
+test("test_from_hcs_zarr_acquisitions", () => {
   const plate = fixturePlate();
 
   assertNotEquals(
@@ -108,13 +109,13 @@ Deno.test("test_from_hcs_zarr_acquisitions", () => {
   assertEquals(acq.id, 0, "Acquisition should have ID 0");
 });
 
-Deno.test("test_from_hcs_zarr_field_count", () => {
+test("test_from_hcs_zarr_field_count", () => {
   const plate = fixturePlate();
 
   assertEquals(plate.fieldCount, 2, "Should have field count of 2");
 });
 
-Deno.test("test_get_well_by_name", () => {
+test("test_get_well_by_name", () => {
   const plate = fixturePlate();
 
   const well = plate.getWell("A", "1");
@@ -128,7 +129,7 @@ Deno.test("test_get_well_by_name", () => {
   assertEquals(noneWell, null, "Should return null for non-existent well");
 });
 
-Deno.test("test_get_well_by_indices", () => {
+test("test_get_well_by_indices", () => {
   const plate = fixturePlate();
 
   const well1 = plate.getWellByIndices(0, 0); // A/1
@@ -144,7 +145,7 @@ Deno.test("test_get_well_by_indices", () => {
   assertEquals(noneWell, null, "Should return null for out of bounds indices");
 });
 
-Deno.test("test_well_images", () => {
+test("test_well_images", () => {
   const plate = fixturePlate();
   const well = plate.getWell("A", "1");
 
@@ -162,7 +163,7 @@ Deno.test("test_well_images", () => {
   }
 });
 
-Deno.test("test_get_image_from_well", async () => {
+test("test_get_image_from_well", async () => {
   const plate = fixturePlate();
   const well = plate.getWell("A", "1");
 
@@ -176,7 +177,7 @@ Deno.test("test_get_image_from_well", async () => {
   assertEquals(noneImage, null, "Should return null for invalid field index");
 });
 
-Deno.test("test_get_image_by_acquisition", async () => {
+test("test_get_image_by_acquisition", async () => {
   const plate = fixturePlate();
   const well = plate.getWell("A", "1");
 
@@ -194,7 +195,7 @@ Deno.test("test_get_image_by_acquisition", async () => {
   );
 });
 
-Deno.test("test_plate_metadata_creation", () => {
+test("test_plate_metadata_creation", () => {
   const columns: PlateColumn[] = [{ name: "1" }, { name: "2" }];
   const rows: PlateRow[] = [{ name: "A" }, { name: "B" }];
   const wells: PlateWell[] = [
@@ -227,7 +228,7 @@ Deno.test("test_plate_metadata_creation", () => {
   assertEquals(plateMetadata.acquisitions!.length, 1);
 });
 
-Deno.test("test_well_metadata_creation", () => {
+test("test_well_metadata_creation", () => {
   const images: WellImage[] = [
     { path: "0", acquisition: 0 },
     { path: "1", acquisition: 0 },
@@ -244,14 +245,14 @@ Deno.test("test_well_metadata_creation", () => {
   assertEquals(wellMetadata.images[0].acquisition, 0);
 });
 
-Deno.test("test_validate_hcs_metadata", () => {
+test("test_validate_hcs_metadata", () => {
   // The strict plate structural rules (validatePlate) accept the fixture's
   // internally consistent plate metadata.
   const plate = fixturePlate(true);
   assertNotEquals(plate, null);
 });
 
-Deno.test("test_validate_hcs_well_metadata", () => {
+test("test_validate_hcs_well_metadata", () => {
   // Loading a well from a plate read with validate: true runs the strict
   // per-well structural rules (validateWell) where the well's own metadata is
   // first available. The fixture plate declares a single acquisition, so the
@@ -262,7 +263,7 @@ Deno.test("test_validate_hcs_well_metadata", () => {
   assertEquals(well!.images.length, 2, "Well should expose its two fields");
 });
 
-Deno.test("fromHcsZarr and toHcsZarr refuse instead of faking a plate", () => {
+test("fromHcsZarr and toHcsZarr refuse instead of faking a plate", () => {
   assertThrows(() => fromHcsZarr(HCS_DATA_PATH), Error, "not supported");
   assertThrows(
     () => toHcsZarr(fixturePlate(), "/tmp/plate.ome.zarr"),

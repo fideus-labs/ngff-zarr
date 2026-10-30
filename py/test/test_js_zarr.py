@@ -21,6 +21,7 @@ from ngff_zarr import (
     PlateWell,
     Well,
     WellImage,
+    _itkwasm_pipelines,
     _js_zarr,
     _zarrista_utils,
     hcs,
@@ -46,7 +47,6 @@ from ngff_zarr._zarrista_utils import (
     open_zarrista_lazy,
     write_dask_array,
 )
-from ngff_zarr.methods import _itkwasm
 from ngff_zarr.rfc9_zip import ZipReadStore
 from ngff_zarr.to_ngff_zarr import _numpy_to_zarr_dtype
 
@@ -451,7 +451,7 @@ def test_itkwasm_downsampling_awaits_the_async_twins_on_pyodide(
 
     for name in twins:
         monkeypatch.setattr(itkwasm_downsample, f"{name}_async", twin(name))
-    monkeypatch.setattr(_itkwasm, "_USE_JS", True)
+    monkeypatch.setattr(_itkwasm_pipelines, "_USE_JS", True)
     monkeypatch.setattr(_js_zarr, "_block_on", asyncio.run)
 
     images = to_multiscales(volume, [2], method=method, chunks=8).images

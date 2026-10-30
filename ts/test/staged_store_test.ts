@@ -7,7 +7,9 @@
  * Scenes and transformations with a displacement field, the reason to stage
  * a store, are covered in scene_test.ts and transformation_test.ts.
  */
-import { assertEquals, assertRejects, assertThrows } from "@std/assert";
+import { test } from "vite-plus/test";
+import { makeTempDir, readFile, remove } from "./_fs.ts";
+import { assertEquals, assertRejects, assertThrows } from "./_assert.ts";
 import * as zarr from "zarrita";
 import { ZipFileStore } from "@zarrita/storage";
 
@@ -48,11 +50,11 @@ function documentAt(store: MemoryStore, key: string): Record<string, unknown> {
 async function withTempDir(
   body: (dir: string) => Promise<void>,
 ): Promise<void> {
-  const dir = await Deno.makeTempDir();
+  const dir = await makeTempDir();
   try {
     await body(dir);
   } finally {
-    await Deno.remove(dir, { recursive: true });
+    await remove(dir, { recursive: true });
   }
 }
 
@@ -62,7 +64,7 @@ const WRITERS = [
 ] as const;
 
 for (const [module, write, read] of WRITERS) {
-  Deno.test(`${module}: an image is written and read below a path of a MemoryStore`, async () => {
+  test(`${module}: an image is written and read below a path of a MemoryStore`, async () => {
     const store: MemoryStore = new Map();
     await write(store, await image(), { version: "0.6", path: "a/b" });
 
@@ -84,20 +86,18 @@ for (const [module, write, read] of WRITERS) {
     assertEquals(await pixelsOf(readBack), PIXELS);
   });
 
-  Deno.test(`${module}: a path that leaves the store is refused`, async () => {
+  test(`${module}: a path that leaves the store is refused`, async () => {
     const multiscales = await image();
-    for (
-      const path of [
-        "../b",
-        "/b",
-        "a//b",
-        "a/./b",
-        "%2e%2e/b",
-        "%2e%2e%2fb",
-        "%2e%2e%5cb",
-        "a/%2e%2e%2f%2e%2e/b",
-      ]
-    ) {
+    for (const path of [
+      "../b",
+      "/b",
+      "a//b",
+      "a/./b",
+      "%2e%2e/b",
+      "%2e%2e%2fb",
+      "%2e%2e%5cb",
+      "a/%2e%2e%2f%2e%2e/b",
+    ]) {
       await assertRejects(
         () => write(new Map(), multiscales, { path }),
         Error,
@@ -113,7 +113,7 @@ for (const [module, write, read] of WRITERS) {
 }
 
 for (const [module, write] of WRITERS) {
-  Deno.test(`${module}: a path below an array is refused, the array kept`, async () => {
+  test(`${module}: a path below an array is refused, the array kept`, async () => {
     const multiscales = await image();
     const store: MemoryStore = new Map();
     await zarr.create(
@@ -134,10 +134,9 @@ for (const [module, write] of WRITERS) {
     assertEquals(documentAt(store, "/a/zarr.json").node_type, "array");
 
     // Malformed metadata is an error, not a missing group to create.
-    const malformed: MemoryStore = new Map([[
-      "/a/zarr.json",
-      new TextEncoder().encode("{not json"),
-    ]]);
+    const malformed: MemoryStore = new Map([
+      ["/a/zarr.json", new TextEncoder().encode("{not json")],
+    ]);
     await assertRejects(
       () => write(malformed, multiscales, { path: "a/b" }),
       SyntaxError,
@@ -149,7 +148,7 @@ for (const [module, write] of WRITERS) {
   });
 }
 
-Deno.test("Node: an image is written and read below a path of a directory", async () => {
+test("Node: an image is written and read below a path of a directory", async () => {
   await withTempDir(async (dir) => {
     const store = `${dir}/staged.ome.zarr`;
     await toOmeZarr(store, await image(), { version: "0.6", path: "a/b" });
@@ -168,7 +167,7 @@ Deno.test("Node: an image is written and read below a path of a directory", asyn
 });
 
 for (const [module, write, read, pack] of WRITERS) {
-  Deno.test(`${module}: storeToZip packs a MemoryStore at the version its root declares`, async () => {
+  test(`${module}: storeToZip packs a MemoryStore at the version its root declares`, async () => {
     for (const version of ["0.5", "0.6"] as const) {
       const store: MemoryStore = new Map();
       await write(store, await image(), { version });
@@ -187,7 +186,7 @@ for (const [module, write, read, pack] of WRITERS) {
     );
   });
 
-  Deno.test(`${module}: storeToZip refuses a store RFC-9 cannot hold`, async () => {
+  test(`${module}: storeToZip refuses a store RFC-9 cannot hold`, async () => {
     assertThrows(() => pack(new Map()), Error, "no root zarr.json");
     // RFC-9 holds OME-Zarr 0.5 and later: a Zarr v3 store whose metadata
     // declares 0.4 is refused.
@@ -199,54 +198,59 @@ for (const [module, write, read, pack] of WRITERS) {
     document.attributes.ome.version = "0.4";
     v04.set("/zarr.json", new TextEncoder().encode(JSON.stringify(document)));
     assertThrows(() => pack(v04), Error, "requires OME-Zarr version 0.5");
-    const v2: MemoryStore = new Map([[
-      "/zarr.json",
-      new TextEncoder().encode(JSON.stringify({ zarr_format: 2 })),
-    ]]);
+    const v2: MemoryStore = new Map([
+      [
+        "/zarr.json",
+        new TextEncoder().encode(JSON.stringify({ zarr_format: 2 })),
+      ],
+    ]);
     assertThrows(() => pack(v2), Error, "zarr_format 2");
     // A version the readers do not support is refused, not packed as 0.5,
     // unless a version is given.
-    const unsupported: MemoryStore = new Map([[
-      "/zarr.json",
-      new TextEncoder().encode(JSON.stringify({
-        zarr_format: 3,
-        node_type: "group",
-        attributes: { ome: { version: "0.7" } },
-      })),
-    ]]);
+    const unsupported: MemoryStore = new Map([
+      [
+        "/zarr.json",
+        new TextEncoder().encode(
+          JSON.stringify({
+            zarr_format: 3,
+            node_type: "group",
+            attributes: { ome: { version: "0.7" } },
+          }),
+        ),
+      ],
+    ]);
     assertThrows(() => pack(unsupported), Error, "Unsupported NGFF version");
-    assertEquals(
-      readOzxVersion(pack(unsupported, { version: "0.6" })),
-      "0.6",
-    );
+    assertEquals(readOzxVersion(pack(unsupported, { version: "0.6" })), "0.6");
     // A plain Zarr group declares no version: 0.5.
-    const plain: MemoryStore = new Map([[
-      "/zarr.json",
-      new TextEncoder().encode(JSON.stringify({
-        zarr_format: 3,
-        node_type: "group",
-        attributes: {},
-      })),
-    ]]);
+    const plain: MemoryStore = new Map([
+      [
+        "/zarr.json",
+        new TextEncoder().encode(
+          JSON.stringify({
+            zarr_format: 3,
+            node_type: "group",
+            attributes: {},
+          }),
+        ),
+      ],
+    ]);
     assertEquals(readOzxVersion(pack(plain)), "0.5");
   });
 }
 
-Deno.test("Node: storeToZip writes a directory or a MemoryStore to an archive", async () => {
+test("Node: storeToZip writes a directory or a MemoryStore to an archive", async () => {
   await withTempDir(async (dir) => {
     const store = `${dir}/image.ome.zarr`;
     await toOmeZarr(store, await image(), { version: "0.6" });
     const memory: MemoryStore = new Map();
     await toOmeZarr(memory, await image(), { version: "0.6" });
 
-    for (
-      const [source, zipPath] of [[store, `${dir}/a.ozx`], [
-        memory,
-        `${dir}/b.ozx`,
-      ]] as const
-    ) {
+    for (const [source, zipPath] of [
+      [store, `${dir}/a.ozx`],
+      [memory, `${dir}/b.ozx`],
+    ] as const) {
       await storeToZip(source, zipPath);
-      const zip = await Deno.readFile(zipPath);
+      const zip = await readFile(zipPath);
       assertEquals(readOzxVersion(zip), "0.6");
       const archive = ZipFileStore.fromBlob(new Blob([zip as BlobPart]));
       assertEquals(await pixelsOf(await fromOmeZarr(archive)), PIXELS);

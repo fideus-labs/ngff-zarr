@@ -13,7 +13,8 @@
  * the RFC rather than from the matrix builder.
  */
 
-import { assertAlmostEquals, assertThrows } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertAlmostEquals, assertThrows } from "./_assert.ts";
 import {
   type ByDimensionItem,
   createAffine,
@@ -46,9 +47,10 @@ function apply(transform: V06Transform, point: number[]): number[] {
     case "translation":
       return point.map((value, i) => value + transform.translation[i]);
     case "affine":
-      return transform.affine.map((row) =>
-        row.slice(0, -1).reduce((total, v, i) => total + v * point[i], 0) +
-        row[row.length - 1]
+      return transform.affine.map(
+        (row) =>
+          row.slice(0, -1).reduce((total, v, i) => total + v * point[i], 0) +
+          row[row.length - 1],
       );
     case "mapAxis":
       // The value at position i names the input axis that becomes output i.
@@ -80,8 +82,9 @@ function apply(transform: V06Transform, point: number[]): number[] {
 
 /** `values`, given in `dims` order, reordered fastest-axis-first. */
 function itkOrder(values: number[], dims: string[]): number[] {
-  return ITK_ORDER.filter((dim) => dims.includes(dim))
-    .map((dim) => values[dims.indexOf(dim)]);
+  return ITK_ORDER.filter((dim) => dims.includes(dim)).map(
+    (dim) => values[dims.indexOf(dim)],
+  );
 }
 
 function samplePoints(ndim: number): number[][] {
@@ -115,15 +118,15 @@ const item = (
   outputAxes: number[],
 ): ByDimensionItem => ({ transformation, inputAxes, outputAxes });
 
-Deno.test("a mapAxis reversal maps like the oracle", () => {
+test("a mapAxis reversal maps like the oracle", () => {
   assertMapsLikeTheOracle(createMapAxis([2, 1, 0]), ["z", "y", "x"]);
 });
 
-Deno.test("a mapAxis on non-canonical dims binds axes by name", () => {
+test("a mapAxis on non-canonical dims binds axes by name", () => {
   assertMapsLikeTheOracle(createMapAxis([1, 2, 0]), ["x", "z", "y"]);
 });
 
-Deno.test("a mapAxis rotation is not read backwards", () => {
+test("a mapAxis rotation is not read backwards", () => {
   // [1, 2, 0] and [2, 0, 1] are inverse permutations, so a conversion that
   // reads the transpose vector backwards passes every symmetric case and
   // fails this one.
@@ -143,7 +146,7 @@ Deno.test("a mapAxis rotation is not read backwards", () => {
   }
 });
 
-Deno.test("a byDimension of a translation and a scale maps like the oracle", () => {
+test("a byDimension of a translation and a scale maps like the oracle", () => {
   assertMapsLikeTheOracle(
     createByDimension([
       item(createTranslation([7]), [0], [0]),
@@ -153,17 +156,24 @@ Deno.test("a byDimension of a translation and a scale maps like the oracle", () 
   );
 });
 
-Deno.test("a byDimension that permutes maps like the oracle", () => {
+test("a byDimension that permutes maps like the oracle", () => {
   assertMapsLikeTheOracle(
     createByDimension([
       item(createScale([4]), [0], [2]),
-      item(createAffine([[1, 0.5, 3], [0, 2, -1]]), [1, 2], [0, 1]),
+      item(
+        createAffine([
+          [1, 0.5, 3],
+          [0, 2, -1],
+        ]),
+        [1, 2],
+        [0, 1],
+      ),
     ]),
     ["z", "y", "x"],
   );
 });
 
-Deno.test("a byDimension holding a mapAxis maps like the oracle", () => {
+test("a byDimension holding a mapAxis maps like the oracle", () => {
   assertMapsLikeTheOracle(
     createByDimension([
       item(createMapAxis([1, 0]), [0, 1], [0, 1]),
@@ -173,14 +183,14 @@ Deno.test("a byDimension holding a mapAxis maps like the oracle", () => {
   );
 });
 
-Deno.test("a bijection maps like its forward direction", () => {
+test("a bijection maps like its forward direction", () => {
   assertMapsLikeTheOracle(
     createBijection(createScale([2, 4]), createScale([0.5, 0.25])),
     ["y", "x"],
   );
 });
 
-Deno.test("a bijection ignores an inverse that disagrees", () => {
+test("a bijection ignores an inverse that disagrees", () => {
   // RFC-5 does not require the two directions to be consistent, and the
   // forward one is the mapping.
   const { matrix } = ngffTransformToItkMatrix(
@@ -190,13 +200,16 @@ Deno.test("a bijection ignores an inverse that disagrees", () => {
   assertAlmostEquals(matrix[0][0], 2, 1e-12);
 });
 
-Deno.test("a sequence of the new types maps like the oracle", () => {
+test("a sequence of the new types maps like the oracle", () => {
   assertMapsLikeTheOracle(
     createTransformSequence([
       createMapAxis([1, 0]),
       createTranslation([10, -20]),
       createBijection(
-        createAffine([[0.8, -0.6, 1], [0.6, 0.8, 2]]),
+        createAffine([
+          [0.8, -0.6, 1],
+          [0.6, 0.8, 2],
+        ]),
         createIdentity(),
       ),
     ]),
@@ -204,7 +217,7 @@ Deno.test("a sequence of the new types maps like the oracle", () => {
   );
 });
 
-Deno.test("a mapAxis length must match the coordinate system", () => {
+test("a mapAxis length must match the coordinate system", () => {
   assertThrows(
     () => ngffTransformToItkMatrix(createMapAxis([1, 0]), ["z", "y", "x"]),
     Error,
@@ -212,7 +225,7 @@ Deno.test("a mapAxis length must match the coordinate system", () => {
   );
 });
 
-Deno.test("a mapAxis that couples a channel axis is refused", () => {
+test("a mapAxis that couples a channel axis is refused", () => {
   assertThrows(
     () => ngffTransformToItkMatrix(createMapAxis([2, 1, 0]), ["c", "y", "x"]),
     Error,
@@ -220,7 +233,7 @@ Deno.test("a mapAxis that couples a channel axis is refused", () => {
   );
 });
 
-Deno.test("a byDimension may leave a non-spatial axis to itself", () => {
+test("a byDimension may leave a non-spatial axis to itself", () => {
   // A time scale is projected away, exactly as it is for an affine: it is not
   // part of the spatial mapping an ITK transform describes.
   const { matrix, offset } = ngffTransformToItkMatrix(
@@ -235,7 +248,7 @@ Deno.test("a byDimension may leave a non-spatial axis to itself", () => {
   assertAlmostEquals(offset[1], 3, 1e-12);
 });
 
-Deno.test("a byDimension that leaves an output axis unset is refused", () => {
+test("a byDimension that leaves an output axis unset is refused", () => {
   assertThrows(
     () =>
       ngffTransformToItkMatrix(
@@ -247,7 +260,7 @@ Deno.test("a byDimension that leaves an output axis unset is refused", () => {
   );
 });
 
-Deno.test("a byDimension item of unequal arity is refused", () => {
+test("a byDimension item of unequal arity is refused", () => {
   assertThrows(
     () =>
       ngffTransformToItkMatrix(
@@ -262,7 +275,7 @@ Deno.test("a byDimension item of unequal arity is refused", () => {
   );
 });
 
-Deno.test("a byDimension axis index beyond the coordinate system is refused", () => {
+test("a byDimension axis index beyond the coordinate system is refused", () => {
   assertThrows(
     () =>
       ngffTransformToItkMatrix(
@@ -274,7 +287,7 @@ Deno.test("a byDimension axis index beyond the coordinate system is refused", ()
   );
 });
 
-Deno.test("a negative byDimension axis index is refused", () => {
+test("a negative byDimension axis index is refused", () => {
   // A negative index would leave its axis unset and the matrix singular.
   assertThrows(
     () =>
@@ -287,7 +300,7 @@ Deno.test("a negative byDimension axis index is refused", () => {
   );
 });
 
-Deno.test("a byDimension matches the affine it is equivalent to", () => {
+test("a byDimension matches the affine it is equivalent to", () => {
   const dims = ["z", "y", "x"];
   const byDimension = ngffTransformToItkMatrix(
     createByDimension([
@@ -297,7 +310,11 @@ Deno.test("a byDimension matches the affine it is equivalent to", () => {
     dims,
   );
   const affine = ngffTransformToItkMatrix(
-    createAffine([[1, 0, 0, 7], [0, 2, 0, 0], [0, 0, 3, 0]]),
+    createAffine([
+      [1, 0, 0, 7],
+      [0, 2, 0, 0],
+      [0, 0, 3, 0],
+    ]),
     dims,
   );
   for (let row = 0; row < 3; row++) {
@@ -312,7 +329,7 @@ Deno.test("a byDimension matches the affine it is equivalent to", () => {
   }
 });
 
-Deno.test("an unsupported type names the ones that convert", () => {
+test("an unsupported type names the ones that convert", () => {
   assertThrows(
     () =>
       ngffTransformToItkMatrix(

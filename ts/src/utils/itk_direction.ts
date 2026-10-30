@@ -69,13 +69,11 @@ export function directionRows(
   direction: Float64Array,
   dimension: number,
 ): number[][] {
-  return Array.from(
-    { length: dimension },
-    (_, row) =>
-      Array.from(
-        { length: dimension },
-        (_, col) => direction[row * dimension + col],
-      ),
+  return Array.from({ length: dimension }, (_, row) =>
+    Array.from(
+      { length: dimension },
+      (_, col) => direction[row * dimension + col],
+    ),
   );
 }
 
@@ -87,14 +85,14 @@ export function transposed(matrix: number[][]): number[][] {
 function matmul(left: number[][], right: number[][]): number[][] {
   return left.map((row) =>
     right[0].map((_, col) =>
-      row.reduce((sum, value, k) => sum + value * right[k][col], 0)
-    )
+      row.reduce((sum, value, k) => sum + value * right[k][col], 0),
+    ),
   );
 }
 
 function matvec(matrix: number[][], vector: number[]): number[] {
   return matrix.map((row) =>
-    row.reduce((sum, value, col) => sum + value * vector[col], 0)
+    row.reduce((sum, value, col) => sum + value * vector[col], 0),
   );
 }
 
@@ -116,9 +114,10 @@ export function frameGeometry(
   moving: NgffImage,
   itkDims: string[],
 ): FrameGeometry {
-  for (
-    const [label, image] of [["fixed", fixed], ["moving", moving]] as const
-  ) {
+  for (const [label, image] of [
+    ["fixed", fixed],
+    ["moving", moving],
+  ] as const) {
     const missing = itkDims.filter((dim) => !(dim in image.translation));
     if (missing.length > 0) {
       throw new Error(

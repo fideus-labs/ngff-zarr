@@ -29,12 +29,14 @@ export function isPathBelowRoot(path: unknown): path is string {
       return part;
     }
   };
-  return typeof path === "string" &&
+  return (
+    typeof path === "string" &&
     !path.split(separators).some((part) =>
-      decode(part).split(separators).some((segment) =>
-        ["", ".", ".."].includes(segment)
-      )
-    );
+      decode(part)
+        .split(separators)
+        .some((segment) => ["", ".", ".."].includes(segment)),
+    )
+  );
 }
 
 /** Throw unless `path` is a plain path below a store's root. */
@@ -95,9 +97,11 @@ async function nodeTypeAt(
     await location.store.get(location.resolve(key).path);
   const v3 = await get("zarr.json");
   if (v3 !== undefined) {
-    return (JSON.parse(new TextDecoder().decode(v3)) as {
-      node_type?: unknown;
-    }).node_type;
+    return (
+      JSON.parse(new TextDecoder().decode(v3)) as {
+        node_type?: unknown;
+      }
+    ).node_type;
   }
   if ((await get(".zarray")) !== undefined) return "array";
   if ((await get(".zgroup")) !== undefined) return "group";

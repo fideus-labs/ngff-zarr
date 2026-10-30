@@ -16,7 +16,8 @@ import type { ArrayWriterFactory } from "./to_ngff_zarr_ozx_common.ts";
 
 /** Writes arrays the way this module does, with the given codecs and sharding. */
 export const arrayWriter: ArrayWriterFactory =
-  ({ codecs, chunksPerShard }) => (group, image, path, onProgress) =>
+  ({ codecs, chunksPerShard }) =>
+  (group, image, path, onProgress) =>
     _writeImage(group, image, path, onProgress, codecs, chunksPerShard);
 
 function _convertDtypeToZarrType(dtype: string): zarr.DataType {
@@ -198,7 +199,7 @@ async function writeChunkWithGet(
   const shape = image.data.shape;
   const chunkStart = chunkIndex.map((idx, dim) => idx * writeShape[dim]);
   const chunkEnd = chunkStart.map((start, dim) =>
-    Math.min(start + writeShape[dim], shape[dim])
+    Math.min(start + writeShape[dim], shape[dim]),
   );
 
   // Calculate chunk shape
@@ -206,7 +207,7 @@ async function writeChunkWithGet(
 
   // Create selection for this chunk from the source data
   const sourceSelection = chunkStart.map((start, dim) =>
-    zarr.slice(start, chunkEnd[dim])
+    zarr.slice(start, chunkEnd[dim]),
   );
 
   // Get only the chunk data we need from the source
@@ -239,7 +240,7 @@ async function writeChunkWithGet(
 
   // Create the selection for writing to the target zarr array
   const targetSelection = chunkStart.map((start, dim) =>
-    zarr.slice(start, chunkEnd[dim])
+    zarr.slice(start, chunkEnd[dim]),
   );
 
   // Write the chunk using zarrita's set function
@@ -309,9 +310,9 @@ function convertChunkToTargetType(
       // Convert between typed arrays
       if (targetDtype === "int64" || targetDtype === "uint64") {
         // Regular number to BigInt conversion
-        const bigIntArray = new targetTypedArrayConstructor(chunkData.length) as
-          | BigInt64Array
-          | BigUint64Array;
+        const bigIntArray = new targetTypedArrayConstructor(
+          chunkData.length,
+        ) as BigInt64Array | BigUint64Array;
         for (let i = 0; i < chunkData.length; i++) {
           bigIntArray[i] = BigInt(chunkData[i]);
         }

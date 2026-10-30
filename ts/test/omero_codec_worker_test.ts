@@ -5,7 +5,8 @@
  * Tests for omero_codec_worker utilities, specifically copySubRegion.
  */
 
-import { assertEquals } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals } from "./_assert.ts";
 
 /**
  * Copy a sub-region from a padded C-order buffer into a compact destination.
@@ -60,7 +61,7 @@ function getStrides(shape: number[]): number[] {
 // Tests for 1D arrays
 // ============================================================================
 
-Deno.test("copySubRegion: 1D array - full copy", () => {
+test("copySubRegion: 1D array - full copy", () => {
   const src = [1, 2, 3, 4, 5];
   const dst = new Array(5).fill(0);
   const srcStrides = getStrides([5]);
@@ -71,7 +72,7 @@ Deno.test("copySubRegion: 1D array - full copy", () => {
   assertEquals(dst, [1, 2, 3, 4, 5]);
 });
 
-Deno.test("copySubRegion: 1D array - partial copy", () => {
+test("copySubRegion: 1D array - partial copy", () => {
   const src = [1, 2, 3, 4, 5];
   const dst = new Array(3).fill(0);
   const srcStrides = getStrides([5]);
@@ -82,7 +83,7 @@ Deno.test("copySubRegion: 1D array - partial copy", () => {
   assertEquals(dst, [1, 2, 3]);
 });
 
-Deno.test("copySubRegion: 1D array - single element", () => {
+test("copySubRegion: 1D array - single element", () => {
   const src = [1, 2, 3];
   const dst = new Array(1).fill(0);
   const srcStrides = getStrides([3]);
@@ -97,22 +98,9 @@ Deno.test("copySubRegion: 1D array - single element", () => {
 // Tests for 2D arrays
 // ============================================================================
 
-Deno.test("copySubRegion: 2D array - full copy", () => {
+test("copySubRegion: 2D array - full copy", () => {
   // 3x4 array in C-order
-  const src = [
-    1,
-    2,
-    3,
-    4,
-    5,
-    6,
-    7,
-    8,
-    9,
-    10,
-    11,
-    12,
-  ];
+  const src = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
   const dst = new Array(12).fill(0);
   const srcStrides = getStrides([3, 4]);
   const subShape = [3, 4];
@@ -122,22 +110,9 @@ Deno.test("copySubRegion: 2D array - full copy", () => {
   assertEquals(dst, src);
 });
 
-Deno.test("copySubRegion: 2D array - extract sub-region", () => {
+test("copySubRegion: 2D array - extract sub-region", () => {
   // 3x4 padded array, extract 2x3 region
-  const src = [
-    1,
-    2,
-    3,
-    4,
-    5,
-    6,
-    7,
-    8,
-    9,
-    10,
-    11,
-    12,
-  ];
+  const src = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
   const dst = new Array(6).fill(0);
   const srcStrides = getStrides([3, 4]);
   const subShape = [2, 3];
@@ -147,18 +122,8 @@ Deno.test("copySubRegion: 2D array - extract sub-region", () => {
   assertEquals(dst, [1, 2, 3, 5, 6, 7]);
 });
 
-Deno.test("copySubRegion: 2D array - extract single row", () => {
-  const src = [
-    1,
-    2,
-    3,
-    4,
-    5,
-    6,
-    7,
-    8,
-    9,
-  ];
+test("copySubRegion: 2D array - extract single row", () => {
+  const src = [1, 2, 3, 4, 5, 6, 7, 8, 9];
   const dst = new Array(3).fill(0);
   const srcStrides = getStrides([3, 3]);
   const subShape = [1, 3];
@@ -168,18 +133,8 @@ Deno.test("copySubRegion: 2D array - extract single row", () => {
   assertEquals(dst, [1, 2, 3]);
 });
 
-Deno.test("copySubRegion: 2D array - extract single column", () => {
-  const src = [
-    1,
-    2,
-    3,
-    4,
-    5,
-    6,
-    7,
-    8,
-    9,
-  ];
+test("copySubRegion: 2D array - extract single column", () => {
+  const src = [1, 2, 3, 4, 5, 6, 7, 8, 9];
   const dst = new Array(3).fill(0);
   const srcStrides = getStrides([3, 3]);
   const subShape = [3, 1];
@@ -189,7 +144,7 @@ Deno.test("copySubRegion: 2D array - extract single column", () => {
   assertEquals(dst, [1, 4, 7]);
 });
 
-Deno.test("copySubRegion: 2D array - extract single element", () => {
+test("copySubRegion: 2D array - extract single element", () => {
   const src = [1, 2, 3, 4];
   const dst = new Array(1).fill(0);
   const srcStrides = getStrides([2, 2]);
@@ -204,7 +159,7 @@ Deno.test("copySubRegion: 2D array - extract single element", () => {
 // Tests for 3D arrays
 // ============================================================================
 
-Deno.test("copySubRegion: 3D array - full copy", () => {
+test("copySubRegion: 3D array - full copy", () => {
   // 2x3x4 array
   const src = Array.from({ length: 24 }, (_, i) => i);
   const dst = new Array(24).fill(-1);
@@ -216,7 +171,7 @@ Deno.test("copySubRegion: 3D array - full copy", () => {
   assertEquals(dst, src);
 });
 
-Deno.test("copySubRegion: 3D array - extract sub-region", () => {
+test("copySubRegion: 3D array - extract sub-region", () => {
   // 2x3x4 padded array, extract 2x2x3 region
   // Shape: [z, y, x] = [2, 3, 4]
   const src = [
@@ -257,22 +212,9 @@ Deno.test("copySubRegion: 3D array - extract sub-region", () => {
   assertEquals(dst, [0, 1, 2, 4, 5, 6, 12, 13, 14, 16, 17, 18]);
 });
 
-Deno.test("copySubRegion: 3D array - extract single plane", () => {
+test("copySubRegion: 3D array - extract single plane", () => {
   // 3x2x2 array, extract first plane (1x2x2)
-  const src = [
-    1,
-    2,
-    3,
-    4,
-    5,
-    6,
-    7,
-    8,
-    9,
-    10,
-    11,
-    12,
-  ];
+  const src = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
   const dst = new Array(4).fill(-1);
   const srcStrides = getStrides([3, 2, 2]);
   const subShape = [1, 2, 2];
@@ -286,7 +228,7 @@ Deno.test("copySubRegion: 3D array - extract single plane", () => {
 // Tests for edge chunk scenarios
 // ============================================================================
 
-Deno.test("copySubRegion: padded edge chunk - 2D example", () => {
+test("copySubRegion: padded edge chunk - 2D example", () => {
   // Simulate a padded edge chunk: chunk_shape=[3,3], actual_shape=[2,2]
   // The padded region is filled with zeros
   const src = [
@@ -309,7 +251,7 @@ Deno.test("copySubRegion: padded edge chunk - 2D example", () => {
   assertEquals(dst, [1, 2, 3, 4]);
 });
 
-Deno.test("copySubRegion: padded edge chunk - 3D example", () => {
+test("copySubRegion: padded edge chunk - 3D example", () => {
   // chunk_shape=[2,2,2], actual_shape=[1,2,1]
   const src = [
     10,
@@ -334,7 +276,7 @@ Deno.test("copySubRegion: padded edge chunk - 3D example", () => {
 // Tests with typed arrays
 // ============================================================================
 
-Deno.test("copySubRegion: Float32Array", () => {
+test("copySubRegion: Float32Array", () => {
   const src = new Float32Array([1.5, 2.5, 3.5, 4.5]);
   const dst = new Float32Array(2);
   const srcStrides = getStrides([2, 2]);
@@ -345,7 +287,7 @@ Deno.test("copySubRegion: Float32Array", () => {
   assertEquals(Array.from(dst), [1.5, 2.5]);
 });
 
-Deno.test("copySubRegion: Uint8Array", () => {
+test("copySubRegion: Uint8Array", () => {
   const src = new Uint8Array([255, 128, 64, 32, 16, 8, 4, 2]);
   const dst = new Uint8Array(4);
   const srcStrides = getStrides([2, 2, 2]);
@@ -360,7 +302,7 @@ Deno.test("copySubRegion: Uint8Array", () => {
 // Tests for different dimension orderings
 // ============================================================================
 
-Deno.test("copySubRegion: 4D array (c, z, y, x)", () => {
+test("copySubRegion: 4D array (c, z, y, x)", () => {
   // Shape: [c=2, z=2, y=2, x=2] = 16 elements
   const src = Array.from({ length: 16 }, (_, i) => i);
   const dst = new Array(4).fill(-1);
@@ -373,7 +315,7 @@ Deno.test("copySubRegion: 4D array (c, z, y, x)", () => {
   assertEquals(dst, [0, 1, 2, 3]);
 });
 
-Deno.test("copySubRegion: 5D array", () => {
+test("copySubRegion: 5D array", () => {
   // Shape: [t=2, c=2, z=2, y=2, x=2] = 32 elements
   const src = Array.from({ length: 32 }, (_, i) => i);
   const dst = new Array(8).fill(-1);
@@ -390,7 +332,7 @@ Deno.test("copySubRegion: 5D array", () => {
 // Tests with offset parameters
 // ============================================================================
 
-Deno.test("copySubRegion: with srcOffset", () => {
+test("copySubRegion: with srcOffset", () => {
   // 2x3 array: [[1,2,3], [4,5,6]]
   const src = [1, 2, 3, 4, 5, 6];
   const dst = new Array(4).fill(-1);
@@ -406,7 +348,7 @@ Deno.test("copySubRegion: with srcOffset", () => {
   assertEquals(dst, [2, 3, 5, 6]);
 });
 
-Deno.test("copySubRegion: with dstOffset", () => {
+test("copySubRegion: with dstOffset", () => {
   const src = [1, 2, 3, 4];
   const dst = new Array(6).fill(0);
   const srcStrides = getStrides([2, 2]);

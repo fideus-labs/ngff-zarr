@@ -20,6 +20,8 @@ export function isValidDimension(dim: string): boolean {
 }
 
 export function isValidUnit(unit: string): boolean {
-  return (spaceUnits as string[]).includes(unit) ||
-    (timeUnits as string[]).includes(unit);
+  return (
+    (spaceUnits as string[]).includes(unit) ||
+    (timeUnits as string[]).includes(unit)
+  );
 }

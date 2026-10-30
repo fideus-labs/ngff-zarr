@@ -36,13 +36,6 @@ import { get_ctr } from "@fideus-labs/fizarrita/internals/util";
 import { isNodeRuntime } from "@fideus-labs/worker-pool";
 import type { DataType } from "zarrita";
 import { registry } from "zarrita";
-// `handleCodecMessage` resolves its registry through fizarrita, an npm
-// package, so under Deno that is npm:zarrita rather than the
-// jsr:@zarrita/zarrita this package imports as "zarrita" — separate module
-// instances with separate registries. Patch both; in the npm build the two
-// specifiers collapse to one module and the installer's idempotency guard
-// makes the second call a no-op.
-import { registry as npmRegistry } from "npm:zarrita@^0.7.5";
 
 import { installBloscShuffleNormalization } from "../utils/blosc_registry.ts";
 import type { CodecRegistry } from "../utils/blosc_registry.ts";
@@ -52,8 +45,9 @@ import {
   updateAccumulator,
 } from "../utils/compute_omero-shared.ts";
 
+// `handleCodecMessage` resolves codecs through fizarrita, which shares this
+// module's zarrita instance, so patching its registry once covers both.
 installBloscShuffleNormalization(registry as unknown as CodecRegistry);
-installBloscShuffleNormalization(npmRegistry as unknown as CodecRegistry);
 
 // ---------------------------------------------------------------------------
 // Messages
@@ -145,7 +139,8 @@ async function handleDecodeAndStats(
       response: {
         type: "decoded_and_stats",
         id: msg.id,
-        error: decoded?.response.error ??
+        error:
+          decoded?.response.error ??
           "Codec worker did not handle the decode request",
       },
       transfer: [],
@@ -278,23 +273,24 @@ interface WorkerScope {
   postMessage(message: unknown, transfer: ArrayBuffer[]): void;
 }
 
-// A browser or Deno worker scope exposes `self` with a `postMessage`; a Node
-// worker thread has no `self` at all and uses `parentPort` instead.
+// A browser worker scope exposes `self` with a `postMessage`; a Node worker
+// thread has no `self` at all and uses `parentPort` instead.
 // `node:worker_threads` is imported through a variable specifier so bundlers
 // building for the browser never try to resolve it.
 //
-// The `postMessage` test is what distinguishes a real worker scope: Deno also
-// defines `self` on the *main* thread (as `Window`, with no `postMessage`), so
-// testing only for `self` would attach the listener to the main global, where
-// no message ever arrives and every caller waits forever.
+// The `postMessage` test is what distinguishes a real worker scope: some
+// runtimes define `self` on the *main* thread too (as `Window`, with no
+// `postMessage`), so testing only for `self` would attach the listener to the
+// main global, where no message ever arrives and every caller waits forever.
 //
-// Order matters too: Deno sets `process.versions.node` for npm compatibility,
-// so `isNodeRuntime()` is true there as well. Testing the worker scope first
-// keeps Deno workers on the web branch, which is the one they can actually use.
+// Order matters too: a runtime that emulates `process.versions.node` for npm
+// compatibility makes `isNodeRuntime()` true as well. Testing the worker scope
+// first keeps web workers on the web branch, which is the one they can use.
 const maybeSelf = (globalThis as { self?: { postMessage?: unknown } }).self;
-const workerScope = typeof maybeSelf?.postMessage === "function"
-  ? (maybeSelf as unknown as WorkerScope)
-  : undefined;
+const workerScope =
+  typeof maybeSelf?.postMessage === "function"
+    ? (maybeSelf as unknown as WorkerScope)
+    : undefined;
 
 if (workerScope !== undefined) {
   workerScope.addEventListener("message", async (event) => {
@@ -306,10 +302,10 @@ if (workerScope !== undefined) {
     );
   });
 } else if (isNodeRuntime()) {
-  const specifier = "node:worker_threads";
-  const { parentPort } = await import(
-    /* @vite-ignore */ /* webpackIgnore: true */ specifier
-  );
+  // Synchronous, so the module has no top-level await and bundles as a plain
+  // (iife) worker, which is Vite's default; a static import would drag
+  // `node:worker_threads` into browser builds. Node 22.3+, below the floor.
+  const { parentPort } = process.getBuiltinModule("node:worker_threads");
 
   if (parentPort === null) {
     throw new Error(
@@ -320,9 +316,7 @@ if (workerScope !== undefined) {
 
   // A MessagePort queues incoming messages until the first 'message' listener
   // is attached, so nothing posted before this module finishes evaluating is
-  // lost. Awaiting here rather than chaining `.then()` keeps a failed startup
-  // a rejection of the module's own evaluation, instead of an unhandled
-  // rejection beside a worker that silently answers nothing.
+  // lost.
   parentPort.on("message", async (msg: WorkerMessage) => {
     const reply = await handleMessage(msg);
     if (!reply) return;

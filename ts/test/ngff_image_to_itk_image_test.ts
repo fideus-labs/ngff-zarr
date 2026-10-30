@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
-import { assert, assertEquals } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assert, assertEquals } from "./_assert.ts";
 import {
   FloatTypes,
   Image as ITKImage,
@@ -23,24 +24,23 @@ import { zarrSet } from "../src/utils/worker_pool.ts";
 import { _zarrita_internal_getStrides as getStrides } from "zarrita";
 
 // Basic test to verify function is exportable
-Deno.test("ngffImageToItkImage function exports", async () => {
+test("ngffImageToItkImage function exports", async () => {
   // Test that the function can be imported
-  const { ngffImageToItkImage } = await import(
-    "../src/io/ngff_image_to_itk_image.ts"
-  );
+  const { ngffImageToItkImage } =
+    await import("../src/io/ngff_image_to_itk_image.ts");
 
   assertEquals(typeof ngffImageToItkImage, "function");
 });
 
 // Test the module can be imported from mod.ts
-Deno.test("ngffImageToItkImage exported from mod.ts", async () => {
+test("ngffImageToItkImage exported from mod.ts", async () => {
   const mod = await import("../src/mod.ts");
 
   assertEquals(typeof mod.ngffImageToItkImage, "function");
 });
 
 // Basic conversion tests using round-trip approach to avoid zarrita complexity
-Deno.test("ngffImageToItkImage 2D basic conversion", async () => {
+test("ngffImageToItkImage 2D basic conversion", async () => {
   // Create an ITK image and convert it to NGFF, then back to ITK
   const originalSize = [64, 32]; // x, y
   const originalSpacing = [1.5, 2.0];
@@ -84,7 +84,7 @@ Deno.test("ngffImageToItkImage 2D basic conversion", async () => {
   assertEquals(reconvertedItkImage.data.length, dataLength);
 });
 
-Deno.test("ngffImageToItkImage 3D basic conversion", async () => {
+test("ngffImageToItkImage 3D basic conversion", async () => {
   const originalSize = [32, 48, 16]; // x, y, z
   const originalSpacing = [1.0, 1.5, 2.0];
   const originalOrigin = [0.0, 10.0, 20.0];
@@ -127,75 +127,72 @@ Deno.test("ngffImageToItkImage 3D basic conversion", async () => {
   assertEquals(reconvertedItkImage.data.length, dataLength);
 });
 
-Deno.test(
-  "ngffImageToItkImage different data types via round-trip",
-  async () => {
-    // Test different data types using round-trip conversion
-    type ComponentType =
-      | (typeof IntTypes)[keyof typeof IntTypes]
-      | (typeof FloatTypes)[keyof typeof FloatTypes];
-    type ArrayConstructor =
-      | Uint8ArrayConstructor
-      | Int16ArrayConstructor
-      | Float32ArrayConstructor
-      | Float64ArrayConstructor;
+test("ngffImageToItkImage different data types via round-trip", async () => {
+  // Test different data types using round-trip conversion
+  type ComponentType =
+    | (typeof IntTypes)[keyof typeof IntTypes]
+    | (typeof FloatTypes)[keyof typeof FloatTypes];
+  type ArrayConstructor =
+    | Uint8ArrayConstructor
+    | Int16ArrayConstructor
+    | Float32ArrayConstructor
+    | Float64ArrayConstructor;
 
-    const testCases: Array<[ComponentType, ArrayConstructor]> = [
-      [IntTypes.UInt8, Uint8Array],
-      [IntTypes.Int16, Int16Array],
-      [FloatTypes.Float32, Float32Array],
-      [FloatTypes.Float64, Float64Array],
-    ];
+  const testCases: Array<[ComponentType, ArrayConstructor]> = [
+    [IntTypes.UInt8, Uint8Array],
+    [IntTypes.Int16, Int16Array],
+    [FloatTypes.Float32, Float32Array],
+    [FloatTypes.Float64, Float64Array],
+  ];
 
-    for (const [componentType, arrayType] of testCases) {
-      const originalSize = [16, 16];
-      const dataLength = originalSize.reduce((a, b) => a * b, 1);
-      const originalData = new arrayType(dataLength);
+  for (const [componentType, arrayType] of testCases) {
+    const originalSize = [16, 16];
+    const dataLength = originalSize.reduce((a, b) => a * b, 1);
+    const originalData = new arrayType(dataLength);
 
-      for (let i = 0; i < dataLength; i++) {
-        originalData[i] = i + 1;
-      }
-
-      const originalImageType: ITKImageType = {
-        dimension: 2,
-        componentType,
-        pixelType: PixelTypes.Scalar,
-        components: 1,
-      };
-
-      const originalItkImage: ITKImage = {
-        imageType: originalImageType,
-        name: "data_type_test",
-        origin: [0, 0],
-        spacing: [1, 1],
-        direction: new Float64Array([1, 0, 0, 1]),
-        size: originalSize,
-        metadata: new Map(),
-        data: originalData,
-      };
-
-      // Round-trip conversion
-      const ngffImage = await itkImageToNgffImage(originalItkImage);
-      const reconvertedItkImage = await ngffImageToItkImage(ngffImage);
-
-      assertEquals(
-        reconvertedItkImage.imageType.componentType,
-        componentType,
-        `Failed for component type: ${componentType}`,
-      );
-      assert(
-        reconvertedItkImage.data,
-        `Data should not be null for ${componentType}`,
-      );
-      assert(
-        reconvertedItkImage.data instanceof arrayType,
-        `Expected ${arrayType.name} for ${componentType}, got ${reconvertedItkImage.data.constructor.name}`,
-      );
+    for (let i = 0; i < dataLength; i++) {
+      originalData[i] = i + 1;
     }
-  },
-);
 
-Deno.test("ngffImageToItkImage round-trip conversion", async () => {
+    const originalImageType: ITKImageType = {
+      dimension: 2,
+      componentType,
+      pixelType: PixelTypes.Scalar,
+      components: 1,
+    };
+
+    const originalItkImage: ITKImage = {
+      imageType: originalImageType,
+      name: "data_type_test",
+      origin: [0, 0],
+      spacing: [1, 1],
+      direction: new Float64Array([1, 0, 0, 1]),
+      size: originalSize,
+      metadata: new Map(),
+      data: originalData,
+    };
+
+    // Round-trip conversion
+    const ngffImage = await itkImageToNgffImage(originalItkImage);
+    const reconvertedItkImage = await ngffImageToItkImage(ngffImage);
+
+    assertEquals(
+      reconvertedItkImage.imageType.componentType,
+      componentType,
+      `Failed for component type: ${componentType}`,
+    );
+    assert(
+      reconvertedItkImage.data,
+      `Data should not be null for ${componentType}`,
+    );
+    assert(
+      reconvertedItkImage.data instanceof arrayType,
+      `Expected ${arrayType.name} for ${componentType}, got ${reconvertedItkImage.data.constructor.name}`,
+    );
+  }
+});
+
+test("ngffImageToItkImage round-trip conversion", async () => {
   // Create an ITK image
   const originalSize = [64, 32, 16]; // x, y, z
   const originalSpacing = [2.5, 1.5, 0.8];
@@ -282,7 +279,7 @@ Deno.test("ngffImageToItkImage round-trip conversion", async () => {
   }
 });
 
-Deno.test("ngffImageToItkImage 2D round-trip conversion", async () => {
+test("ngffImageToItkImage 2D round-trip conversion", async () => {
   // Test 2D round-trip with different data type
   const originalSize = [128, 64]; // x, y
   const originalSpacing = [0.5, 1.25];
@@ -347,7 +344,7 @@ Deno.test("ngffImageToItkImage 2D round-trip conversion", async () => {
   }
 });
 
-Deno.test("ngffImageToItkImage metadata preservation", async () => {
+test("ngffImageToItkImage metadata preservation", async () => {
   const originalSize = [32, 48];
   const dataLength = originalSize.reduce((a, b) => a * b, 1);
   const originalData = new Int32Array(dataLength);
@@ -442,7 +439,7 @@ async function createTestNgffImage(
   });
 }
 
-Deno.test("direction matrix - without orientation → identity", async () => {
+test("direction matrix - without orientation → identity", async () => {
   const ngff = await createTestNgffImage([4, 8, 8], ["z", "y", "x"]);
   const itk = await ngffImageToItkImage(ngff);
 
@@ -452,12 +449,8 @@ Deno.test("direction matrix - without orientation → identity", async () => {
   }
 });
 
-Deno.test("direction matrix - LPS orientation → identity", async () => {
-  const ngff = await createTestNgffImage(
-    [4, 8, 8],
-    ["z", "y", "x"],
-    LPS,
-  );
+test("direction matrix - LPS orientation → identity", async () => {
+  const ngff = await createTestNgffImage([4, 8, 8], ["z", "y", "x"], LPS);
   const itk = await ngffImageToItkImage(ngff);
 
   const expected = new Float64Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
@@ -466,12 +459,8 @@ Deno.test("direction matrix - LPS orientation → identity", async () => {
   }
 });
 
-Deno.test("direction matrix - RAS orientation → flipped X/Y", async () => {
-  const ngff = await createTestNgffImage(
-    [4, 8, 8],
-    ["z", "y", "x"],
-    RAS,
-  );
+test("direction matrix - RAS orientation → flipped X/Y", async () => {
+  const ngff = await createTestNgffImage([4, 8, 8], ["z", "y", "x"], RAS);
   const itk = await ngffImageToItkImage(ngff);
 
   // RAS: X=-1, Y=-1, Z=+1
@@ -481,7 +470,7 @@ Deno.test("direction matrix - RAS orientation → flipped X/Y", async () => {
   }
 });
 
-Deno.test("direction matrix - permuted orientations", async () => {
+test("direction matrix - permuted orientations", async () => {
   const axesOrientations = {
     x: createAnatomicalOrientation(
       AnatomicalOrientationValues.AnteriorToPosterior,
@@ -489,9 +478,7 @@ Deno.test("direction matrix - permuted orientations", async () => {
     y: createAnatomicalOrientation(
       AnatomicalOrientationValues.InferiorToSuperior,
     ),
-    z: createAnatomicalOrientation(
-      AnatomicalOrientationValues.RightToLeft,
-    ),
+    z: createAnatomicalOrientation(AnatomicalOrientationValues.RightToLeft),
   };
 
   const ngff = await createTestNgffImage(
@@ -511,14 +498,10 @@ Deno.test("direction matrix - permuted orientations", async () => {
   }
 });
 
-Deno.test("direction matrix - non-LPS fallback → identity", async () => {
+test("direction matrix - non-LPS fallback → identity", async () => {
   const axesOrientations = {
-    x: createAnatomicalOrientation(
-      AnatomicalOrientationValues.RightToLeft,
-    ),
-    y: createAnatomicalOrientation(
-      AnatomicalOrientationValues.DorsalToVentral,
-    ),
+    x: createAnatomicalOrientation(AnatomicalOrientationValues.RightToLeft),
+    y: createAnatomicalOrientation(AnatomicalOrientationValues.DorsalToVentral),
     z: createAnatomicalOrientation(
       AnatomicalOrientationValues.InferiorToSuperior,
     ),
@@ -537,17 +520,13 @@ Deno.test("direction matrix - non-LPS fallback → identity", async () => {
   }
 });
 
-Deno.test("direction matrix - 2D RAS orientation", async () => {
+test("direction matrix - 2D RAS orientation", async () => {
   const axesOrientations = {
     x: RAS.x,
     y: RAS.y,
   };
 
-  const ngff = await createTestNgffImage(
-    [8, 8],
-    ["y", "x"],
-    axesOrientations,
-  );
+  const ngff = await createTestNgffImage([8, 8], ["y", "x"], axesOrientations);
   const itk = await ngffImageToItkImage(ngff);
 
   const expected = new Float64Array([-1, 0, 0, -1]);
@@ -556,7 +535,7 @@ Deno.test("direction matrix - 2D RAS orientation", async () => {
   }
 });
 
-Deno.test("direction round-trip - identity preserved", async () => {
+test("direction round-trip - identity preserved", async () => {
   const originalDirection = new Float64Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
   const originalImage: ITKImage = {
     imageType: {
@@ -582,7 +561,7 @@ Deno.test("direction round-trip - identity preserved", async () => {
   }
 });
 
-Deno.test("direction round-trip - flipped Y preserved", async () => {
+test("direction round-trip - flipped Y preserved", async () => {
   const originalDirection = new Float64Array([1, 0, 0, 0, -1, 0, 0, 0, 1]);
   const originalImage: ITKImage = {
     imageType: {

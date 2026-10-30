@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
-import { assertEquals, assertExists, assertThrows } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertExists, assertThrows } from "./_assert.ts";
 import { fromNgffZarr } from "../src/io/from_ngff_zarr.ts";
 import { toNgffZarr } from "../src/io/to_ngff_zarr.ts";
 import * as zarr from "zarrita";
@@ -19,7 +20,7 @@ import {
 } from "../src/utils/factory.ts";
 import { Methods } from "../src/types/methods.ts";
 
-Deno.test("read omero metadata from test dataset", async () => {
+test("read omero metadata from test dataset", async () => {
   const storePath = new URL(
     "../../py/test/data/input/13457537.zarr",
     import.meta.url,
@@ -81,7 +82,7 @@ Deno.test("read omero metadata from test dataset", async () => {
   assertEquals(omero.channels[5].label, "Hyb probe");
 });
 
-Deno.test("write omero metadata", async () => {
+test("write omero metadata", async () => {
   // Create test data (equivalent to Python's np.random.randint)
   const data = new Uint8Array(2 * 32 * 64 * 64);
   for (let i = 0; i < data.length; i++) {
@@ -177,101 +178,98 @@ Deno.test("write omero metadata", async () => {
   assertEquals(readOmero.channels[1].label, "");
 });
 
-Deno.test(
-  "write omero metadata with baseline verification example",
-  async () => {
-    // Create test data with fixed values for reproducible baseline
-    const data = new Uint8Array(2 * 32 * 64 * 64);
-    for (let i = 0; i < data.length; i++) {
-      data[i] = i % 256; // Fixed pattern for reproducible results
-    }
+test("write omero metadata with baseline verification example", async () => {
+  // Create test data with fixed values for reproducible baseline
+  const data = new Uint8Array(2 * 32 * 64 * 64);
+  for (let i = 0; i < data.length; i++) {
+    data[i] = i % 256; // Fixed pattern for reproducible results
+  }
 
-    // Create NgffImage with test data
-    const store = new Map<string, Uint8Array>();
-    const root = zarr.root(store);
+  // Create NgffImage with test data
+  const store = new Map<string, Uint8Array>();
+  const root = zarr.root(store);
 
-    const zarrArray = await zarr.create(root.resolve("test_image"), {
-      shape: [2, 32, 64, 64],
-      chunkShape: [2, 32, 64, 64],
-      dtype: "uint8",
-    });
+  const zarrArray = await zarr.create(root.resolve("test_image"), {
+    shape: [2, 32, 64, 64],
+    chunkShape: [2, 32, 64, 64],
+    dtype: "uint8",
+  });
 
-    const image = new NgffImage({
-      data: zarrArray,
-      dims: ["c", "z", "y", "x"],
-      scale: { c: 1.0, z: 1.0, y: 1.0, x: 1.0 },
-      translation: { c: 0.0, z: 0.0, y: 0.0, x: 0.0 },
-      name: "test_image",
-      axesUnits: undefined,
-      computedCallbacks: undefined,
-    });
+  const image = new NgffImage({
+    data: zarrArray,
+    dims: ["c", "z", "y", "x"],
+    scale: { c: 1.0, z: 1.0, y: 1.0, x: 1.0 },
+    translation: { c: 0.0, z: 0.0, y: 0.0, x: 0.0 },
+    name: "test_image",
+    axesUnits: undefined,
+    computedCallbacks: undefined,
+  });
 
-    // Create metadata and multiscales
-    const axes = [
-      createAxis("c", "channel"),
-      createAxis("z", "space"),
-      createAxis("y", "space"),
-      createAxis("x", "space"),
-    ];
+  // Create metadata and multiscales
+  const axes = [
+    createAxis("c", "channel"),
+    createAxis("z", "space"),
+    createAxis("y", "space"),
+    createAxis("x", "space"),
+  ];
 
-    const datasets = [
-      createDataset("0", [1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 0.0]),
-    ];
+  const datasets = [
+    createDataset("0", [1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 0.0]),
+  ];
 
-    const metadata = createMetadata(axes, datasets, "test_image");
+  const metadata = createMetadata(axes, datasets, "test_image");
 
-    // Create Omero metadata
-    const omero: Omero = {
-      channels: [
-        {
-          color: "008000",
-          window: {
-            min: 0.0,
-            max: 255.0,
-            start: 10.0,
-            end: 150.0,
-          },
-          label: "Phalloidin",
+  // Create Omero metadata
+  const omero: Omero = {
+    channels: [
+      {
+        color: "008000",
+        window: {
+          min: 0.0,
+          max: 255.0,
+          start: 10.0,
+          end: 150.0,
         },
-        {
-          color: "0000FF",
-          window: {
-            min: 0.0,
-            max: 255.0,
-            start: 30.0,
-            end: 200.0,
-          },
-          label: "DAPI",
+        label: "Phalloidin",
+      },
+      {
+        color: "0000FF",
+        window: {
+          min: 0.0,
+          max: 255.0,
+          start: 30.0,
+          end: 200.0,
         },
-      ],
-    };
+        label: "DAPI",
+      },
+    ],
+  };
 
-    metadata.omero = omero;
+  metadata.omero = omero;
 
-    const multiscales = createMultiscales(
-      [image],
-      metadata,
-      [2], // Simpler for baseline
-      Methods.ITKWASM_GAUSSIAN,
-    );
+  const multiscales = createMultiscales(
+    [image],
+    metadata,
+    [2], // Simpler for baseline
+    Methods.ITKWASM_GAUSSIAN,
+  );
 
-    // Verify that we can write and read the data correctly
-    const memoryStore = new Map<string, Uint8Array>();
-    await toNgffZarr(memoryStore, multiscales, { version: "0.5" });
+  // Verify that we can write and read the data correctly
+  const memoryStore = new Map<string, Uint8Array>();
+  await toNgffZarr(memoryStore, multiscales, { version: "0.5" });
 
-    const readMultiscales = await fromNgffZarr(memoryStore, { validate: true });
-    const readOmero = readMultiscales.metadata.omero;
+  const readMultiscales = await fromNgffZarr(memoryStore, { validate: true });
+  const readOmero = readMultiscales.metadata.omero;
 
-    assertExists(readOmero);
-    assertEquals(readOmero.channels.length, 2);
-    assertEquals(readOmero.channels[0].color, "008000");
-    assertEquals(readOmero.channels[0].label, "Phalloidin");
-    assertEquals(readOmero.channels[1].color, "0000FF");
-    assertEquals(readOmero.channels[1].label, "DAPI");
-  },
-);
+  assertExists(readOmero);
+  assertEquals(readOmero.channels.length, 2);
+  assertEquals(readOmero.channels[0].color, "008000");
+  assertEquals(readOmero.channels[0].label, "Phalloidin");
+  assertEquals(readOmero.channels[1].color, "0000FF");
+  assertEquals(readOmero.channels[1].label, "DAPI");
+});
 
-Deno.test("write omero metadata v0.5 - omero inside ome namespace", async () => {
+test("write omero metadata v0.5 - omero inside ome namespace", async () => {
   // Regression test for https://github.com/fideus-labs/ngff-zarr/issues/172
   // Verifies that omero metadata is correctly written inside the ome namespace for v0.5
 
@@ -401,7 +399,7 @@ Deno.test("write omero metadata v0.5 - omero inside ome namespace", async () => 
   assertEquals(readOmero.channels[1].label, "C2-Phalloidin");
 });
 
-Deno.test("validate color function", () => {
+test("validate color function", () => {
   // Test valid colors
   validateColor("1A2B3C");
   validateColor("FFFFFF");
@@ -427,7 +425,7 @@ Deno.test("validate color function", () => {
   );
 });
 
-Deno.test("create omero channel and window", () => {
+test("create omero channel and window", () => {
   const window: OmeroWindow = {
     min: 0.0,
     max: 255.0,
@@ -452,7 +450,7 @@ Deno.test("create omero channel and window", () => {
   validateColor(channel.color);
 });
 
-Deno.test("create omero metadata with multiple channels", () => {
+test("create omero metadata with multiple channels", () => {
   const omero: Omero = {
     channels: [
       {

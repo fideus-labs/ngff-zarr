@@ -1,5 +1,3 @@
-#!/usr/bin/env -S deno test --allow-read --allow-write
-
 /**
  * Round-trip tests for ITK Image <-> Zarr conversion
  *
@@ -10,7 +8,8 @@
  * 4. Vector images (multi-component)
  */
 
-import { assertEquals } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals } from "./_assert.ts";
 import type { Image as ItkWasmImage } from "itk-wasm";
 import * as zarr from "zarrita";
 
@@ -239,13 +238,7 @@ async function zarrToItkImage(
 /**
  * Compare two typed arrays for equality
  */
-function assertArraysEqual(
-  // deno-lint-ignore no-explicit-any
-  actual: any,
-  // deno-lint-ignore no-explicit-any
-  expected: any,
-  message?: string,
-): void {
+function assertArraysEqual(actual: any, expected: any, message?: string): void {
   if (actual === null || expected === null) {
     throw new Error(`${message}: Array is null`);
   }
@@ -273,7 +266,7 @@ function assertArraysEqual(
 }
 
 // Test cases for different data types
-Deno.test("Round-trip: 2D uint8 image", async () => {
+test("Round-trip: 2D uint8 image", async () => {
   const size = [256, 256]; // [y, x]
   const original = createTestItkImage(size, "uint8");
 
@@ -291,7 +284,7 @@ Deno.test("Round-trip: 2D uint8 image", async () => {
   assertArraysEqual(restored.data, original.data, "Data should match");
 });
 
-Deno.test("Round-trip: 2D int16 image", async () => {
+test("Round-trip: 2D int16 image", async () => {
   const size = [128, 128];
   const original = createTestItkImage(size, "int16");
 
@@ -305,7 +298,7 @@ Deno.test("Round-trip: 2D int16 image", async () => {
   assertArraysEqual(restored.data, original.data, "int16 data");
 });
 
-Deno.test("Round-trip: 2D uint16 image", async () => {
+test("Round-trip: 2D uint16 image", async () => {
   const size = [100, 100];
   const original = createTestItkImage(size, "uint16");
 
@@ -319,7 +312,7 @@ Deno.test("Round-trip: 2D uint16 image", async () => {
   assertArraysEqual(restored.data, original.data, "uint16 data");
 });
 
-Deno.test("Round-trip: 2D float32 image", async () => {
+test("Round-trip: 2D float32 image", async () => {
   const size = [64, 64];
   const original = createTestItkImage(size, "float32");
 
@@ -333,7 +326,7 @@ Deno.test("Round-trip: 2D float32 image", async () => {
   assertArraysEqual(restored.data, original.data, "float32 data");
 });
 
-Deno.test("Round-trip: 3D uint8 image", async () => {
+test("Round-trip: 3D uint8 image", async () => {
   const size = [32, 64, 64]; // [z, y, x]
   const original = createTestItkImage(size, "uint8");
 
@@ -347,7 +340,7 @@ Deno.test("Round-trip: 3D uint8 image", async () => {
   assertArraysEqual(restored.data, original.data, "3D data");
 });
 
-Deno.test("Round-trip: 3D int16 image", async () => {
+test("Round-trip: 3D int16 image", async () => {
   const size = [16, 32, 32];
   const original = createTestItkImage(size, "int16");
 
@@ -361,24 +354,21 @@ Deno.test("Round-trip: 3D int16 image", async () => {
   assertArraysEqual(restored.data, original.data, "3D int16 data");
 });
 
-Deno.test(
-  "Round-trip: 3D float32 image with non-square dimensions",
-  async () => {
-    const size = [10, 20, 30]; // [z, y, x] - all different
-    const original = createTestItkImage(size, "float32");
+test("Round-trip: 3D float32 image with non-square dimensions", async () => {
+  const size = [10, 20, 30]; // [z, y, x] - all different
+  const original = createTestItkImage(size, "float32");
 
-    const store = new Map<string, Uint8Array>();
-    const zarrArray = await itkImageToZarr(original, store, "test");
+  const store = new Map<string, Uint8Array>();
+  const zarrArray = await itkImageToZarr(original, store, "test");
 
-    const restored = await zarrToItkImage(zarrArray);
+  const restored = await zarrToItkImage(zarrArray);
 
-    assertEquals(restored.size, original.size, "Non-square size should match");
-    assertEquals(restored.imageType.componentType, "float32");
-    assertArraysEqual(restored.data, original.data, "Non-square data");
-  },
-);
+  assertEquals(restored.size, original.size, "Non-square size should match");
+  assertEquals(restored.imageType.componentType, "float32");
+  assertArraysEqual(restored.data, original.data, "Non-square data");
+});
 
-Deno.test("Round-trip: Small 2D image (edge case)", async () => {
+test("Round-trip: Small 2D image (edge case)", async () => {
   const size = [5, 7]; // Small, non-power-of-2
   const original = createTestItkImage(size, "uint8");
 
@@ -391,7 +381,7 @@ Deno.test("Round-trip: Small 2D image (edge case)", async () => {
   assertArraysEqual(restored.data, original.data, "Small image data");
 });
 
-Deno.test("Round-trip: Large chunks vs small chunks", async () => {
+test("Round-trip: Large chunks vs small chunks", async () => {
   const size = [512, 512]; // Should use 256x256 chunks
   const original = createTestItkImage(size, "uint8");
 
@@ -408,7 +398,7 @@ Deno.test("Round-trip: Large chunks vs small chunks", async () => {
   );
 });
 
-Deno.test("Data type preservation: int8", async () => {
+test("Data type preservation: int8", async () => {
   const size = [50, 50];
   const original = createTestItkImage(size, "int8");
 
@@ -421,7 +411,7 @@ Deno.test("Data type preservation: int8", async () => {
   assertArraysEqual(restored.data, original.data, "int8 data preserved");
 });
 
-Deno.test("Data type preservation: uint32", async () => {
+test("Data type preservation: uint32", async () => {
   const size = [30, 30];
   const original = createTestItkImage(size, "uint32");
 
@@ -438,7 +428,7 @@ Deno.test("Data type preservation: uint32", async () => {
   assertArraysEqual(restored.data, original.data, "uint32 data preserved");
 });
 
-Deno.test("Data type preservation: int32", async () => {
+test("Data type preservation: int32", async () => {
   const size = [25, 25];
   const original = createTestItkImage(size, "int32");
 
@@ -455,7 +445,7 @@ Deno.test("Data type preservation: int32", async () => {
   assertArraysEqual(restored.data, original.data, "int32 data preserved");
 });
 
-Deno.test("Data type preservation: float64", async () => {
+test("Data type preservation: float64", async () => {
   const size = [20, 20];
   const original = createTestItkImage(size, "float64");
 

@@ -1,5 +1,3 @@
-#!/usr/bin/env -S deno test --allow-read --allow-write
-
 /**
  * Test to verify that 0.5 format metadata is written correctly
  *
@@ -7,7 +5,8 @@
  * has the correct format with metadata under the "ome" property
  */
 
-import { assertEquals, assertExists, assertRejects } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertExists, assertRejects } from "./_assert.ts";
 import { fromNgffZarr } from "../src/io/from_ngff_zarr.ts";
 import { toNgffZarr } from "../src/io/to_ngff_zarr.ts";
 import type { MemoryStore } from "../src/io/from_ngff_zarr.ts";
@@ -16,7 +15,7 @@ import { readImageNode } from "@itk-wasm/image-io";
 import { itkImageToNgffImage } from "../src/io/itk_image_to_ngff_image.ts";
 import { toMultiscales } from "../src/process/to_multiscales-node.ts";
 
-Deno.test("Verify 0.5 metadata structure", async () => {
+test("Verify 0.5 metadata structure", async () => {
   // Create a simple test image
   const storePath = new URL(
     "../../py/test/data/input/cthead1.png",
@@ -78,7 +77,7 @@ Deno.test("Verify 0.5 metadata structure", async () => {
   console.log("✓ 0.5 format can be read back successfully");
 });
 
-Deno.test("writing 0.4 metadata is refused", async () => {
+test("writing 0.4 metadata is refused", async () => {
   // OME-Zarr 0.4 is Zarr v2, which this package does not write.
   const storePath = new URL(
     "../../py/test/data/input/cthead1.png",

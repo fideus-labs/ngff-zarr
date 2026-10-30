@@ -20,9 +20,7 @@ export type { UpgradeInput, UpgradeOmeZarrOptions };
  * URLs, or a bare `Readable` — are rejected with guidance to pass `output`,
  * since an in-place upgrade must be able to rewrite the store's root metadata.
  */
-async function resolveWritableStore(
-  input: UpgradeInput,
-): Promise<MemoryStore> {
+async function resolveWritableStore(input: UpgradeInput): Promise<MemoryStore> {
   if (input instanceof Map) {
     return input;
   }
@@ -78,7 +76,7 @@ async function resolveWritableStore(
  * supported transition (0.4 <-> 0.5 <-> 0.6) works in this mode, and the source
  * store is never mutated.
  *
- * In-place upgrade of a local **path** store is Node/Deno-only (the browser
+ * In-place upgrade of a local **path** store is Node-only (the browser
  * build ships no filesystem store); `MemoryStore` inputs work everywhere,
  * consistent with the other I/O functions.
  *

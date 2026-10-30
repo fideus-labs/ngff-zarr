@@ -7,7 +7,14 @@
  * Mirrors `py/test/test_matrix_transform_arrays.py`.
  */
 
-import { assert, assertEquals, assertRejects, assertThrows } from "@std/assert";
+import { test } from "vite-plus/test";
+import { makeTempDir, readTextFile, remove } from "./_fs.ts";
+import {
+  assert,
+  assertEquals,
+  assertRejects,
+  assertThrows,
+} from "./_assert.ts";
 import { ZipFileStore } from "@zarrita/storage";
 import * as zarr from "zarrita";
 import {
@@ -57,7 +64,7 @@ const ROTATION = [
 ];
 
 const TRANSPOSED_ROTATION = ROTATION.map((_, i) =>
-  ROTATION.map((row) => row[i])
+  ROTATION.map((row) => row[i]),
 );
 
 function bits(matrix: number[][]): number[] {
@@ -109,14 +116,14 @@ function rootEntry(root: Record<string, unknown>): Record<string, unknown> {
   return attributes.ome.multiscales[0];
 }
 
-function writtenTransforms(
-  store: MemoryStore,
-): Array<Record<string, unknown>> {
+function writtenTransforms(store: MemoryStore): Array<Record<string, unknown>> {
   return rootEntry(readJson(store, "/zarr.json"))
     .coordinateTransformations as Array<Record<string, unknown>>;
 }
 
 function deleteNode(store: MemoryStore, path: string): void {
+  // Snapshot the keys: the loop deletes from `store` while iterating.
+  // oxlint-disable-next-line unicorn/no-useless-spread
   for (const key of [...store.keys()]) {
     if (key.startsWith(`/${path}/`)) {
       store.delete(key);
@@ -133,14 +140,13 @@ async function storedValues(
   });
   const { data, shape } = await zarr.get(array);
   const values = data as Float64Array;
-  return Array.from(
-    { length: shape[0] },
-    (_, i) => [...values.subarray(i * shape[1], (i + 1) * shape[1])],
-  );
+  return Array.from({ length: shape[0] }, (_, i) => [
+    ...values.subarray(i * shape[1], (i + 1) * shape[1]),
+  ]);
 }
 
 for (const version of ["0.6", "0.9.dev1"] as const) {
-  Deno.test(`matrices are written as float64 arrays at ${version}`, async () => {
+  test(`matrices are written as float64 arrays at ${version}`, async () => {
     const affine = createAffine(AFFINE);
     affine.name = "to_output";
     const sequence = createTransformSequence([
@@ -156,9 +162,9 @@ for (const version of ["0.6", "0.9.dev1"] as const) {
     const [writtenAffine, writtenSequence] = writtenTransforms(store);
     assertEquals(writtenAffine.path, "coordinateTransformations/to_output");
     assertEquals("affine" in writtenAffine, false);
-    const rotation = (writtenSequence.transformations as Array<
-      Record<string, unknown>
-    >)[1];
+    const rotation = (
+      writtenSequence.transformations as Array<Record<string, unknown>>
+    )[1];
     assertEquals(rotation, {
       type: "rotation",
       path: "coordinateTransformations/rotation",
@@ -192,16 +198,16 @@ for (const version of ["0.6", "0.9.dev1"] as const) {
     );
 
     // The consolidated block lists the matrix arrays and their group.
-    const consolidated = (readJson(store, "/zarr.json")
-      .consolidated_metadata as { metadata: Record<string, unknown> })
-      .metadata;
-    for (
-      const key of [
-        "coordinateTransformations",
-        "coordinateTransformations/to_output",
-        "coordinateTransformations/rotation",
-      ]
-    ) {
+    const consolidated = (
+      readJson(store, "/zarr.json").consolidated_metadata as {
+        metadata: Record<string, unknown>;
+      }
+    ).metadata;
+    for (const key of [
+      "coordinateTransformations",
+      "coordinateTransformations/to_output",
+      "coordinateTransformations/rotation",
+    ]) {
       assert(key in consolidated, `${key} is not consolidated`);
     }
 
@@ -211,7 +217,7 @@ for (const version of ["0.6", "0.9.dev1"] as const) {
   });
 }
 
-Deno.test("matrices round-trip bit for bit", async () => {
+test("matrices round-trip bit for bit", async () => {
   const affine = createAffine(AFFINE);
   affine.name = "to_output";
   const bijection = createBijection(
@@ -226,8 +232,8 @@ Deno.test("matrices round-trip bit for bit", async () => {
 
   const imported = await fromOmeZarr(store, { validate: true });
 
-  const [readAffine, readBijection] = imported.metadata
-    .coordinateTransformations!;
+  const [readAffine, readBijection] =
+    imported.metadata.coordinateTransformations!;
   if (readAffine.type !== "affine" || readBijection.type !== "bijection") {
     throw new Error("expected an affine then a bijection");
   }
@@ -254,8 +260,8 @@ Deno.test("matrices round-trip bit for bit", async () => {
   assertEquals(bits(rereadAffine.affine), bits(AFFINE));
 });
 
-Deno.test("matrices round-trip through a directory store", async () => {
-  const directory = await Deno.makeTempDir();
+test("matrices round-trip through a directory store", async () => {
+  const directory = await makeTempDir();
   try {
     const store = `${directory}/image.ome.zarr`;
     const affine = createAffine(AFFINE);
@@ -265,23 +271,23 @@ Deno.test("matrices round-trip through a directory store", async () => {
     });
 
     const document = JSON.parse(
-      await Deno.readTextFile(
+      await readTextFile(
         `${store}/coordinateTransformations/to_output/zarr.json`,
       ),
     );
     assertEquals(document.data_type, "float64");
-    const [readAffine] = (await fromOmeZarr(store, { validate: true }))
-      .metadata.coordinateTransformations!;
+    const [readAffine] = (await fromOmeZarr(store, { validate: true })).metadata
+      .coordinateTransformations!;
     if (readAffine.type !== "affine") {
       throw new Error("expected an affine");
     }
     assertEquals(bits(readAffine.affine), bits(AFFINE));
   } finally {
-    await Deno.remove(directory, { recursive: true });
+    await remove(directory, { recursive: true });
   }
 });
 
-Deno.test("an .ozx archive holds the matrix arrays", async () => {
+test("an .ozx archive holds the matrix arrays", async () => {
   const affine = createAffine(AFFINE);
   affine.name = "to_output";
   const zipData = await toOmeZarrOzxData(await buildMultiscales([affine]), {
@@ -300,7 +306,7 @@ Deno.test("an .ozx archive holds the matrix arrays", async () => {
   assertEquals(bits(readAffine.affine), bits(AFFINE));
 });
 
-Deno.test("the browser writer and reader carry the matrix arrays", async () => {
+test("the browser writer and reader carry the matrix arrays", async () => {
   const rotation = createRotation(ROTATION);
   rotation.name = "to_output";
   const store: MemoryStore = new Map();
@@ -314,15 +320,15 @@ Deno.test("the browser writer and reader carry the matrix arrays", async () => {
     "coordinateTransformations/to_output",
   );
   assertEquals("rotation" in writtenTransforms(store)[0], false);
-  const [readRotation] = (await fromOmeZarrBrowser(store))
-    .metadata.coordinateTransformations!;
+  const [readRotation] = (await fromOmeZarrBrowser(store)).metadata
+    .coordinateTransformations!;
   if (readRotation.type !== "rotation") {
     throw new Error("expected a rotation");
   }
   assertEquals(bits(readRotation.rotation), bits(ROTATION));
 });
 
-Deno.test("generated paths", () => {
+test("generated paths", () => {
   const transforms: Array<Record<string, unknown>> = [
     { type: "affine", affine: AFFINE, name: "to_output" },
     {
@@ -335,20 +341,22 @@ Deno.test("generated paths", () => {
     { type: "affine", affine: AFFINE, name: "__reserved" },
     {
       type: "byDimension",
-      transformations: [{
-        transformation: { type: "rotation", rotation: [[1.0]] },
-        inputAxes: [0],
-        outputAxes: [0],
-      }],
+      transformations: [
+        {
+          transformation: { type: "rotation", rotation: [[1.0]] },
+          inputAxes: [0],
+          outputAxes: [0],
+        },
+      ],
     },
     { type: "affine", affine: AFFINE, name: "to_output" },
   ];
 
   const arrays = externalizeMatrixTransforms(transforms);
 
-  const byDimension = transforms[5].transformations as Array<
-    { transformation: Record<string, unknown> }
-  >;
+  const byDimension = transforms[5].transformations as Array<{
+    transformation: Record<string, unknown>;
+  }>;
   const paths = [
     transforms[0].path,
     transforms[1].path,
@@ -375,24 +383,22 @@ Deno.test("generated paths", () => {
   }
 });
 
-Deno.test("a path without a matrix is left to the store", () => {
+test("a path without a matrix is left to the store", () => {
   const transforms = [{ type: "rotation", path: "elsewhere/rotation" }];
 
   assertEquals(externalizeMatrixTransforms(transforms).size, 0);
   assertEquals(transforms, [{ type: "rotation", path: "elsewhere/rotation" }]);
 });
 
-for (
-  const [transform, message] of [
-    [{ type: "affine" }, "holds no matrix and names no path"],
-    [{ type: "affine", affine: [[1.0, 0.0], [1.0]] }, "rectangular matrix"],
-    [{ type: "rotation", rotation: [1.0, 0.0] }, "matrix of numbers"],
-    [{ type: "affine", affine: [[]] }, "non-empty 2D matrix"],
-    [{ type: "affine", affine: AFFINE, path: "../outside" }, "'..'"],
-    [{ type: "affine", affine: AFFINE, path: "/absolute" }, "relative path"],
-  ] as const
-) {
-  Deno.test(`an unwritable matrix is refused: ${message}`, () => {
+for (const [transform, message] of [
+  [{ type: "affine" }, "holds no matrix and names no path"],
+  [{ type: "affine", affine: [[1.0, 0.0], [1.0]] }, "rectangular matrix"],
+  [{ type: "rotation", rotation: [1.0, 0.0] }, "matrix of numbers"],
+  [{ type: "affine", affine: [[]] }, "non-empty 2D matrix"],
+  [{ type: "affine", affine: AFFINE, path: "../outside" }, "'..'"],
+  [{ type: "affine", affine: AFFINE, path: "/absolute" }, "relative path"],
+] as const) {
+  test(`an unwritable matrix is refused: ${message}`, () => {
     assertThrows(
       () => externalizeMatrixTransforms([structuredClone(transform)]),
       Error,
@@ -401,14 +407,18 @@ for (
   });
 }
 
-Deno.test("one path cannot hold two matrices", () => {
+test("one path cannot hold two matrices", () => {
   assertThrows(
     () =>
       externalizeMatrixTransforms([
         { type: "affine", affine: AFFINE, path: "shared" },
         {
           type: "affine",
-          affine: [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]],
+          affine: [
+            [1, 0, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, 1, 0],
+          ],
           path: "shared",
         },
       ]),
@@ -417,7 +427,7 @@ Deno.test("one path cannot hold two matrices", () => {
   );
 });
 
-Deno.test("a refused matrix leaves the store untouched", async () => {
+test("a refused matrix leaves the store untouched", async () => {
   const affine = createAffine(AFFINE);
   affine.path = "../outside";
   const multiscales = await buildMultiscales([affine]);
@@ -431,7 +441,7 @@ Deno.test("a refused matrix leaves the store untouched", async () => {
   assertEquals(store.size, 0);
 });
 
-Deno.test("a path-only matrix written elsewhere is read", async () => {
+test("a path-only matrix written elsewhere is read", async () => {
   const affine = createAffine(AFFINE);
   affine.name = "t";
   const store: MemoryStore = new Map();
@@ -439,10 +449,15 @@ Deno.test("a path-only matrix written elsewhere is read", async () => {
   deleteNode(store, "coordinateTransformations");
   await writeMatrixArrays(
     zarr.root(store),
-    new Map([["params/t", {
-      shape: [3, 4] as [number, number],
-      data: Float64Array.from(AFFINE.flat()),
-    }]]),
+    new Map([
+      [
+        "params/t",
+        {
+          shape: [3, 4] as [number, number],
+          data: Float64Array.from(AFFINE.flat()),
+        },
+      ],
+    ]),
   );
   const root = readJson(store, "/zarr.json");
   delete root.consolidated_metadata;
@@ -451,8 +466,8 @@ Deno.test("a path-only matrix written elsewhere is read", async () => {
     "params/t";
   writeJson(store, "/zarr.json", root);
 
-  const [readAffine] = (await fromOmeZarr(store, { validate: true }))
-    .metadata.coordinateTransformations!;
+  const [readAffine] = (await fromOmeZarr(store, { validate: true })).metadata
+    .coordinateTransformations!;
 
   if (readAffine.type !== "affine") {
     throw new Error("expected an affine");
@@ -461,7 +476,7 @@ Deno.test("a path-only matrix written elsewhere is read", async () => {
   assertEquals(bits(readAffine.affine), bits(AFFINE));
 });
 
-Deno.test("a big-endian integer matrix array is read", async () => {
+test("a big-endian integer matrix array is read", async () => {
   const store: MemoryStore = new Map();
   const location = zarr.root(store);
   await zarr.create(location, { attributes: {} });
@@ -480,17 +495,20 @@ Deno.test("a big-endian integer matrix array is read", async () => {
 
   const resolved = await resolveMatrixTransforms(raw, location);
 
-  assertEquals(resolved[0].rotation, [[0, -1], [1, 0]]);
+  assertEquals(resolved[0].rotation, [
+    [0, -1],
+    [1, 0],
+  ]);
   // Twice, as a read that swapped the stored bytes in place would differ.
-  assertEquals(
-    (await resolveMatrixTransforms(raw, location))[0].rotation,
-    [[0, -1], [1, 0]],
-  );
+  assertEquals((await resolveMatrixTransforms(raw, location))[0].rotation, [
+    [0, -1],
+    [1, 0],
+  ]);
   // The raw attributes are not edited.
   assertEquals(raw, [{ type: "rotation", path: "params/r" }]);
 });
 
-Deno.test("a matrix array that is not 2D is refused on read", async () => {
+test("a matrix array that is not 2D is refused on read", async () => {
   const store: MemoryStore = new Map();
   const location = zarr.root(store);
   await zarr.create(location, { attributes: {} });
@@ -507,10 +525,9 @@ Deno.test("a matrix array that is not 2D is refused on read", async () => {
   const malformed = { type: "bijection", forward: null, inverse: "x" };
 
   // Malformed entries are left for the transform parser to report.
-  assertEquals(
-    await resolveMatrixTransforms([malformed], location),
-    [malformed],
-  );
+  assertEquals(await resolveMatrixTransforms([malformed], location), [
+    malformed,
+  ]);
   await assertRejects(
     () =>
       resolveMatrixTransforms(
@@ -523,15 +540,20 @@ Deno.test("a matrix array that is not 2D is refused on read", async () => {
 });
 
 for (const path of ["../outside/r", "/outside/r", "params/./r"]) {
-  Deno.test(`a matrix path outside the group is refused on read: ${path}`, async () => {
+  test(`a matrix path outside the group is refused on read: ${path}`, async () => {
     // A crafted path cannot read an array beside the multiscales group.
     const store: MemoryStore = new Map();
     await writeMatrixArrays(
       zarr.root(store),
-      new Map([["outside/r", {
-        shape: [3, 3] as [number, number],
-        data: Float64Array.from(ROTATION.flat()),
-      }]]),
+      new Map([
+        [
+          "outside/r",
+          {
+            shape: [3, 3] as [number, number],
+            data: Float64Array.from(ROTATION.flat()),
+          },
+        ],
+      ]),
     );
 
     await assertRejects(
@@ -546,7 +568,7 @@ for (const path of ["../outside/r", "/outside/r", "params/./r"]) {
   });
 }
 
-Deno.test("a missing matrix array is reported", async () => {
+test("a missing matrix array is reported", async () => {
   const affine = createAffine(AFFINE);
   affine.name = "t";
   const store: MemoryStore = new Map();
@@ -563,7 +585,7 @@ Deno.test("a missing matrix array is reported", async () => {
   );
 });
 
-Deno.test("an in-place upgrade moves inline matrices into arrays", async () => {
+test("an in-place upgrade moves inline matrices into arrays", async () => {
   const inline = createAffine(AFFINE);
   inline.name = "inline";
   const stored = createRotation(ROTATION);
@@ -593,12 +615,15 @@ Deno.test("an in-place upgrade moves inline matrices into arrays", async () => {
   assertEquals(upgradedStored.path, "coordinateTransformations/stored");
   // The array the source already held is left as it was.
   assert(store.get("/coordinateTransformations/stored/c/0/0") === storedChunk);
-  const consolidated = (readJson(store, "/zarr.json")
-    .consolidated_metadata as { metadata: Record<string, unknown> }).metadata;
+  const consolidated = (
+    readJson(store, "/zarr.json").consolidated_metadata as {
+      metadata: Record<string, unknown>;
+    }
+  ).metadata;
   assert("coordinateTransformations/inline" in consolidated);
   const upgraded = await fromOmeZarr(store, { validate: true });
-  const [readAffine, readRotation] = upgraded.metadata
-    .coordinateTransformations!;
+  const [readAffine, readRotation] =
+    upgraded.metadata.coordinateTransformations!;
   if (readAffine.type !== "affine" || readRotation.type !== "rotation") {
     throw new Error("expected an affine then a rotation");
   }
@@ -611,7 +636,7 @@ Deno.test("an in-place upgrade moves inline matrices into arrays", async () => {
   assertEquals(bits(readRotation.rotation), bits(ROTATION));
 });
 
-Deno.test("an in-place upgrade refuses an occupied matrix path", async () => {
+test("an in-place upgrade refuses an occupied matrix path", async () => {
   // An unrelated array at the generated path is neither replaced nor lost.
   const inline = createAffine(AFFINE);
   inline.name = "inline";
@@ -627,10 +652,15 @@ Deno.test("an in-place upgrade refuses an occupied matrix path", async () => {
   writeJson(store, "/zarr.json", root);
   await writeMatrixArrays(
     zarr.root(store),
-    new Map([["coordinateTransformations/inline", {
-      shape: [2, 2] as [number, number],
-      data: Float64Array.from([1, 0, 0, 1]),
-    }]]),
+    new Map([
+      [
+        "coordinateTransformations/inline",
+        {
+          shape: [2, 2] as [number, number],
+          data: Float64Array.from([1, 0, 0, 1]),
+        },
+      ],
+    ]),
   );
   const rootBefore = store.get("/zarr.json");
 
@@ -641,13 +671,13 @@ Deno.test("an in-place upgrade refuses an occupied matrix path", async () => {
   );
 
   assert(store.get("/zarr.json") === rootBefore);
-  assertEquals(
-    await storedValues(store, "coordinateTransformations/inline"),
-    [[1, 0], [0, 1]],
-  );
+  assertEquals(await storedValues(store, "coordinateTransformations/inline"), [
+    [1, 0],
+    [0, 1],
+  ]);
 });
 
-Deno.test("a matrix path overlapping a dataset is refused", async () => {
+test("a matrix path overlapping a dataset is refused", async () => {
   const dataset = (await buildMultiscales([])).metadata.datasets[0].path;
   const paths = [dataset, `${dataset}/m`];
   if (dataset.includes("/")) {
@@ -668,10 +698,13 @@ Deno.test("a matrix path overlapping a dataset is refused", async () => {
   }
 });
 
-Deno.test("byDimension items are externalized", async () => {
+test("byDimension items are externalized", async () => {
   const byDimension = createByDimension([
     {
-      transformation: createRotation([[0.0, -1.0], [1.0, 0.0]]),
+      transformation: createRotation([
+        [0.0, -1.0],
+        [1.0, 0.0],
+      ]),
       inputAxes: [1, 2],
       outputAxes: [1, 2],
     },
@@ -688,9 +721,11 @@ Deno.test("byDimension items are externalized", async () => {
   });
 
   const [written] = writtenTransforms(store);
-  const item = (written.transformations as Array<
-    { transformation: Record<string, unknown> }
-  >)[0].transformation;
+  const item = (
+    written.transformations as Array<{
+      transformation: Record<string, unknown>;
+    }>
+  )[0].transformation;
   assertEquals(item, {
     type: "rotation",
     path: "coordinateTransformations/rotation",
@@ -704,16 +739,25 @@ Deno.test("byDimension items are externalized", async () => {
   if (rotation.type !== "rotation") {
     throw new Error("expected a rotation item");
   }
-  assertEquals(rotation.rotation, [[0.0, -1.0], [1.0, 0.0]]);
+  assertEquals(rotation.rotation, [
+    [0.0, -1.0],
+    [1.0, 0.0],
+  ]);
 });
 
-Deno.test("a reserved matrix group is refused instead of searched forever", () => {
-  const transforms = [{
-    type: "affine",
-    affine: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
-    input: { name: "a" },
-    output: { name: "b" },
-  }];
+test("a reserved matrix group is refused instead of searched forever", () => {
+  const transforms = [
+    {
+      type: "affine",
+      affine: [
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+      ],
+      input: { name: "a" },
+      output: { name: "b" },
+    },
+  ];
   assertThrows(
     () =>
       externalizeMatrixTransforms(transforms, ["coordinateTransformations"]),
@@ -722,7 +766,7 @@ Deno.test("a reserved matrix group is refused instead of searched forever", () =
   );
 });
 
-Deno.test("a matrix path naming a large array is refused before reading", async () => {
+test("a matrix path naming a large array is refused before reading", async () => {
   const location = zarr.root(new Map());
   await zarr.create(location.resolve("s0"), {
     shape: [256, 256],

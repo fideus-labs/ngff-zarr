@@ -155,8 +155,8 @@ async function downsamplePerSlice(
       name: image.name,
       axesUnits: image.axesUnits
         ? Object.fromEntries(
-          Object.entries(image.axesUnits).filter(([d]) => d !== dim),
-        )
+            Object.entries(image.axesUnits).filter(([d]) => d !== dim),
+          )
         : undefined,
       computedCallbacks: image.computedCallbacks,
     });

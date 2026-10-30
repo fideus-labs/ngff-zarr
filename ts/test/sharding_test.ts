@@ -6,8 +6,10 @@
  * sharding reader, which decode independently of each other.
  */
 
-import { assertEquals, assertRejects, assertThrows } from "@std/assert";
-import { join } from "@std/path";
+import { test } from "vite-plus/test";
+import { makeTempDir, readDirSync, readTextFile, remove } from "./_fs.ts";
+import { assertEquals, assertRejects, assertThrows } from "./_assert.ts";
+import { join } from "node:path";
 import * as zarr from "zarrita";
 import { FileSystemStore, ZipFileStore } from "@zarrita/storage";
 
@@ -91,37 +93,32 @@ async function assertReadsBack(
 // Layout
 // ---------------------------------------------------------------------------
 
-Deno.test("outerChunkShape - no chunksPerShard keeps the chunk grid", () => {
-  assertEquals(outerChunkShape([100, 100], ["y", "x"], [8, 8], undefined), [
-    8,
-    8,
-  ]);
+test("outerChunkShape - no chunksPerShard keeps the chunk grid", () => {
+  assertEquals(
+    outerChunkShape([100, 100], ["y", "x"], [8, 8], undefined),
+    [8, 8],
+  );
 });
 
-Deno.test("outerChunkShape - one count, per-axis list, per-axis name", () => {
+test("outerChunkShape - one count, per-axis list, per-axis name", () => {
   const dims = ["z", "y", "x"];
   const shape = [100, 100, 100];
   assertEquals(outerChunkShape(shape, dims, [8, 8, 8], 2), [16, 16, 16]);
-  assertEquals(outerChunkShape(shape, dims, [8, 8, 8], [1, 2, 4]), [
-    8,
-    16,
-    32,
-  ]);
+  assertEquals(outerChunkShape(shape, dims, [8, 8, 8], [1, 2, 4]), [8, 16, 32]);
   // An axis left out of the mapping spans one chunk.
-  assertEquals(outerChunkShape(shape, dims, [8, 8, 8], { y: 2, x: 4 }), [
-    8,
-    16,
-    32,
-  ]);
+  assertEquals(
+    outerChunkShape(shape, dims, [8, 8, 8], { y: 2, x: 4 }),
+    [8, 16, 32],
+  );
 });
 
-Deno.test("outerChunkShape - a shard never outgrows the chunks its axis needs", () => {
+test("outerChunkShape - a shard never outgrows the chunks its axis needs", () => {
   // As the Python writer does: the fewest whole chunks covering the axis, so
   // the chunk still divides the shard. 37 needs 5 chunks of 8, 3 needs 1.
   assertEquals(outerChunkShape([37, 3], ["y", "x"], [8, 8], 16), [40, 8]);
 });
 
-Deno.test("outerChunkShape - rejects malformed chunksPerShard", () => {
+test("outerChunkShape - rejects malformed chunksPerShard", () => {
   assertThrows(
     () => outerChunkShape([8, 8], ["y", "x"], [4, 4], [2]),
     Error,
@@ -145,7 +142,7 @@ Deno.test("outerChunkShape - rejects malformed chunksPerShard", () => {
   );
 });
 
-Deno.test("arrayLayout - wraps the chunk codecs in sharding_indexed", () => {
+test("arrayLayout - wraps the chunk codecs in sharding_indexed", () => {
   const codecs = [{ name: "bytes", configuration: { endian: "little" } }];
   assertEquals(arrayLayout([37, 45], ["y", "x"], [8, 8], codecs, undefined), {
     chunkShape: [8, 8],
@@ -170,7 +167,7 @@ Deno.test("arrayLayout - wraps the chunk codecs in sharding_indexed", () => {
   });
 });
 
-Deno.test("gateShardingVersion - refuses sharding at 0.4 only", () => {
+test("gateShardingVersion - refuses sharding at 0.4 only", () => {
   assertThrows(
     () => gateShardingVersion("0.4", 2),
     Error,
@@ -185,7 +182,7 @@ Deno.test("gateShardingVersion - refuses sharding at 0.4 only", () => {
 // ensureRangeReads
 // ---------------------------------------------------------------------------
 
-Deno.test("ensureRangeReads - slices ranges out of a Map, which it stays", async () => {
+test("ensureRangeReads - slices ranges out of a Map, which it stays", async () => {
   const map = new Map<string, Uint8Array>([
     ["/a", new Uint8Array([0, 1, 2, 3, 4, 5])],
   ]);
@@ -210,15 +207,15 @@ Deno.test("ensureRangeReads - slices ranges out of a Map, which it stays", async
   assertEquals(map.get("/b"), new Uint8Array([7]));
 });
 
-Deno.test("ensureRangeReads - fills in a getRange left undefined", async () => {
+test("ensureRangeReads - fills in a getRange left undefined", async () => {
   const bytes = new Uint8Array([0, 1, 2, 3]);
   const store = {
     get: (_key: zarr.AbsolutePath) => Promise.resolve(bytes),
     getRange: undefined,
   };
-  const wrapped = ensureRangeReads(store) as unknown as Required<
-    zarr.AsyncReadable
-  >;
+  const wrapped = ensureRangeReads(
+    store,
+  ) as unknown as Required<zarr.AsyncReadable>;
 
   assertEquals(
     await wrapped.getRange("/a", { suffixLength: 1 }),
@@ -226,8 +223,8 @@ Deno.test("ensureRangeReads - fills in a getRange left undefined", async () => {
   );
 });
 
-Deno.test("ensureRangeReads - leaves a store with range reads alone", () => {
-  const store = new FileSystemStore(Deno.cwd());
+test("ensureRangeReads - leaves a store with range reads alone", () => {
+  const store = new FileSystemStore(process.cwd());
   assertEquals(ensureRangeReads(store) === store, true);
 });
 
@@ -235,17 +232,15 @@ Deno.test("ensureRangeReads - leaves a store with range reads alone", () => {
 // Round trips
 // ---------------------------------------------------------------------------
 
-Deno.test("toOmeZarr - chunksPerShard writes one object per shard", async () => {
-  const dir = await Deno.makeTempDir();
+test("toOmeZarr - chunksPerShard writes one object per shard", async () => {
+  const dir = await makeTempDir();
   try {
     const path = join(dir, "sharded.ome.zarr");
     await toOmeZarr(path, await multiscales(), {
       chunksPerShard: { y: 2, x: 2 },
     });
 
-    const meta = JSON.parse(
-      await Deno.readTextFile(join(path, "0", "zarr.json")),
-    );
+    const meta = JSON.parse(await readTextFile(join(path, "0", "zarr.json")));
     assertEquals(meta.chunk_grid.configuration.chunk_shape, [16, 16]);
     assertEquals(meta.codecs.length, 1);
     assertEquals(meta.codecs[0].name, "sharding_indexed");
@@ -253,8 +248,8 @@ Deno.test("toOmeZarr - chunksPerShard writes one object per shard", async () => 
 
     // A 3x3 grid of shards, not a 5x6 grid of chunks.
     let shards = 0;
-    for (const row of Deno.readDirSync(join(path, "0", "c"))) {
-      shards += [...Deno.readDirSync(join(path, "0", "c", row.name))].length;
+    for (const row of readDirSync(join(path, "0", "c"))) {
+      shards += [...readDirSync(join(path, "0", "c", row.name))].length;
     }
     assertEquals(shards, 9);
 
@@ -272,11 +267,11 @@ Deno.test("toOmeZarr - chunksPerShard writes one object per shard", async () => 
     }
     assertEquals(Array.from(region.data as Uint16Array), expected);
   } finally {
-    await Deno.remove(dir, { recursive: true });
+    await remove(dir, { recursive: true });
   }
 });
 
-Deno.test("toOmeZarr - a sharded Map store reads back", async () => {
+test("toOmeZarr - a sharded Map store reads back", async () => {
   const store = new Map<string, Uint8Array>();
   await toOmeZarr(store, await multiscales(), { chunksPerShard: 2 });
 
@@ -284,7 +279,7 @@ Deno.test("toOmeZarr - a sharded Map store reads back", async () => {
   await assertReadsBack(read.images[0].data);
 });
 
-Deno.test("toOmeZarr - refuses chunksPerShard at 0.4", async () => {
+test("toOmeZarr - refuses chunksPerShard at 0.4", async () => {
   await assertRejects(
     () =>
       toOmeZarr(new Map(), createMultiscalesAt04(), {
@@ -296,7 +291,7 @@ Deno.test("toOmeZarr - refuses chunksPerShard at 0.4", async () => {
   );
 });
 
-Deno.test("browser toOmeZarr - chunksPerShard round-trips", async () => {
+test("browser toOmeZarr - chunksPerShard round-trips", async () => {
   const store = new Map<string, Uint8Array>();
   await toOmeZarrBrowser(store, await multiscales(), {
     version: "0.5",
@@ -307,7 +302,7 @@ Deno.test("browser toOmeZarr - chunksPerShard round-trips", async () => {
   await assertReadsBack(read.images[0].data);
 });
 
-Deno.test("toOmeZarr - Node and browser writers both default to 0.5", async () => {
+test("toOmeZarr - Node and browser writers both default to 0.5", async () => {
   for (const write of [toOmeZarr, toOmeZarrBrowser]) {
     const store = new Map<string, Uint8Array>();
     // Sharding needs Zarr v3, so it is accepted without an explicit version.
@@ -325,7 +320,7 @@ Deno.test("toOmeZarr - Node and browser writers both default to 0.5", async () =
   }
 });
 
-Deno.test("browser toOmeZarrOzx - shards by default and round-trips", async () => {
+test("browser toOmeZarrOzx - shards by default and round-trips", async () => {
   const zipData = await toOmeZarrOzxBrowser(await multiscales());
   const store = ZipFileStore.fromBlob(new Blob([zipData as BlobPart]));
 
@@ -357,7 +352,8 @@ async function withMainThreadOnlyCodec(
         encode: (bytes: Uint8Array) => bytes,
         decode: (bytes: Uint8Array) => bytes,
       }),
-    }));
+    }),
+  );
   try {
     const store = new Map<string, Uint8Array>();
     const array = await zarr.create(zarr.root(store).resolve("a"), {
@@ -376,7 +372,7 @@ async function withMainThreadOnlyCodec(
   }
 }
 
-Deno.test("zarrGet falls back to zarr.get for a codec only this thread knows", async () => {
+test("zarrGet falls back to zarr.get for a codec only this thread knows", async () => {
   await withMainThreadOnlyCodec(async (array) => {
     const data = new Uint8Array(16).map((_, i) => i);
     await zarr.set(array, null, { data, shape: [4, 4], stride: [4, 1] });
@@ -385,7 +381,7 @@ Deno.test("zarrGet falls back to zarr.get for a codec only this thread knows", a
   });
 });
 
-Deno.test("zarrSet falls back to zarr.set for a dtype the workers lack", async () => {
+test("zarrSet falls back to zarr.set for a dtype the workers lack", async () => {
   // fizarrita's worker codecs refuse bool; zarrita's own pipeline writes it.
   const store = new Map<string, Uint8Array>();
   const array = await zarr.create(zarr.root(store).resolve("b"), {
@@ -398,10 +394,13 @@ Deno.test("zarrSet falls back to zarr.set for a dtype the workers lack", async (
   await zarrSet(array, null, { data, shape: [4], stride: [1] });
 
   const read = (await zarr.get(array)).data as zarr.BoolArray;
-  assertEquals([0, 1, 2, 3].map((i) => read.get(i)), [true, false, true, true]);
+  assertEquals(
+    [0, 1, 2, 3].map((i) => read.get(i)),
+    [true, false, true, true],
+  );
 });
 
-Deno.test("zarrSet reports both refusals when neither path can write", async () => {
+test("zarrSet reports both refusals when neither path can write", async () => {
   // A sharded bool array: the workers lack bool, zarr.set() lacks sharding.
   const layout = arrayLayout(
     [4],
@@ -439,7 +438,7 @@ Deno.test("zarrSet reports both refusals when neither path can write", async () 
   );
 });
 
-Deno.test("zarrSet falls back to zarr.set for a codec only this thread knows", async () => {
+test("zarrSet falls back to zarr.set for a codec only this thread knows", async () => {
   await withMainThreadOnlyCodec(async (array) => {
     const data = new Uint8Array(16).map((_, i) => 100 + i);
     await zarrSet(array, null, { data, shape: [4, 4], stride: [4, 1] });

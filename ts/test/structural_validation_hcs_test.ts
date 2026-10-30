@@ -24,7 +24,8 @@
  * `py/test/test_structural_validation_hcs.py` so the two stay in lockstep.
  */
 
-import { assertEquals, assertThrows } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertThrows } from "./_assert.ts";
 import {
   SpecRule,
   validatePlate,
@@ -90,56 +91,53 @@ function assertRuleViolation(
 // plate-row-index-consistency
 // ---------------------------------------------------------------------------
 
-Deno.test("validatePlateWellIndexConsistency - accepts a consistent plate", () => {
+test("validatePlateWellIndexConsistency - accepts a consistent plate", () => {
   validatePlateWellIndexConsistency(buildValidPlate());
 });
 
-Deno.test(
-  "validatePlateWellIndexConsistency - rejects a mismatched or malformed well",
-  () => {
-    // Each mutation makes the first well's path disagree with its recorded
-    // indices (or be malformed); all trip the same rule at plate.wells[0].
-    const mutations: Array<(plate: PlateMetadata) => void> = [
-      // row-index-mismatch: path "A/1" => row "A" is index 0, but rowIndex
-      // claims 1.
-      (plate) => {
-        plate.wells[0].rowIndex = 1;
-      },
-      // column-index-mismatch: path "A/1" => column "1" is index 0, but
-      // columnIndex claims 1.
-      (plate) => {
-        plate.wells[0].columnIndex = 1;
-      },
-      // unknown-row: row "Z" is not declared in plate.rows.
-      (plate) => {
-        plate.wells[0] = { path: "Z/1", rowIndex: 0, columnIndex: 0 };
-      },
-      // unknown-column: column "9" is not declared in plate.columns.
-      (plate) => {
-        plate.wells[0] = { path: "A/9", rowIndex: 0, columnIndex: 0 };
-      },
-      // malformed-path: a path that is not "<row>/<column>".
-      (plate) => {
-        plate.wells[0] = { path: "A-1", rowIndex: 0, columnIndex: 0 };
-      },
-    ];
-    for (const mutate of mutations) {
-      const plate = buildValidPlate();
-      mutate(plate);
-      assertRuleViolation(
-        () => validatePlateWellIndexConsistency(plate),
-        SpecRule.PlateRowIndexConsistency,
-        "plate.wells[0]",
-      );
-    }
-  },
-);
+test("validatePlateWellIndexConsistency - rejects a mismatched or malformed well", () => {
+  // Each mutation makes the first well's path disagree with its recorded
+  // indices (or be malformed); all trip the same rule at plate.wells[0].
+  const mutations: Array<(plate: PlateMetadata) => void> = [
+    // row-index-mismatch: path "A/1" => row "A" is index 0, but rowIndex
+    // claims 1.
+    (plate) => {
+      plate.wells[0].rowIndex = 1;
+    },
+    // column-index-mismatch: path "A/1" => column "1" is index 0, but
+    // columnIndex claims 1.
+    (plate) => {
+      plate.wells[0].columnIndex = 1;
+    },
+    // unknown-row: row "Z" is not declared in plate.rows.
+    (plate) => {
+      plate.wells[0] = { path: "Z/1", rowIndex: 0, columnIndex: 0 };
+    },
+    // unknown-column: column "9" is not declared in plate.columns.
+    (plate) => {
+      plate.wells[0] = { path: "A/9", rowIndex: 0, columnIndex: 0 };
+    },
+    // malformed-path: a path that is not "<row>/<column>".
+    (plate) => {
+      plate.wells[0] = { path: "A-1", rowIndex: 0, columnIndex: 0 };
+    },
+  ];
+  for (const mutate of mutations) {
+    const plate = buildValidPlate();
+    mutate(plate);
+    assertRuleViolation(
+      () => validatePlateWellIndexConsistency(plate),
+      SpecRule.PlateRowIndexConsistency,
+      "plate.wells[0]",
+    );
+  }
+});
 
 // ---------------------------------------------------------------------------
 // well-acquisition-missing
 // ---------------------------------------------------------------------------
 
-Deno.test("validateWellAcquisition - no-op for zero or one acquisition", () => {
+test("validateWellAcquisition - no-op for zero or one acquisition", () => {
   // Zero or one acquisition imposes no requirement, so a missing reference is OK.
   const well = buildWell([{ path: "0" }]);
   validateWellAcquisition(buildValidPlate(), well); // acquisitions undefined
@@ -148,40 +146,31 @@ Deno.test("validateWellAcquisition - no-op for zero or one acquisition", () => {
   validateWellAcquisition(single, well);
 });
 
-Deno.test(
-  "validateWellAcquisition - accepts multi-acquisition with references",
-  () => {
-    const plate = buildMultiAcquisitionPlate();
-    const well = buildWell([
-      { path: "0", acquisition: 0 },
-      { path: "1", acquisition: 1 },
-    ]);
-    validateWellAcquisition(plate, well);
-  },
-);
+test("validateWellAcquisition - accepts multi-acquisition with references", () => {
+  const plate = buildMultiAcquisitionPlate();
+  const well = buildWell([
+    { path: "0", acquisition: 0 },
+    { path: "1", acquisition: 1 },
+  ]);
+  validateWellAcquisition(plate, well);
+});
 
-Deno.test(
-  "validateWellAcquisition - rejects a missing acquisition reference",
-  () => {
-    const plate = buildMultiAcquisitionPlate();
-    // The second image omits its acquisition reference; the first is fine.
-    const well = buildWell([
-      { path: "0", acquisition: 0 },
-      { path: "1" },
-    ]);
-    assertRuleViolation(
-      () => validateWellAcquisition(plate, well),
-      SpecRule.WellAcquisitionMissing,
-      "well.images[1].acquisition",
-    );
-  },
-);
+test("validateWellAcquisition - rejects a missing acquisition reference", () => {
+  const plate = buildMultiAcquisitionPlate();
+  // The second image omits its acquisition reference; the first is fine.
+  const well = buildWell([{ path: "0", acquisition: 0 }, { path: "1" }]);
+  assertRuleViolation(
+    () => validateWellAcquisition(plate, well),
+    SpecRule.WellAcquisitionMissing,
+    "well.images[1].acquisition",
+  );
+});
 
 // ---------------------------------------------------------------------------
 // Orchestrators: validatePlate / validateWell
 // ---------------------------------------------------------------------------
 
-Deno.test("validatePlate - strict rejects; schema_only skips", () => {
+test("validatePlate - strict rejects; schema_only skips", () => {
   const plate = buildValidPlate();
   plate.wells[0].rowIndex = 1; // trip plate-row-index-consistency
   assertRuleViolation(
@@ -193,7 +182,7 @@ Deno.test("validatePlate - strict rejects; schema_only skips", () => {
   validatePlate(plate, { level: ValidationLevel.SchemaOnly });
 });
 
-Deno.test("validateWell - strict rejects; schema_only skips", () => {
+test("validateWell - strict rejects; schema_only skips", () => {
   const plate = buildMultiAcquisitionPlate();
   const well = buildWell([{ path: "0" }]); // missing acquisition reference
   assertRuleViolation(

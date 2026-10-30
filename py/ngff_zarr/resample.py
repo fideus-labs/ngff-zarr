@@ -8,6 +8,7 @@ from dataclasses import replace
 
 import numpy as np
 
+from ._itkwasm_pipelines import call_itkwasm
 from .displacement_field_transform import field_window
 from .ngff_image import NgffImage
 from .ngff_transform_to_itk_transform import ngff_transform_to_itk_transform
@@ -281,7 +282,8 @@ def _resample_block(
     # when the component type disagrees with the moving image, so align it.
     reference.imageType.componentType = _component_type(out_dtype)
 
-    resampled = resample_to_reference(
+    resampled = call_itkwasm(
+        resample_to_reference,
         ngff_image_to_itk_image(crop, wasm=True),
         reference,
         transform=transform_list,
@@ -486,10 +488,12 @@ def resample(
         moving = replace(moving, axes_orientations=None)
     else:
         transform_list = _as_itk_transform_list(transform)
+    if field is None:
         # A displacement stage would have its whole field scanned once per
         # block below; the split and its range are loop constants, so they
         # are taken here. The graph's tasks keep the original list: only the
-        # regions walk the linear part.
+        # regions walk the linear part. A displacement field stage of an
+        # RFC-5 sequence is measured the same way.
         itk_dims = [dim for dim in ("x", "y", "z") if dim in fixed_spatial]
         walked_list, itk_interval = _nonlinear_interval(
             transform_list,

@@ -6,13 +6,15 @@
  * @see https://ngff.openmicroscopy.org/rfc/9/index.html
  */
 
+import { test } from "vite-plus/test";
+import { mkdir, readFile, stat } from "./_fs.ts";
 import {
   assertEquals,
   assertExists,
   assertRejects,
   assertThrows,
-} from "@std/assert";
-import { join } from "@std/path";
+} from "./_assert.ts";
+import { join } from "node:path";
 import { readImageNode } from "@itk-wasm/image-io";
 
 import {
@@ -47,25 +49,25 @@ import { ZipFileStore } from "@zarrita/storage";
 import { zarrGet } from "../src/utils/worker_pool.ts";
 
 // Path to Python test data directory
-const TEST_DATA_DIR = join(Deno.cwd(), "..", "py", "test", "data");
+const TEST_DATA_DIR = join(process.cwd(), "..", "py", "test", "data");
 const INPUT_DIR = join(TEST_DATA_DIR, "input");
-const OUTPUT_DIR = join(Deno.cwd(), "test", "output");
+const OUTPUT_DIR = join(process.cwd(), "test", "output");
 
 // Ensure output directory exists
-await Deno.mkdir(OUTPUT_DIR, { recursive: true });
+await mkdir(OUTPUT_DIR, { recursive: true });
 
 // ============================================================================
 // isOzxPath tests
 // ============================================================================
 
-Deno.test("isOzxPath - detects .ozx extension", () => {
+test("isOzxPath - detects .ozx extension", () => {
   assertEquals(isOzxPath("test.ozx"), true);
   assertEquals(isOzxPath("/path/to/file.ozx"), true);
   assertEquals(isOzxPath("C:\\path\\to\\file.ozx"), true);
   assertEquals(isOzxPath("file.OZX"), false); // Case sensitive
 });
 
-Deno.test("isOzxPath - rejects non-.ozx extensions", () => {
+test("isOzxPath - rejects non-.ozx extensions", () => {
   assertEquals(isOzxPath("test.zarr"), false);
   assertEquals(isOzxPath("test.ome.zarr"), false);
   assertEquals(isOzxPath("test.zip"), false);
@@ -77,14 +79,14 @@ Deno.test("isOzxPath - rejects non-.ozx extensions", () => {
 // orderFilesForRfc9 tests
 // ============================================================================
 
-Deno.test("orderFilesForRfc9 - root zarr.json first", () => {
+test("orderFilesForRfc9 - root zarr.json first", () => {
   const files = ["scale0/zarr.json", "zarr.json", "scale1/zarr.json"];
   const ordered = orderFilesForRfc9(files);
 
   assertEquals(ordered[0], "zarr.json");
 });
 
-Deno.test("orderFilesForRfc9 - breadth-first zarr.json ordering", () => {
+test("orderFilesForRfc9 - breadth-first zarr.json ordering", () => {
   const files = [
     "scale0/image/zarr.json",
     "zarr.json",
@@ -116,7 +118,7 @@ Deno.test("orderFilesForRfc9 - breadth-first zarr.json ordering", () => {
 // memoryStoreToZip tests
 // ============================================================================
 
-Deno.test("memoryStoreToZip - creates valid ZIP", () => {
+test("memoryStoreToZip - creates valid ZIP", () => {
   // Create a simple memory store
   const store = new Map<string, Uint8Array>();
   store.set("zarr.json", new TextEncoder().encode('{"zarr_format": 3}'));
@@ -132,7 +134,7 @@ Deno.test("memoryStoreToZip - creates valid ZIP", () => {
   assertEquals(zipData[3], 0x04);
 });
 
-Deno.test("memoryStoreToZip - adds ZIP comment with version and jsonFirst", () => {
+test("memoryStoreToZip - adds ZIP comment with version and jsonFirst", () => {
   const store = new Map<string, Uint8Array>();
   store.set("zarr.json", new TextEncoder().encode('{"zarr_format": 3}'));
 
@@ -146,7 +148,7 @@ Deno.test("memoryStoreToZip - adds ZIP comment with version and jsonFirst", () =
   assertEquals(jsonFirst, true);
 });
 
-Deno.test("memoryStoreToZip - orders files correctly", () => {
+test("memoryStoreToZip - orders files correctly", () => {
   const store = new Map<string, Uint8Array>();
   // Add in wrong order
   store.set("c/0/0", new Uint8Array([1, 2, 3, 4]));
@@ -164,7 +166,7 @@ Deno.test("memoryStoreToZip - orders files correctly", () => {
   assertEquals(files[2], "c/0/0");
 });
 
-Deno.test("memoryStoreToZip - uses no compression (ZIP_STORED)", () => {
+test("memoryStoreToZip - uses no compression (ZIP_STORED)", () => {
   const store = new Map<string, Uint8Array>();
   store.set("zarr.json", new TextEncoder().encode('{"zarr_format": 3}'));
   store.set("data", new Uint8Array(1000).fill(42)); // Compressible data
@@ -183,7 +185,7 @@ Deno.test("memoryStoreToZip - uses no compression (ZIP_STORED)", () => {
 // readOzxJsonFirst tests
 // ============================================================================
 
-Deno.test("readOzxJsonFirst - returns true for valid OZX files", () => {
+test("readOzxJsonFirst - returns true for valid OZX files", () => {
   // Create a memory store and generate ZIP with jsonFirst flag
   const store = new Map<string, Uint8Array>();
   store.set("zarr.json", new TextEncoder().encode('{"zarr_format": 3}'));
@@ -196,7 +198,7 @@ Deno.test("readOzxJsonFirst - returns true for valid OZX files", () => {
   assertEquals(readOzxJsonFirst(zipData), true);
 });
 
-Deno.test("readOzxJsonFirst - returns false for ZIP without comment", async () => {
+test("readOzxJsonFirst - returns false for ZIP without comment", async () => {
   // Create a minimal ZIP without comment using fflate
   const { zipSync } = await import("fflate");
   const zipData = zipSync({ "test.txt": new TextEncoder().encode("test") });
@@ -204,7 +206,7 @@ Deno.test("readOzxJsonFirst - returns false for ZIP without comment", async () =
   assertEquals(readOzxJsonFirst(zipData), false);
 });
 
-Deno.test("readOzxJsonFirst - returns false for ZIP with non-JSON comment", () => {
+test("readOzxJsonFirst - returns false for ZIP with non-JSON comment", () => {
   // Create ZIP with memoryStoreToZip then manually replace the comment
   const store = new Map<string, Uint8Array>();
   store.set("zarr.json", new TextEncoder().encode('{"zarr_format": 3}'));
@@ -235,7 +237,7 @@ Deno.test("readOzxJsonFirst - returns false for ZIP with non-JSON comment", () =
   assertEquals(readOzxJsonFirst(result), false);
 });
 
-Deno.test("readOzxJsonFirst - returns false for ZIP with missing ome key", () => {
+test("readOzxJsonFirst - returns false for ZIP with missing ome key", () => {
   const store = new Map<string, Uint8Array>();
   store.set("zarr.json", new TextEncoder().encode('{"zarr_format": 3}'));
   const zipData = memoryStoreToZip(store);
@@ -266,7 +268,7 @@ Deno.test("readOzxJsonFirst - returns false for ZIP with missing ome key", () =>
   assertEquals(readOzxJsonFirst(result), false);
 });
 
-Deno.test("readOzxJsonFirst - returns false for ZIP with missing zipFile key", () => {
+test("readOzxJsonFirst - returns false for ZIP with missing zipFile key", () => {
   const store = new Map<string, Uint8Array>();
   store.set("zarr.json", new TextEncoder().encode('{"zarr_format": 3}'));
   const zipData = memoryStoreToZip(store);
@@ -297,7 +299,7 @@ Deno.test("readOzxJsonFirst - returns false for ZIP with missing zipFile key", (
   assertEquals(readOzxJsonFirst(result), false);
 });
 
-Deno.test("readOzxJsonFirst - returns false for ZIP with jsonFirst set to false", () => {
+test("readOzxJsonFirst - returns false for ZIP with jsonFirst set to false", () => {
   const store = new Map<string, Uint8Array>();
   store.set("zarr.json", new TextEncoder().encode('{"zarr_format": 3}'));
   const zipData = memoryStoreToZip(store);
@@ -337,7 +339,7 @@ Deno.test("readOzxJsonFirst - returns false for ZIP with jsonFirst set to false"
 // toNgffZarrOzx tests with synthetic data
 // ============================================================================
 
-Deno.test("toNgffZarrOzx - creates valid .ozx file", async () => {
+test("toNgffZarrOzx - creates valid .ozx file", async () => {
   // Create synthetic test data
   const store = new Map<string, Uint8Array>();
   const root = zarr.root(store);
@@ -387,11 +389,11 @@ Deno.test("toNgffZarrOzx - creates valid .ozx file", async () => {
   await toNgffZarrOzx(ozxPath, multiscales);
 
   // Verify file exists
-  const fileInfo = await Deno.stat(ozxPath);
+  const fileInfo = await stat(ozxPath);
   assertEquals(fileInfo.isFile, true);
 
   // Read the file and verify ZIP structure
-  const zipData = await Deno.readFile(ozxPath);
+  const zipData = await readFile(ozxPath);
 
   // Verify version comment
   const version = readOzxVersion(zipData);
@@ -412,7 +414,7 @@ Deno.test("toNgffZarrOzx - creates valid .ozx file", async () => {
 // toNgffZarr with .ozx path tests
 // ============================================================================
 
-Deno.test("toNgffZarr - detects .ozx path and writes correctly", async () => {
+test("toNgffZarr - detects .ozx path and writes correctly", async () => {
   // Create synthetic test data
   const store = new Map<string, Uint8Array>();
   const root = zarr.root(store);
@@ -456,14 +458,14 @@ Deno.test("toNgffZarr - detects .ozx path and writes correctly", async () => {
   await toNgffZarr(ozxPath, multiscales, { version: "0.5" });
 
   // Verify file was created as valid .ozx
-  const zipData = await Deno.readFile(ozxPath);
+  const zipData = await readFile(ozxPath);
   const version = readOzxVersion(zipData);
   assertEquals(version, "0.5");
 
   console.log("  Auto-detected .ozx path:", ozxPath);
 });
 
-Deno.test("toNgffZarr - rejects the Zarr v2 version 0.4 for .ozx", async () => {
+test("toNgffZarr - rejects the Zarr v2 version 0.4 for .ozx", async () => {
   const store = new Map<string, Uint8Array>();
   const root = zarr.root(store);
   const array = await zarr.create(root.resolve("data"), {
@@ -500,7 +502,7 @@ Deno.test("toNgffZarr - rejects the Zarr v2 version 0.4 for .ozx", async () => {
   );
 });
 
-Deno.test("toNgffZarr - allows .ozx without specifying version", async () => {
+test("toNgffZarr - allows .ozx without specifying version", async () => {
   // This test verifies that .ozx files work correctly when no version is specified
   // The function should silently default to version 0.5
   const store = new Map<string, Uint8Array>();
@@ -540,14 +542,14 @@ Deno.test("toNgffZarr - allows .ozx without specifying version", async () => {
   await toNgffZarr(ozxPath, multiscales);
 
   // Verify the file was created correctly
-  const zipData = await Deno.readFile(ozxPath);
+  const zipData = await readFile(ozxPath);
   const version = readOzxVersion(zipData);
   assertEquals(version, "0.5");
 
   console.log("  Created .ozx file without version option:", ozxPath);
 });
 
-Deno.test("toNgffZarr - allows .ozx with explicit version 0.5", async () => {
+test("toNgffZarr - allows .ozx with explicit version 0.5", async () => {
   // This test verifies that explicitly specifying version 0.5 works correctly
   const store = new Map<string, Uint8Array>();
   const root = zarr.root(store);
@@ -586,14 +588,14 @@ Deno.test("toNgffZarr - allows .ozx with explicit version 0.5", async () => {
   await toNgffZarr(ozxPath, multiscales, { version: "0.5" });
 
   // Verify the file was created correctly
-  const zipData = await Deno.readFile(ozxPath);
+  const zipData = await readFile(ozxPath);
   const version = readOzxVersion(zipData);
   assertEquals(version, "0.5");
 
   console.log("  Created .ozx file with explicit version 0.5:", ozxPath);
 });
 
-Deno.test("toOmeZarr - chunksPerShard writes a sharded .ozx", async () => {
+test("toOmeZarr - chunksPerShard writes a sharded .ozx", async () => {
   // 10x12 in 4x4 chunks, two chunks a shard per axis: a 2x2 grid of shards,
   // the last on each axis partial.
   const store = new Map<string, Uint8Array>();
@@ -628,9 +630,9 @@ Deno.test("toOmeZarr - chunksPerShard writes a sharded .ozx", async () => {
     chunksPerShard: 2,
   });
 
-  const zipData = await Deno.readFile(ozxPath);
+  const zipData = await readFile(ozxPath);
   const shards = getZipFileList(zipData).filter((name) =>
-    name.startsWith("scale0/image/c/")
+    name.startsWith("scale0/image/c/"),
   );
   assertEquals(shards.length, 4);
   // Stored, not deflated: a reader range-reads single chunks out of a shard.
@@ -647,7 +649,7 @@ Deno.test("toOmeZarr - chunksPerShard writes a sharded .ozx", async () => {
   assertEquals((await zarr.get(readArray)).data, data);
 });
 
-Deno.test("toOmeZarrOzxData - progress counts shard writes", async () => {
+test("toOmeZarrOzxData - progress counts shard writes", async () => {
   const store = new Map<string, Uint8Array>();
   const array = await zarr.create(zarr.root(store).resolve("data"), {
     shape: [10, 12],
@@ -683,7 +685,10 @@ Deno.test("toOmeZarrOzxData - progress counts shard writes", async () => {
   // toOmeZarr into a store counts the same way, in both writers: chunks
   // when it is not sharded, shards when it is.
   for (const write of [toOmeZarr, toOmeZarrBrowser]) {
-    for (const [chunksPerShard, writes] of [[undefined, 9], [2, 4]] as const) {
+    for (const [chunksPerShard, writes] of [
+      [undefined, 9],
+      [2, 4],
+    ] as const) {
       const progress: Array<[number, number]> = [];
       await write(new Map(), multiscales, {
         ...(chunksPerShard !== undefined && { chunksPerShard }),
@@ -695,7 +700,7 @@ Deno.test("toOmeZarrOzxData - progress counts shard writes", async () => {
   }
 });
 
-Deno.test("toOmeZarrOzxData - shards two chunks a shard by default", async () => {
+test("toOmeZarrOzxData - shards two chunks a shard by default", async () => {
   // The Python writer's `.ozx` default, so the two lay out the same archive.
   const store = new Map<string, Uint8Array>();
   const array = await zarr.create(zarr.root(store).resolve("data"), {
@@ -733,7 +738,7 @@ Deno.test("toOmeZarrOzxData - shards two chunks a shard by default", async () =>
   assertEquals(arrayMeta.codecs[0].configuration.chunk_shape, [4, 4]);
 });
 
-Deno.test("toNgffZarrOzx - writes at the requested version, not metadata.version", async () => {
+test("toNgffZarrOzx - writes at the requested version, not metadata.version", async () => {
   // The in-memory metadata.version is where the data came from, not where it
   // is going: like the directory writer, the archive is written at the
   // requested version (0.5 by default), so a multiscales read from a 0.4
@@ -766,7 +771,7 @@ Deno.test("toNgffZarrOzx - writes at the requested version, not metadata.version
   const ozxPath = join(OUTPUT_DIR, "test_metadata_version_source.ozx");
   await toNgffZarrOzx(ozxPath, multiscales);
 
-  const zipData = await Deno.readFile(ozxPath);
+  const zipData = await readFile(ozxPath);
   assertEquals(readOzxVersion(zipData), "0.5");
   const ome = await ozxOmeAttributes(zipData);
   assertEquals(ome.version, "0.5");
@@ -782,7 +787,7 @@ async function ozxOmeAttributes(
   return JSON.parse(new TextDecoder().decode(raw)).attributes.ome;
 }
 
-Deno.test("toNgffZarr - writes a v0.6 .ozx file", async () => {
+test("toNgffZarr - writes a v0.6 .ozx file", async () => {
   // RFC-9 is defined on Zarr v3, so any version stored in Zarr v3 can be
   // zipped: a v0.6 archive carries the v0.6 root document (coordinate
   // systems, no flat axes), and the ZIP comment records 0.6.
@@ -813,7 +818,7 @@ Deno.test("toNgffZarr - writes a v0.6 .ozx file", async () => {
   const ozxPath = join(OUTPUT_DIR, "test_v06.ozx");
   await toNgffZarr(ozxPath, multiscales, { version: "0.6" });
 
-  const zipData = await Deno.readFile(ozxPath);
+  const zipData = await readFile(ozxPath);
   assertEquals(readOzxVersion(zipData), "0.6");
   assertEquals(readOzxJsonFirst(zipData), true);
   assertEquals(getZipFileList(zipData)[0], "zarr.json");
@@ -837,7 +842,7 @@ Deno.test("toNgffZarr - writes a v0.6 .ozx file", async () => {
 // Integration tests with real Python test data
 // ============================================================================
 
-Deno.test("RFC-9 roundtrip with cthead1.png", async () => {
+test("RFC-9 roundtrip with cthead1.png", async () => {
   // Read input image from Python test data
   const inputPath = join(INPUT_DIR, "cthead1.png");
   const itkImage = await readImageNode(inputPath);
@@ -863,7 +868,7 @@ Deno.test("RFC-9 roundtrip with cthead1.png", async () => {
   await toNgffZarrOzx(ozxPath, multiscales);
 
   // Read the file and verify
-  const zipData = await Deno.readFile(ozxPath);
+  const zipData = await readFile(ozxPath);
 
   // Verify version
   const version = readOzxVersion(zipData);
@@ -905,7 +910,7 @@ Deno.test("RFC-9 roundtrip with cthead1.png", async () => {
   console.log("  zarr.json files:", zarrJsonFiles.length);
 });
 
-Deno.test("RFC-9 with MR-head.nrrd (3D data)", async () => {
+test("RFC-9 with MR-head.nrrd (3D data)", async () => {
   // Read input image from Python test data
   const inputPath = join(INPUT_DIR, "MR-head.nrrd");
   const itkImage = await readImageNode(inputPath);
@@ -931,7 +936,7 @@ Deno.test("RFC-9 with MR-head.nrrd (3D data)", async () => {
   await toNgffZarrOzx(ozxPath, multiscales);
 
   // Read and verify
-  const zipData = await Deno.readFile(ozxPath);
+  const zipData = await readFile(ozxPath);
   const version = readOzxVersion(zipData);
   assertEquals(version, "0.5");
 
@@ -942,7 +947,7 @@ Deno.test("RFC-9 with MR-head.nrrd (3D data)", async () => {
   console.log("  File count:", files.length);
 });
 
-Deno.test("memoryStoreToZip refuses stores too large for a ZIP without ZIP64", () => {
+test("memoryStoreToZip refuses stores too large for a ZIP without ZIP64", () => {
   // Past 65,535 entries the archive's 16-bit entry count would wrap and
   // readers would miss chunks; refuse rather than write it.
   const store = new Map<string, Uint8Array>();

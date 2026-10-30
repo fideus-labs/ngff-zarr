@@ -10,15 +10,14 @@
  * and this package's codec worker gained a Node branch; these tests exercise
  * that path end to end, in the runtime it was broken in.
  *
- * Run with `deno task test:node`, which rebuilds `npm/` first. Use the task
- * rather than invoking `node --test` directly: `deno task build:bundle` leaves
- * `npm/esm` in its browser form, where `scripts/inline_worker.ts` has replaced
- * the codec worker URL with a `blob:` URL that Node cannot load.
+ * Run with `npm run test:node`, which first runs `npm run build`: the clean
+ * `dist/` that `npm pack` ships, where the worker is a file beside the pool
+ * module and is spawned through `node:worker_threads`.
  */
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
@@ -28,24 +27,9 @@ import {
   terminateWorkerPool,
   zarrGet,
   zarrSet,
-} from "../../npm/esm/utils/worker_pool.js";
+} from "../../dist/utils/worker_pool.js";
 
-// Load zarrita from the built package's own dependency tree rather than this
-// directory's. A bare `import "zarrita"` resolves to the copy Deno installed
-// for the source tree, which is a different version from the one npm installs
-// for the package — the test and the code under test would then hold two
-// separate zarrita instances.
-//
-// The entry comes from the package's own `exports` map (zarrita publishes only
-// an `import` condition, so CJS-style `require.resolve` cannot find it).
-const zarritaPkgUrl = new URL(
-  "../../npm/node_modules/zarrita/package.json",
-  import.meta.url,
-);
-const zarritaPkg = JSON.parse(await readFile(zarritaPkgUrl, "utf8"));
-const zarritaEntryUrl =
-  new URL(zarritaPkg.exports["."].import, zarritaPkgUrl).href;
-const zarr = await import(zarritaEntryUrl);
+import * as zarr from "zarrita";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -288,7 +272,7 @@ describe("worker threads are actually used", () => {
     // genuinely being offloaded: `zarrSet` has no main-thread fallback for
     // blosc, so it either reaches a worker or throws.
     const workerUrl = new URL(
-      "../../npm/esm/workers/omero_codec_worker.js",
+      "../../dist/workers/omero_codec_worker.js",
       import.meta.url,
     ).href;
 
@@ -307,7 +291,7 @@ describe("worker threads are actually used", () => {
     // is inherited by worker threads, where it collides with their
     // file-based entry ("--input-type can only be used with string input").
     const workerPoolUrl = new URL(
-      "../../npm/esm/utils/worker_pool.js",
+      "../../dist/utils/worker_pool.js",
       import.meta.url,
     ).href;
     const dir = await mkdtemp(join(tmpdir(), "ngff-zarr-node-exit-"));
@@ -318,7 +302,7 @@ describe("worker threads are actually used", () => {
         scriptPath,
         `
 import { zarrSet, terminateWorkerPool } from ${JSON.stringify(workerPoolUrl)};
-import * as zarr from ${JSON.stringify(zarritaEntryUrl)};
+import * as zarr from ${JSON.stringify(import.meta.resolve("zarrita"))};
 
 const shape = [4, 8, 8];
 const store = new Map();

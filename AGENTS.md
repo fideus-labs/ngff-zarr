@@ -9,7 +9,7 @@ This is a multi-language implementation of the OME Next Generation File Format
 
 - **`py/`** - Core Python implementation with CLI and library (ngff-zarr)
 - **`mcp/`** - Model Context Protocol server for AI integration (ngff-zarr-mcp)
-- **`ts/`** - TypeScript/Deno implementation for web/Node environments
+- **`ts/`** - TypeScript implementation for Node and browser environments
   (@fideus-labs/ngff-zarr)
 
 The human-facing contributor guide lives in `docs/development.md`, rendered at
@@ -67,13 +67,20 @@ cd mcp && pixi run --as-is dev          # Run MCP server in dev mode
 ### TypeScript (ts/)
 
 ```bash
-cd ts && pixi run --as-is test          # Deno test suite
-cd ts && pixi run --as-is lint          # Deno lint
-cd ts && pixi run --as-is fmt           # Deno format
-cd ts && pixi run --as-is build         # Full build pipeline
-cd ts && pixi run --as-is test-browser  # Browser compatibility tests
-cd ts && pixi run --as-is check         # Type checking
+cd ts && pixi run --as-is install       # npm ci (once, and after lockfile changes)
+cd ts && pixi run --as-is test          # Vitest suite (vp test)
+cd ts && pixi run --as-is lint          # Oxlint (vp lint)
+cd ts && pixi run --as-is fmt           # Oxfmt (vp fmt)
+cd ts && pixi run --as-is check         # Format + lint + type check (vp check)
+cd ts && pixi run --as-is build         # Emit dist/ (vp pack)
+cd ts && pixi run --as-is test-node     # Node tests against the built package
+cd ts && pixi run --as-is test-browser  # Playwright browser tests
 ```
+
+The pixi tasks are thin aliases over the npm scripts in `ts/package.json`,
+which run [Vite+](https://viteplus.dev) (`vp`): Vitest, Oxlint, Oxfmt and
+tsdown behind one dev dependency. `npm run <script>` from `ts/` works just as
+well once `npm ci` has run.
 
 ## Commit Message Format & Version Management
 
@@ -281,9 +288,16 @@ these conventions to prevent reformatting churn:
 
 ## TypeScript Code Style Guidelines
 
-- Use Deno's standard style (80 char line width, 2 space indent, semicolons)
-- Strict TypeScript compiler options enabled
-- Use JSR imports (@std/assert) and npm: prefix for npm packages
+- Oxfmt formatting (80 char line width, 2 space indent, semicolons, double
+  quotes), configured in `ts/vite.config.ts`
+- Strict TypeScript compiler options, including `erasableSyntaxOnly`: no
+  `enum`, `namespace` or constructor parameter properties, so Node runs the
+  `.ts` sources (and the worker thread entry) directly
+- Relative imports keep their `.ts` extension; bare package names for
+  dependencies; `node:` prefix for Node built-ins
+- Tests: `test/**/*_test.ts`, `import { test } from "vite-plus/test"`,
+  assertions from `test/_assert.ts` (the `@std/assert` signatures over
+  `node:assert/strict`), filesystem helpers from `test/_fs.ts`
 
 ## Project-Specific Conventions
 

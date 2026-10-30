@@ -36,7 +36,7 @@ export { isOzxPath } from "./rfc9_zip.ts";
 export interface ToOmeZarrOptions {
   overwrite?: boolean;
   /**
-   * OME-Zarr version to write. Defaults to "0.5", as the Node.js/Deno
+   * OME-Zarr version to write. Defaults to "0.5", as the Node.js
    * toOmeZarr does, and to "0.6" for a scene or a transformation, which
    * that version introduced. Version "0.6" writes RFC 5 coordinate systems
    * and transformations.
@@ -132,7 +132,7 @@ export type ToNgffZarrOzxOptions = ToOmeZarrOzxOptions;
 /**
  * Browser-compatible version of toOmeZarr.
  * Only supports MemoryStore (Map) for writing.
- * Does NOT support local file paths or HTTP URLs (use the full version in Node.js/Deno).
+ * Does NOT support local file paths or HTTP URLs (use the full version in Node.js).
  *
  * `multiscales` may also be an {@link NgffScene}: its metadata lands in the
  * root group's `ome.scene` and each of its images is written below its path,
@@ -178,9 +178,10 @@ export async function toOmeZarr(
     );
   }
   const { path, ...rest } = options;
-  const target = path === undefined
-    ? store as unknown as zarr.Mutable
-    : await writableStoreBelow(store as unknown as zarr.Mutable, path);
+  const target =
+    path === undefined
+      ? (store as unknown as zarr.Mutable)
+      : await writableStoreBelow(store as unknown as zarr.Mutable, path);
   await writeToStore(target, multiscales, arrayWriter, rest);
 }
 
@@ -241,8 +242,7 @@ export async function toOmeZarrOzx(
   const memoryStore: MemoryStore = new Map<string, Uint8Array>();
 
   // Use the shared write function
-  const chunksPerShard = options.chunksPerShard ??
-    DEFAULT_OZX_CHUNKS_PER_SHARD;
+  const chunksPerShard = options.chunksPerShard ?? DEFAULT_OZX_CHUNKS_PER_SHARD;
   await writeNgffMultiscalesToMemoryStore(
     memoryStore,
     multiscales,

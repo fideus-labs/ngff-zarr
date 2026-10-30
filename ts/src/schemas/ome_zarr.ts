@@ -222,10 +222,7 @@ export const WellImageSchema: z.ZodType<WellImage> = z.object({
   path: z
     .string()
     .min(1)
-    .regex(
-      /^[-A-Za-z0-9_.]+$/,
-      "Path must only contain a-z, A-Z, 0-9, -, _, .",
-    )
+    .regex(/^[-A-Za-z0-9_.]+$/, "Path must only contain a-z, A-Z, 0-9, -, _, .")
     .refine(
       (val: string) => !/^\.+$/.test(val),
       "Path must not consist only of periods",

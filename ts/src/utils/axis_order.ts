@@ -108,7 +108,7 @@ export async function canonicalAxisOrder(
     await zarrSet(
       array,
       permutation.map((index) =>
-        zarr.slice(region[index].start, region[index].stop)
+        zarr.slice(region[index].start, region[index].stop),
       ),
       {
         data: transposed,

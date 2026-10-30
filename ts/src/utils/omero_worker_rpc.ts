@@ -24,23 +24,21 @@ import type { ChannelStatisticsAccumulator } from "./compute_omero-shared.ts";
 
 // Local typed array constructor lookup (avoids depending on fizarrita internals
 // from the main thread — the worker uses fizarrita's version)
-function get_ctr<D extends DataType>(
-  data_type: D,
-): TypedArrayConstructor<D> {
-  const ctr: TypedArrayConstructor<D> | undefined = ({
-    int8: Int8Array,
-    int16: Int16Array,
-    int32: Int32Array,
-    int64: globalThis.BigInt64Array,
-    uint8: Uint8Array,
-    uint16: Uint16Array,
-    uint32: Uint32Array,
-    uint64: globalThis.BigUint64Array,
-    float32: Float32Array,
-    float64: Float64Array,
-  } as Record<string, unknown>)[data_type as string] as
-    | TypedArrayConstructor<D>
-    | undefined;
+function get_ctr<D extends DataType>(data_type: D): TypedArrayConstructor<D> {
+  const ctr: TypedArrayConstructor<D> | undefined = (
+    {
+      int8: Int8Array,
+      int16: Int16Array,
+      int32: Int32Array,
+      int64: globalThis.BigInt64Array,
+      uint8: Uint8Array,
+      uint16: Uint16Array,
+      uint32: Uint32Array,
+      uint64: globalThis.BigUint64Array,
+      float32: Float32Array,
+      float64: Float64Array,
+    } as Record<string, unknown>
+  )[data_type as string] as TypedArrayConstructor<D> | undefined;
   if (!ctr) {
     throw new Error(`Unsupported data_type for worker codec: ${data_type}`);
   }
@@ -57,11 +55,13 @@ interface PendingRequest {
 }
 
 class WorkerDispatcher {
+  private readonly worker: WorkerLike;
   private pending = new Map<number, PendingRequest>();
   /** Tracks which metaIds have been sent to this worker. */
   private sentMetas = new Set<number>();
 
-  constructor(private worker: WorkerLike) {
+  constructor(worker: WorkerLike) {
+    this.worker = worker;
     worker.addEventListener("message", this.onMessage);
     worker.addEventListener("error", this.onError);
   }

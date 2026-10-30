@@ -11,7 +11,8 @@
  * is zero and any axis order passes.
  */
 
-import { assertAlmostEquals, assertThrows } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertAlmostEquals, assertThrows } from "./_assert.ts";
 import type { Transform } from "itk-wasm";
 import * as zarr from "zarrita";
 import {
@@ -46,9 +47,8 @@ function fieldTransform(
   const next = noise(seed + 1);
   const parameters = new Float64Array(voxels * dimension);
   for (let i = 0; i < parameters.length; i++) parameters[i] = next();
-  const rows = Array.from(
-    { length: dimension },
-    (_, r) => Array.from({ length: dimension }, (_, c) => +(r === c)),
+  const rows = Array.from({ length: dimension }, (_, r) =>
+    Array.from({ length: dimension }, (_, c) => +(r === c)),
   );
   return {
     transformType: {
@@ -109,8 +109,8 @@ function itkBlock(
   size: number[],
 ): Float64Array {
   const dimension = dims.length;
-  const values =
-    (transform as unknown as { parameters: Float64Array }).parameters;
+  const values = (transform as unknown as { parameters: Float64Array })
+    .parameters;
   const voxels = values.length / dimension;
   const itkOrder = ["x", "y", "z"].slice(0, dimension);
   const canonical = [...itkOrder].reverse();
@@ -131,8 +131,8 @@ function itkBlock(
   for (let voxel = 0; voxel < voxels; voxel++) {
     let offset = 0;
     for (let axis = 0; axis < dimension; axis++) {
-      const index = Math.floor(voxel / canonicalStrides[axis]) %
-        canonicalShape[axis];
+      const index =
+        Math.floor(voxel / canonicalStrides[axis]) % canonicalShape[axis];
       offset += index * dimsStrides[dims.indexOf(canonical[axis])];
     }
     for (let axis = 0; axis < dimension; axis++) {
@@ -143,7 +143,7 @@ function itkBlock(
 }
 
 for (const ndim of [2, 3]) {
-  Deno.test(`blockwise equals the whole-field converter (${ndim}D)`, async () => {
+  test(`blockwise equals the whole-field converter (${ndim}D)`, async () => {
     const dims = CANONICAL[ndim];
     const size = [6, 5, 4].slice(0, ndim);
     const spacing = [1.0, 1.5, 2.0].slice(0, ndim);
@@ -156,9 +156,8 @@ for (const ndim of [2, 3]) {
         path: "DVF",
       },
     );
-    const reference = (await zarr.get(field.data, null)).data as ArrayLike<
-      number
-    >;
+    const reference = (await zarr.get(field.data, null))
+      .data as ArrayLike<number>;
 
     const converted = convertItkFieldBlock(
       itkBlock(transform, dims, size),
@@ -173,49 +172,48 @@ for (const ndim of [2, 3]) {
   });
 }
 
-for (const dims of [["z", "y", "x"], ["x", "y", "z"]]) {
-  Deno.test(
-    `the positional term stays on its own axes for dims ${dims.join("")}`,
-    async () => {
-      // The framed case: without frames the term is zero and any order passes.
-      const size = [6, 5, 4];
-      const transform = fieldTransform(
-        size,
-        [1.0, 1.5, 2.0],
-        [7.0, -3.0, 5.0],
-        3,
-      );
-      const fixed = await frameImage(dims, LPS);
-      const moving = await frameImage(dims, RAS);
-      const { field } = await itkDisplacementFieldToNgffTransform(
-        transform,
-        dims,
-        {
-          path: "DVF",
-          fixed,
-          moving,
-        },
-      );
-      const reference = (await zarr.get(field.data, null)).data as ArrayLike<
-        number
-      >;
+for (const dims of [
+  ["z", "y", "x"],
+  ["x", "y", "z"],
+]) {
+  test(`the positional term stays on its own axes for dims ${dims.join("")}`, async () => {
+    // The framed case: without frames the term is zero and any order passes.
+    const size = [6, 5, 4];
+    const transform = fieldTransform(
+      size,
+      [1.0, 1.5, 2.0],
+      [7.0, -3.0, 5.0],
+      3,
+    );
+    const fixed = await frameImage(dims, LPS);
+    const moving = await frameImage(dims, RAS);
+    const { field } = await itkDisplacementFieldToNgffTransform(
+      transform,
+      dims,
+      {
+        path: "DVF",
+        fixed,
+        moving,
+      },
+    );
+    const reference = (await zarr.get(field.data, null))
+      .data as ArrayLike<number>;
 
-      const converted = convertItkFieldBlock(
-        itkBlock(transform, dims, size),
-        [...field.data.shape],
-        dims,
-        field.translation,
-        field.scale,
-        { fixed, moving },
-      );
-      for (let i = 0; i < reference.length; i++) {
-        assertAlmostEquals(converted[i], reference[i], 1e-12);
-      }
-    },
-  );
+    const converted = convertItkFieldBlock(
+      itkBlock(transform, dims, size),
+      [...field.data.shape],
+      dims,
+      field.translation,
+      field.scale,
+      { fixed, moving },
+    );
+    for (let i = 0; i < reference.length; i++) {
+      assertAlmostEquals(converted[i], reference[i], 1e-12);
+    }
+  });
 }
 
-Deno.test("forward then inverse is the identity", async () => {
+test("forward then inverse is the identity", async () => {
   const dims = CANONICAL[3];
   const shape = [3, 4, 5, 6];
   const next = noise(7);
@@ -248,7 +246,7 @@ Deno.test("forward then inverse is the identity", async () => {
   }
 });
 
-Deno.test("a coordinates block holds q + d and round-trips", () => {
+test("a coordinates block holds q + d and round-trips", () => {
   // A `coordinates` field carries the absolute position `q + d(q)`, so the
   // forward conversion adds the grid point on top of the displacement and the
   // inverse takes it back off. Unframed, the positional term is the grid point
@@ -306,7 +304,7 @@ Deno.test("a coordinates block holds q + d and round-trips", () => {
   }
 });
 
-Deno.test("a values buffer that does not match the shape is refused", () => {
+test("a values buffer that does not match the shape is refused", () => {
   assertThrows(
     () =>
       convertItkFieldBlock(
@@ -321,7 +319,7 @@ Deno.test("a values buffer that does not match the shape is refused", () => {
   );
 });
 
-Deno.test("a block shape that is not the grid is refused", () => {
+test("a block shape that is not the grid is refused", () => {
   assertThrows(
     () =>
       convertItkFieldBlock(
@@ -336,7 +334,7 @@ Deno.test("a block shape that is not the grid is refused", () => {
   );
 });
 
-Deno.test("geometry that does not cover the axes is refused", () => {
+test("geometry that does not cover the axes is refused", () => {
   assertThrows(
     () =>
       convertItkFieldBlock(

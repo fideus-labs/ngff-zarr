@@ -60,7 +60,8 @@ export function calculateIncrementalFactor(
   }
 
   if (
-    nominal !== undefined && nominal >= 1 &&
+    nominal !== undefined &&
+    nominal >= 1 &&
     Math.floor(previousSize / nominal) === targetSize
   ) {
     return nominal;
@@ -134,8 +135,8 @@ export function dimScaleFactors(
         if (SPATIAL_DIMS.includes(dim)) {
           // Divide by previous factor to get incremental scaling
           // Use Math.floor to truncate (matching Python's int() behavior)
-          const incrementalFactor = scaleFactor /
-            (previousDimFactors[dim] || 1);
+          const incrementalFactor =
+            scaleFactor / (previousDimFactors[dim] || 1);
           dimFactors[dim] = Math.max(1, Math.floor(incrementalFactor));
         } else {
           dimFactors[dim] = previousDimFactors[dim] || 1;
@@ -166,8 +167,8 @@ export function dimScaleFactors(
       for (const dim in scaleFactor) {
         // Divide by previous factor to get incremental scaling
         // Use Math.floor to truncate (matching Python's int() behavior)
-        const incrementalFactor = scaleFactor[dim] /
-          (previousDimFactors[dim] || 1);
+        const incrementalFactor =
+          scaleFactor[dim] / (previousDimFactors[dim] || 1);
         dimFactors[dim] = Math.max(1, Math.floor(incrementalFactor));
       }
     }
@@ -221,8 +222,8 @@ export function nextScaleMetadata(
       const factor = dimFactors[dim];
       scale[dim] = image.scale[dim] * factor;
       // Add offset to account for pixel center shift when downsampling
-      translation[dim] = image.translation[dim] +
-        0.5 * (factor - 1) * image.scale[dim];
+      translation[dim] =
+        image.translation[dim] + 0.5 * (factor - 1) * image.scale[dim];
     } else {
       scale[dim] = image.scale[dim];
       translation[dim] = image.translation[dim];
@@ -285,23 +286,23 @@ export type IntegerComponentType =
   | "uint32"
   | "int32";
 
-const INTEGER_COMPONENT_RANGES: Record<
-  IntegerComponentType,
-  [number, number]
-> = {
-  uint8: [0, 255],
-  int8: [-128, 127],
-  uint16: [0, 65535],
-  int16: [-32768, 32767],
-  uint32: [0, 4294967295],
-  int32: [-2147483648, 2147483647],
-};
+const INTEGER_COMPONENT_RANGES: Record<IntegerComponentType, [number, number]> =
+  {
+    uint8: [0, 255],
+    int8: [-128, 127],
+    uint16: [0, 65535],
+    int16: [-32768, 32767],
+    uint32: [0, 4294967295],
+    int32: [-2147483648, 2147483647],
+  };
 
 export function isIntegerComponentType(
   componentType: unknown,
 ): componentType is IntegerComponentType {
-  return typeof componentType === "string" &&
-    Object.hasOwn(INTEGER_COMPONENT_RANGES, componentType);
+  return (
+    typeof componentType === "string" &&
+    Object.hasOwn(INTEGER_COMPONENT_RANGES, componentType)
+  );
 }
 
 /**

@@ -66,6 +66,74 @@ function isIdentityDirection(
 }
 
 /**
+ * Warn when the NgffImage cannot carry the ITK direction.
+ *
+ * An NgffImage places its grid by scale and translation along its own axes,
+ * and RFC-4 orientation adds per-axis flips and swaps. An oblique direction is
+ * neither, and without orientation any non-identity one is dropped: the image
+ * is then placed axis-aligned, and an ITK transform converted against it no
+ * longer maps the voxels it maps in ITK. A rigid result of an oblique pair
+ * landed 19 voxels off.
+ *
+ * @param direction - Spatial block of the direction matrix, row-major
+ * @param n - Number of spatial dimensions
+ * @param oriented - Whether the image is given an anatomical orientation
+ */
+function warnLostDirection(
+  full: number[],
+  dimension: number,
+  n: number,
+  oriented: boolean,
+): void {
+  const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6;
+  const at = (row: number, col: number) => full[row * dimension + col];
+  const range = (length: number) => Array.from({ length }, (_, i) => i);
+  // Outside the spatial block the matrix has to be the identity.
+  const timeLost = range(dimension).some((row) =>
+    range(dimension).some(
+      (col) =>
+        (row >= n || col >= n) && !near(at(row, col), row === col ? 1 : 0),
+    ),
+  );
+  // RFC-4 holds a signed permutation: one unit entry per row and column.
+  const magnitude = (row: number, col: number) => Math.abs(at(row, col));
+  const signedPermutation = range(n).every(
+    (row) =>
+      range(n).every(
+        (col) => near(magnitude(row, col), 0) || near(magnitude(row, col), 1),
+      ) &&
+      near(
+        range(n).reduce((sum, col) => sum + magnitude(row, col), 0),
+        1,
+      ) &&
+      near(
+        range(n).reduce((sum, col) => sum + magnitude(col, row), 0),
+        1,
+      ),
+  );
+  const identity = range(n).every((row) =>
+    range(n).every((col) => near(at(row, col), row === col ? 1 : 0)),
+  );
+  if (!timeLost && (oriented ? signedPermutation : identity)) {
+    return;
+  }
+  const rows = range(dimension).map((row) =>
+    full.slice(row * dimension, row * dimension + dimension),
+  );
+  const why = timeLost
+    ? "mixes time with space or reverses it, which an NgffImage cannot carry"
+    : oriented
+      ? "is oblique, and RFC-4 orientation only flips and swaps axes: the " +
+        "image is placed on its nearest axis-aligned grid"
+      : "is dropped, as addAnatomicalOrientation is false: the image is " +
+        "placed axis-aligned";
+  console.warn(
+    `The ITK direction ${JSON.stringify(rows)} ${why}. An ITK transform ` +
+      "converted against this image no longer maps the voxels it maps in ITK.",
+  );
+}
+
+/**
  * Convert an ITK-Wasm Image to an NgffImage, preserving spatial metadata.
  *
  * This function converts ITK-Wasm Image objects to NgffImage format while
@@ -152,9 +220,10 @@ export async function itkImageToNgffImage(
   const root = zarr.root(store);
 
   // Determine appropriate chunk size based on options
-  const chunkShape = typeof chunks === "number"
-    ? shape.map((s) => Math.min(s, chunks))
-    : shape.map((s, i) => Math.min(s, chunks[i] ?? 256));
+  const chunkShape =
+    typeof chunks === "number"
+      ? shape.map((s) => Math.min(s, chunks))
+      : shape.map((s, i) => Math.min(s, chunks[i] ?? 256));
 
   const zarrArray = await zarr.create(root.resolve(path), {
     shape: shape,
@@ -184,32 +253,40 @@ export async function itkImageToNgffImage(
   // This handles chunking and encoding automatically
   await zarrSet(zarrArray, selection, dataChunk);
 
-  // Add anatomical orientation if requested
-  let axesOrientations: Record<string, AnatomicalOrientation> | undefined;
-  if (addAnatomicalOrientation) {
-    axesOrientations = {};
-    const nSpatial = spatialDims.length;
-    // The direction matrix is dimension x dimension, row-major; orientation
-    // reads its spatial block.
-    const dimension = imageType.dimension;
-    const fullDirection = itkImage.direction;
-    const direction = fullDirection && fullDirection.length > 0
-      ? Array.from(
-        { length: nSpatial * nSpatial },
-        (_, k) =>
+  // The direction matrix is dimension x dimension, row-major; orientation
+  // reads its spatial block.
+  const nSpatial = spatialDims.length;
+  const dimension = imageType.dimension;
+  const fullDirection = itkImage.direction;
+  const direction =
+    fullDirection && fullDirection.length > 0
+      ? Array.from({ length: nSpatial * nSpatial }, (_, k) =>
           Number(
             fullDirection[
               Math.floor(k / nSpatial) * dimension + (k % nSpatial)
             ],
           ),
-      )
+        )
       : fullDirection;
+  if (fullDirection && fullDirection.length > 0) {
+    warnLostDirection(
+      Array.from(fullDirection, Number),
+      dimension,
+      nSpatial,
+      addAnatomicalOrientation,
+    );
+  }
+
+  // Add anatomical orientation if requested
+  let axesOrientations: Record<string, AnatomicalOrientation> | undefined;
+  if (addAnatomicalOrientation) {
+    axesOrientations = {};
 
     // Check whether the direction matrix is available and has a
     // non-identity rotation (permutation or oblique).
     const hasDirection = direction !== undefined && direction.length > 0;
-    const hasNonIdentityDirection = hasDirection &&
-      !isIdentityDirection(direction, nSpatial);
+    const hasNonIdentityDirection =
+      hasDirection && !isIdentityDirection(direction, nSpatial);
 
     if (hasNonIdentityDirection) {
       // Use the direction cosine matrix to determine each axis'

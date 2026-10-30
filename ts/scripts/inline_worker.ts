@@ -1,168 +1,58 @@
-#!/usr/bin/env -S deno run --allow-all
-
+#!/usr/bin/env node
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 
 /**
- * Script to inline the omero_codec_worker.ts code into the modules that
- * spawn it, for bundled browser builds.
+ * Inline the codec worker into `dist/` for the self-contained browser bundle
+ * the Playwright tests load (`test/browser-npm/ngff-zarr.bundle.js`).
  *
- * The one worker script backs two pools, so it is bundled once and
- * inlined into both consumers:
- * - `compute_omero.js` — the OMERO statistics pool
- * - `worker_pool.js` — the codec pool behind `zarrGet` / `zarrSet`
+ * esbuild does not follow `new Worker(new URL(..., import.meta.url))`, so the
+ * worker is bundled separately here and handed to the package's one spawn
+ * site, `createCodecWorker()` in `utils/worker_pool.js`, as a Blob URL.
  *
- * This script:
- * 1. Bundles the worker code using esbuild
- * 2. Replaces the worker URL construction with a Blob URL in each module
- *
- * Run this after the npm build but before creating the final bundle.
+ * This edits `dist/` in place and is for the test bundle only. The published
+ * package is the clean `dist/`, with the worker as a file for consumers'
+ * bundlers to pick up: `npm pack` and `npm publish` run `npm run build` first
+ * (the `prepack` script), so whatever this left behind is rebuilt.
  */
 
-import { join } from "jsr:@std/path@^1";
+import { readFile, writeFile } from "node:fs/promises";
+import { build } from "esbuild";
 
-const NPM_DIR = "./npm";
-const ESM_DIR = join(NPM_DIR, "esm");
+const SPAWN_MODULE = "dist/utils/worker_pool.js";
+// After the build, createCodecWorker() spawns
+//   new Worker(new URL("../workers/omero_codec_worker.js", import.meta.url), { type: "module" })
+const SPAWN_PATTERN =
+  /new\s+Worker\(\s*new\s+URL\(\s*["']\.\.\/workers\/omero_codec_worker\.js["']\s*,\s*import\.meta\.url\s*\)/;
 
-/**
- * Bundle a worker's code for inline use.
- *
- * @param entryPoint - Worker entry path relative to the npm package root.
- */
+/** Bundle the worker and its dependencies for inline use. */
 async function bundleWorker(entryPoint: string): Promise<string> {
-  // Use esbuild to bundle the worker with all its dependencies
-  // Note: Run from NPM_DIR, use relative path to worker
-  // Using pinned esbuild version for supply-chain security
-  const command = new Deno.Command("npx", {
-    args: [
-      "esbuild@0.24.2",
-      entryPoint,
-      "--bundle",
-      "--format=esm",
-      "--platform=browser",
-      "--minify",
-      // es2022 rather than es2020 for top-level await: the worker awaits a
-      // dynamic `node:worker_threads` import on its Node branch. Module
-      // workers support it in every browser that supports module workers at
-      // all, which this package already requires.
-      "--target=es2022",
-    ],
-    cwd: NPM_DIR,
-    stdout: "piped",
-    stderr: "inherit",
+  const result = await build({
+    entryPoints: [entryPoint],
+    bundle: true,
+    format: "esm",
+    platform: "browser",
+    minify: true,
+    write: false,
+    logLevel: "warning",
   });
-
-  const result = await command.output();
-  if (!result.success) {
-    throw new Error(`esbuild failed with code ${result.code}`);
-  }
-
-  return new TextDecoder().decode(result.stdout);
+  const [output] = result.outputFiles;
+  if (!output) throw new Error("esbuild produced no output for the worker");
+  return output.text;
 }
 
-/**
- * Escape a string for use in a JavaScript template literal.
- */
-function escapeForTemplateLiteral(code: string): string {
-  return code.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$/g, "\\$");
+const workerCode = await bundleWorker("dist/workers/omero_codec_worker.js");
+console.log(`[inline_worker] worker bundle size: ${workerCode.length} bytes`);
+
+const content = await readFile(SPAWN_MODULE, "utf8");
+if (!SPAWN_PATTERN.test(content)) {
+  throw new Error(`[inline_worker] worker spawn not found in ${SPAWN_MODULE}`);
 }
-
-/**
- * Replace the Worker constructor with an inline Blob URL in compute_omero.js
- */
-async function inlineWorkerCode(workerCode: string): Promise<void> {
-  const targetPath = join(ESM_DIR, "utils", "compute_omero.js");
-
-  let content = await Deno.readTextFile(targetPath);
-
-  // Find and replace the createOmeroWorker function body.
-  // After tsc compilation, createOmeroWorker() contains:
-  //   new Worker(new URL("../workers/omero_codec_worker.js", import.meta.url), { type: "module" })
-  const workerPattern =
-    /new\s+Worker\(\s*new\s+URL\(\s*["']\.\.\/workers\/omero_codec_worker\.js["']\s*,\s*import\.meta\.url\s*\)\s*,\s*\{\s*type\s*:\s*["']module["']\s*\}\s*\)/g;
-
-  if (!workerPattern.test(content)) {
-    console.log(
-      "[inline_worker] Worker pattern not found in file, skipping inline step",
-    );
-    console.log("[inline_worker] Content preview:", content.substring(0, 2000));
-    return;
-  }
-
-  // Create the inline worker code
-  const escapedWorkerCode = escapeForTemplateLiteral(workerCode);
-  const inlineWorkerCreation = `(() => {
-    const workerCode = \`${escapedWorkerCode}\`;
-    const blob = new Blob([workerCode], { type: "application/javascript" });
-    const url = URL.createObjectURL(blob);
-    workerBlobUrl = url;
-    return new Worker(url, { type: "module" });
-  })()`;
-
-  // Replace the pattern using a replacer function to avoid
-  // String.replace() interpreting "$&", "$`", etc. in the
-  // replacement string as special back-reference patterns.
-  content = content.replace(workerPattern, () => inlineWorkerCreation);
-
-  await Deno.writeTextFile(targetPath, content);
-  console.log("[inline_worker] Successfully inlined worker code");
-}
-
-/**
- * Replace the codec pool's worker URL with an inline Blob URL in
- * worker_pool.js.
- *
- * Unlike compute_omero, the codec pool hands the URL to fizarrita, which
- * spawns the Worker itself — so what gets inlined here is the URL rather
- * than a `new Worker(...)` expression.
- */
-async function inlineCodecWorkerUrl(workerCode: string): Promise<void> {
-  const targetPath = join(ESM_DIR, "utils", "worker_pool.js");
-
-  let content = await Deno.readTextFile(targetPath);
-
-  // After tsc compilation, worker_pool.js contains:
-  //   const CODEC_WORKER_URL =
-  //     new URL("../workers/omero_codec_worker.js", import.meta.url);
-  const urlPattern =
-    /new\s+URL\(\s*["']\.\.\/workers\/omero_codec_worker\.js["']\s*,\s*import\.meta\.url\s*\)/g;
-
-  if (!urlPattern.test(content)) {
-    console.log(
-      "[inline_worker] Codec worker URL pattern not found, skipping inline step",
-    );
-    return;
-  }
-
-  const escapedWorkerCode = escapeForTemplateLiteral(workerCode);
-  const inlineUrlCreation = `URL.createObjectURL(
-    new Blob([\`${escapedWorkerCode}\`], { type: "application/javascript" })
-  )`;
-
-  // Replace using a replacer function to avoid String.replace()
-  // interpreting "$&", "$`", etc. in the worker bundle as back-references.
-  content = content.replace(urlPattern, () => inlineUrlCreation);
-
-  await Deno.writeTextFile(targetPath, content);
-  console.log("[inline_worker] Successfully inlined codec worker URL");
-}
-
-// Main process
-console.log("[inline_worker] Starting worker inlining...");
-
-try {
-  console.log("[inline_worker] Bundling worker code...");
-  const workerCode = await bundleWorker("esm/workers/omero_codec_worker.js");
-  console.log(`[inline_worker] Worker bundle size: ${workerCode.length} bytes`);
-
-  console.log("[inline_worker] Inlining worker into compute_omero module...");
-  await inlineWorkerCode(workerCode);
-
-  console.log("[inline_worker] Inlining worker into worker_pool module...");
-  await inlineCodecWorkerUrl(workerCode);
-
-  console.log("[inline_worker] Complete!");
-} catch (error) {
-  console.error("[inline_worker] Error:", error);
-  Deno.exit(1);
-}
+// A replacer function keeps String.replace() from interpreting "$&" and
+// friends in the replacement.
+await writeFile(
+  SPAWN_MODULE,
+  `const codecWorkerUrl = URL.createObjectURL(new Blob([${JSON.stringify(workerCode)}], { type: "application/javascript" }));\n` +
+    content.replace(SPAWN_PATTERN, () => "new Worker(codecWorkerUrl"),
+);
+console.log(`[inline_worker] ${SPAWN_MODULE}`);

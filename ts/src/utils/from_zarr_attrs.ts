@@ -86,10 +86,12 @@ function extractOrientationsFromAxes(
         orientation.type === "anatomical"
       ) {
         // Own keys only: "constructor" and the like are not orientations.
-        const enumValue =
-          Object.hasOwn(ORIENTATION_VALUE_MAP, orientation.value)
-            ? ORIENTATION_VALUE_MAP[orientation.value]
-            : undefined;
+        const enumValue = Object.hasOwn(
+          ORIENTATION_VALUE_MAP,
+          orientation.value,
+        )
+          ? ORIENTATION_VALUE_MAP[orientation.value]
+          : undefined;
         if (enumValue) {
           orientations[name] = {
             type: "anatomical" as const,
@@ -172,8 +174,10 @@ export async function fromZarrAttrsV04(
   // `version`) so validation sees the true spec version -- which the v0.5
   // namespacing rules and the version-gated structural rules read. v0.4 has no
   // top-level version, so this falls back to the entry's.
-  const declaredVersion = (rootAttrs.version as string | undefined) ??
-    (multiscalesMetadata.version as string | undefined) ?? "0.4";
+  const declaredVersion =
+    (rootAttrs.version as string | undefined) ??
+    (multiscalesMetadata.version as string | undefined) ??
+    "0.4";
 
   // Validate the root attributes against the OME-Zarr v0.4 schema
   if (validate) {
@@ -244,7 +248,7 @@ export async function fromZarrAttrsV04(
       throw new Error("The multiscales metadata declares no axes.");
     }
     dims = axesData.map((a) =>
-      typeof a === "object" && "name" in a ? String(a.name) : String(a)
+      typeof a === "object" && "name" in a ? String(a.name) : String(a),
     );
 
     // Check if axes have names (v0.4+) or are just strings (v0.3)
@@ -256,9 +260,10 @@ export async function fromZarrAttrsV04(
           // rather than being narrowed to the closed `SupportedDims` union.
           name: String(axisObj.name),
           // `type` is optional; keep undefined rather than the "undefined" string
-          type: axisObj.type === undefined || axisObj.type === null
-            ? undefined
-            : String(axisObj.type) as AxesType,
+          type:
+            axisObj.type === undefined || axisObj.type === null
+              ? undefined
+              : (String(axisObj.type) as AxesType),
           unit: axisObj.unit as AxisUnit | undefined,
           // Preserve RFC 4 orientation on the parsed axis so the strict
           // structural pass below can run validateAxisOrientation; dropping it
@@ -305,7 +310,8 @@ export async function fromZarrAttrsV04(
   // Extract anatomical orientations from axes (RFC 4)
   let axesOrientations: Record<string, AnatomicalOrientation> | undefined;
   if (
-    "axes" in multiscalesMetadata && Array.isArray(multiscalesMetadata.axes)
+    "axes" in multiscalesMetadata &&
+    Array.isArray(multiscalesMetadata.axes)
   ) {
     const axesData = multiscalesMetadata.axes as Array<
       Record<string, unknown> | string
@@ -401,9 +407,8 @@ export async function fromZarrAttrsV04(
       scale,
       translation,
       name: (multiscalesMetadata.name as string) ?? "image",
-      axesUnits: Object.keys(filteredUnits).length > 0
-        ? filteredUnits
-        : undefined,
+      axesUnits:
+        Object.keys(filteredUnits).length > 0 ? filteredUnits : undefined,
       axesOrientations,
       computedCallbacks: undefined,
     });
@@ -434,20 +439,20 @@ export async function fromZarrAttrsV04(
     extra,
     coordinateTransformations:
       (multiscalesMetadata.coordinateTransformations as Transform[]) ??
-        undefined,
+      undefined,
     ...(multiscalesMetadata.type !== undefined &&
-        multiscalesMetadata.type !== null
+    multiscalesMetadata.type !== null
       ? { type: String(multiscalesMetadata.type) }
       : {}),
     ...(multiscalesMetadata.metadata !== undefined &&
-        multiscalesMetadata.metadata !== null
+    multiscalesMetadata.metadata !== null
       ? {
-        metadata: multiscalesMetadata.metadata as {
-          description: string;
-          method: string;
-          version: string;
-        },
-      }
+          metadata: multiscalesMetadata.metadata as {
+            description: string;
+            method: string;
+            version: string;
+          },
+        }
       : {}),
   };
 
@@ -541,8 +546,10 @@ export async function fromZarrAttrsV06(
   // layout for symmetry with the v0.5 reader.
   const omeData = rootAttrs.ome as Record<string, unknown> | undefined;
   // v0.6 and 0.9.dev1 share this reader; the group-level `version` says which.
-  const declaredVersion = (omeData?.version as string | undefined) ??
-    (rootAttrs.version as string | undefined) ?? "0.6";
+  const declaredVersion =
+    (omeData?.version as string | undefined) ??
+    (rootAttrs.version as string | undefined) ??
+    "0.6";
   let entry: Record<string, unknown>;
   let omeroRaw: unknown;
   if (omeData && "multiscales" in omeData) {
@@ -569,7 +576,8 @@ export async function fromZarrAttrsV06(
     | Array<Record<string, unknown>>
     | undefined;
   if (
-    !Array.isArray(coordinateSystemsRaw) || coordinateSystemsRaw.length === 0
+    !Array.isArray(coordinateSystemsRaw) ||
+    coordinateSystemsRaw.length === 0
   ) {
     throw new Error(
       "Invalid OME-Zarr v0.6 metadata: missing 'coordinateSystems' in " +
@@ -596,9 +604,10 @@ export async function fromZarrAttrsV06(
           // rather than being narrowed to the closed `SupportedDims` union.
           name: String(axis.name),
           // `type` is optional; keep undefined rather than the "undefined" string
-          type: axis.type === undefined || axis.type === null
-            ? undefined
-            : String(axis.type) as AxesType,
+          type:
+            axis.type === undefined || axis.type === null
+              ? undefined
+              : (String(axis.type) as AxesType),
           unit: axis.unit as AxisUnit | undefined,
           ...(axis.orientation !== undefined && axis.orientation !== null
             ? { orientation: axis.orientation as Axis["orientation"] }
@@ -681,9 +690,8 @@ export async function fromZarrAttrsV06(
     const translation: Record<string, number> = {};
     dims.forEach((dim, i) => {
       scale[dim] = i < scaleValues.length ? scaleValues[i] : 1.0;
-      translation[dim] = i < translationValues.length
-        ? translationValues[i]
-        : 0.0;
+      translation[dim] =
+        i < translationValues.length ? translationValues[i] : 0.0;
     });
 
     datasets.push({
@@ -744,12 +752,12 @@ export async function fromZarrAttrsV06(
       : {}),
     ...(entry.metadata !== undefined && entry.metadata !== null
       ? {
-        metadata: entry.metadata as {
-          description: string;
-          method: string;
-          version: string;
-        },
-      }
+          metadata: entry.metadata as {
+            description: string;
+            method: string;
+            version: string;
+          },
+        }
       : {}),
   };
 

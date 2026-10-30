@@ -53,11 +53,12 @@ async function _consolidatedExample() {
 
     // List known contents without network requests
     if ("contents" in consolidatedStore) {
-      const contents = (consolidatedStore as { contents: () => unknown })
-        .contents();
+      const contents = (
+        consolidatedStore as { contents: () => unknown }
+      ).contents();
       console.log("Known contents:", contents);
     }
-  } catch (_error) {
+  } catch {
     console.log(
       "Consolidated metadata not available, falling back to regular store",
     );
@@ -77,7 +78,7 @@ async function _versionSpecificExample() {
     // Explicitly open as Zarr v2
     const _v2Array = await zarr.open.v2(root, { kind: "array" });
     console.log("Opened as Zarr v2 array");
-  } catch (_error) {
+  } catch {
     console.log("Not a Zarr v2 array");
   }
 
@@ -85,7 +86,7 @@ async function _versionSpecificExample() {
     // Explicitly open as Zarr v3
     const _v3Array = await zarr.open.v3(root, { kind: "array" });
     console.log("Opened as Zarr v3 array");
-  } catch (_error) {
+  } catch {
     console.log("Not a Zarr v3 array");
   }
 }

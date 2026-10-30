@@ -76,9 +76,7 @@ export async function setWorkerPoolSize(size: number): Promise<void> {
   // Dynamic imports to avoid circular dependencies — config.ts is imported
   // by both worker_pool.ts and compute_omero.ts.
   const { terminateWorkerPool } = await import("./utils/worker_pool.ts");
-  const { terminateOmeroWorkerPool } = await import(
-    "./utils/compute_omero.ts"
-  );
+  const { terminateOmeroWorkerPool } = await import("./utils/compute_omero.ts");
   terminateWorkerPool();
   terminateOmeroWorkerPool();
 }

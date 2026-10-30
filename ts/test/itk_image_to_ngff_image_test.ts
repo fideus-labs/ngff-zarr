@@ -6,7 +6,8 @@
  * multi-component (vector/RGB) ITK-Wasm images.
  */
 
-import { assertEquals } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals } from "./_assert.ts";
 import type { Image } from "itk-wasm";
 import * as zarr from "zarrita";
 
@@ -95,7 +96,7 @@ function mockItkImage(
 // Scalar (single-component) images
 // ---------------------------------------------------------------------------
 
-Deno.test("2D scalar image: dims and shape", async () => {
+test("2D scalar image: dims and shape", async () => {
   // ITK-Wasm size is in physical order [x, y]
   const image = mockItkImage([100, 80], "uint8");
   const ngff = await itkImageToNgffImage(image);
@@ -105,7 +106,7 @@ Deno.test("2D scalar image: dims and shape", async () => {
   assertEquals(ngff.data.shape, [80, 100]);
 });
 
-Deno.test("3D scalar image: dims and shape", async () => {
+test("3D scalar image: dims and shape", async () => {
   const image = mockItkImage([30, 40, 20], "uint16");
   const ngff = await itkImageToNgffImage(image);
 
@@ -117,7 +118,7 @@ Deno.test("3D scalar image: dims and shape", async () => {
 // Multi-component (vector / RGB) images
 // ---------------------------------------------------------------------------
 
-Deno.test("2D RGB image: dims, shape, and data length", async () => {
+test("2D RGB image: dims, shape, and data length", async () => {
   // 2D spatial [x=100, y=80] with 3 components (RGB)
   const image = mockItkImage([100, 80], "uint8", 3);
   const ngff = await itkImageToNgffImage(image);
@@ -130,7 +131,7 @@ Deno.test("2D RGB image: dims, shape, and data length", async () => {
   assertEquals(result.data.length, 80 * 100 * 3);
 });
 
-Deno.test("2D RGBA image: dims, shape, and data length", async () => {
+test("2D RGBA image: dims, shape, and data length", async () => {
   const image = mockItkImage([64, 48], "uint8", 4);
   const ngff = await itkImageToNgffImage(image);
 
@@ -141,7 +142,7 @@ Deno.test("2D RGBA image: dims, shape, and data length", async () => {
   assertEquals(result.data.length, 48 * 64 * 4);
 });
 
-Deno.test("3D vector image: dims, shape, and data length", async () => {
+test("3D vector image: dims, shape, and data length", async () => {
   // 3D spatial [x=16, y=20, z=10] with 3 components
   const image = mockItkImage([16, 20, 10], "float32", 3);
   const ngff = await itkImageToNgffImage(image);
@@ -157,7 +158,7 @@ Deno.test("3D vector image: dims, shape, and data length", async () => {
 // Spatial metadata
 // ---------------------------------------------------------------------------
 
-Deno.test("2D RGB image: scale and translation are spatial-only", async () => {
+test("2D RGB image: scale and translation are spatial-only", async () => {
   const image = mockItkImage([100, 80], "uint8", 3);
   const ngff = await itkImageToNgffImage(image);
 
@@ -166,7 +167,7 @@ Deno.test("2D RGB image: scale and translation are spatial-only", async () => {
   assertEquals(Object.keys(ngff.translation).sort(), ["x", "y"]);
 });
 
-Deno.test("2D RGB image: data round-trips correctly", async () => {
+test("2D RGB image: data round-trips correctly", async () => {
   const image = mockItkImage([4, 3], "uint8", 3);
   const ngff = await itkImageToNgffImage(image);
 
@@ -176,7 +177,7 @@ Deno.test("2D RGB image: data round-trips correctly", async () => {
   assertEquals(actual, expected);
 });
 
-Deno.test("4D scalar image: spacing, origin and orientation", async () => {
+test("4D scalar image: spacing, origin and orientation", async () => {
   // ITK size, spacing and origin run x, y, z, t.
   const image = mockItkImage([5, 4, 3, 2], "float32");
   image.spacing = [0.5, 0.6, 0.7, 9];
@@ -198,4 +199,79 @@ Deno.test("4D scalar image: spacing, origin and orientation", async () => {
     ngff.axesOrientations,
     (await itkImageToNgffImage(image3d)).axesOrientations,
   );
+});
+
+// ---------------------------------------------------------------------------
+// Directions an NgffImage cannot carry
+// ---------------------------------------------------------------------------
+
+async function warningsOf(direction: number[], oriented: boolean) {
+  const image = mockItkImage([6, 5, 4], "float32");
+  image.direction = new Float64Array(direction);
+  const warnings: string[] = [];
+  const warn = console.warn;
+  console.warn = (message: string) => warnings.push(message);
+  try {
+    await itkImageToNgffImage(image, { addAnatomicalOrientation: oriented });
+  } finally {
+    console.warn = warn;
+  }
+  return warnings;
+}
+
+const FLIPPED = [0, 0, -1, 1, 0, 0, 0, -1, 0];
+const OBLIQUE = [
+  Math.cos(0.35),
+  -Math.sin(0.35),
+  0,
+  Math.sin(0.35),
+  Math.cos(0.35),
+  0,
+  0,
+  0,
+  1,
+];
+
+test("an oblique direction warns that it is placed axis-aligned", async () => {
+  // Snapped to the nearest axis-aligned grid, an oblique pair's rigid result
+  // converted to RFC-5 landed 19 voxels off without a word.
+  const warnings = await warningsOf(OBLIQUE, true);
+  assertEquals(warnings.length, 1);
+  assertEquals(warnings[0].includes("oblique"), true);
+});
+
+test("an integer shear is not an orientation", async () => {
+  const warnings = await warningsOf([1, 1, 0, 0, 1, 0, 0, 0, 1], true);
+  assertEquals(warnings.length, 1);
+  assertEquals(warnings[0].includes("oblique"), true);
+});
+
+test("a reversed time axis warns", async () => {
+  const image = mockItkImage([6, 5, 4, 3], "float32");
+  image.direction = new Float64Array([
+    1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1,
+  ]);
+  const warnings: string[] = [];
+  const warn = console.warn;
+  console.warn = (message: string) => warnings.push(message);
+  try {
+    await itkImageToNgffImage(image);
+  } finally {
+    console.warn = warn;
+  }
+  assertEquals(warnings.length, 1);
+  assertEquals(warnings[0].includes("time"), true);
+});
+
+test("a direction dropped without orientation warns", async () => {
+  const warnings = await warningsOf(FLIPPED, false);
+  assertEquals(warnings.length, 1);
+  assertEquals(warnings[0].includes("addAnatomicalOrientation is false"), true);
+});
+
+test("a direction the image carries does not warn", async () => {
+  const identity = Array.from(identityMatrix(3));
+  assertEquals(await warningsOf(identity, true), []);
+  assertEquals(await warningsOf(identity, false), []);
+  assertEquals(await warningsOf(FLIPPED, true), []);
 });

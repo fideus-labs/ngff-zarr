@@ -121,7 +121,7 @@ Each project type includes specific artifacts:
 
 ## Publishing to Package Registries
 
-The workflow includes **commented-out** sections for publishing to package registries (PyPI, NPM, JSR). These are disabled by default for safety.
+The workflow includes **commented-out** sections for publishing to package registries (PyPI, NPM). These are disabled by default for safety.
 
 ### Enabling Publishing
 
@@ -156,12 +156,6 @@ The workflow includes **commented-out** sections for publishing to package regis
    ```yaml
    - name: Publish to NPM
    ```
-
-#### For TypeScript Package (JSR - Optional)
-
-1. **Create a Deno Deploy token** (if using JSR)
-2. **Add `DENO_DEPLOY_TOKEN` to GitHub Secrets**
-3. **Uncomment the JSR publishing step**
 
 ### Testing Publishing
 

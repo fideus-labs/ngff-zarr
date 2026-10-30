@@ -4,19 +4,19 @@
  * Simple test for ITK-Wasm Image to NgffImage conversion
  */
 
-import { assertEquals } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals } from "./_assert.ts";
 
-Deno.test("Basic test", () => {
+test("Basic test", () => {
   assertEquals(1, 1);
 });
 
 // This test would require actual itk-wasm package to work properly
 // For now, let's run the basic TypeScript compilation and structure tests
 
-Deno.test("RFC-4 types compile", async () => {
-  const { LPS, RAS, itkLpsToAnatomicalOrientation } = await import(
-    "../src/types/rfc4.ts"
-  );
+test("RFC-4 types compile", async () => {
+  const { LPS, RAS, itkLpsToAnatomicalOrientation } =
+    await import("../src/types/rfc4.ts");
 
   assertEquals(LPS.x.value, "right-to-left");
   assertEquals(LPS.y.value, "anterior-to-posterior");

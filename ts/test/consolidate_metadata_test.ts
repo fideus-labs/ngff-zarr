@@ -7,8 +7,10 @@
  * consolidation, such as Icechunk, so `toOmeZarr` must be able to skip it.
  * Mirrors `py/test/test_consolidate_metadata.py`.
  */
-import { assert, assertEquals, assertFalse } from "@std/assert";
-import { join } from "@std/path";
+import { test } from "vite-plus/test";
+import { mkdir, readTextFile, remove } from "./_fs.ts";
+import { assert, assertEquals, assertFalse } from "./_assert.ts";
+import { join } from "node:path";
 import * as zarr from "zarrita";
 
 import { ZipFileStore } from "@zarrita/storage";
@@ -35,9 +37,9 @@ import { NgffImage } from "../src/types/ngff_image.ts";
 import type { NgffMultiscales } from "../src/types/multiscales.ts";
 
 const SHAPE = [8, 8];
-const OUTPUT_DIR = join(Deno.cwd(), "test", "output");
+const OUTPUT_DIR = join(process.cwd(), "test", "output");
 
-await Deno.mkdir(OUTPUT_DIR, { recursive: true });
+await mkdir(OUTPUT_DIR, { recursive: true });
 
 /** A two-level pyramid whose dataset paths are `scale0` and `scale1`. */
 async function fixture(
@@ -71,7 +73,7 @@ async function fixture(
     createAxis("x", "space", "micrometer"),
   ];
   const datasets = images.map((_, level) =>
-    createDataset(`scale${level}`, [1 << level, 1 << level], [0, 0])
+    createDataset(`scale${level}`, [1 << level, 1 << level], [0, 0]),
   );
   const metadata = createMetadata(
     axes,
@@ -92,7 +94,7 @@ function consolidatedBlock(
   return root.consolidated_metadata;
 }
 
-Deno.test("toOmeZarr consolidates metadata by default", async () => {
+test("toOmeZarr consolidates metadata by default", async () => {
   const multiscales = await fixture();
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.5" });
@@ -119,7 +121,7 @@ Deno.test("toOmeZarr consolidates metadata by default", async () => {
   }
 });
 
-Deno.test("toOmeZarr skips consolidation on request", async () => {
+test("toOmeZarr skips consolidation on request", async () => {
   const multiscales = await fixture();
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, {
@@ -130,7 +132,7 @@ Deno.test("toOmeZarr skips consolidation on request", async () => {
   assertEquals(consolidatedBlock(store), undefined);
 });
 
-Deno.test("skipping consolidation leaves the arrays untouched", async () => {
+test("skipping consolidation leaves the arrays untouched", async () => {
   const multiscales = await fixture();
   const consolidated: MemoryStore = new Map();
   const plain: MemoryStore = new Map();
@@ -152,7 +154,7 @@ Deno.test("skipping consolidation leaves the arrays untouched", async () => {
   }
 });
 
-Deno.test("an unconsolidated store still reads back", async () => {
+test("an unconsolidated store still reads back", async () => {
   const multiscales = await fixture();
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, {
@@ -165,7 +167,7 @@ Deno.test("an unconsolidated store still reads back", async () => {
   assertEquals(read.images[0].data.shape, SHAPE);
 });
 
-Deno.test("fromOmeZarr resolves the arrays from the consolidated block", async () => {
+test("fromOmeZarr resolves the arrays from the consolidated block", async () => {
   const multiscales = await fixture();
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.5" });
@@ -178,7 +180,10 @@ Deno.test("fromOmeZarr resolves the arrays from the consolidated block", async (
   const read = await fromOmeZarr(store);
   assertEquals(read.images.length, 2);
   assertEquals(read.images[0].data.shape, SHAPE);
-  assertEquals(read.images[1].data.shape, SHAPE.map((size) => size >> 1));
+  assertEquals(
+    read.images[1].data.shape,
+    SHAPE.map((size) => size >> 1),
+  );
 });
 
 // A Zarr v3 write replaces the root document wholesale, so re-writing a
@@ -186,7 +191,7 @@ Deno.test("fromOmeZarr resolves the arrays from the consolidated block", async (
 // it stale. This is the invariant Python's zarr v2 guard exists to protect and
 // that its v3 path relies on; the TypeScript writer is v3-only, so it holds
 // unconditionally here.
-Deno.test("re-writing without consolidation self-cleans", async () => {
+test("re-writing without consolidation self-cleans", async () => {
   const multiscales = await fixture();
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.5" });
@@ -199,7 +204,7 @@ Deno.test("re-writing without consolidation self-cleans", async () => {
   assertEquals(consolidatedBlock(store), undefined);
 });
 
-Deno.test("in-place upgradeOmeZarr refreshes consolidated metadata", async () => {
+test("in-place upgradeOmeZarr refreshes consolidated metadata", async () => {
   const multiscales = await fixture("0.5");
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.5" });
@@ -207,10 +212,7 @@ Deno.test("in-place upgradeOmeZarr refreshes consolidated metadata", async () =>
   await upgradeOmeZarr(store, { version: "0.6" });
 
   const block = consolidatedBlock(store);
-  assert(
-    block !== undefined,
-    "the re-tag silently de-consolidated the store",
-  );
+  assert(block !== undefined, "the re-tag silently de-consolidated the store");
   assertEquals(Object.keys(block.metadata as object).sort(), [
     "scale0",
     "scale1",
@@ -222,7 +224,7 @@ Deno.test("in-place upgradeOmeZarr refreshes consolidated metadata", async () =>
 // for what a reader finds, so a refresh that listed only the dataset paths
 // would hide such a node even though its document is untouched. Python
 // re-globs the whole store and so never loses it.
-Deno.test("in-place upgradeOmeZarr keeps a non-dataset child node", async () => {
+test("in-place upgradeOmeZarr keeps a non-dataset child node", async () => {
   const multiscales = await fixture("0.5");
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, { version: "0.5" });
@@ -249,7 +251,7 @@ Deno.test("in-place upgradeOmeZarr keeps a non-dataset child node", async () => 
   });
 });
 
-Deno.test("in-place upgradeOmeZarr leaves an unconsolidated store alone", async () => {
+test("in-place upgradeOmeZarr leaves an unconsolidated store alone", async () => {
   const multiscales = await fixture("0.5");
   const store: MemoryStore = new Map();
   await toOmeZarr(store, multiscales, {
@@ -270,7 +272,7 @@ async function ozxRoot(zipData: Uint8Array): Promise<Record<string, unknown>> {
   return JSON.parse(new TextDecoder().decode(raw));
 }
 
-Deno.test(".ozx consolidates by default and can skip", async () => {
+test(".ozx consolidates by default and can skip", async () => {
   const multiscales = await fixture("0.5");
 
   const consolidatedZip = await toOmeZarrOzxData(multiscales);
@@ -299,31 +301,31 @@ Deno.test(".ozx consolidates by default and can skip", async () => {
   assert(readOzxJsonFirst(plainZip), "root zarr.json is not first");
 });
 
-Deno.test("toOmeZarr consolidates a filesystem store", async () => {
+test("toOmeZarr consolidates a filesystem store", async () => {
   const multiscales = await fixture("0.5");
   const path = join(OUTPUT_DIR, "consolidated.ome.zarr");
-  await Deno.remove(path, { recursive: true }).catch(() => {});
+  await remove(path, { recursive: true }).catch(() => {});
   await toOmeZarr(path, multiscales, { version: "0.5" });
 
-  const root = JSON.parse(await Deno.readTextFile(join(path, "zarr.json")));
-  assertEquals(
-    Object.keys(root.consolidated_metadata.metadata).sort(),
-    ["scale0", "scale1"],
-  );
+  const root = JSON.parse(await readTextFile(join(path, "zarr.json")));
+  assertEquals(Object.keys(root.consolidated_metadata.metadata).sort(), [
+    "scale0",
+    "scale1",
+  ]);
 
   const plainPath = join(OUTPUT_DIR, "unconsolidated.ome.zarr");
-  await Deno.remove(plainPath, { recursive: true }).catch(() => {});
+  await remove(plainPath, { recursive: true }).catch(() => {});
   await toOmeZarr(plainPath, multiscales, {
     version: "0.5",
     consolidateMetadata: false,
   });
   const plainRoot = JSON.parse(
-    await Deno.readTextFile(join(plainPath, "zarr.json")),
+    await readTextFile(join(plainPath, "zarr.json")),
   );
   assertFalse("consolidated_metadata" in plainRoot);
 });
 
-Deno.test("datasetNodePaths walks each dataset path's ancestors", () => {
+test("datasetNodePaths walks each dataset path's ancestors", () => {
   // A flat pyramid is its own node list.
   assertEquals(datasetNodePaths(["scale0", "scale1"]), ["scale0", "scale1"]);
 
@@ -350,7 +352,7 @@ Deno.test("datasetNodePaths walks each dataset path's ancestors", () => {
 // and consolidation does not invent an entry pointing at nothing. (A Zarr v3
 // hierarchy is supposed to carry that group document; the writer not making
 // one is a separate, pre-existing gap.)
-Deno.test("consolidation skips an ancestor the writer never materialized", async () => {
+test("consolidation skips an ancestor the writer never materialized", async () => {
   const seed: MemoryStore = new Map();
   const array = await zarr.create(zarr.root(seed).resolve("seed"), {
     shape: SHAPE,

@@ -20,7 +20,7 @@ specification:
 ngff-zarr/
 ├── py/          # Python package (ngff-zarr)
 ├── mcp/         # Model Context Protocol server (ngff-zarr-mcp)
-├── ts/          # TypeScript/Deno package (@fideus-labs/ngff-zarr)
+├── ts/          # TypeScript package (@fideus-labs/ngff-zarr)
 └── docs/        # Documentation
 ```
 
@@ -194,18 +194,24 @@ pixi run lint                   # Run linting
 
 ```bash
 cd ts
-pixi run test                   # Deno test suite
-pixi run lint                   # Deno lint
-pixi run fmt                    # Deno format
-pixi run check                  # Type checking
-pixi run build                  # Full build
-pixi run test-browser           # Browser tests
+pixi run install                # npm ci (once, and after lockfile changes)
+pixi run test                   # Vitest suite
+pixi run lint                   # Oxlint
+pixi run fmt                    # Oxfmt
+pixi run check                  # Format + lint + type check
+pixi run build                  # Emit dist/
+pixi run test-node              # Node tests against the built package
+pixi run test-browser           # Playwright browser tests
 ```
+
+The pixi tasks alias the npm scripts in `ts/package.json`, which run
+[Vite+](https://viteplus.dev) (`vp`); `npm run <script>` works equally well.
 
 ## 🧪 Testing
 
 - 🐍 **Python**: pytest, with fixtures in `py/test/conftest.py`
-- 🟦 **TypeScript**: Deno's built-in test runner
+- 🟦 **TypeScript**: Vitest (`vp test`), plus `node --test` against the built
+  package and Playwright in real browsers
 - 🔌 **MCP**: pytest with async patterns
 
 Run the tests before submitting a pull request to ensure nothing is broken. ✅
@@ -225,10 +231,12 @@ Ruff, via the prek hooks, enforces the style automatically. Run
 
 ### 🟦 TypeScript
 
-- 🎨 **Style**: Deno standard (80 char width, 2 space indent, semicolons)
-- 🔤 **Types**: Strict TypeScript compiler options
-- 📦 **Imports**: JSR imports (`@std/assert`) and the `npm:` prefix for npm
-  packages
+- 🎨 **Style**: Oxfmt (80 char width, 2 space indent, semicolons, double
+  quotes); `pixi run fmt` applies it
+- 🔤 **Types**: Strict TypeScript compiler options, with `erasableSyntaxOnly`
+  so Node can run the `.ts` sources directly
+- 📦 **Imports**: relative imports keep their `.ts` extension; bare package
+  names for dependencies; `node:` prefix for Node built-ins
 
 ## 📖 Build the documentation
 

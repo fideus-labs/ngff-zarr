@@ -12,6 +12,7 @@ import dask.array as da
 import numpy as np
 import pytest
 from ngff_zarr import (
+    Methods,
     NgffImage,
     ngff_transform_to_itk_transform,
     resample,
@@ -300,3 +301,33 @@ def test_a_grid_reaching_past_the_field_keeps_the_points_it_displaces_nothing():
     # The half beyond the field is the half at stake, so it has to carry
     # something for this to be a test.
     assert float(np.abs(result[32:, 32:]).max()) > 0.0
+
+
+@pytest.mark.parametrize("method", [None, Methods.DASK_IMAGE_GAUSSIAN])
+def test_a_coarser_field_level_is_still_a_field(method):
+    """Every level of a field's pyramid keeps the component type and units.
+
+    A coarse level is the compact form a registration stores; it has to resample
+    on its own, not only through the multiscales it came from.
+    """
+    values = (np.random.default_rng(5).random((2, 64, 64)) * 6.0 - 3.0).astype(
+        np.float32
+    )
+    field = _field(values, ("y", "x"), chunks=(2, 64, 64))
+    field.axes_units = {"y": "micrometer", "x": "micrometer"}
+    pyramid = to_multiscales(field, scale_factors=[2, 4], method=method)
+
+    for level in pyramid.images[1:]:
+        assert level.axes_types == {"c": "displacement"}
+        assert level.axes_units == {"y": "micrometer", "x": "micrometer"}
+
+    coarse = pyramid.images[1]
+    moving = _grid("yx", (96, 96), chunks=(32, 32), seed=0)
+    fixed = _grid("yx", (64, 64), chunks=(32, 32))
+    transform = Displacements(path="warp")
+    result = resample(transform, fixed, moving, fields={"warp": coarse})
+
+    expected = _whole_image_reference(
+        _as_itk(transform, coarse, ("y", "x")), fixed, moving
+    )
+    np.testing.assert_array_equal(np.asarray(result.data), expected)

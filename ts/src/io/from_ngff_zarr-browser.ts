@@ -67,7 +67,7 @@ export type MemoryStore = Map<string, Uint8Array>;
  * Browser-compatible version of fromOmeZarr.
  * Supports HTTP/HTTPS URLs, MemoryStore (Map), FetchStore, and any
  * zarrita-compatible Readable store (e.g. TiffStore from @fideus-labs/fiff).
- * Does NOT support local file paths (use the full version in Node.js/Deno).
+ * Does NOT support local file paths (use the full version in Node.js).
  */
 export function fromOmeZarr(
   store: string | MemoryStore | zarr.FetchStore | zarr.Readable,
@@ -193,7 +193,8 @@ export async function fromOmeZarr(
     // v0.4/v0.5 parser below, which expects a flat `axes` entry and cannot read
     // what this package's own 0.9 writer produced.
     if (
-      omeForVersion && onDiskVersion !== undefined &&
+      omeForVersion &&
+      onDiskVersion !== undefined &&
       (isV06Version(onDiskVersion) || onDiskVersion === NgffVersion.V09dev1)
     ) {
       // Gate the requested-version mismatch behind `validate`, matching the node
@@ -201,7 +202,8 @@ export async function fromOmeZarr(
       // version and environment. The v0.6 family (`0.6` plus the historical
       // pre-release tags `0.6.dev4` and `0.6rc0` that earlier releases wrote)
       // is treated as equivalent.
-      const versionsMatch = version === undefined ||
+      const versionsMatch =
+        version === undefined ||
         version === onDiskVersion ||
         (isV06Version(onDiskVersion) && isV06Version(version));
       if (validate && !versionsMatch) {
@@ -224,9 +226,8 @@ export async function fromOmeZarr(
         string,
         unknown
       >;
-      const { method, methodType, methodMetadata } = extractMethodMetadata(
-        entry,
-      );
+      const { method, methodType, methodMetadata } =
+        extractMethodMetadata(entry);
       if (methodType) {
         result.metadata.type = methodType;
       }
@@ -243,9 +244,10 @@ export async function fromOmeZarr(
     }
 
     // v0.4 and v0.5 go through the same parsers as the Node reader.
-    const multiscalesSource = (
-      omeForVersion ?? rootAttrsForVersion
-    ) as Record<string, unknown>;
+    const multiscalesSource = (omeForVersion ?? rootAttrsForVersion) as Record<
+      string,
+      unknown
+    >;
     if (!multiscalesSource.multiscales) {
       throw new Error("No multiscales metadata found in Zarr store");
     }
@@ -255,9 +257,10 @@ export async function fromOmeZarr(
         `Expected OME-Zarr version ${version}, but found ${detectedVersion}`,
       );
     }
-    const { metadata, images } = detectedVersion === NgffVersion.V05
-      ? await fromZarrAttrsV05(rootAttrsForVersion, resolvedStore, validate)
-      : await fromZarrAttrsV04(rootAttrsForVersion, resolvedStore, validate);
+    const { metadata, images } =
+      detectedVersion === NgffVersion.V05
+        ? await fromZarrAttrsV05(rootAttrsForVersion, resolvedStore, validate)
+        : await fromZarrAttrsV04(rootAttrsForVersion, resolvedStore, validate);
 
     const { method, methodType, methodMetadata } = extractMethodMetadata(
       (multiscalesSource.multiscales as unknown[])[0] as Record<

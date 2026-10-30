@@ -20,8 +20,18 @@ import type {
   SetWorkerOptions,
 } from "@fideus-labs/fizarrita";
 import { getWorker, setWorker } from "@fideus-labs/fizarrita";
-import type { WorkerLike, WorkerPoolTask } from "@fideus-labs/worker-pool";
-import { WorkerPool } from "@fideus-labs/worker-pool";
+import type {
+  WorkerLike,
+  WorkerPoolProgressCallback,
+  WorkerPoolRunTasksOptions,
+  WorkerPoolRunTasksResult,
+  WorkerPoolTask,
+} from "@fideus-labs/worker-pool";
+import {
+  isNodeRuntime,
+  NodeWorker,
+  WorkerPool,
+} from "@fideus-labs/worker-pool";
 import type {
   Array as ZarrArray,
   Chunk,
@@ -36,6 +46,7 @@ import { registry } from "zarrita";
 
 import { installBloscShuffleNormalization } from "./blosc_registry.ts";
 import type { CodecRegistry } from "./blosc_registry.ts";
+import { runtimeSpecifier } from "./runtime_specifier.ts";
 import { config } from "../config.ts";
 
 // Chunk encoding normally happens in a codec worker (which installs this
@@ -45,40 +56,96 @@ installBloscShuffleNormalization(registry as unknown as CodecRegistry);
 
 export type { ChunkCache } from "@fideus-labs/fizarrita";
 
-// fizarrita uses npm:zarrita while this project uses jsr:@zarrita/zarrita.
-// The types are structurally identical but TypeScript sees them as
-// incompatible due to differing #private class fields. We bridge with
-// explicit `as any` casts when calling into fizarrita.
-// deno-lint-ignore no-explicit-any
+// fizarrita's `getWorker`/`setWorker` re-derive their option types from the
+// array's store parameter, which under `exactOptionalPropertyTypes` does not
+// line up with the options built here. Casts at that boundary keep the call
+// sites simple.
 type AnyZarrArray = any;
 
 /** Whether SharedArrayBuffer is available in this environment. */
 const USE_SHARED_ARRAY_BUFFER = typeof SharedArrayBuffer !== "undefined";
 
 /**
- * Codec worker script backing the codec pool.
+ * Spawn this package's codec worker for the current runtime.
  *
- * This project's own worker rather than fizarrita's bundled one: it
- * speaks the same protocol but additionally normalizes Zarr v3 string
- * blosc shuffle modes — see {@link ./blosc_registry.ts}. Kept as a
- * single `new URL(..., import.meta.url)` expression so bundlers can
- * trace it, and so `scripts/inline_worker.ts` can swap in a blob URL for
- * the self-contained browser bundle.
+ * This project's own worker rather than fizarrita's bundled one: it speaks
+ * the same protocol but additionally normalizes Zarr v3 string blosc shuffle
+ * modes — see {@link ./blosc_registry.ts}. The codec pool here and the OMERO
+ * pool in `compute_omero.ts` both spawn through this function, so the package
+ * has one `new Worker(new URL(..., import.meta.url), { type: "module" })`
+ * expression: the form bundlers recognise as a worker entry point. The Node
+ * branch keeps its path behind {@link runtimeSpecifier} for the opposite
+ * reason — bundlers targeting the browser then leave it alone. This mirrors
+ * fizarrita's `createDefaultWorker`.
  */
-const CODEC_WORKER_URL = new URL(
-  "../workers/omero_codec_worker.ts",
-  import.meta.url,
-);
+export function createCodecWorker(): WorkerLike {
+  if (typeof Worker !== "undefined") {
+    return new Worker(
+      new URL("../workers/omero_codec_worker.ts", import.meta.url),
+      { type: "module" },
+    );
+  }
+  if (isNodeRuntime()) {
+    const nodeEntry = runtimeSpecifier("../workers/omero_codec_worker.ts");
+    return new NodeWorker(new URL(nodeEntry, import.meta.url));
+  }
+  throw new Error(
+    "No Worker implementation available: this runtime has no global `Worker` " +
+      "and is not Node.",
+  );
+}
+
+/**
+ * Run `task` on `slot`, or on a fresh codec worker when the slot is empty.
+ *
+ * The pool learns of a worker only through the resolved `{ worker }`, so a
+ * fresh one whose task rejects would otherwise leak — in Node, a thread that
+ * keeps the process alive. A lent worker is the pool's to terminate.
+ */
+export async function withCodecWorker<T>(
+  slot: WorkerLike | null,
+  task: (worker: WorkerLike) => Promise<{ worker: WorkerLike; result: T }>,
+): Promise<{ worker: WorkerLike; result: T }> {
+  const worker = slot ?? createCodecWorker();
+  try {
+    return await task(worker);
+  } catch (error) {
+    if (slot === null) worker.terminate();
+    throw error;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Codec pool — used by getWorker/setWorker for codec operations
 // ---------------------------------------------------------------------------
 
+/**
+ * A pool whose tasks never see an empty slot.
+ *
+ * fizarrita fills an empty slot itself, from its `workerUrl` option, inside
+ * its own module — a spawn no consumer's bundler can trace. Filling the slot
+ * here keeps {@link createCodecWorker} the only spawn site. A caller-supplied
+ * `pool` in `opts` bypasses this and gets fizarrita's stock worker.
+ */
+class CodecWorkerPool extends WorkerPool {
+  override runTasks<T>(
+    taskFns: Array<WorkerPoolTask<T>>,
+    progressCallback?: WorkerPoolProgressCallback | null,
+    options?: WorkerPoolRunTasksOptions,
+  ): WorkerPoolRunTasksResult<T> {
+    return super.runTasks(
+      taskFns.map((task) => (slot) => withCodecWorker(slot, task)),
+      progressCallback,
+      options,
+    );
+  }
+}
+
 let _codecPool: WorkerPool | null = null;
 
 function getCodecPool(): WorkerPool {
   if (!_codecPool) {
-    _codecPool = new WorkerPool(config.workerPoolSize);
+    _codecPool = new CodecWorkerPool(config.workerPoolSize);
   }
   return _codecPool;
 }
@@ -104,12 +171,15 @@ function getWritePool(): WorkerPool {
  * Whether `err` is one of zarrita's structured errors carrying one of `tags`.
  *
  * Matched on `_tag` rather than with `zarr.isZarritaError`, whose
- * `instanceof` test fails across module copies: fizarrita raises its errors
- * from npm:zarrita, while under Deno this package imports jsr:@zarrita/zarrita.
+ * `instanceof` test fails across module copies: when a consumer's dependency
+ * tree resolves fizarrita and this package to different zarrita copies, the
+ * errors fizarrita raises come from the other one.
  */
 function isZarritaErrorTagged(err: unknown, ...tags: string[]): boolean {
-  return err instanceof Error &&
-    tags.includes((err as { _tag?: unknown })._tag as string);
+  return (
+    err instanceof Error &&
+    tags.includes((err as { _tag?: unknown })._tag as string)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -120,9 +190,11 @@ function isZarritaErrorTagged(err: unknown, ...tags: string[]): boolean {
 type GetResult<
   D extends DataType,
   Sel extends (null | Slice | number)[],
-> = null extends Sel[number] ? Chunk<D>
-  : Slice extends Sel[number] ? Chunk<D>
-  : Scalar<D>;
+> = null extends Sel[number]
+  ? Chunk<D>
+  : Slice extends Sel[number]
+    ? Chunk<D>
+    : Scalar<D>;
 
 /**
  * Worker-accelerated zarr array read.
@@ -147,12 +219,9 @@ export async function zarrGet<
   try {
     const mergedOpts: GetWorkerOptions<unknown> = {
       pool: getCodecPool(),
-      workerUrl: CODEC_WORKER_URL,
       useSharedArrayBuffer: USE_SHARED_ARRAY_BUFFER,
       ...opts,
     };
-    // Cast through AnyZarrArray to bridge jsr:zarrita ↔ npm:zarrita types;
-    // the store options are typed from the (npm) store, so they cross too.
     const result = await getWorker(
       arr as AnyZarrArray,
       selection ?? null,
@@ -193,11 +262,9 @@ export async function zarrSet<D extends DataType>(
   try {
     const mergedOpts: SetWorkerOptions = {
       pool: getCodecPool(),
-      workerUrl: CODEC_WORKER_URL,
       useSharedArrayBuffer: USE_SHARED_ARRAY_BUFFER,
       ...opts,
     };
-    // Cast through AnyZarrArray to bridge jsr:zarrita ↔ npm:zarrita types
     await setWorker(
       arr as AnyZarrArray,
       selection,

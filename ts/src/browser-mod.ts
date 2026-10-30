@@ -4,7 +4,7 @@
 // This module includes browser versions of fromNgffZarr and toNgffZarr.
 //
 // The browser versions support MemoryStore (Map) and HTTP/HTTPS URLs (read-only),
-// but not local file paths (which require Node.js/Deno filesystem APIs).
+// but not local file paths (which require Node.js filesystem APIs).
 
 export { config, setWorkerPoolSize } from "./config.ts";
 // Browser-compatible I/O modules
@@ -70,7 +70,7 @@ export {
 } from "./io/to_ngff_zarr-browser.ts";
 // upgradeOmeZarr: spec-version upgrade (in-place metadata rewrite or
 // write-to-new-store). In the browser only MemoryStore inputs/outputs are
-// supported; in-place upgrade of a local *path* store is Node/Deno-only.
+// supported; in-place upgrade of a local *path* store is Node-only.
 export {
   type UpgradeInput,
   upgradeOmeZarr,

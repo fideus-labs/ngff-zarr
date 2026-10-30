@@ -52,17 +52,16 @@ export async function createNgffImage(
   // An ArrayBuffer holds the pixels' bytes; a number[] holds their values.
   const TypedArray = getTypedArrayConstructor(
     dtype as zarr.DataType,
-  ) as unknown as new (data: ArrayBuffer | number[]) => zarr.TypedArray<
-    zarr.DataType
-  >;
+  ) as unknown as new (
+    data: ArrayBuffer | number[],
+  ) => zarr.TypedArray<zarr.DataType>;
   const stride = shape.map((_, i) =>
-    shape.slice(i + 1).reduce((size, extent) => size * extent, 1)
+    shape.slice(i + 1).reduce((size, extent) => size * extent, 1),
   );
   const count = shape.reduce((size, extent) => size * extent, 1);
   // int64 and uint64 hold bigints, which a typed array does not convert from.
-  const values = Array.isArray(data) && dtype.endsWith("int64")
-    ? data.map(BigInt)
-    : data;
+  const values =
+    Array.isArray(data) && dtype.endsWith("int64") ? data.map(BigInt) : data;
   const pixels = new TypedArray(values as ArrayBuffer | number[]);
   // Empty data leaves the fill value, for pixels set afterwards.
   if (pixels.length !== 0) {
