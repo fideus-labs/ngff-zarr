@@ -14,6 +14,7 @@ preservation, and input hardening (unsupported versions, aliasing, HCS roots).
 """
 
 import hashlib
+import json
 from pathlib import Path
 
 import numpy as np
@@ -547,3 +548,49 @@ def test_bioformats2raw_container_root_raises_guidance(tmp_path):
     group.attrs["bioformats2raw.layout"] = 3
     with pytest.raises(ValueError, match="bioformats2raw"):
         upgrade_ome_zarr(container_path, version="0.5")
+
+
+def test_in_place_cross_format_refuses_other_v2_nodes(tmp_path):
+    """A v0.4 store with labels upgrades to a new store, never in place: the
+    in-place rewrite only converts the image, and must not drop the labels'
+    Zarr v2 metadata."""
+    store_path = tmp_path / "labeled.ome.zarr"
+    _write_source(str(store_path), "0.4")
+    labels = zarr.open_group(str(store_path / "labels"), mode="w", zarr_format=2)
+    labels.attrs["labels"] = ["cells"]
+    cells = zarr.open_group(str(store_path / "labels" / "cells"), zarr_format=2)
+    cells.create_array(name="0", shape=(4, 32, 32), dtype="uint8")[:] = 1
+    before = _all_files_digest(store_path)
+
+    with pytest.raises(ValueError, match="labels"):
+        upgrade_ome_zarr(str(store_path), version="0.5")
+    assert _all_files_digest(store_path) == before
+
+
+def test_in_place_cross_format_keeps_foreign_root_attrs(tmp_path):
+    store_path = str(tmp_path / "attrs.ome.zarr")
+    _write_source(store_path, "0.4")
+    zarr.open_group(store_path, mode="a", zarr_format=2).attrs["_creator"] = {
+        "name": "acquisition"
+    }
+
+    upgrade_ome_zarr(store_path, version="0.5")
+
+    root = zarr.open_group(store_path, mode="r", zarr_format=3)
+    assert root.attrs["_creator"] == {"name": "acquisition"}
+
+
+def test_in_place_cross_format_refuses_big_endian(tmp_path):
+    """Zarr v3 records byte order in the bytes codec; an in-place rewrite that
+    keeps the chunks cannot carry a big-endian v2 dtype, so it is refused."""
+    store_path = tmp_path / "big_endian.ome.zarr"
+    _write_source(str(store_path), "0.4")
+    zarray = next(store_path.rglob(".zarray"))
+    meta = json.loads(zarray.read_text())
+    meta["dtype"] = ">u2"
+    zarray.write_text(json.dumps(meta))
+    before = _all_files_digest(store_path)
+
+    with pytest.raises(ValueError, match="byte order"):
+        upgrade_ome_zarr(str(store_path), version="0.5")
+    assert _all_files_digest(store_path) == before

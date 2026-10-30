@@ -147,17 +147,14 @@ def test_write_store_to_zip_overwrites_existing_directory():
 
     to_ngff_zarr(str(zarr_path), multiscales, version="0.5")
 
-    # Simulate a stale directory (e.g. an unzipped store) sitting at the
-    # destination .ozx path.
-    if ozx_path.exists():
-        import shutil
+    # Simulate a stale unzipped store sitting at the destination .ozx path.
+    import shutil
 
-        if ozx_path.is_dir():
-            shutil.rmtree(ozx_path)
-        else:
-            ozx_path.unlink()
-    ozx_path.mkdir()
-    (ozx_path / "leftover.txt").write_text("stale")
+    if ozx_path.is_dir():
+        shutil.rmtree(ozx_path)
+    elif ozx_path.exists():
+        ozx_path.unlink()
+    shutil.copytree(zarr_path, ozx_path)
     assert ozx_path.is_dir()
 
     # Should not raise (previously raised PermissionError on Windows).

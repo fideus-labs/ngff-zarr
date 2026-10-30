@@ -441,6 +441,13 @@ def from_ome_zarr(
             "within the plate (e.g., 'plate.zarr/A/1/0' for well A1, field 0)."
         )
 
+    multiscales_attrs = root_attrs.get("ome", root_attrs).get("multiscales")
+    if multiscales_attrs and not multiscales_attrs[0].get("datasets"):
+        raise ValueError(
+            "The multiscales metadata names no scale levels; the store may come "
+            "from an interrupted write."
+        )
+
     if version == "0.9.dev1":
         from .v09.zarr_metadata import Metadata
 

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 import atexit
 import copy
+import functools
 import shutil
 import signal
 import threading
@@ -18,9 +19,10 @@ from numpy.typing import ArrayLike
 
 from ._zarrista_utils import (
     create_zarrista_array,
-    open_zarrista_lazy,
+    open_zarrista_array,
     resolve_store_path,
     write_dask_array,
+    zarrista_array_to_dask,
 )
 from .config import config
 from .memory_usage import memory_usage
@@ -159,6 +161,9 @@ class _CacheTarget:
 
     def create_array(self, component, shape, chunks, dtype):
         """Create the cache array at *component*, ready for region writes."""
+        # read_lazy removes the array once nothing reads it; a write that
+        # fails before then leaves it to this exit cleanup.
+        atexit.register(shutil.rmtree, self.path / component, True)
         # The cache is written and read back only through zarrista, so it
         # always uses zarr format 3.
         return create_zarrista_array(
@@ -176,8 +181,21 @@ class _CacheTarget:
         write_dask_array(arr_region, cache_array, region=region)
 
     def read_lazy(self, component):
-        """Open the cache array at *component* as a lazy dask array."""
-        return open_zarrista_lazy(self.path, component=component)
+        """Open the cache array at *component* as a lazy dask array.
+
+        The array is deleted once no dask graph reads it any more: deleting
+        it earlier makes every later read of the multiscales return zeros.
+        """
+        return zarrista_array_to_dask(
+            open_zarrista_array(self.path, component),
+            self.path,
+            component,
+            on_release=functools.partial(shutil.rmtree, self.path / component, True),
+        )
+
+
+def _exit_on_sigterm(signum, frame):
+    raise SystemExit(128 + signum)
 
 
 def _large_image_serialization(
@@ -193,21 +211,13 @@ def _large_image_serialization(
     base_path = f"{image.name}-cache-{time.time()}-{uuid.uuid4().hex}"
 
     cache = _CacheTarget.from_config()
-    base_path_removed = False
-
-    def remove_from_cache_store(sig_id, frame):
-        nonlocal base_path_removed
-        if not base_path_removed:
-            full_path = cache.path / base_path
-            if full_path.exists():
-                shutil.rmtree(full_path, ignore_errors=True)
-            base_path_removed = True
-
-    atexit.register(remove_from_cache_store, None, None)
-    if threading.current_thread() is threading.main_thread():
-        signal.signal(signal.SIGTERM, remove_from_cache_store)
-        signal.signal(signal.SIGINT, remove_from_cache_store)
-    image.computed_callbacks.append(lambda: remove_from_cache_store(None, None))
+    # Cache arrays are removed at exit, and Ctrl-C exits normally. A default
+    # SIGTERM would kill the process before that, so make it exit normally.
+    if (
+        threading.current_thread() is threading.main_thread()
+        and signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+    ):
+        signal.signal(signal.SIGTERM, _exit_on_sigterm)
 
     data = image.data
 
@@ -240,7 +250,7 @@ def _large_image_serialization(
             slab_slices = min(slab_slices, optimized_chunks)
         rechunks[z_index] = slab_slices
 
-        path = f"{base_path}/slabs"
+        path = f"{base_path}-slabs"
         slabs = data.rechunk(rechunks)
 
         # For spatial dimensions, clamp the Zarr chunk size to the axis length.
@@ -279,7 +289,7 @@ def _large_image_serialization(
         if optimized_chunks < data.shape[z_index] and slab_slices < optimized_chunks:
             rechunks[z_index] = optimized_chunks
             data = data.rechunk(rechunks)
-            path = f"{base_path}/optimized_chunks"
+            path = f"{base_path}-optimized_chunks"
 
             # Use the same optimal chunk calculation for consistency
             chunks = tuple(
@@ -367,7 +377,7 @@ def _cache_2d_strips(data, dims, rechunks, cache, base_path, progress):
     adjusted_rechunks = dict(rechunks)
     adjusted_rechunks[strip_dim_index] = strip_size
 
-    path = base_path + "/strips"
+    path = base_path + "-strips"
     slabs = data.rechunk(adjusted_rechunks)
 
     chunks = tuple(c[0] for c in slabs.chunks)
@@ -425,7 +435,7 @@ def _cache_1d_segments(data, dims, rechunks, cache, base_path, progress):
     adjusted_rechunks = dict(rechunks)
     adjusted_rechunks[x_index] = segment_size
 
-    path = base_path + "/segments"
+    path = base_path + "-segments"
     slabs = data.rechunk(adjusted_rechunks)
 
     chunks = tuple(c[0] for c in slabs.chunks)

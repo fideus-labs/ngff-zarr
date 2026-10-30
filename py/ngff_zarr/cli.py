@@ -677,7 +677,7 @@ def _convert_main(argv: list[str] | None = None) -> None:
     )
     processing_group.add_argument(
         "--codec",
-        help="Compression codec: blosc:zstd, blosc:lz4, gzip, zstd, lz4, none. "
+        help="Compression codec: blosc:zstd, blosc:lz4, gzip, zstd, none. "
         "Default: zarr's built-in default.",
         default=None,
     )

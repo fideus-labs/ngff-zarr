@@ -12,6 +12,7 @@ These tests verify that:
 7. No dask PerformanceWarning from chunk-size mismatches during cache writes
 """
 
+import gc
 import sys
 import warnings
 
@@ -495,7 +496,7 @@ class TestCacheChunkAlignment:
             config.memory_target = old_mem
 
     def test_cache_directory_removed_after_write(self, tmp_path):
-        """The cache directory is cleaned up once the image is written."""
+        """The cache directory is cleaned up once nothing reads it any more."""
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
 
@@ -514,6 +515,10 @@ class TestCacheChunkAlignment:
             assert list(cache_dir.iterdir()), "expected a cache directory"
 
             to_ngff_zarr(tmp_path / "test.ome.zarr", multiscales)
+            # The caller may still write the multiscales again, so the cache
+            # outlives the write and goes with the last reference.
+            del multiscales
+            gc.collect()
             assert not list(cache_dir.iterdir()), (
                 f"cache not cleaned up: {[p.name for p in cache_dir.iterdir()]}"
             )
