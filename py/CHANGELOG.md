@@ -1,3 +1,39 @@
+## py-v0.51.0 (2026-10-30)
+
+### ♻️ Refactoring
+
+- **py**: build the v0.6 default dataset transform from its scale ([b020b7e](https://github.com/fideus-labs/ngff-zarr/commit/b020b7e5cb80eb6ebb213c7135b1125d8056a74b))
+- **py**: drop the unused lif_shape argument of the LIF channel move ([ea9783a](https://github.com/fideus-labs/ngff-zarr/commit/ea9783a4a69aacbbe1ca430877a51d7a2b785cbc))
+
+### ✨ Features
+
+- **py**: add the transform-points command and RFC-5 test stores ([9912575](https://github.com/fideus-labs/ngff-zarr/commit/9912575c51b2b5aaeddb7ab9d41d42c9c690c1aa))
+- **py**: resample RFC-5 sequences of linear and displacement field stages ([1f26b7f](https://github.com/fideus-labs/ngff-zarr/commit/1f26b7f06f7f6402edc932db186bebd9450c9954))
+
+### 🐛 Bug Fixes
+
+- **py**: map points of any input system, inside the scene, field by block ([fa22b80](https://github.com/fideus-labs/ngff-zarr/commit/fa22b80b10ff821f4fecb2da8903248d72c935ca))
+- **py**: run every itkwasm pipeline's first call under the lock ([cc42692](https://github.com/fideus-labs/ngff-zarr/commit/cc42692ef06c690619bdb914ae8eca8abd6f3752))
+- **py**: report a missing transformation or input as a usage error ([6f90a58](https://github.com/fideus-labs/ngff-zarr/commit/6f90a589d7ac7cb28676b2523c5a74d163986275))
+- **py**: compare spacings in one unit and orient the base level ([26707c9](https://github.com/fideus-labs/ngff-zarr/commit/26707c91f595f8e153e62cd9fbcbfd1253272622))
+- **py,ts**: warn when an ITK image's direction cannot be carried ([02bcda4](https://github.com/fideus-labs/ngff-zarr/commit/02bcda4c63ac28baa02ff4fcd411b12bf0d733d9))
+- **py**: serialize the first call of each ITK-Wasm pipeline function ([db05526](https://github.com/fideus-labs/ngff-zarr/commit/db0552646e59e7ab193bcc9c4400b08fefa8332a))
+- **py**: let an already coarse axis wait in automatic scale factors ([9573a03](https://github.com/fideus-labs/ngff-zarr/commit/9573a03b78f6cf5a9d7f54e16d39825b37bbba40))
+- **py**: carry per-image metadata onto every generated pyramid level ([a46d217](https://github.com/fideus-labs/ngff-zarr/commit/a46d2170b04a8098cd43aa896ea6f02a09fcbb30))
+- **py**: pass the document version into bijection and byDimension parsing ([d4e8f2e](https://github.com/fideus-labs/ngff-zarr/commit/d4e8f2e0b1917bf2ec7199bf2bbf9eb645e29194))
+- **py**: convert a t, z, y, x image from to_ngff_image to ITK ([c4bb193](https://github.com/fideus-labs/ngff-zarr/commit/c4bb1938f8a138fb617f1237ad3c1d4a5d9e9ae6))
+- **py**: keep NIfTI channels on the vector axis when exporting ([0516b3e](https://github.com/fideus-labs/ngff-zarr/commit/0516b3e660c1f4e30f0abfb4aed9cfc36ee98e61))
+- **py**: convert every spatial unit in the CLI TIFF export ([5f2eb94](https://github.com/fideus-labs/ngff-zarr/commit/5f2eb940a3ef9d798615b5d4da979e1a2076b7d2))
+- **py**: keep the time spacing and origin of a 4D ITK image ([5358a25](https://github.com/fideus-labs/ngff-zarr/commit/5358a2591e9ef5d34958cd6fdab758acf36cb6e8))
+- **py**: report malformed RFC-4 orientations in the conformance report ([1866735](https://github.com/fideus-labs/ngff-zarr/commit/1866735bf018f1c4ccfa413e9db31db104b77ae6))
+- **py**: read 0.4/0.5 multiscale-level transforms as transform objects ([52a30e3](https://github.com/fideus-labs/ngff-zarr/commit/52a30e310723f1d0bf14250bbc6369417c8b491f))
+- **py**: pass the OME-Zarr version to every transform check ([bcb4f1a](https://github.com/fideus-labs/ngff-zarr/commit/bcb4f1ae5570b531adc854f1ee1bb0361c7aa835))
+- **py**: read v0.6 axes from the intrinsic coordinate system ([65e8c08](https://github.com/fideus-labs/ngff-zarr/commit/65e8c08f0bc132cdc42009aac06dca784f138227))
+- **py**: put values on the right axes when converting to and from ITK ([a8b4032](https://github.com/fideus-labs/ngff-zarr/commit/a8b4032eea91876d10a8c7565b9cc06f21813ab4))
+- **py**: write CLI NIfTI and TIFF exports with the right geometry ([402215d](https://github.com/fideus-labs/ngff-zarr/commit/402215db9aba610a72bd8ba5212524ee24209694))
+- **py**: drop the dask-image region path that shifted large volumes ([4510a9b](https://github.com/fideus-labs/ngff-zarr/commit/4510a9b52bb93bc4a43041bbff708ac2238b0082))
+- **py**: keep LIF pixels in place when moving the channel axis ([c12c4b3](https://github.com/fideus-labs/ngff-zarr/commit/c12c4b3886bff03e7ec6dad7da259c0395736282))
+
 ## py-v0.50.0 (2026-10-23)
 
 ### BREAKING CHANGE
