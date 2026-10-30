@@ -5,7 +5,8 @@
  * Ported from py/test/test_rfc4_validation.py
  */
 
-import { assertEquals, assertThrows } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertThrows } from "./_assert.ts";
 import * as zarr from "zarrita";
 import {
   hasRfc4OrientationMetadata,
@@ -13,7 +14,7 @@ import {
 } from "../src/utils/rfc4_validation.ts";
 import { fromNgffZarr, type MemoryStore } from "../src/io/from_ngff_zarr.ts";
 
-Deno.test("hasRfc4OrientationMetadata - returns false for axes without orientation", () => {
+test("hasRfc4OrientationMetadata - returns false for axes without orientation", () => {
   const axesNoOrientation = [
     { name: "x", type: "space", unit: "micrometer" },
     { name: "y", type: "space", unit: "micrometer" },
@@ -22,7 +23,7 @@ Deno.test("hasRfc4OrientationMetadata - returns false for axes without orientati
   assertEquals(hasRfc4OrientationMetadata(axesNoOrientation), false);
 });
 
-Deno.test("hasRfc4OrientationMetadata - returns true when spatial axes have orientation", () => {
+test("hasRfc4OrientationMetadata - returns true when spatial axes have orientation", () => {
   const axesWithOrientation = [
     {
       name: "x",
@@ -46,7 +47,7 @@ Deno.test("hasRfc4OrientationMetadata - returns true when spatial axes have orie
   assertEquals(hasRfc4OrientationMetadata(axesWithOrientation), true);
 });
 
-Deno.test("hasRfc4OrientationMetadata - empty or null orientation does not count", () => {
+test("hasRfc4OrientationMetadata - empty or null orientation does not count", () => {
   // Mirrors the Python `if axis['orientation']:` guard: a spatial axis whose
   // orientation is present but falsy ({}, null, "") carries no real
   // orientation metadata and must not trigger RFC-4 validation.
@@ -77,7 +78,7 @@ Deno.test("hasRfc4OrientationMetadata - empty or null orientation does not count
   assertEquals(hasRfc4OrientationMetadata(populated), true);
 });
 
-Deno.test("validateRfc4Orientation - valid LPS orientation passes", () => {
+test("validateRfc4Orientation - valid LPS orientation passes", () => {
   const axesLps = [
     {
       name: "x",
@@ -103,7 +104,7 @@ Deno.test("validateRfc4Orientation - valid LPS orientation passes", () => {
   validateRfc4Orientation(axesLps);
 });
 
-Deno.test("validateRfc4Orientation - subject-local tissue values pass", () => {
+test("validateRfc4Orientation - subject-local tissue values pass", () => {
   // Layered/polarized-tissue values (ome/ngff#528) must be accepted.
   const axesSubjectLocal = [
     {
@@ -130,7 +131,7 @@ Deno.test("validateRfc4Orientation - subject-local tissue values pass", () => {
   validateRfc4Orientation(axesSubjectLocal);
 });
 
-Deno.test("validateRfc4Orientation - mixed axis types (time/channel) pass", () => {
+test("validateRfc4Orientation - mixed axis types (time/channel) pass", () => {
   const axesMixed = [
     { name: "t", type: "time", unit: "second" },
     { name: "c", type: "channel" },
@@ -158,7 +159,7 @@ Deno.test("validateRfc4Orientation - mixed axis types (time/channel) pass", () =
   validateRfc4Orientation(axesMixed);
 });
 
-Deno.test("validateRfc4Orientation - accepts partial orientation", () => {
+test("validateRfc4Orientation - accepts partial orientation", () => {
   // RFC 4 makes orientation optional per spatial axis: no all-or-none rule.
   const axesIncomplete = [
     {
@@ -184,7 +185,7 @@ Deno.test("validateRfc4Orientation - accepts partial orientation", () => {
   validateRfc4Orientation(axesIncomplete);
 });
 
-Deno.test("validateRfc4Orientation - rejects a non-object orientation", () => {
+test("validateRfc4Orientation - rejects a non-object orientation", () => {
   // Only an absent field, null and an empty object are undefined. Any other
   // non-null value is a malformed use of orientation and must fail: on a spatial
   // axis via the type check, on a non-spatial axis via the spatial-only rule.
@@ -212,7 +213,7 @@ Deno.test("validateRfc4Orientation - rejects a non-object orientation", () => {
   );
 });
 
-Deno.test("validateRfc4Orientation - throws on a non-anatomical type", () => {
+test("validateRfc4Orientation - throws on a non-anatomical type", () => {
   const axesInconsistent = [
     {
       name: "x",
@@ -241,7 +242,7 @@ Deno.test("validateRfc4Orientation - throws on a non-anatomical type", () => {
   );
 });
 
-Deno.test("validateRfc4Orientation - throws on invalid orientation value", () => {
+test("validateRfc4Orientation - throws on invalid orientation value", () => {
   const axesInvalid = [
     {
       name: "x",
@@ -296,7 +297,7 @@ async function createTestStore(
   return store;
 }
 
-Deno.test("fromNgffZarr with valid RFC-4 orientation - validation passes", async () => {
+test("fromNgffZarr with valid RFC-4 orientation - validation passes", async () => {
   // Spatial axes must be ordered (z, y, x) per the OME-Zarr v0.4 axis-order
   // rule; each axis keeps its own anatomical orientation.
   const multiscalesMetadata = {
@@ -325,9 +326,7 @@ Deno.test("fromNgffZarr with valid RFC-4 orientation - validation passes", async
     datasets: [
       {
         path: "0",
-        coordinateTransformations: [
-          { type: "scale", scale: [1.0, 1.0, 1.0] },
-        ],
+        coordinateTransformations: [{ type: "scale", scale: [1.0, 1.0, 1.0] }],
       },
     ],
   };
@@ -339,7 +338,7 @@ Deno.test("fromNgffZarr with valid RFC-4 orientation - validation passes", async
   assertEquals(multiscales !== undefined, true);
 });
 
-Deno.test("fromNgffZarr - an invalid orientation reads below the RFC-4 versions", async () => {
+test("fromNgffZarr - an invalid orientation reads below the RFC-4 versions", async () => {
   // RFC 4 orientation is normative from OME-Zarr 0.9.dev1 only
   // (fideus-labs/ngff-zarr#667); this store declares 0.4, so its
   // out-of-vocabulary orientation value is read back without complaint. The
@@ -375,9 +374,7 @@ Deno.test("fromNgffZarr - an invalid orientation reads below the RFC-4 versions"
     datasets: [
       {
         path: "0",
-        coordinateTransformations: [
-          { type: "scale", scale: [1.0, 1.0, 1.0] },
-        ],
+        coordinateTransformations: [{ type: "scale", scale: [1.0, 1.0, 1.0] }],
       },
     ],
   };
@@ -393,7 +390,7 @@ Deno.test("fromNgffZarr - an invalid orientation reads below the RFC-4 versions"
   assertEquals(multiscales !== undefined, true);
 });
 
-Deno.test("fromNgffZarr without validation - loads invalid data", async () => {
+test("fromNgffZarr without validation - loads invalid data", async () => {
   const multiscalesMetadata = {
     version: "0.4",
     name: "test",
@@ -420,9 +417,7 @@ Deno.test("fromNgffZarr without validation - loads invalid data", async () => {
     datasets: [
       {
         path: "0",
-        coordinateTransformations: [
-          { type: "scale", scale: [1.0, 1.0, 1.0] },
-        ],
+        coordinateTransformations: [{ type: "scale", scale: [1.0, 1.0, 1.0] }],
       },
     ],
   };

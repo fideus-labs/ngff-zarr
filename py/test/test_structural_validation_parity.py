@@ -6,7 +6,7 @@ This test pins the *cross-language contract* shared by the Python and
 TypeScript ports: the exact set and ordering of :class:`SpecRule` identifiers,
 their lower-kebab-case format, the fail-fast evaluation order of the
 image/multiscales orchestrator (:func:`validate_structural`), and the
-:class:`ValidationLevel` values and default. The mirror Deno test asserts the
+:class:`ValidationLevel` values and default. The mirror TypeScript test asserts the
 same facts against the identical literal identifier list, so the two suites are
 line-for-line comparable and any future drift between the ports fails CI.
 
@@ -40,7 +40,7 @@ from ngff_zarr.v04.zarr_metadata import (
 )
 
 # The locked rule manifest: every active OME-Zarr structural rule, in canonical
-# declaration order. This identical literal list appears in the Deno mirror test
+# declaration order. This identical literal list appears in the TypeScript mirror test
 # so the two are directly comparable. The first thirteen entries are the
 # image/multiscales rules dispatched by validate_structural -- the first eleven
 # are the v0.4 rules and the next two (zarr-format, ome-namespace) are the v0.5
@@ -68,7 +68,7 @@ CANONICAL_SPEC_RULE_IDS = [
 # The locked RFC-3 version manifest: the versions whose axis model is
 # unrestricted, so that validate_axis_count / validate_axis_type /
 # validate_axis_order / validate_spatial_axis_order are inert for them. This
-# identical literal list appears in the Deno mirror test. axis-names-unique is
+# identical literal list appears in the TypeScript mirror test. axis-names-unique is
 # deliberately absent: RFC-3 adds that rule rather than lifting it, so it is
 # never inert (see docs/validation/rule-reference.md).
 CANONICAL_RFC3_VERSIONS = [
@@ -86,7 +86,7 @@ NON_RFC3_VERSIONS = [
 
 # The locked RFC-4 orientation version manifest: the versions at which the
 # three axis-orientation rules are normative (ome/ngff-spec#190 folds RFC-4
-# into 0.9.dev1). This identical literal list appears in the Deno mirror test.
+# into 0.9.dev1). This identical literal list appears in the TypeScript mirror test.
 # The gate points the opposite way from CANONICAL_RFC3_VERSIONS: RFC-3 *lifts*
 # the axis restrictions at 0.9.dev1 while RFC-4 *adds* the orientation
 # requirements, so the rules are inert below these versions. No version at all
@@ -206,7 +206,7 @@ def test_spec_rule_manifest_is_locked():
     # renaming a rule must be a deliberate edit to CANONICAL_SPEC_RULE_IDS.
     assert {rule.value for rule in SpecRule} == set(CANONICAL_SPEC_RULE_IDS)
     # Declaration order is part of the cross-language contract, so lock it too;
-    # this is the order the Deno SpecRule object must also declare.
+    # this is the order the TypeScript SpecRule object must also declare.
     assert [rule.value for rule in SpecRule] == CANONICAL_SPEC_RULE_IDS
     # No two members may share a value (which would create a silent alias).
     assert len({rule.value for rule in SpecRule}) == len(CANONICAL_SPEC_RULE_IDS)

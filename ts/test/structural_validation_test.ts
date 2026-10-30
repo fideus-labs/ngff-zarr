@@ -18,7 +18,8 @@
  * `py/test/test_structural_validation.py` so the two stay in lockstep.
  */
 
-import { assertEquals, assertInstanceOf, assertThrows } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertInstanceOf, assertThrows } from "./_assert.ts";
 import {
   SpecRule,
   validateAxisCount,
@@ -105,17 +106,18 @@ function assertRuleViolation(
 // Per-rule paired pass/fail tests
 // ---------------------------------------------------------------------------
 
-Deno.test("validateAxisCount - accepts the 3-axis baseline", () => {
+test("validateAxisCount - accepts the 3-axis baseline", () => {
   validateAxisCount(buildValidMetadata());
 });
 
-Deno.test("validateAxisCount - rejects counts outside 2..5", () => {
+test("validateAxisCount - rejects counts outside 2..5", () => {
   for (const count of [1, 6]) {
     const metadata = buildValidMetadata();
-    metadata.axes = Array.from(
-      { length: count },
-      (): Axis => ({ name: "x", type: "space", unit: undefined }),
-    );
+    metadata.axes = Array.from({ length: count }, (): Axis => ({
+      name: "x",
+      type: "space",
+      unit: undefined,
+    }));
     assertRuleViolation(
       () => validateAxisCount(metadata),
       SpecRule.AxisCount,
@@ -124,12 +126,15 @@ Deno.test("validateAxisCount - rejects counts outside 2..5", () => {
   }
 });
 
-Deno.test("validateAxisType - accepts a single channel axis", () => {
+test("validateAxisType - accepts a single channel axis", () => {
   validateAxisType(buildValidMetadata());
 });
 
-Deno.test("validateAxisType - rejects two time or two channel axes", () => {
-  for (const [axisType, name] of [["time", "t"], ["channel", "c"]] as const) {
+test("validateAxisType - rejects two time or two channel axes", () => {
+  for (const [axisType, name] of [
+    ["time", "t"],
+    ["channel", "c"],
+  ] as const) {
     const metadata = buildValidMetadata();
     metadata.axes = [
       { name, type: axisType, unit: undefined },
@@ -145,11 +150,11 @@ Deno.test("validateAxisType - rejects two time or two channel axes", () => {
   }
 });
 
-Deno.test("validateAxisOrder - accepts channel-before-space order", () => {
+test("validateAxisOrder - accepts channel-before-space order", () => {
   validateAxisOrder(buildValidMetadata());
 });
 
-Deno.test("validateAxisOrder - rejects time after channel", () => {
+test("validateAxisOrder - rejects time after channel", () => {
   // A 'time' axis after a 'channel' axis inverts the time < channel ranking.
   const metadata = buildValidMetadata();
   metadata.axes = [
@@ -165,11 +170,11 @@ Deno.test("validateAxisOrder - rejects time after channel", () => {
   );
 });
 
-Deno.test("validateSpatialAxisOrder - accepts the (y, x) suffix", () => {
+test("validateSpatialAxisOrder - accepts the (y, x) suffix", () => {
   validateSpatialAxisOrder(buildValidMetadata());
 });
 
-Deno.test("validateSpatialAxisOrder - rejects bad suffix and too many", () => {
+test("validateSpatialAxisOrder - rejects bad suffix and too many", () => {
   // (x, y) is not the (y, x) suffix of (z, y, x).
   const suffixMismatch = buildValidMetadata();
   suffixMismatch.axes = [
@@ -198,11 +203,11 @@ Deno.test("validateSpatialAxisOrder - rejects bad suffix and too many", () => {
   );
 });
 
-Deno.test("validateAxisNamesUnique - accepts distinct names", () => {
+test("validateAxisNamesUnique - accepts distinct names", () => {
   validateAxisNamesUnique(buildValidMetadata());
 });
 
-Deno.test("validateAxisNamesUnique - rejects a repeated name", () => {
+test("validateAxisNamesUnique - rejects a repeated name", () => {
   const repeated = buildValidMetadata();
   repeated.axes = [
     { name: "c", type: "channel", unit: undefined },
@@ -216,11 +221,11 @@ Deno.test("validateAxisNamesUnique - rejects a repeated name", () => {
   );
 });
 
-Deno.test("validatePerDatasetScaleCount - accepts one scale per level", () => {
+test("validatePerDatasetScaleCount - accepts one scale per level", () => {
   validatePerDatasetScaleCount(buildValidMetadata());
 });
 
-Deno.test("validatePerDatasetScaleCount - rejects zero or two scales", () => {
+test("validatePerDatasetScaleCount - rejects zero or two scales", () => {
   const zeroScales = buildValidMetadata();
   zeroScales.datasets[0].coordinateTransformations = [
     createTranslation([0.0, 0.0, 0.0]),
@@ -243,7 +248,7 @@ Deno.test("validatePerDatasetScaleCount - rejects zero or two scales", () => {
   );
 });
 
-Deno.test("validateScaleLength - accepts matching global and per-level", () => {
+test("validateScaleLength - accepts matching global and per-level", () => {
   const metadata = buildValidMetadata();
   validateScaleLength(metadata);
   // A correctly sized global scale (length == axis count) is also accepted.
@@ -251,7 +256,7 @@ Deno.test("validateScaleLength - accepts matching global and per-level", () => {
   validateScaleLength(metadata);
 });
 
-Deno.test("validateScaleLength - rejects a short per-dataset scale", () => {
+test("validateScaleLength - rejects a short per-dataset scale", () => {
   // A length-2 dataset scale against 3 axes.
   const metadata = buildValidMetadata();
   metadata.datasets[0].coordinateTransformations = [createScale([1.0, 1.0])];
@@ -262,7 +267,7 @@ Deno.test("validateScaleLength - rejects a short per-dataset scale", () => {
   );
 });
 
-Deno.test("validateScaleLength - rejects a short global scale", () => {
+test("validateScaleLength - rejects a short global scale", () => {
   // A length-2 global scale against 3 axes.
   const metadata = buildValidMetadata();
   metadata.coordinateTransformations = [createScale([1.0, 1.0])];
@@ -273,7 +278,7 @@ Deno.test("validateScaleLength - rejects a short global scale", () => {
   );
 });
 
-Deno.test("validateTransformOrder - accepts a scale then translation", () => {
+test("validateTransformOrder - accepts a scale then translation", () => {
   const metadata = buildValidMetadata();
   validateTransformOrder(metadata);
   // A translation following its scale is valid.
@@ -284,7 +289,7 @@ Deno.test("validateTransformOrder - accepts a scale then translation", () => {
   validateTransformOrder(metadata);
 });
 
-Deno.test("validateTransformOrder - rejects a scale after a translation", () => {
+test("validateTransformOrder - rejects a scale after a translation", () => {
   // A scale after a translation: a translation must follow its scale.
   const metadata = buildValidMetadata();
   metadata.datasets[0].coordinateTransformations = [
@@ -298,11 +303,11 @@ Deno.test("validateTransformOrder - rejects a scale after a translation", () => 
   );
 });
 
-Deno.test("validateDatasetOrder - accepts finest-to-coarsest order", () => {
+test("validateDatasetOrder - accepts finest-to-coarsest order", () => {
   validateDatasetOrder(buildValidMetadata());
 });
 
-Deno.test("validateDatasetOrder - rejects a finer scale at a coarser level", () => {
+test("validateDatasetOrder - rejects a finer scale at a coarser level", () => {
   // The second (coarser) level has a finer spatial scale than the first.
   const metadata = buildValidMetadata();
   metadata.datasets[0].coordinateTransformations = [
@@ -327,14 +332,14 @@ Deno.test("validateDatasetOrder - rejects a finer scale at a coarser level", () 
   );
 });
 
-Deno.test("validateOmeroColorHex - accepts absent omero and valid hex", () => {
+test("validateOmeroColorHex - accepts absent omero and valid hex", () => {
   validateOmeroColorHex(buildValidMetadata()); // omero is undefined
   const metadata = buildValidMetadata();
   metadata.omero = makeOmero("00FF88");
   validateOmeroColorHex(metadata);
 });
 
-Deno.test("validateOmeroColorHex - rejects a non-hex channel color", () => {
+test("validateOmeroColorHex - rejects a non-hex channel color", () => {
   const metadata = buildValidMetadata();
   metadata.omero = makeOmero("xyz");
   assertRuleViolation(
@@ -348,7 +353,7 @@ Deno.test("validateOmeroColorHex - rejects a non-hex channel color", () => {
 // Public-surface tests
 // ---------------------------------------------------------------------------
 
-Deno.test("SpecRule values are the exact kebab-case identifiers", () => {
+test("SpecRule values are the exact kebab-case identifiers", () => {
   assertEquals(SpecRule.AxisCount, "axis-count");
   assertEquals(SpecRule.AxisType, "axis-type");
   assertEquals(SpecRule.AxisOrder, "axis-order");
@@ -364,12 +369,12 @@ Deno.test("SpecRule values are the exact kebab-case identifiers", () => {
   assertEquals(SpecRule.OmeroChannelColorFormat, "omero-channel-color-format");
 });
 
-Deno.test("ValidationLevel values match the spec strings", () => {
+test("ValidationLevel values match the spec strings", () => {
   assertEquals(ValidationLevel.Strict, "strict");
   assertEquals(ValidationLevel.SchemaOnly, "schema_only");
 });
 
-Deno.test("ValidationError formats its message and carries rule/location", () => {
+test("ValidationError formats its message and carries rule/location", () => {
   const error = new ValidationError(
     SpecRule.AxisCount,
     "found 6 axes",
@@ -387,13 +392,13 @@ Deno.test("ValidationError formats its message and carries rule/location", () =>
 // Orchestrator tests
 // ---------------------------------------------------------------------------
 
-Deno.test("validateStructural - accepts the valid baseline", () => {
+test("validateStructural - accepts the valid baseline", () => {
   // Default options (strict) and an explicit strict both accept the baseline.
   validateStructural(buildValidMetadata());
   validateStructural(buildValidMetadata(), { level: ValidationLevel.Strict });
 });
 
-Deno.test("validateStructural - is fail-fast in canonical rule order", () => {
+test("validateStructural - is fail-fast in canonical rule order", () => {
   // Two independent violations: dataset-order (rule 8) and omero-color (9).
   const metadata = buildValidMetadata();
   metadata.datasets[0].coordinateTransformations = [
@@ -411,7 +416,7 @@ Deno.test("validateStructural - is fail-fast in canonical rule order", () => {
   assertEquals(error.rule, SpecRule.DatasetOrderHighestToLowest);
 });
 
-Deno.test("validateStructural - default is strict; schema_only skips", () => {
+test("validateStructural - default is strict; schema_only skips", () => {
   // A single axis is a clear axis-count violation under strict...
   const metadata = buildValidMetadata();
   metadata.axes = [{ name: "x", type: "space", unit: undefined }];
@@ -426,7 +431,7 @@ Deno.test("validateStructural - default is strict; schema_only skips", () => {
   validateStructural(metadata, { level: ValidationLevel.SchemaOnly });
 });
 
-Deno.test("validateStructural - option defaults: strict, allowUnknownFields true", () => {
+test("validateStructural - option defaults: strict, allowUnknownFields true", () => {
   // ValidateOptions is a bare interface, so its documented defaults --
   // { level: "strict", allowUnknownFields: true } -- are resolved inside
   // validateStructural rather than on a constructable options object (unlike
@@ -456,7 +461,7 @@ Deno.test("validateStructural - option defaults: strict, allowUnknownFields true
   );
 });
 
-Deno.test("axis rules are inert at 0.9.dev1 but enforced below it", () => {
+test("axis rules are inert at 0.9.dev1 but enforced below it", () => {
   // Six axes exceed the 2..5 range every released version imposes.
   const sixAxes = buildValidMetadata();
   sixAxes.axes = ["a", "b", "c", "d", "e", "f"].map((name) => ({
@@ -484,7 +489,7 @@ Deno.test("axis rules are inert at 0.9.dev1 but enforced below it", () => {
   validateSpatialAxisOrder(sixAxes, "0.9.dev1");
 });
 
-Deno.test("axis names must stay unique at 0.9.dev1", () => {
+test("axis names must stay unique at 0.9.dev1", () => {
   // RFC-3 *adds* "axis names MUST NOT be repeated" (rule 5), so unlike the
   // other axis rules this one is never inert.
   const repeated = buildValidMetadata();
@@ -500,7 +505,7 @@ Deno.test("axis names must stay unique at 0.9.dev1", () => {
   );
 });
 
-Deno.test("fewer than two space axes is rejected below 0.9.dev1", () => {
+test("fewer than two space axes is rejected below 0.9.dev1", () => {
   // The v0.4 and v0.5 axes schemas state minContains: 2 on `space` axes.
   // v0.6 adds an `array` arm, covered separately below.
   const oneSpace = buildValidMetadata();
@@ -516,7 +521,7 @@ Deno.test("fewer than two space axes is rejected below 0.9.dev1", () => {
   validateSpatialAxisOrder(oneSpace, "0.9.dev1");
 });
 
-Deno.test("a v0.6 array coordinate system needs no space axis", () => {
+test("a v0.6 array coordinate system needs no space axis", () => {
   // The v0.6 axes schema is a `oneOf`: 2-3 `space` axes, *or* two or more
   // `array` axes. The space-axis floor must not fire on the second arm, or a
   // store the bundled schema accepts becomes unwritable at v0.6.

@@ -9,7 +9,8 @@
  * Every test here reads the values back.
  */
 
-import { assert, assertEquals } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assert, assertEquals } from "./_assert.ts";
 import * as zarr from "zarrita";
 
 import { fromOmeZarr } from "../src/io/from_ngff_zarr.ts";
@@ -19,9 +20,9 @@ import { toOmeZarr } from "../src/io/to_ngff_zarr.ts";
 import { toMultiscales } from "../src/process/to_multiscales-node.ts";
 
 /** The values stored in `image`, in row-major order. */
-async function readBack(
-  image: { data: zarr.Array<zarr.DataType, zarr.Readable> },
-): Promise<{ values: number[]; constructor: string }> {
+async function readBack(image: {
+  data: zarr.Array<zarr.DataType, zarr.Readable>;
+}): Promise<{ values: number[]; constructor: string }> {
   const chunk = await zarr.get(image.data, null);
   return {
     values: Array.from(chunk.data as ArrayLike<number>),
@@ -29,7 +30,7 @@ async function readBack(
   };
 }
 
-Deno.test("toNgffImage preserves each typed array's element type", async () => {
+test("toNgffImage preserves each typed array's element type", async () => {
   const cases: [ArrayLike<number>, string][] = [
     [new Uint8Array(24), "uint8"],
     [new Uint8ClampedArray(24), "uint8"],
@@ -51,7 +52,7 @@ Deno.test("toNgffImage preserves each typed array's element type", async () => {
   }
 });
 
-Deno.test("toNgffImage round-trips uint8 values", async () => {
+test("toNgffImage round-trips uint8 values", async () => {
   // 255 catches a narrower type, and a byte-wise reinterpretation would
   // populate only the first six of the twenty-four elements.
   const data = new Uint8Array(24);
@@ -68,7 +69,7 @@ Deno.test("toNgffImage round-trips uint8 values", async () => {
   assertEquals(values, Array.from(data));
 });
 
-Deno.test("toNgffImage round-trips uint16 values", async () => {
+test("toNgffImage round-trips uint16 values", async () => {
   // Above 255, so a truncation to uint8 shows up here too.
   const data = new Uint16Array(24);
   for (let i = 0; i < data.length; i++) {
@@ -83,7 +84,7 @@ Deno.test("toNgffImage round-trips uint16 values", async () => {
   assertEquals(values, Array.from(data));
 });
 
-Deno.test("toNgffImage round-trips signed values", async () => {
+test("toNgffImage round-trips signed values", async () => {
   const int8 = new Int8Array(24);
   const int16 = new Int16Array(24);
   const int32 = new Int32Array(24);
@@ -102,7 +103,7 @@ Deno.test("toNgffImage round-trips signed values", async () => {
   }
 });
 
-Deno.test("toNgffImage round-trips 32-bit unsigned values", async () => {
+test("toNgffImage round-trips 32-bit unsigned values", async () => {
   // Beyond float32's exact integer range, where a widening to float32 is
   // lossy.
   const data = new Uint32Array(24);
@@ -118,7 +119,7 @@ Deno.test("toNgffImage round-trips 32-bit unsigned values", async () => {
   assertEquals(values, Array.from(data));
 });
 
-Deno.test("toNgffImage round-trips float32 values", async () => {
+test("toNgffImage round-trips float32 values", async () => {
   // Multiples of 0.25 are exact in float32, so the comparison is exact.
   const data = new Float32Array(24);
   for (let i = 0; i < data.length; i++) {
@@ -133,7 +134,7 @@ Deno.test("toNgffImage round-trips float32 values", async () => {
   assertEquals(values, Array.from(data));
 });
 
-Deno.test("toNgffImage keeps float64 precision", async () => {
+test("toNgffImage keeps float64 precision", async () => {
   // 1/3 is not representable in float32, so a widening is visible in the
   // read-back.
   const data = new Float64Array(24);
@@ -149,7 +150,7 @@ Deno.test("toNgffImage keeps float64 precision", async () => {
   assertEquals(values, Array.from(data));
 });
 
-Deno.test("toNgffImage stores a Uint8ClampedArray as uint8", async () => {
+test("toNgffImage stores a Uint8ClampedArray as uint8", async () => {
   // What canvas ImageData hands over. It is not a Uint8Array, so it needs
   // its own branch in the element-type chain.
   const data = new Uint8ClampedArray(24);
@@ -165,10 +166,16 @@ Deno.test("toNgffImage stores a Uint8ClampedArray as uint8", async () => {
   assertEquals(values, Array.from(data));
 });
 
-Deno.test("toNgffImage converts plain arrays to float32", async () => {
-  const twoDimensional = await toNgffImage([[1, 2, 3], [4, 5, 6]], {
-    dims: ["y", "x"],
-  });
+test("toNgffImage converts plain arrays to float32", async () => {
+  const twoDimensional = await toNgffImage(
+    [
+      [1, 2, 3],
+      [4, 5, 6],
+    ],
+    {
+      dims: ["y", "x"],
+    },
+  );
   assertEquals(twoDimensional.data.dtype, "float32");
   assertEquals((await readBack(twoDimensional)).values, [1, 2, 3, 4, 5, 6]);
 
@@ -176,14 +183,22 @@ Deno.test("toNgffImage converts plain arrays to float32", async () => {
   assertEquals(oneDimensional.data.dtype, "float32");
   assertEquals((await readBack(oneDimensional)).values, [1, 2, 3, 4]);
 
-  const threeDimensional = await toNgffImage([[[1, 2], [3, 4]]], {
-    dims: ["z", "y", "x"],
-  });
+  const threeDimensional = await toNgffImage(
+    [
+      [
+        [1, 2],
+        [3, 4],
+      ],
+    ],
+    {
+      dims: ["z", "y", "x"],
+    },
+  );
   assertEquals(threeDimensional.data.dtype, "float32");
   assertEquals((await readBack(threeDimensional)).values, [1, 2, 3, 4]);
 });
 
-Deno.test("toNgffImage compresses for the element type it wrote", async () => {
+test("toNgffImage compresses for the element type it wrote", async () => {
   // defaultCodecs derives the blosc typesize and shuffle mode from the data
   // type; a 1-byte type takes noshuffle.
   const blosc = async (data: ArrayLike<number>) => {
@@ -192,10 +207,12 @@ Deno.test("toNgffImage compresses for the element type it wrote", async () => {
     const key = [...store.keys()].find((k) => k.endsWith("zarr.json"));
     assert(key, "no array metadata in store");
     const metadata = JSON.parse(new TextDecoder().decode(store.get(key)!));
-    const codec = (metadata.codecs as {
-      name: string;
-      configuration: Record<string, unknown>;
-    }[]).find((entry) => entry.name === "blosc");
+    const codec = (
+      metadata.codecs as {
+        name: string;
+        configuration: Record<string, unknown>;
+      }[]
+    ).find((entry) => entry.name === "blosc");
     assert(codec, "no blosc codec declared in array metadata");
     return codec.configuration;
   };
@@ -213,7 +230,7 @@ Deno.test("toNgffImage compresses for the element type it wrote", async () => {
   assertEquals((await blosc(new Float64Array(24))).typesize, 8);
 });
 
-Deno.test("uint8 values survive the write to a store", async () => {
+test("uint8 values survive the write to a store", async () => {
   // What the image holds is what lands in the store, so a data type the
   // pipeline reports but does not write is caught here.
   const data = new Uint8Array(4 * 6);

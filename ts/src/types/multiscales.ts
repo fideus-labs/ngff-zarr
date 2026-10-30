@@ -37,8 +37,8 @@ export class NgffMultiscales {
 
   toString(): string {
     const imagesStr = this.images
-      .map((img, _i) =>
-        `        ${img.toString().replace(/\n/g, "\n        ")}`
+      .map(
+        (img, _i) => `        ${img.toString().replace(/\n/g, "\n        ")}`,
       )
       .join(",\n");
 

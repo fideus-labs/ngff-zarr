@@ -6,7 +6,8 @@
  * Focuses on proportional sampling and unbiased reservoir merging.
  */
 
-import { assertEquals, assertExists } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertExists } from "./_assert.ts";
 import {
   createAccumulator,
   finalizeStatistics,
@@ -18,7 +19,7 @@ import {
 // Basic merging tests
 // ============================================================================
 
-Deno.test("mergeAccumulators: two empty accumulators", () => {
+test("mergeAccumulators: two empty accumulators", () => {
   const a = createAccumulator();
   const b = createAccumulator();
 
@@ -30,7 +31,7 @@ Deno.test("mergeAccumulators: two empty accumulators", () => {
   assertEquals(merged.max, Math.max(a.max, b.max));
 });
 
-Deno.test("mergeAccumulators: one empty, one with data", () => {
+test("mergeAccumulators: one empty, one with data", () => {
   const empty = createAccumulator();
   const withData = createAccumulator();
   const data = [1, 2, 3, 4, 5];
@@ -45,7 +46,7 @@ Deno.test("mergeAccumulators: one empty, one with data", () => {
   assertEquals(merged.sample.length, 5);
 });
 
-Deno.test("mergeAccumulators: preserves min/max from both", () => {
+test("mergeAccumulators: preserves min/max from both", () => {
   const a = createAccumulator();
   const b = createAccumulator();
   updateAccumulator(a, [5, 10, 15]);
@@ -61,7 +62,7 @@ Deno.test("mergeAccumulators: preserves min/max from both", () => {
 // Proportional sampling tests
 // ============================================================================
 
-Deno.test("mergeAccumulators: equal-sized populations get equal representation", () => {
+test("mergeAccumulators: equal-sized populations get equal representation", () => {
   const a = createAccumulator();
   const b = createAccumulator();
 
@@ -84,7 +85,7 @@ Deno.test("mergeAccumulators: equal-sized populations get equal representation",
   assertEquals(ratio > 0.4 && ratio < 0.6, true, `ratio=${ratio}`);
 });
 
-Deno.test("mergeAccumulators: 10:1 population ratio", () => {
+test("mergeAccumulators: 10:1 population ratio", () => {
   const large = createAccumulator();
   const small = createAccumulator();
 
@@ -111,7 +112,7 @@ Deno.test("mergeAccumulators: 10:1 population ratio", () => {
   );
 });
 
-Deno.test("mergeAccumulators: 100:1 population ratio (edge chunk scenario)", () => {
+test("mergeAccumulators: 100:1 population ratio (edge chunk scenario)", () => {
   const fullChunk = createAccumulator();
   const edgeChunk = createAccumulator();
 
@@ -140,14 +141,20 @@ Deno.test("mergeAccumulators: 100:1 population ratio (edge chunk scenario)", () 
 // Tests for correct quantile estimation after merging
 // ============================================================================
 
-Deno.test("mergeAccumulators: quantiles remain accurate after merge", () => {
+test("mergeAccumulators: quantiles remain accurate after merge", () => {
   const a = createAccumulator();
   const b = createAccumulator();
 
   // a: values 0-499
-  updateAccumulator(a, Array.from({ length: 500 }, (_, i) => i));
+  updateAccumulator(
+    a,
+    Array.from({ length: 500 }, (_, i) => i),
+  );
   // b: values 500-999
-  updateAccumulator(b, Array.from({ length: 500 }, (_, i) => i + 500));
+  updateAccumulator(
+    b,
+    Array.from({ length: 500 }, (_, i) => i + 500),
+  );
 
   const merged = mergeAccumulators(a, b);
 
@@ -160,11 +167,7 @@ Deno.test("mergeAccumulators: quantiles remain accurate after merge", () => {
 
   // 2% of 1000 = 20, 98% = 980
   // Allow some sampling error
-  assertEquals(
-    stats.qLow >= 0 && stats.qLow <= 40,
-    true,
-    `qLow=${stats.qLow}`,
-  );
+  assertEquals(stats.qLow >= 0 && stats.qLow <= 40, true, `qLow=${stats.qLow}`);
   assertEquals(
     stats.qHigh >= 960 && stats.qHigh <= 999,
     true,
@@ -172,7 +175,7 @@ Deno.test("mergeAccumulators: quantiles remain accurate after merge", () => {
   );
 });
 
-Deno.test("mergeAccumulators: bimodal distribution", () => {
+test("mergeAccumulators: bimodal distribution", () => {
   const a = createAccumulator();
   const b = createAccumulator();
 
@@ -201,7 +204,7 @@ Deno.test("mergeAccumulators: bimodal distribution", () => {
 // Tests for multiple sequential merges
 // ============================================================================
 
-Deno.test("mergeAccumulators: chaining multiple merges", () => {
+test("mergeAccumulators: chaining multiple merges", () => {
   const acc1 = createAccumulator();
   const acc2 = createAccumulator();
   const acc3 = createAccumulator();
@@ -239,43 +242,33 @@ Deno.test("mergeAccumulators: chaining multiple merges", () => {
   const ratio30 = counts[30] / total;
 
   // Large chunks: expect ~0.45 each (allow 0.35-0.55)
-  assertEquals(
-    ratio20 > 0.35 && ratio20 < 0.55,
-    true,
-    `ratio20=${ratio20}`,
-  );
-  assertEquals(
-    ratio40 > 0.35 && ratio40 < 0.55,
-    true,
-    `ratio40=${ratio40}`,
-  );
+  assertEquals(ratio20 > 0.35 && ratio20 < 0.55, true, `ratio20=${ratio20}`);
+  assertEquals(ratio40 > 0.35 && ratio40 < 0.55, true, `ratio40=${ratio40}`);
 
   // Small chunks: expect ~0.045 each (allow 0.01-0.15)
-  assertEquals(
-    ratio10 > 0.01 && ratio10 < 0.15,
-    true,
-    `ratio10=${ratio10}`,
-  );
-  assertEquals(
-    ratio30 > 0.01 && ratio30 < 0.15,
-    true,
-    `ratio30=${ratio30}`,
-  );
+  assertEquals(ratio10 > 0.01 && ratio10 < 0.15, true, `ratio10=${ratio10}`);
+  assertEquals(ratio30 > 0.01 && ratio30 < 0.15, true, `ratio30=${ratio30}`);
 });
 
 // ============================================================================
 // Tests for Fisher-Yates partial shuffle
 // ============================================================================
 
-Deno.test("mergeAccumulators: randomness in subsampling", () => {
+test("mergeAccumulators: randomness in subsampling", () => {
   // Verify that Fisher-Yates shuffle produces different samples
   // Use different data in each accumulator to guarantee different possible outcomes
   const acc1 = createAccumulator();
   const acc2 = createAccumulator();
 
   // acc1 has values 0-9999, acc2 has values 10000-19999
-  updateAccumulator(acc1, Array.from({ length: 10000 }, (_, i) => i));
-  updateAccumulator(acc2, Array.from({ length: 10000 }, (_, i) => i + 10000));
+  updateAccumulator(
+    acc1,
+    Array.from({ length: 10000 }, (_, i) => i),
+  );
+  updateAccumulator(
+    acc2,
+    Array.from({ length: 10000 }, (_, i) => i + 10000),
+  );
 
   // Merge multiple times - samples should differ due to random subsampling
   let allIdentical = true;
@@ -286,12 +279,19 @@ Deno.test("mergeAccumulators: randomness in subsampling", () => {
     // Create fresh accumulators with same data
     const a = createAccumulator();
     const b = createAccumulator();
-    updateAccumulator(a, Array.from({ length: 10000 }, (_, i) => i));
-    updateAccumulator(b, Array.from({ length: 10000 }, (_, i) => i + 10000));
+    updateAccumulator(
+      a,
+      Array.from({ length: 10000 }, (_, i) => i),
+    );
+    updateAccumulator(
+      b,
+      Array.from({ length: 10000 }, (_, i) => i + 10000),
+    );
 
     const merged = mergeAccumulators(a, b);
 
-    const samplesEqual = JSON.stringify(merged.sample.sort()) ===
+    const samplesEqual =
+      JSON.stringify(merged.sample.sort()) ===
       JSON.stringify(firstMerge.sample.sort());
 
     if (!samplesEqual) {
@@ -311,13 +311,19 @@ Deno.test("mergeAccumulators: randomness in subsampling", () => {
 // Tests for reservoir size limits
 // ============================================================================
 
-Deno.test("mergeAccumulators: respects QUANTILE_SAMPLE_SIZE limit", () => {
+test("mergeAccumulators: respects QUANTILE_SAMPLE_SIZE limit", () => {
   const a = createAccumulator();
   const b = createAccumulator();
 
   // Each accumulator has large sample (will be at QUANTILE_SAMPLE_SIZE=10000)
-  updateAccumulator(a, Array.from({ length: 20000 }, (_, i) => i));
-  updateAccumulator(b, Array.from({ length: 20000 }, (_, i) => i + 20000));
+  updateAccumulator(
+    a,
+    Array.from({ length: 20000 }, (_, i) => i),
+  );
+  updateAccumulator(
+    b,
+    Array.from({ length: 20000 }, (_, i) => i + 20000),
+  );
 
   const merged = mergeAccumulators(a, b);
 
@@ -331,7 +337,7 @@ Deno.test("mergeAccumulators: respects QUANTILE_SAMPLE_SIZE limit", () => {
   assertEquals(merged.sample.length, 10000);
 });
 
-Deno.test("mergeAccumulators: small accumulators preserve all samples", () => {
+test("mergeAccumulators: small accumulators preserve all samples", () => {
   const a = createAccumulator();
   const b = createAccumulator();
 
@@ -353,12 +359,15 @@ Deno.test("mergeAccumulators: small accumulators preserve all samples", () => {
 // Tests for edge cases
 // ============================================================================
 
-Deno.test("mergeAccumulators: one accumulator has full reservoir", () => {
+test("mergeAccumulators: one accumulator has full reservoir", () => {
   const full = createAccumulator();
   const small = createAccumulator();
 
   // Fill one accumulator to reservoir limit
-  updateAccumulator(full, Array.from({ length: 15000 }, () => 100));
+  updateAccumulator(
+    full,
+    Array.from({ length: 15000 }, () => 100),
+  );
   // Other has few samples
   updateAccumulator(small, Array(100).fill(200));
 
@@ -372,14 +381,10 @@ Deno.test("mergeAccumulators: one accumulator has full reservoir", () => {
   const countSmall = merged.sample.filter((x) => x === 200).length;
 
   const ratio = countFull / (countFull + countSmall);
-  assertEquals(
-    ratio > 0.98,
-    true,
-    `ratio=${ratio}, should be ~0.993`,
-  );
+  assertEquals(ratio > 0.98, true, `ratio=${ratio}, should be ~0.993`);
 });
 
-Deno.test("mergeAccumulators: handles NaN gracefully", () => {
+test("mergeAccumulators: handles NaN gracefully", () => {
   const a = createAccumulator();
   const b = createAccumulator();
 
@@ -396,7 +401,7 @@ Deno.test("mergeAccumulators: handles NaN gracefully", () => {
   assertEquals(Number.isNaN(merged.max), false);
 });
 
-Deno.test("mergeAccumulators: commutative property", () => {
+test("mergeAccumulators: commutative property", () => {
   const a1 = createAccumulator();
   const b1 = createAccumulator();
   const a2 = createAccumulator();
@@ -440,7 +445,7 @@ Deno.test("mergeAccumulators: commutative property", () => {
 // Real-world scenario tests
 // ============================================================================
 
-Deno.test("mergeAccumulators: typical OME-Zarr chunk scenario", () => {
+test("mergeAccumulators: typical OME-Zarr chunk scenario", () => {
   // Simulate real-world OME-Zarr chunking scenario:
   // - Most chunks are full size (256x256 = 65536 voxels)
   // - Edge chunks are smaller (e.g., 128x256 = 32768 voxels)

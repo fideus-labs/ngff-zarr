@@ -1,19 +1,19 @@
-#!/usr/bin/env -S deno test --allow-read --allow-write
-
 /**
  * Test data layout correctness with small, non-uniform shapes
  */
 
-import { assertEquals } from "@std/assert";
+import { test } from "vite-plus/test";
+import { mkdir } from "./_fs.ts";
+import { assertEquals } from "./_assert.ts";
 import { readImageNode, writeImageNode } from "@itk-wasm/image-io";
 import type { Image as ItkWasmImage } from "itk-wasm";
-import { join } from "@std/path";
+import { join } from "node:path";
 import { itkImageToNgffImage } from "../src/io/itk_image_to_ngff_image.ts";
 import { ngffImageToItkImage } from "../src/io/ngff_image_to_itk_image.ts";
 import * as zarr from "zarrita";
 
-const TEST_OUTPUT_DIR = join(Deno.cwd(), "test", "output");
-await Deno.mkdir(TEST_OUTPUT_DIR, { recursive: true });
+const TEST_OUTPUT_DIR = join(process.cwd(), "test", "output");
+await mkdir(TEST_OUTPUT_DIR, { recursive: true });
 
 /**
  * Create a simple test image with known pattern
@@ -108,7 +108,7 @@ function verifyImageData(
   }
 }
 
-Deno.test("1. Write to disk and read back - verify pixel data", async () => {
+test("1. Write to disk and read back - verify pixel data", async () => {
   const originalImage = createTestImage3D();
 
   // Write to NRRD file
@@ -151,134 +151,129 @@ Deno.test("1. Write to disk and read back - verify pixel data", async () => {
   verifyImageData(readData, readImage.size, "Read from disk");
 });
 
-Deno.test(
-  "2. ITK → NGFF → ITK round-trip - verify metadata and pixel data",
-  async () => {
-    const originalImage = createTestImage3D();
+test("2. ITK → NGFF → ITK round-trip - verify metadata and pixel data", async () => {
+  const originalImage = createTestImage3D();
 
-    console.log("\n=== Original ITK Image ===");
-    console.log("  size (ITK [x,y,z]):", originalImage.size);
-    console.log("  spacing (ITK [x,y,z]):", originalImage.spacing);
-    console.log("  origin (ITK [x,y,z]):", originalImage.origin);
-    verifyImageData(
-      originalImage.data as Int16Array,
-      originalImage.size,
-      "Original ITK",
+  console.log("\n=== Original ITK Image ===");
+  console.log("  size (ITK [x,y,z]):", originalImage.size);
+  console.log("  spacing (ITK [x,y,z]):", originalImage.spacing);
+  console.log("  origin (ITK [x,y,z]):", originalImage.origin);
+  verifyImageData(
+    originalImage.data as Int16Array,
+    originalImage.size,
+    "Original ITK",
+  );
+
+  // Convert to NGFF
+  const ngffImage = await itkImageToNgffImage(originalImage, {
+    addAnatomicalOrientation: false,
+  });
+
+  console.log("\n=== NGFF Image ===");
+  console.log("  dims:", ngffImage.dims);
+  console.log("  scale:", ngffImage.scale);
+  console.log("  translation:", ngffImage.translation);
+
+  // Read zarr data
+  const zarrData = await zarr.get(ngffImage.data);
+  console.log("  shape (NGFF [z,y,x]):", zarrData.shape);
+
+  // Expected NGFF shape should be reversed: [z, y, x] = [2, 4, 3]
+  assertEquals(
+    zarrData.shape,
+    [2, 4, 3],
+    "NGFF shape should be [z,y,x] = [2,4,3]",
+  );
+
+  // Verify NGFF data can be indexed correctly
+  // In NGFF with shape [z,y,x], element at [z,y,x] should have value x + y*10 + z*100
+  const ngffTypedData = zarrData.data as Int16Array;
+  console.log("\nVerifying NGFF data indexing:");
+
+  const ngffTestCases = [
+    { z: 0, y: 0, x: 0, expected: 0 },
+    { z: 0, y: 0, x: 1, expected: 1 },
+    { z: 0, y: 1, x: 0, expected: 10 },
+    { z: 1, y: 0, x: 0, expected: 100 },
+    { z: 1, y: 2, x: 1, expected: 121 },
+  ];
+
+  for (const { z, y, x, expected } of ngffTestCases) {
+    // C-order indexing for shape [2, 4, 3]: z*4*3 + y*3 + x
+    const idx = z * 4 * 3 + y * 3 + x;
+    const actual = ngffTypedData[idx];
+    console.log(
+      `  [z=%d, y=%d, x=%d] -> idx=%d: expected=%d, actual=%d %s`,
+      z,
+      y,
+      x,
+      idx,
+      expected,
+      actual,
+      actual === expected ? "✓" : "✗",
     );
-
-    // Convert to NGFF
-    const ngffImage = await itkImageToNgffImage(originalImage, {
-      addAnatomicalOrientation: false,
-    });
-
-    console.log("\n=== NGFF Image ===");
-    console.log("  dims:", ngffImage.dims);
-    console.log("  scale:", ngffImage.scale);
-    console.log("  translation:", ngffImage.translation);
-
-    // Read zarr data
-    const zarrData = await zarr.get(ngffImage.data);
-    console.log("  shape (NGFF [z,y,x]):", zarrData.shape);
-
-    // Expected NGFF shape should be reversed: [z, y, x] = [2, 4, 3]
     assertEquals(
-      zarrData.shape,
-      [2, 4, 3],
-      "NGFF shape should be [z,y,x] = [2,4,3]",
+      actual,
+      expected,
+      `NGFF value at [${z},${y},${x}] should be ${expected} but got ${actual}`,
     );
+  }
 
-    // Verify NGFF data can be indexed correctly
-    // In NGFF with shape [z,y,x], element at [z,y,x] should have value x + y*10 + z*100
-    const ngffTypedData = zarrData.data as Int16Array;
-    console.log("\nVerifying NGFF data indexing:");
+  // Convert back to ITK
+  const roundtripImage = await ngffImageToItkImage(ngffImage);
 
-    const ngffTestCases = [
-      { z: 0, y: 0, x: 0, expected: 0 },
-      { z: 0, y: 0, x: 1, expected: 1 },
-      { z: 0, y: 1, x: 0, expected: 10 },
-      { z: 1, y: 0, x: 0, expected: 100 },
-      { z: 1, y: 2, x: 1, expected: 121 },
-    ];
+  console.log("\n=== Round-trip ITK Image ===");
+  console.log("  size (ITK [x,y,z]):", roundtripImage.size);
+  console.log("  spacing (ITK [x,y,z]):", roundtripImage.spacing);
+  console.log("  origin (ITK [x,y,z]):", roundtripImage.origin);
 
-    for (const { z, y, x, expected } of ngffTestCases) {
-      // C-order indexing for shape [2, 4, 3]: z*4*3 + y*3 + x
-      const idx = z * 4 * 3 + y * 3 + x;
-      const actual = ngffTypedData[idx];
-      console.log(
-        `  [z=%d, y=%d, x=%d] -> idx=%d: expected=%d, actual=%d %s`,
-        z,
-        y,
-        x,
-        idx,
-        expected,
-        actual,
-        actual === expected ? "✓" : "✗",
-      );
-      assertEquals(
-        actual,
-        expected,
-        `NGFF value at [${z},${y},${x}] should be ${expected} but got ${actual}`,
+  // Verify metadata
+  assertEquals(
+    roundtripImage.size,
+    originalImage.size,
+    "Round-trip size should match",
+  );
+  console.log("✓ Size matches");
+
+  for (let i = 0; i < 3; i++) {
+    const diff = Math.abs(roundtripImage.spacing[i] - originalImage.spacing[i]);
+    if (diff > 0.0001) {
+      throw new Error(
+        `Spacing[${i}] mismatch: ${roundtripImage.spacing[i]} vs ${
+          originalImage.spacing[i]
+        }`,
       );
     }
+    const originDiff = Math.abs(
+      roundtripImage.origin[i] - originalImage.origin[i],
+    );
+    if (originDiff > 0.0001) {
+      throw new Error(
+        `Origin[${i}] mismatch: ${roundtripImage.origin[i]} vs ${
+          originalImage.origin[i]
+        }`,
+      );
+    }
+  }
+  console.log("✓ Spacing matches");
+  console.log("✓ Origin matches");
 
-    // Convert back to ITK
-    const roundtripImage = await ngffImageToItkImage(ngffImage);
+  // Verify pixel data
+  const roundtripData = roundtripImage.data as Int16Array;
+  verifyImageData(roundtripData, roundtripImage.size, "Round-trip ITK");
 
-    console.log("\n=== Round-trip ITK Image ===");
-    console.log("  size (ITK [x,y,z]):", roundtripImage.size);
-    console.log("  spacing (ITK [x,y,z]):", roundtripImage.spacing);
-    console.log("  origin (ITK [x,y,z]):", roundtripImage.origin);
-
-    // Verify metadata
+  // Also verify all elements match
+  for (let i = 0; i < roundtripData.length; i++) {
     assertEquals(
-      roundtripImage.size,
-      originalImage.size,
-      "Round-trip size should match",
+      roundtripData[i],
+      (originalImage.data as Int16Array)[i],
+      `All data elements should match at index ${i}`,
     );
-    console.log("✓ Size matches");
+  }
+  console.log("✓ All pixel data matches");
+});
 
-    for (let i = 0; i < 3; i++) {
-      const diff = Math.abs(
-        roundtripImage.spacing[i] - originalImage.spacing[i],
-      );
-      if (diff > 0.0001) {
-        throw new Error(
-          `Spacing[${i}] mismatch: ${roundtripImage.spacing[i]} vs ${
-            originalImage.spacing[i]
-          }`,
-        );
-      }
-      const originDiff = Math.abs(
-        roundtripImage.origin[i] - originalImage.origin[i],
-      );
-      if (originDiff > 0.0001) {
-        throw new Error(
-          `Origin[${i}] mismatch: ${roundtripImage.origin[i]} vs ${
-            originalImage.origin[i]
-          }`,
-        );
-      }
-    }
-    console.log("✓ Spacing matches");
-    console.log("✓ Origin matches");
-
-    // Verify pixel data
-    const roundtripData = roundtripImage.data as Int16Array;
-    verifyImageData(roundtripData, roundtripImage.size, "Round-trip ITK");
-
-    // Also verify all elements match
-    for (let i = 0; i < roundtripData.length; i++) {
-      assertEquals(
-        roundtripData[i],
-        (originalImage.data as Int16Array)[i],
-        `All data elements should match at index ${i}`,
-      );
-    }
-    console.log("✓ All pixel data matches");
-  },
-);
-
-Deno.test("3. Test 2D image (no z dimension)", async () => {
+test("3. Test 2D image (no z dimension)", async () => {
   const xSize = 5;
   const ySize = 3;
   const totalSize = xSize * ySize;

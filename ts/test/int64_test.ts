@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 /** int64/uint64 images (e.g. Python-written label images) downsample and get omero. */
-import { assertEquals } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals } from "./_assert.ts";
 import * as zarr from "zarrita";
 
 import { toMultiscales } from "../src/process/to_multiscales-node.ts";
@@ -29,14 +30,12 @@ async function int64Image(): Promise<NgffImage> {
   });
 }
 
-for (
-  const method of [
-    Methods.ITKWASM_LABEL_IMAGE,
-    Methods.ITKWASM_BIN_SHRINK,
-    Methods.ITKWASM_GAUSSIAN,
-  ]
-) {
-  Deno.test(`int64 images downsample with ${method}`, async () => {
+for (const method of [
+  Methods.ITKWASM_LABEL_IMAGE,
+  Methods.ITKWASM_BIN_SHRINK,
+  Methods.ITKWASM_GAUSSIAN,
+]) {
+  test(`int64 images downsample with ${method}`, async () => {
     const multiscales = await toMultiscales(await int64Image(), {
       scaleFactors: [2],
       method,
@@ -46,7 +45,7 @@ for (
   });
 }
 
-Deno.test("int64 images get omero channel statistics", async () => {
+test("int64 images get omero channel statistics", async () => {
   const omero = await computeOmeroFromNgffImage(await int64Image());
   assertEquals(omero.channels.length, 1);
   assertEquals(omero.channels[0].window.max, 6);

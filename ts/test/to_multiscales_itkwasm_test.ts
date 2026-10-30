@@ -1,11 +1,10 @@
-#!/usr/bin/env -S deno test --allow-read --allow-write
-
 /**
  * Test ITK-Wasm downsampling methods for multiscale generation
  * TypeScript equivalent of Python test_to_ngff_zarr_itkwasm.py
  */
 
-import { assertEquals, assertExists } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertExists } from "./_assert.ts";
 import { Methods } from "../src/types/methods.ts";
 import {
   toMultiscales,
@@ -16,7 +15,7 @@ import type { MemoryStore } from "../src/io/from_ngff_zarr.ts";
 import { NgffImage } from "../src/types/ngff_image.ts";
 import { LPS, RAS } from "../src/types/rfc4.ts";
 
-Deno.test("downsample czyx", async () => {
+test("downsample czyx", async () => {
   const data = new Uint8Array(2 * 32 * 64 * 64);
   for (let i = 0; i < data.length; i++) {
     data[i] = Math.floor(Math.random() * 256);
@@ -40,7 +39,7 @@ Deno.test("downsample czyx", async () => {
   assertEquals(multiscales.images[1].data.shape[1], 16); // z dimension downsampled
 });
 
-Deno.test("downsample zycx", async () => {
+test("downsample zycx", async () => {
   const data = new Uint8Array(32 * 64 * 2 * 64);
   for (let i = 0; i < data.length; i++) {
     data[i] = Math.floor(Math.random() * 256);
@@ -71,7 +70,7 @@ Deno.test("downsample zycx", async () => {
   assertEquals(multiscales.images[1].data.shape[1], 16); // z downsampled
 });
 
-Deno.test("downsample cxyz", async () => {
+test("downsample cxyz", async () => {
   const data = new Uint8Array(2 * 64 * 64 * 32);
   for (let i = 0; i < data.length; i++) {
     data[i] = Math.floor(Math.random() * 256);
@@ -95,7 +94,7 @@ Deno.test("downsample cxyz", async () => {
   assertEquals(multiscales.images[1].data.shape[1], 32); // z unchanged (anisotropic)
 });
 
-Deno.test("downsample tczyx", async () => {
+test("downsample tczyx", async () => {
   const data = new Uint8Array(2 * 2 * 32 * 64 * 64);
   for (let i = 0; i < data.length; i++) {
     data[i] = Math.floor(Math.random() * 256);
@@ -121,7 +120,7 @@ Deno.test("downsample tczyx", async () => {
   assertEquals(multiscales.images[1].data.shape[2], 16); // z downsampled
 });
 
-Deno.test("downsample tzycx", async () => {
+test("downsample tzycx", async () => {
   const data = new Uint8Array(2 * 32 * 64 * 2 * 64);
   for (let i = 0; i < data.length; i++) {
     data[i] = Math.floor(Math.random() * 256);
@@ -154,7 +153,7 @@ Deno.test("downsample tzycx", async () => {
   assertEquals(multiscales.images[1].data.shape[2], 16); // z downsampled
 });
 
-Deno.test("downsample tcxyz", async () => {
+test("downsample tcxyz", async () => {
   const data = new Uint8Array(2 * 2 * 64 * 64 * 32);
   for (let i = 0; i < data.length; i++) {
     data[i] = Math.floor(Math.random() * 256);
@@ -180,7 +179,7 @@ Deno.test("downsample tcxyz", async () => {
   assertEquals(multiscales.images[1].data.shape[2], 32); // z unchanged (anisotropic)
 });
 
-Deno.test("bin shrink tczyx", async () => {
+test("bin shrink tczyx", async () => {
   const data = new Uint8Array(2 * 2 * 32 * 64 * 64);
   for (let i = 0; i < data.length; i++) {
     data[i] = Math.floor(Math.random() * 256);
@@ -207,7 +206,7 @@ Deno.test("bin shrink tczyx", async () => {
   assertEquals(multiscales.images[1].data.shape[2], 16); // z downsampled
 });
 
-Deno.test("bin shrink tzyxc", async () => {
+test("bin shrink tzyxc", async () => {
   // Simplified test: just test 4D (tzyx) without vector complications
   // Create test data: 2 * 32 * 32 * 32 = 65,536 elements
   const shape = [2, 32, 32, 32];
@@ -237,7 +236,7 @@ Deno.test("bin shrink tzyxc", async () => {
   assertEquals(multiscales.images[1].data.shape[3], 16); // x: 32/2
 });
 
-Deno.test("bin shrink isotropic scale factors", async () => {
+test("bin shrink isotropic scale factors", async () => {
   // Note: This test would normally use input_images fixture
   // For now, we'll create simple test data
   const data = new Uint8Array(256 * 256);
@@ -264,7 +263,7 @@ Deno.test("bin shrink isotropic scale factors", async () => {
   assertEquals(multiscales.images[2].data.shape[1], 64); // x: 256/4
 });
 
-Deno.test("gaussian isotropic scale factors", async () => {
+test("gaussian isotropic scale factors", async () => {
   const data = new Uint8Array(256 * 256);
   for (let i = 0; i < data.length; i++) {
     data[i] = Math.floor(Math.random() * 256);
@@ -303,7 +302,7 @@ Deno.test("gaussian isotropic scale factors", async () => {
   assertEquals(multiscales3.images.length, 3); // Original + 2 downsampled
 });
 
-Deno.test("label image isotropic scale factors", async () => {
+test("label image isotropic scale factors", async () => {
   const data = new Uint8Array(256 * 256);
   for (let i = 0; i < data.length; i++) {
     // Create label-like data with discrete values
@@ -334,7 +333,7 @@ Deno.test("label image isotropic scale factors", async () => {
   assertEquals(multiscales2.images.length, 3); // Original + 2 downsampled
 });
 
-Deno.test("itkwasm gaussian many channels (>8)", async () => {
+test("itkwasm gaussian many channels (>8)", async () => {
   // Test with 16 channels - should iterate over channels individually
   // instead of using vector mode to avoid VariableLengthVector limitations
   const numChannels = 16;
@@ -361,7 +360,7 @@ Deno.test("itkwasm gaussian many channels (>8)", async () => {
   assertEquals(multiscales.images[1].data.shape[2], 16); // x: 32/2
 });
 
-Deno.test("itkwasm gaussian few channels (<=8)", async () => {
+test("itkwasm gaussian few channels (<=8)", async () => {
   // Test with 3 channels - should use vector mode for memory efficiency
   const numChannels = 3;
   const data = new Uint16Array(numChannels * 32 * 32);
@@ -387,7 +386,7 @@ Deno.test("itkwasm gaussian few channels (<=8)", async () => {
   assertEquals(multiscales.images[1].data.shape[2], 16); // x: 32/2
 });
 
-Deno.test("itkwasm bin shrink many channels (>8)", async () => {
+test("itkwasm bin shrink many channels (>8)", async () => {
   // Test with 12 channels - should iterate over channels individually
   const numChannels = 12;
   const data = new Uint16Array(numChannels * 32 * 32);
@@ -413,7 +412,7 @@ Deno.test("itkwasm bin shrink many channels (>8)", async () => {
   assertEquals(multiscales.images[1].data.shape[2], 16); // x: 32/2
 });
 
-Deno.test("itkwasm label image many channels (>8)", async () => {
+test("itkwasm label image many channels (>8)", async () => {
   // Test with 10 channels - should iterate over channels individually
   const numChannels = 10;
   const data = new Uint8Array(numChannels * 32 * 32);
@@ -440,7 +439,7 @@ Deno.test("itkwasm label image many channels (>8)", async () => {
   assertEquals(multiscales.images[1].data.shape[2], 16); // x: 32/2
 });
 
-Deno.test("toMultiscales orientation option (preset) populates spatial axes", async () => {
+test("toMultiscales orientation option (preset) populates spatial axes", async () => {
   const data = new Uint8Array(16 * 32 * 32);
   for (let i = 0; i < data.length; i++) {
     data[i] = i % 256;
@@ -463,7 +462,7 @@ Deno.test("toMultiscales orientation option (preset) populates spatial axes", as
   assertEquals(byName.get("z")?.orientation?.value, "inferior-to-superior");
 });
 
-Deno.test("toMultiscales orientation option overrides image axesOrientations", async () => {
+test("toMultiscales orientation option overrides image axesOrientations", async () => {
   const data = new Uint8Array(16 * 32 * 32);
   for (let i = 0; i < data.length; i++) {
     data[i] = i % 256;

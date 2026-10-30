@@ -5,7 +5,8 @@
  * Ported from py/test/test_rfc4_integration.py and py/test/test_rfc4_integration_validation.py
  */
 
-import { assertEquals } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertExists } from "./_assert.ts";
 import * as zarr from "zarrita";
 import { toNgffZarr } from "../src/io/to_ngff_zarr.ts";
 import { toOmeZarr as toOmeZarrBrowser } from "../src/io/to_ngff_zarr-browser.ts";
@@ -201,9 +202,7 @@ async function readZarrAttrs(
 }
 
 // Helper to get multiscales array from attrs (handles v0.5 ome namespace and v0.4 root)
-function getNgffMultiscalesArray(
-  attrs: Record<string, unknown>,
-): unknown[] {
+function getNgffMultiscalesArray(attrs: Record<string, unknown>): unknown[] {
   if ("ome" in attrs) {
     const ome = attrs.ome as Record<string, unknown>;
     return ome.multiscales as unknown[];
@@ -211,7 +210,7 @@ function getNgffMultiscalesArray(
   return attrs.multiscales as unknown[];
 }
 
-Deno.test("toNgffZarr writes orientation automatically when present", async () => {
+test("toNgffZarr writes orientation automatically when present", async () => {
   const orientations: Record<string, AnatomicalOrientation> = {
     x: createAnatomicalOrientation(AnatomicalOrientationValues.LeftToRight),
     y: createAnatomicalOrientation(
@@ -278,7 +277,7 @@ Deno.test("toNgffZarr writes orientation automatically when present", async () =
   }
 });
 
-Deno.test("toNgffZarr omits orientation when none is present", async () => {
+test("toNgffZarr omits orientation when none is present", async () => {
   const { multiscales } = await createMultiscalesWithoutOrientation();
 
   const outputStore: MemoryStore = new Map();
@@ -304,7 +303,7 @@ Deno.test("toNgffZarr omits orientation when none is present", async () => {
 
 // Round-trip integration tests (from py/test/test_rfc4_integration_validation.py)
 
-Deno.test("Round-trip with LPS orientation - write and read back", async () => {
+test("Round-trip with LPS orientation - write and read back", async () => {
   const { multiscales } = await createMultiscalesWithOrientation(LPS);
 
   const outputStore: MemoryStore = new Map();
@@ -316,7 +315,7 @@ Deno.test("Round-trip with LPS orientation - write and read back", async () => {
   assertEquals(multiscalesBack.images.length, 1);
 });
 
-Deno.test("Round-trip with RAS orientation - write and read back", async () => {
+test("Round-trip with RAS orientation - write and read back", async () => {
   const { multiscales } = await createMultiscalesWithOrientation(RAS);
 
   const outputStore: MemoryStore = new Map();
@@ -328,7 +327,7 @@ Deno.test("Round-trip with RAS orientation - write and read back", async () => {
   assertEquals(multiscalesBack.images.length, 1);
 });
 
-Deno.test("fromNgffZarr preserves RFC 4 orientation on parsed metadata.axes", async () => {
+test("fromNgffZarr preserves RFC 4 orientation on parsed metadata.axes", async () => {
   // Regression for the read path dropping axisObj.orientation when building
   // metadata.axes: that silently turned the strict structural pass's
   // validateAxisOrientation rule into a no-op and lost orientation that the
@@ -345,14 +344,15 @@ Deno.test("fromNgffZarr preserves RFC 4 orientation on parsed metadata.axes", as
   );
 
   for (const [name, expected] of Object.entries(LPS)) {
-    const orientation = axisByName.get(name as "x" | "y" | "z")
-      ?.orientation as { type: string; value: string } | undefined;
+    const orientation = axisByName.get(name as "x" | "y" | "z")?.orientation as
+      | { type: string; value: string }
+      | undefined;
     assertEquals(orientation?.type, "anatomical");
     assertEquals(orientation?.value, expected.value);
   }
 });
 
-Deno.test("Round-trip with 5D mixed axes (t,c,z,y,x) and LPS orientation", async () => {
+test("Round-trip with 5D mixed axes (t,c,z,y,x) and LPS orientation", async () => {
   // Create with 5D dimensions
   const { multiscales } = await createMultiscalesWithOrientation(
     LPS,
@@ -369,7 +369,7 @@ Deno.test("Round-trip with 5D mixed axes (t,c,z,y,x) and LPS orientation", async
   assertEquals(multiscalesBack.images.length, 1);
 });
 
-Deno.test("Round-trip without orientation passes validation", async () => {
+test("Round-trip without orientation passes validation", async () => {
   const { multiscales } = await createMultiscalesWithoutOrientation();
 
   const outputStore: MemoryStore = new Map();
@@ -383,7 +383,7 @@ Deno.test("Round-trip without orientation passes validation", async () => {
 
 // Tests that verify orientations are extracted when reading back
 
-Deno.test("fromNgffZarr extracts LPS orientation into NgffImage.axesOrientations", async () => {
+test("fromNgffZarr extracts LPS orientation into NgffImage.axesOrientations", async () => {
   const { multiscales } = await createMultiscalesWithOrientation(LPS);
 
   const outputStore: MemoryStore = new Map();
@@ -411,7 +411,7 @@ Deno.test("fromNgffZarr extracts LPS orientation into NgffImage.axesOrientations
   );
 });
 
-Deno.test("fromNgffZarr extracts RAS orientation into NgffImage.axesOrientations", async () => {
+test("fromNgffZarr extracts RAS orientation into NgffImage.axesOrientations", async () => {
   const { multiscales } = await createMultiscalesWithOrientation(RAS);
 
   const outputStore: MemoryStore = new Map();
@@ -439,7 +439,7 @@ Deno.test("fromNgffZarr extracts RAS orientation into NgffImage.axesOrientations
   );
 });
 
-Deno.test("fromNgffZarr returns undefined axesOrientations when no orientation in metadata", async () => {
+test("fromNgffZarr returns undefined axesOrientations when no orientation in metadata", async () => {
   const { multiscales } = await createMultiscalesWithoutOrientation();
 
   const outputStore: MemoryStore = new Map();
@@ -457,7 +457,7 @@ Deno.test("fromNgffZarr returns undefined axesOrientations when no orientation i
 // orientation identically to the Node implementation -- written automatically
 // whenever it is present.
 
-Deno.test("toOmeZarr (browser) writes orientation automatically when present", async () => {
+test("toOmeZarr (browser) writes orientation automatically when present", async () => {
   const orientations: Record<string, AnatomicalOrientation> = {
     x: createAnatomicalOrientation(AnatomicalOrientationValues.LeftToRight),
     y: createAnatomicalOrientation(
@@ -508,7 +508,7 @@ Deno.test("toOmeZarr (browser) writes orientation automatically when present", a
   }
 });
 
-Deno.test("toOmeZarr (browser) omits orientation when none is present", async () => {
+test("toOmeZarr (browser) omits orientation when none is present", async () => {
   const { multiscales } = await createMultiscalesWithoutOrientation();
 
   const outputStore: MemoryStore = new Map();
@@ -532,7 +532,7 @@ Deno.test("toOmeZarr (browser) omits orientation when none is present", async ()
   }
 });
 
-Deno.test("toOmeZarr (browser) preserves axis name, type, and unit", async () => {
+test("toOmeZarr (browser) preserves axis name, type, and unit", async () => {
   // Guards the switch from raw metadata.axes to processAxes output:
   // the standard OME-Zarr axis fields must survive, and orientation present on
   // the source axes is written through.
@@ -561,7 +561,7 @@ Deno.test("toOmeZarr (browser) preserves axis name, type, and unit", async () =>
   }
 });
 
-Deno.test("toOmeZarr (browser) writes orientation under ome namespace for version 0.5", async () => {
+test("toOmeZarr (browser) writes orientation under ome namespace for version 0.5", async () => {
   const { multiscales } = await createMultiscalesWithOrientation(LPS);
 
   const outputStore: MemoryStore = new Map();
@@ -587,8 +587,9 @@ Deno.test("toOmeZarr (browser) writes orientation under ome namespace for versio
 
   // LPS x axis increases right-to-left
   const xAxis = axesMetadata.find((ax) => ax.name === "x");
+  assertExists(xAxis);
   assertEquals(
-    (xAxis?.orientation as { type: string; value: string }).value,
+    (xAxis.orientation as { type: string; value: string }).value,
     "right-to-left",
   );
 });

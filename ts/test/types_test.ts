@@ -1,13 +1,14 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
-import { assertEquals, assertThrows } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertThrows } from "./_assert.ts";
 import * as zarr from "zarrita";
 import { NgffImage } from "../src/types/ngff_image.ts";
 import { NgffMultiscales } from "../src/types/multiscales.ts";
 import { Methods } from "../src/types/methods.ts";
 import { validateColor } from "../src/types/zarr_metadata.ts";
 
-Deno.test("zarr.Array creation for NgffImage", async () => {
+test("zarr.Array creation for NgffImage", async () => {
   const store = new Map<string, Uint8Array>();
   const root = zarr.root(store);
 
@@ -23,7 +24,7 @@ Deno.test("zarr.Array creation for NgffImage", async () => {
   assertEquals(zarrArray.path, "/test_array");
 });
 
-Deno.test("NgffImage creation", async () => {
+test("NgffImage creation", async () => {
   const store = new Map<string, Uint8Array>();
   const root = zarr.root(store);
 
@@ -51,7 +52,7 @@ Deno.test("NgffImage creation", async () => {
   assertEquals(ngffImage.computedCallbacks.length, 0);
 });
 
-Deno.test("NgffImage with axes units", async () => {
+test("NgffImage with axes units", async () => {
   const store = new Map<string, Uint8Array>();
   const root = zarr.root(store);
 
@@ -78,7 +79,7 @@ Deno.test("NgffImage with axes units", async () => {
   });
 });
 
-Deno.test("NgffMultiscales creation", async () => {
+test("NgffMultiscales creation", async () => {
   const store = new Map<string, Uint8Array>();
   const root = zarr.root(store);
 
@@ -131,7 +132,7 @@ Deno.test("NgffMultiscales creation", async () => {
   assertEquals(multiscales.method, Methods.ITKWASM_GAUSSIAN);
 });
 
-Deno.test("validateColor function", () => {
+test("validateColor function", () => {
   validateColor("FF0000");
   validateColor("00FF00");
   validateColor("0000FF");

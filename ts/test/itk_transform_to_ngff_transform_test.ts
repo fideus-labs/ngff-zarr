@@ -10,7 +10,8 @@
  * axis reversal or the center-of-rotation algebra breaks it.
  */
 
-import { assertAlmostEquals, assertEquals, assertThrows } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertAlmostEquals, assertEquals, assertThrows } from "./_assert.ts";
 import type { Transform } from "itk-wasm";
 import {
   createAffine,
@@ -29,7 +30,14 @@ const ROUND_TRIP_CASES: Array<[string, V06Transform, string[]]> = [
   ["identity", createIdentity(), ["y", "x"]],
   ["translation", createTranslation([5, 10]), ["y", "x"]],
   ["scale", createScale([2, 3, 4]), ["z", "y", "x"]],
-  ["affine 2d", createAffine([[0.8, -0.6, 10], [0.6, 0.8, -4]]), ["y", "x"]],
+  [
+    "affine 2d",
+    createAffine([
+      [0.8, -0.6, 10],
+      [0.6, 0.8, -4],
+    ]),
+    ["y", "x"],
+  ],
   [
     "sheared affine 3d",
     createAffine([
@@ -41,10 +49,7 @@ const ROUND_TRIP_CASES: Array<[string, V06Transform, string[]]> = [
   ],
   [
     "sequence",
-    createTransformSequence([
-      createTranslation([0, 10]),
-      createScale([1, 2]),
-    ]),
+    createTransformSequence([createTranslation([0, 10]), createScale([1, 2])]),
     ["y", "x"],
   ],
   [
@@ -60,7 +65,7 @@ const ROUND_TRIP_CASES: Array<[string, V06Transform, string[]]> = [
 ];
 
 for (const [name, transform, dims] of ROUND_TRIP_CASES) {
-  Deno.test(`round trip preserves the mapping: ${name}`, () => {
+  test(`round trip preserves the mapping: ${name}`, () => {
     const expected = ngffTransformToItkMatrix(transform, dims);
 
     const converted = itkTransformToNgffTransform(
@@ -71,11 +76,11 @@ for (const [name, transform, dims] of ROUND_TRIP_CASES) {
     const actual = ngffTransformToItkMatrix(converted, dims);
     actual.matrix.forEach((row, i) =>
       row.forEach((value, j) =>
-        assertAlmostEquals(value, expected.matrix[i][j], 1e-9)
-      )
+        assertAlmostEquals(value, expected.matrix[i][j], 1e-9),
+      ),
     );
     actual.offset.forEach((value, i) =>
-      assertAlmostEquals(value, expected.offset[i], 1e-9)
+      assertAlmostEquals(value, expected.offset[i], 1e-9),
     );
   });
 }
@@ -88,11 +93,17 @@ const SIMPLIFY_CASES: Array<[V06Transform, string]> = [
     createTransformSequence([createScale([2, 3]), createTranslation([1, 2])]),
     "sequence",
   ],
-  [createAffine([[0.8, -0.6, 0], [0.6, 0.8, 0]]), "affine"],
+  [
+    createAffine([
+      [0.8, -0.6, 0],
+      [0.6, 0.8, 0],
+    ]),
+    "affine",
+  ],
 ];
 
 for (const [transform, expectedType] of SIMPLIFY_CASES) {
-  Deno.test(`simplify returns the least expressive form: ${expectedType}`, () => {
+  test(`simplify returns the least expressive form: ${expectedType}`, () => {
     const dims = ["y", "x"];
     const converted = itkTransformToNgffTransform(
       ngffTransformToItkTransform(transform, dims),
@@ -102,7 +113,7 @@ for (const [transform, expectedType] of SIMPLIFY_CASES) {
   });
 }
 
-Deno.test("a mirror does not simplify to a scale", () => {
+test("a mirror does not simplify to a scale", () => {
   // RFC-5 requires strictly positive scale factors. A flip is diagonal, so a
   // sign-blind simplifier calls it a `scale` and writes metadata the 0.6
   // schema rejects. An LPS to RAS flip is an ordinary registration result.
@@ -124,7 +135,7 @@ Deno.test("a mirror does not simplify to a scale", () => {
   );
 });
 
-Deno.test("simplify can be disabled", () => {
+test("simplify can be disabled", () => {
   const dims = ["y", "x"];
   const converted = itkTransformToNgffTransform(
     ngffTransformToItkTransform(createIdentity(), dims),
@@ -133,7 +144,10 @@ Deno.test("simplify can be disabled", () => {
   );
   assertEquals(converted.type, "affine");
   if (converted.type !== "affine") throw new Error("expected an affine");
-  assertEquals(converted.affine, [[1, 0, 0], [0, 1, 0]]);
+  assertEquals(converted.affine, [
+    [1, 0, 0],
+    [0, 1, 0],
+  ]);
 });
 
 /** Build an ITK-Wasm transform entry by hand. */
@@ -161,7 +175,7 @@ function entry(
   } as unknown as Transform;
 }
 
-Deno.test("mismatched ITK-Wasm dimensionality is rejected", () => {
+test("mismatched ITK-Wasm dimensionality is rejected", () => {
   // Without the parameter-count check, a 3D affine decoded against 2D dims
   // silently projects, and a 2D affine against 3D dims fills the result with
   // NaN, which JSON.stringify writes into the store as null.
@@ -186,7 +200,7 @@ Deno.test("mismatched ITK-Wasm dimensionality is rejected", () => {
   }
 });
 
-Deno.test("a composite entry is refused at any position", () => {
+test("a composite entry is refused at any position", () => {
   // A parameterless 'Composite' entry is ambiguous: the pipeline writes one
   // as a grouping header, but itk.dict_from_transform emits one only for a
   // NESTED composite whose children it dropped. Skipping a leading one
@@ -205,11 +219,15 @@ Deno.test("a composite entry is refused at any position", () => {
   }
 });
 
-Deno.test("non-canonical spatial order converts by name", () => {
+test("non-canonical spatial order converts by name", () => {
   // ITK's first component is x by name, not whichever axis dims lists last.
   const wasm = entry("Translation", [7, 5, 1], [], 3);
 
-  for (const dims of [["z", "y", "x"], ["z", "x", "y"], ["x", "y", "z"]]) {
+  for (const dims of [
+    ["z", "y", "x"],
+    ["z", "x", "y"],
+    ["x", "y", "z"],
+  ]) {
     const { offset } = itkTransformToNgffMatrix(wasm, dims);
     const named = Object.fromEntries(dims.map((dim, i) => [dim, offset[i]]));
     assertEquals(named, { x: 7, y: 5, z: 1 });
@@ -217,21 +235,28 @@ Deno.test("non-canonical spatial order converts by name", () => {
 
   // The reverse direction inverts it exactly, in every spelling.
   const byName: Record<string, number> = { x: 7, y: 5, z: 1 };
-  for (const dims of [["z", "y", "x"], ["z", "x", "y"], ["x", "y", "z"]]) {
+  for (const dims of [
+    ["z", "y", "x"],
+    ["z", "x", "y"],
+    ["x", "y", "z"],
+  ]) {
     const translation = createTranslation(dims.map((dim) => byName[dim]));
     const { offset } = ngffTransformToItkMatrix(translation, dims);
     assertEquals(offset, [7, 5, 1]);
   }
 });
 
-Deno.test("a transform list composes its last entry first", () => {
+test("a transform list composes its last entry first", () => {
   // ITK order (x, y): shift x by 10, and scale by 2.
   const shift = entry("Translation", [10, 0]);
   const scaling = entry("Affine", [2, 0, 0, 2, 0, 0], [0, 0]);
 
   // [shift, scaling] means shift(scaling(p)) = 2p + 10.
   const forward = itkTransformToNgffMatrix([shift, scaling], ["y", "x"]);
-  assertEquals(forward.matrix, [[2, 0], [0, 2]]);
+  assertEquals(forward.matrix, [
+    [2, 0],
+    [0, 2],
+  ]);
   assertEquals(forward.offset, [0, 10]); // reversed to (y, x)
 
   // The other order means scaling(shift(p)) = 2(p + 10) = 2p + 20.
@@ -239,10 +264,13 @@ Deno.test("a transform list composes its last entry first", () => {
   assertEquals(reversed.offset, [0, 20]);
 });
 
-Deno.test("the ITK center of rotation is folded into the offset", () => {
+test("the ITK center of rotation is folded into the offset", () => {
   // An RFC-5 affine has no center, so ITK's must be absorbed:
   // b = t + c - A c.
-  const matrix = [[0.8, -0.6], [0.6, 0.8]];
+  const matrix = [
+    [0.8, -0.6],
+    [0.6, 0.8],
+  ];
   const center = [9.5, 4.5];
   const translation = [10, 10];
   const affine = entry(
@@ -253,16 +281,18 @@ Deno.test("the ITK center of rotation is folded into the offset", () => {
 
   const { offset } = itkTransformToNgffMatrix(affine, ["y", "x"]);
 
-  const expectedItk = translation.map((value, row) =>
-    value + center[row] -
-    (matrix[row][0] * center[0] + matrix[row][1] * center[1])
+  const expectedItk = translation.map(
+    (value, row) =>
+      value +
+      center[row] -
+      (matrix[row][0] * center[0] + matrix[row][1] * center[1]),
   );
   // ITK order (x, y) reverses to NGFF order (y, x).
   assertAlmostEquals(offset[0], expectedItk[1], 1e-9);
   assertAlmostEquals(offset[1], expectedItk[0], 1e-9);
 });
 
-Deno.test("an angle-based parameterization is refused with guidance", () => {
+test("an angle-based parameterization is refused with guidance", () => {
   const euler = entry("Euler2D", [0.3, 5, -2]);
   assertThrows(
     () => itkTransformToNgffMatrix(euler, ["y", "x"]),
@@ -271,7 +301,7 @@ Deno.test("an angle-based parameterization is refused with guidance", () => {
   );
 });
 
-Deno.test("a deformation is refused as a deformation, not as a matrix gap", () => {
+test("a deformation is refused as a deformation, not as a matrix gap", () => {
   // "Convert it to an Affine transform first" is not advice that applies to a
   // deformation: it has no affine equivalent at all. A displacement field is
   // sent to its own conversion; any other deformation to the RFC-5 field
@@ -292,15 +322,18 @@ Deno.test("a deformation is refused as a deformation, not as a matrix gap", () =
   );
 });
 
-Deno.test("a scale transform decodes", () => {
+test("a scale transform decodes", () => {
   const scaling = entry("Scale", [2, 3]);
   const { matrix, offset } = itkTransformToNgffMatrix(scaling, ["y", "x"]);
   // Reversed from ITK (x, y) to NGFF (y, x).
-  assertEquals(matrix, [[3, 0], [0, 2]]);
+  assertEquals(matrix, [
+    [3, 0],
+    [0, 2],
+  ]);
   assertEquals(offset, [0, 0]);
 });
 
-Deno.test("a scale transform's center is folded into the offset", () => {
+test("a scale transform's center is folded into the offset", () => {
   // itk.ScaleTransform scales about its center like an affine does, so its
   // fixed parameters cannot be ignored: y = S (x - c) + c, which is
   // y = S x + (c - S c). Reading the parameters alone would put the image at
@@ -312,11 +345,14 @@ Deno.test("a scale transform's center is folded into the offset", () => {
   const { matrix, offset } = itkTransformToNgffMatrix(scaling, ["y", "x"]);
 
   // ITK order (x, y): (10 - 2*10, 20 - 3*20) = (-10, -40).
-  assertEquals(matrix, [[3, 0], [0, 2]]);
+  assertEquals(matrix, [
+    [3, 0],
+    [0, 2],
+  ]);
   assertEquals(offset, [-40, -10]); // reversed to NGFF order (y, x)
 });
 
-Deno.test("a component on a non-spatial axis alone is projected away", () => {
+test("a component on a non-spatial axis alone is projected away", () => {
   // ITK has no non-spatial axis, so a frame interval on t has nowhere to go.
   // Dropping it leaves the spatial mapping exact, which is all an ITK
   // transform describes. This pins that as a decision rather than an accident;
@@ -329,7 +365,10 @@ Deno.test("a component on a non-spatial axis alone is projected away", () => {
     ["t", "c", "y", "x"],
   );
 
-  assertEquals(matrix, [[2, 0], [0, 2]]); // ITK order (x, y)
+  assertEquals(matrix, [
+    [2, 0],
+    [0, 2],
+  ]); // ITK order (x, y)
   assertEquals(offset, [-4, 3]);
 
   assertThrows(
@@ -348,7 +387,7 @@ Deno.test("a component on a non-spatial axis alone is projected away", () => {
   );
 });
 
-Deno.test("an empty transform list is rejected", () => {
+test("an empty transform list is rejected", () => {
   assertThrows(
     () => itkTransformToNgffMatrix([], ["y", "x"]),
     Error,
@@ -356,7 +395,7 @@ Deno.test("an empty transform list is rejected", () => {
   );
 });
 
-Deno.test("a coordinate system without spatial axes is rejected", () => {
+test("a coordinate system without spatial axes is rejected", () => {
   assertThrows(
     () => itkTransformToNgffMatrix(entry("Translation", [1, 2]), ["t", "c"]),
     Error,

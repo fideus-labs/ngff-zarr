@@ -40,8 +40,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** Whether `value` is a transformation object rather than an image or a scene. */
 export function isV06Transform(value: unknown): value is V06Transform {
-  return isRecord(value) && typeof value.type === "string" &&
-    !(value instanceof NgffMultiscales) && !(value instanceof NgffScene);
+  return (
+    isRecord(value) &&
+    typeof value.type === "string" &&
+    !(value instanceof NgffMultiscales) &&
+    !(value instanceof NgffScene)
+  );
 }
 
 /** Whether `rootAttrs` is the root document of a transformation store. */
@@ -49,8 +53,12 @@ export function hasTransformationMetadata(
   rootAttrs: Record<string, unknown>,
 ): boolean {
   const ome = rootAttrs.ome;
-  return isRecord(ome) && "coordinateTransformations" in ome &&
-    !("multiscales" in ome) && !("scene" in ome);
+  return (
+    isRecord(ome) &&
+    "coordinateTransformations" in ome &&
+    !("multiscales" in ome) &&
+    !("scene" in ome)
+  );
 }
 
 export interface WriteTransformationOptions {
@@ -94,9 +102,9 @@ export async function writeTransformation(
   }
   if (fields.length > 0 && (options.overwrite ?? true)) {
     throw new Error(
-      `The transformation references the nodes ${
-        JSON.stringify(fields)
-      }; write those first with toOmeZarr() below the store, then the ` +
+      `The transformation references the nodes ${JSON.stringify(
+        fields,
+      )}; write those first with toOmeZarr() below the store, then the ` +
         "transformation with overwrite: false so they are kept.",
     );
   }
@@ -153,8 +161,9 @@ export async function transformationToOzx(
   const store = new Map<string, Uint8Array>();
   await writeTransformation(store as unknown as zarr.Mutable, transform, {
     version,
-    ...(options.consolidateMetadata !== undefined &&
-      { consolidateMetadata: options.consolidateMetadata }),
+    ...(options.consolidateMetadata !== undefined && {
+      consolidateMetadata: options.consolidateMetadata,
+    }),
   });
   return memoryStoreToZip(store, { version });
 }

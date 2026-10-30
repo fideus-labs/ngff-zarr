@@ -1,9 +1,10 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals } from "./_assert.ts";
 import { toNgffImage } from "../src/io/to_ngff_image.ts";
 import { toMultiscales } from "../src/process/to_multiscales-node.ts";
 import { Methods } from "../src/types/methods.ts";
 
-Deno.test("support Int8Array", async () => {
+test("support Int8Array", async () => {
   const data = new Int8Array(256 * 256);
   for (let i = 0; i < data.length; i++) {
     data[i] = (i % 128) - 64;
@@ -26,7 +27,7 @@ Deno.test("support Int8Array", async () => {
   assertEquals(multiscales.images[1].data.shape[1], 128);
 });
 
-Deno.test("support Uint32Array", async () => {
+test("support Uint32Array", async () => {
   const data = new Uint32Array(128 * 128);
   for (let i = 0; i < data.length; i++) {
     data[i] = i * 1000;
@@ -49,7 +50,7 @@ Deno.test("support Uint32Array", async () => {
   assertEquals(multiscales.images[1].data.shape[1], 64);
 });
 
-Deno.test("support Int32Array", async () => {
+test("support Int32Array", async () => {
   const data = new Int32Array(128 * 128);
   for (let i = 0; i < data.length; i++) {
     data[i] = i - 8192;
@@ -72,7 +73,7 @@ Deno.test("support Int32Array", async () => {
   assertEquals(multiscales.images[1].data.shape[1], 64);
 });
 
-Deno.test("support Float64Array", async () => {
+test("support Float64Array", async () => {
   const data = new Float64Array(128 * 128);
   for (let i = 0; i < data.length; i++) {
     data[i] = Math.sin(i / 100.0) * 1000.0;

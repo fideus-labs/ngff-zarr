@@ -10,7 +10,8 @@
  * function rules out leaves a plausible-looking field behind.
  */
 
-import { assertEquals, assertThrows } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertThrows } from "./_assert.ts";
 import * as zarr from "zarrita";
 import {
   type CoordinateSystem,
@@ -69,7 +70,7 @@ function multiscalesOf(image: NgffImage, systems?: CoordinateSystem[]) {
   });
 }
 
-Deno.test("a standalone declaration names a system mapped onto itself", async () => {
+test("a standalone declaration names a system mapped onto itself", async () => {
   const declared = declareFieldTransform(multiscalesOf(await fieldImage()));
   const entries = declared.metadata.coordinateTransformations ?? [];
   assertEquals(entries.length, 1);
@@ -84,30 +85,33 @@ Deno.test("a standalone declaration names a system mapped onto itself", async ()
   const physical = (declared.metadata.coordinateSystems ?? []).find(
     (system) => system.name === "physical",
   );
-  assertEquals(physical?.axes.map((axis) => axis.name), ["z", "y", "x"]);
+  assertEquals(
+    physical?.axes.map((axis) => axis.name),
+    ["z", "y", "x"],
+  );
 });
 
-Deno.test("declaring appends and leaves the argument alone", async () => {
+test("declaring appends and leaves the argument alone", async () => {
   const multiscales = multiscalesOf(await fieldImage());
   const once = declareFieldTransform(multiscales);
   const twice = declareFieldTransform(once, { interpolation: "nearest" });
   assertEquals(
-    (twice.metadata.coordinateTransformations ?? []).map((entry) =>
-      (entry as { interpolation?: string }).interpolation
+    (twice.metadata.coordinateTransformations ?? []).map(
+      (entry) => (entry as { interpolation?: string }).interpolation,
     ),
     ["linear", "nearest"],
   );
   // The spatial system is declared once, not once per call.
   assertEquals(
-    (twice.metadata.coordinateSystems ?? []).filter((system) =>
-      system.name === "physical"
+    (twice.metadata.coordinateSystems ?? []).filter(
+      (system) => system.name === "physical",
     ).length,
     1,
   );
   assertEquals(multiscales.metadata.coordinateTransformations, undefined);
 });
 
-Deno.test("a declaration beside the image references its systems", async () => {
+test("a declaration beside the image references its systems", async () => {
   const axes = ["z", "y", "x"].map((name) => ({
     name,
     type: "space",
@@ -129,7 +133,7 @@ Deno.test("a declaration beside the image references its systems", async () => {
   assertEquals(entry.output?.name, "moving");
 });
 
-Deno.test("a named system that is not declared is refused", async () => {
+test("a named system that is not declared is refused", async () => {
   const multiscales = multiscalesOf(await fieldImage());
   assertThrows(
     () =>
@@ -142,7 +146,7 @@ Deno.test("a named system that is not declared is refused", async () => {
   );
 });
 
-Deno.test("a path without named systems is refused", async () => {
+test("a path without named systems is refused", async () => {
   // With path the field is elsewhere: deriving a system from the image's own
   // axes would declare a transform over the wrong space.
   const multiscales = multiscalesOf(await fieldImage());
@@ -153,7 +157,7 @@ Deno.test("a path without named systems is refused", async () => {
   );
 });
 
-Deno.test("one-sided system naming is refused", async () => {
+test("one-sided system naming is refused", async () => {
   const multiscales = multiscalesOf(await fieldImage());
   assertThrows(
     () => declareFieldTransform(multiscales, { inputSystem: "fixed" }),
@@ -162,7 +166,7 @@ Deno.test("one-sided system naming is refused", async () => {
   );
 });
 
-Deno.test("a field without a typed component axis is refused", async () => {
+test("a field without a typed component axis is refused", async () => {
   const multiscales = multiscalesOf(await fieldImage([3, 4, 5, 6], DIMS, {}));
   assertThrows(
     () => declareFieldTransform(multiscales),
@@ -171,7 +175,7 @@ Deno.test("a field without a typed component axis is refused", async () => {
   );
 });
 
-Deno.test("a non-spatial axis is refused", async () => {
+test("a non-spatial axis is refused", async () => {
   // A field transform is spatial: relabelling a time axis "space" declares a
   // transform the package's own converter then refuses to apply.
   const multiscales = multiscalesOf(
@@ -184,7 +188,7 @@ Deno.test("a non-spatial axis is refused", async () => {
   );
 });
 
-Deno.test("a component count that misses an axis is refused", async () => {
+test("a component count that misses an axis is refused", async () => {
   const multiscales = multiscalesOf(await fieldImage([2, 4, 5, 6]));
   assertThrows(
     () => declareFieldTransform(multiscales),
@@ -193,7 +197,7 @@ Deno.test("a component count that misses an axis is refused", async () => {
   );
 });
 
-Deno.test("a transform type off the prototype chain is refused", async () => {
+test("a transform type off the prototype chain is refused", async () => {
   // `transformType in COMPONENT_TYPES` is true for "toString", which a JS
   // caller is free to pass: the table then yields a function where the axis
   // type belongs, and with `path` the name lands in the entry's own `type`.
@@ -210,7 +214,7 @@ Deno.test("a transform type off the prototype chain is refused", async () => {
   }
 });
 
-Deno.test("a declared system that is not spatial is refused", async () => {
+test("a declared system that is not spatial is refused", async () => {
   // The names line up, so the arity check passes; the types do not, and the
   // transform would map over a system the converter refuses to apply.
   const multiscales = multiscalesOf(await fieldImage([3, 4, 5, 6]));
@@ -232,7 +236,7 @@ Deno.test("a declared system that is not spatial is refused", async () => {
   );
 });
 
-Deno.test("named systems of different dimension are refused", async () => {
+test("named systems of different dimension are refused", async () => {
   // With `path` the field's shape is elsewhere, but the two systems can be
   // checked against each other: the converter builds one dimension for both
   // ends, so a 2D input against a 3D output is unapplicable.

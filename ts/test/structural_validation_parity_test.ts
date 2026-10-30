@@ -3,7 +3,7 @@
 /**
  * Parity/manifest test locking the observable structural-validation surface.
  *
- * This is the Deno mirror of `py/test/test_structural_validation_parity.py`. It
+ * This is the TypeScript mirror of `py/test/test_structural_validation_parity.py`. It
  * pins the *cross-language contract* shared by the TypeScript and Python ports:
  * the exact set and ordering of {@link SpecRule} identifiers, their
  * lower-kebab-case format, the fail-fast evaluation order of the
@@ -31,7 +31,8 @@
  * `ngff_zarr.v04.zarr_metadata`.
  */
 
-import { assertEquals, assertMatch, assertThrows } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertMatch, assertThrows } from "./_assert.ts";
 import {
   SpecRule,
   SUPPORTED_VERSIONS,
@@ -79,17 +80,15 @@ const CANONICAL_SPEC_RULE_IDS: string[] = [
 // identical literal list appears in the Python twin. axis-names-unique is
 // deliberately absent: RFC-3 adds that rule rather than lifting it, so it is
 // never inert (see docs/validation/rule-reference.md).
-const CANONICAL_RFC3_VERSIONS: string[] = [
-  "0.9.dev1",
-];
+const CANONICAL_RFC3_VERSIONS: string[] = ["0.9.dev1"];
 
 // Every other supported version, plus the no-version default, must enforce the
 // axis rules. Read off SUPPORTED_VERSIONS so a newly supported version has to
 // be classified here rather than silently defaulting to "restricted".
 const NON_RFC3_VERSIONS: (string | undefined)[] = [
-  ...SUPPORTED_VERSIONS
-    .map((version) => version as string)
-    .filter((version) => !CANONICAL_RFC3_VERSIONS.includes(version)),
+  ...SUPPORTED_VERSIONS.map((version) => version as string).filter(
+    (version) => !CANONICAL_RFC3_VERSIONS.includes(version),
+  ),
   undefined,
 ];
 
@@ -100,16 +99,14 @@ const NON_RFC3_VERSIONS: (string | undefined)[] = [
 // the axis restrictions at 0.9.dev1 while RFC-4 *adds* the orientation
 // requirements, so the rules are inert below these versions. No version at all
 // keeps them on, as a strictness choice (like axis-names-unique).
-const CANONICAL_RFC4_VERSIONS: string[] = [
-  "0.9.dev1",
-];
+const CANONICAL_RFC4_VERSIONS: string[] = ["0.9.dev1"];
 
 // Every other supported version must leave the orientation rules inert. Read
 // off SUPPORTED_VERSIONS so a newly supported version has to be classified
 // here rather than silently defaulting to either side.
-const PRE_RFC4_VERSIONS: string[] = SUPPORTED_VERSIONS
-  .map((version) => version as string)
-  .filter((version) => !CANONICAL_RFC4_VERSIONS.includes(version));
+const PRE_RFC4_VERSIONS: string[] = SUPPORTED_VERSIONS.map(
+  (version) => version as string,
+).filter((version) => !CANONICAL_RFC4_VERSIONS.includes(version));
 
 // The canonical fail-fast evaluation order of the image/multiscales
 // orchestrator (validateStructural). Each entry is the SpecRule the
@@ -213,7 +210,7 @@ function firstViolatedRule(metadata: Metadata): SpecRule {
 // Manifest: the locked SpecRule set, ordering, and format
 // ---------------------------------------------------------------------------
 
-Deno.test("SpecRule manifest is locked to the canonical identifier set", () => {
+test("SpecRule manifest is locked to the canonical identifier set", () => {
   const ruleValues: string[] = Object.values(SpecRule);
   // The exact set must equal the canonical manifest: adding, removing, or
   // renaming a rule must be a deliberate edit to CANONICAL_SPEC_RULE_IDS.
@@ -225,7 +222,7 @@ Deno.test("SpecRule manifest is locked to the canonical identifier set", () => {
   assertEquals(new Set(ruleValues).size, CANONICAL_SPEC_RULE_IDS.length);
 });
 
-Deno.test("SpecRule identifiers are lower-kebab-case", () => {
+test("SpecRule identifiers are lower-kebab-case", () => {
   // Each identifier is one or more lowercase ASCII words joined by hyphens.
   // The anchored RegExp.test is the equivalent of Python's re.fullmatch with
   // the identical pattern body `[a-z]+(-[a-z]+)*`.
@@ -235,7 +232,7 @@ Deno.test("SpecRule identifiers are lower-kebab-case", () => {
   }
 });
 
-Deno.test("ValidationLevel manifest and default", () => {
+test("ValidationLevel manifest and default", () => {
   const levelValues: string[] = Object.values(ValidationLevel);
   // Exactly two levels, with the documented string values...
   assertEquals(new Set(levelValues), new Set(["schema_only", "strict"]));
@@ -249,9 +246,7 @@ Deno.test("ValidationLevel manifest and default", () => {
   // rules and rejects an invalid metadata, while schema_only skips them.
   const invalid: Metadata = {
     axes: [{ name: "x", type: "space", unit: undefined }],
-    datasets: [
-      { path: "0", coordinateTransformations: [createScale([1.0])] },
-    ],
+    datasets: [{ path: "0", coordinateTransformations: [createScale([1.0])] }],
     coordinateTransformations: undefined,
     omero: undefined,
     name: "image",
@@ -266,7 +261,7 @@ Deno.test("ValidationLevel manifest and default", () => {
 // Orchestrator evaluation order (fail-fast, canonical spec-MUST order)
 // ---------------------------------------------------------------------------
 
-Deno.test("validateStructural evaluates rules in canonical order", () => {
+test("validateStructural evaluates rules in canonical order", () => {
   // Starts from metadata that violates the earliest rule *and* every later
   // rule, then repairs exactly one rule at a time. Because each repair leaves
   // all later violations intact, the rule raised at each step proves that rule
@@ -419,11 +414,14 @@ Deno.test("validateStructural evaluates rules in canonical order", () => {
 function rfc3AxisMetadata(): Metadata {
   const names = ["a", "b", "c", "d", "e", "f"];
   return {
-    axes: names.map((name) => ({
-      name,
-      type: "space",
-      unit: undefined,
-    } as Axis)),
+    axes: names.map(
+      (name) =>
+        ({
+          name,
+          type: "space",
+          unit: undefined,
+        }) as Axis,
+    ),
     datasets: [
       {
         path: "0",
@@ -440,7 +438,7 @@ function rfc3AxisMetadata(): Metadata {
   };
 }
 
-Deno.test("RFC-3 version manifest is locked", () => {
+test("RFC-3 version manifest is locked", () => {
   // Inert at exactly the manifest versions...
   for (const version of CANONICAL_RFC3_VERSIONS) {
     validateStructural(rfc3AxisMetadata(), undefined, version);
@@ -487,7 +485,7 @@ function repeatedNameMetadata(): Metadata {
   };
 }
 
-Deno.test("axis-names-unique is never inert", () => {
+test("axis-names-unique is never inert", () => {
   // RFC-3 *adds* this rule rather than lifting one, so unlike the other four
   // axis rules it fires at the RFC-3 versions too -- and at every other.
   for (const version of [...CANONICAL_RFC3_VERSIONS, ...NON_RFC3_VERSIONS]) {
@@ -577,7 +575,7 @@ const RFC4_ORIENTATION_CASES: Array<[() => Axis[], SpecRule]> = [
   [duplicateAnatomicalAxisAxes, SpecRule.AxisOrientationUniqueAxis],
 ];
 
-Deno.test("RFC-4 orientation version manifest is locked", () => {
+test("RFC-4 orientation version manifest is locked", () => {
   for (const [buildAxes, rule] of RFC4_ORIENTATION_CASES) {
     // Enforced at the manifest versions, and when no version is given...
     for (const version of [...CANONICAL_RFC4_VERSIONS, undefined]) {

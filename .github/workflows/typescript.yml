@@ -24,35 +24,31 @@ jobs:
           manifest-path: ./py/pyproject.toml
           frozen: true
 
-      - name: Install deno
-        uses: denoland/setup-deno@v2
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          deno-version: v2.x
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ts/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ts
 
       - name: Download test data
         run: pixi run -e test download-test-data
         working-directory: py
 
-      - name: Normalize line endings
-        run: pixi run fmt
-        working-directory: ts
-
-      - name: Build TypeScript package
-        run: pixi run build
-        working-directory: ts
-
-      - name: Build JavaScript package
-        run: pixi run build-npm
+      - name: Build package
+        run: npm run build:bundle
         working-directory: ts
 
       - name: Install browsers for playwright tests
-        run: |
-          npm install
-          npx playwright install --with-deps
-        working-directory: ts/test/browser-npm
+        run: npx playwright install --with-deps
+        working-directory: ts
 
       - name: Run all tests
-        run: pixi run test-all
+        run: npm run test:all
         working-directory: ts
 
       - name: Upload test results
@@ -60,7 +56,7 @@ jobs:
         if: failure()
         with:
           name: test-results-${{ matrix.os }}
-          path: ts/test-results/
+          path: ts/test/browser-npm/test-results/
           retention-days: 7
 
   lint-and-format:
@@ -69,26 +65,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup pixi
-        uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          pixi-version: v0.69.0
-          manifest-path: ./py/pyproject.toml
-          frozen: true
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ts/package-lock.json
 
-      - name: Install deno
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ts
 
       - name: Check formatting
-        run: pixi run fmt-check
+        run: npm run fmt:check
         working-directory: ts
 
       - name: Run linter
-        run: pixi run lint-check
+        run: npm run lint
         working-directory: ts
 
       - name: Type check
-        run: pixi run typecheck
+        run: npm run typecheck
         working-directory: ts

@@ -1,11 +1,10 @@
-#!/usr/bin/env -S deno test --allow-read --allow-write
-
 /**
  * Test the multiscales metadata field functionality.
  * TypeScript equivalent of the Python test_multiscales_metadata.py
  */
 
-import { assertEquals, assertExists } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertExists } from "./_assert.ts";
 import * as zarr from "zarrita";
 import { Methods } from "../src/types/methods.ts";
 import {
@@ -26,7 +25,7 @@ async function createTestImage(
   return await toNgffImage(data, { dims: ["y", "x"], shape: [ySize, xSize] });
 }
 
-Deno.test("multiscales metadata field is populated correctly", async () => {
+test("multiscales metadata field is populated correctly", async () => {
   // Create a simple test image
   const image = await createTestImage(64, 64);
 
@@ -72,7 +71,7 @@ Deno.test("multiscales metadata field is populated correctly", async () => {
   }
 });
 
-Deno.test("multiscales metadata is correctly serialized to zarr", async () => {
+test("multiscales metadata is correctly serialized to zarr", async () => {
   const image = await createTestImage(64, 64);
 
   const store: MemoryStore = new Map();
@@ -90,9 +89,8 @@ Deno.test("multiscales metadata is correctly serialized to zarr", async () => {
   const attrs = rootGroup.attrs as Record<string, unknown>;
 
   // v0.5 stores multiscales under "ome", v0.4 at root
-  const omeAttrs = "ome" in attrs
-    ? (attrs.ome as Record<string, unknown>)
-    : attrs;
+  const omeAttrs =
+    "ome" in attrs ? (attrs.ome as Record<string, unknown>) : attrs;
   const multiscalesArray = omeAttrs.multiscales as unknown[];
   assertEquals(
     Array.isArray(multiscalesArray),
@@ -145,57 +143,54 @@ Deno.test("multiscales metadata is correctly serialized to zarr", async () => {
   );
 });
 
-Deno.test(
-  "multiscales metadata round-trip: save to zarr and load back",
-  async () => {
-    const image = await createTestImage(32, 32);
+test("multiscales metadata round-trip: save to zarr and load back", async () => {
+  const image = await createTestImage(32, 32);
 
-    const store: MemoryStore = new Map();
+  const store: MemoryStore = new Map();
 
-    // Create and save multiscales
-    const originalMultiscales = await toMultiscales(image, {
-      scaleFactors: [2],
-      method: Methods.ITKWASM_GAUSSIAN,
-    });
-    await toNgffZarr(store, originalMultiscales);
+  // Create and save multiscales
+  const originalMultiscales = await toMultiscales(image, {
+    scaleFactors: [2],
+    method: Methods.ITKWASM_GAUSSIAN,
+  });
+  await toNgffZarr(store, originalMultiscales);
 
-    // Load back
-    const loadedMultiscales = await fromNgffZarr(store);
+  // Load back
+  const loadedMultiscales = await fromNgffZarr(store);
 
-    // Compare metadata
-    assertExists(
-      loadedMultiscales.metadata.metadata,
-      "loaded metadata should exist",
+  // Compare metadata
+  assertExists(
+    loadedMultiscales.metadata.metadata,
+    "loaded metadata should exist",
+  );
+  assertExists(
+    originalMultiscales.metadata.metadata,
+    "original metadata should exist",
+  );
+
+  if (
+    loadedMultiscales.metadata.metadata &&
+    originalMultiscales.metadata.metadata
+  ) {
+    assertEquals(
+      loadedMultiscales.metadata.metadata.description,
+      originalMultiscales.metadata.metadata.description,
+      "descriptions should match",
     );
-    assertExists(
-      originalMultiscales.metadata.metadata,
-      "original metadata should exist",
+    assertEquals(
+      loadedMultiscales.metadata.metadata.method,
+      originalMultiscales.metadata.metadata.method,
+      "methods should match",
     );
+    assertEquals(
+      loadedMultiscales.metadata.metadata.version,
+      originalMultiscales.metadata.metadata.version,
+      "versions should match",
+    );
+  }
+});
 
-    if (
-      loadedMultiscales.metadata.metadata &&
-      originalMultiscales.metadata.metadata
-    ) {
-      assertEquals(
-        loadedMultiscales.metadata.metadata.description,
-        originalMultiscales.metadata.metadata.description,
-        "descriptions should match",
-      );
-      assertEquals(
-        loadedMultiscales.metadata.metadata.method,
-        originalMultiscales.metadata.metadata.method,
-        "methods should match",
-      );
-      assertEquals(
-        loadedMultiscales.metadata.metadata.version,
-        originalMultiscales.metadata.metadata.version,
-        "versions should match",
-      );
-    }
-  },
-);
-
-Deno.test("different methods have different metadata", async () => {
+test("different methods have different metadata", async () => {
   const image = await createTestImage(32, 32);
 
   // Test different methods that should work
@@ -238,7 +233,7 @@ Deno.test("different methods have different metadata", async () => {
   // Check that all use similar package but potentially different functions
   const methodNames = metadataResults.map((m) => m.methodName);
   const allUseItkwasm = methodNames.every((name) =>
-    name.includes("itkwasm_downsample")
+    name.includes("itkwasm_downsample"),
   );
   assertEquals(
     allUseItkwasm,
@@ -247,7 +242,7 @@ Deno.test("different methods have different metadata", async () => {
   );
 });
 
-Deno.test("metadata field is populated when method is specified", async () => {
+test("metadata field is populated when method is specified", async () => {
   const image = await createTestImage(32, 32);
 
   // Create multiscales with default method (should default to ITKWASM_GAUSSIAN)
@@ -261,7 +256,7 @@ Deno.test("metadata field is populated when method is specified", async () => {
   );
 });
 
-Deno.test("can handle metadata being undefined", async () => {
+test("can handle metadata being undefined", async () => {
   const image = await createTestImage(32, 32);
 
   // Create multiscales normally
@@ -282,7 +277,7 @@ Deno.test("can handle metadata being undefined", async () => {
 
 console.log("✅ All metadata field tests completed!");
 
-Deno.test("a dimension without a scale spans one unit from zero", async () => {
+test("a dimension without a scale spans one unit from zero", async () => {
   const { toMultiscales, toNgffImage } = await import("../src/mod.ts");
   const image = await toNgffImage(new Float32Array(2 * 4 * 4), {
     dims: ["c", "y", "x"],

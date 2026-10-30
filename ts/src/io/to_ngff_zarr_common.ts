@@ -60,8 +60,9 @@ export async function writeToStore(
     await writeTransformation(store, data, {
       version: options.version ?? "0.6",
       ...(options.overwrite !== undefined && { overwrite: options.overwrite }),
-      ...(options.consolidateMetadata !== undefined &&
-        { consolidateMetadata: options.consolidateMetadata }),
+      ...(options.consolidateMetadata !== undefined && {
+        consolidateMetadata: options.consolidateMetadata,
+      }),
     });
     return;
   }
@@ -84,7 +85,7 @@ export async function writeToStore(
   }
   if (options.overwrite === false) {
     for (const { path } of data.metadata.datasets) {
-      if (await store.get(`/${path}/zarr.json`) !== undefined) {
+      if ((await store.get(`/${path}/zarr.json`)) !== undefined) {
         throw new Error(
           `The store already holds scale level '${path}'; pass ` +
             "overwrite: true to replace it.",

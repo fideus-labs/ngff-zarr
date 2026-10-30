@@ -4,7 +4,16 @@
  * Scenes: images that share a spatial relationship (OME-Zarr 0.6, GH #563).
  * Mirrors `py/test/test_scene.py`.
  */
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "vite-plus/test";
+import {
+  makeTempDir,
+  readFile,
+  readTextFile,
+  remove,
+  stat,
+  writeTextFile,
+} from "./_fs.ts";
+import { assertEquals, assertRejects } from "./_assert.ts";
 import * as zarr from "zarrita";
 import { FileSystemStore, ZipFileStore } from "@zarrita/storage";
 import {
@@ -99,17 +108,17 @@ async function tilesScene(
 }
 
 async function rootDocument(store: string): Promise<Record<string, unknown>> {
-  return JSON.parse(await Deno.readTextFile(`${store}/zarr.json`));
+  return JSON.parse(await readTextFile(`${store}/zarr.json`));
 }
 
 async function withTempDir(
   body: (dir: string) => Promise<void>,
 ): Promise<void> {
-  const dir = await Deno.makeTempDir();
+  const dir = await makeTempDir();
   try {
     await body(dir);
   } finally {
-    await Deno.remove(dir, { recursive: true });
+    await remove(dir, { recursive: true });
   }
 }
 
@@ -118,7 +127,7 @@ async function pixelsOf(multiscales: NgffMultiscales): Promise<Uint8Array> {
   return chunk.data as Uint8Array;
 }
 
-Deno.test("scene round trip", async () => {
+test("scene round trip", async () => {
   await withTempDir(async (dir) => {
     const { pixels, scene } = await tilesScene();
     const store = `${dir}/tiles.ome.zarr`;
@@ -163,7 +172,7 @@ Deno.test("scene round trip", async () => {
   });
 });
 
-Deno.test("nested image paths get their ancestor groups", async () => {
+test("nested image paths get their ancestor groups", async () => {
   await withTempDir(async (dir) => {
     const { pixels, scene } = await tilesScene([
       "sample/instrument1",
@@ -184,7 +193,7 @@ Deno.test("nested image paths get their ancestor groups", async () => {
   });
 });
 
-Deno.test("overwrite false keeps the root attributes", async () => {
+test("overwrite false keeps the root attributes", async () => {
   await withTempDir(async (dir) => {
     const { scene } = await tilesScene();
     const store = `${dir}/tiles.ome.zarr`;
@@ -217,30 +226,32 @@ const REFUSALS: Array<[string, V06Transform[], string]> = [
   ["unknown image system", [tile0To("physical", "tile_1")], "which declares"],
   [
     "nameless reference",
-    [{
-      type: "translation",
-      translation: [0, 0],
-      input: { path: "tile_0" },
-      output: { name: "world" },
-    }],
+    [
+      {
+        type: "translation",
+        translation: [0, 0],
+        input: { path: "tile_0" },
+        output: { name: "world" },
+      },
+    ],
     "must name a coordinate system",
   ],
   ["disconnected graph", [toWorld("tile_0", [0, 0])], "unconnected groups"],
 ];
 
 for (const [label, transforms, message] of REFUSALS) {
-  Deno.test(`write refuses a scene with ${label}`, async () => {
+  test(`write refuses a scene with ${label}`, async () => {
     await withTempDir(async (dir) => {
       const { scene } = await tilesScene();
       scene.coordinateTransformations = transforms;
       const store = `${dir}/tiles.ome.zarr`;
       await assertRejects(() => toOmeZarr(store, scene), Error, message);
-      await assertRejects(() => Deno.stat(store), Deno.errors.NotFound);
+      await assertRejects(() => stat(store), Error, "ENOENT");
     });
   });
 }
 
-Deno.test("write refuses duplicate or empty system names", async () => {
+test("write refuses duplicate or empty system names", async () => {
   await withTempDir(async (dir) => {
     const { scene } = await tilesScene();
     scene.coordinateSystems = [world(), world()];
@@ -252,7 +263,7 @@ Deno.test("write refuses duplicate or empty system names", async () => {
   });
 });
 
-Deno.test("scene axis model follows the version", async () => {
+test("scene axis model follows the version", async () => {
   await withTempDir(async (dir) => {
     const { scene } = await tilesScene();
     scene.coordinateSystems![0].axes = [..."abcdef"].map((name) => ({
@@ -277,7 +288,7 @@ Deno.test("scene axis model follows the version", async () => {
   });
 });
 
-Deno.test("write refuses vectors that do not span their systems", async () => {
+test("write refuses vectors that do not span their systems", async () => {
   await withTempDir(async (dir) => {
     const { scene } = await tilesScene();
     (scene.coordinateTransformations[0] as Translation).translation = [0, 0, 0];
@@ -289,7 +300,7 @@ Deno.test("write refuses vectors that do not span their systems", async () => {
   });
 });
 
-Deno.test("write refuses transforms the reader rejects", async () => {
+test("write refuses transforms the reader rejects", async () => {
   await withTempDir(async (dir) => {
     const { scene } = await tilesScene();
     scene.coordinateTransformations[0] = {
@@ -306,7 +317,7 @@ Deno.test("write refuses transforms the reader rejects", async () => {
   });
 });
 
-Deno.test("scene with a displacement field between two images", async () => {
+test("scene with a displacement field between two images", async () => {
   await withTempDir(async (dir) => {
     const { scene } = await tilesScene();
     const fieldPath = "coordinateTransformations/dfield";
@@ -330,7 +341,7 @@ Deno.test("scene with a displacement field between two images", async () => {
       Error,
       "which the store does not hold",
     );
-    await assertRejects(() => Deno.stat(store), Deno.errors.NotFound);
+    await assertRejects(() => stat(store), Error, "ENOENT");
 
     const field = await toNgffImage(new Float32Array(2 * 16 * 16), {
       dims: ["c", "y", "x"],
@@ -369,7 +380,7 @@ Deno.test("scene with a displacement field between two images", async () => {
     // The staged directory packs into an archive that reads back the same.
     const archivePath = `${dir}/registered.ozx`;
     await storeToZip(store, archivePath);
-    const zip = await Deno.readFile(archivePath);
+    const zip = await readFile(archivePath);
     assertEquals(readOzxVersion(zip), "0.6");
     const archive = ZipFileStore.fromBlob(new Blob([zip as BlobPart]));
     const fromArchive = await fromOmeZarr(archive, {
@@ -405,7 +416,7 @@ const STAGING = [
 ] as const;
 
 for (const [module, write, pack] of STAGING) {
-  Deno.test(`${module}: a scene with a displacement field is staged in a MemoryStore and packed`, async () => {
+  test(`${module}: a scene with a displacement field is staged in a MemoryStore and packed`, async () => {
     const { pixels, scene } = await tilesScene();
     const fieldPath = "coordinateTransformations/dfield";
     const warp: Displacements = {
@@ -430,14 +441,12 @@ for (const [module, write, pack] of STAGING) {
       await archiveDocument(archive, "/zarr.json"),
     );
     const fieldDataset = field.metadata.datasets[0].path;
-    for (
-      const node of [
-        "coordinateTransformations",
-        fieldPath,
-        `${fieldPath}/${fieldDataset}`,
-        "tile_0",
-      ]
-    ) {
+    for (const node of [
+      "coordinateTransformations",
+      fieldPath,
+      `${fieldPath}/${fieldDataset}`,
+      "tile_0",
+    ]) {
       assertEquals(nodes.includes(node), true, node);
     }
     for (const read of [fromOmeZarr, fromOmeZarrBrowser]) {
@@ -457,7 +466,7 @@ for (const [module, write, pack] of STAGING) {
   });
 }
 
-Deno.test("write refuses paths outside the scene", async () => {
+test("write refuses paths outside the scene", async () => {
   await withTempDir(async (dir) => {
     const { scene } = await tilesScene(["../tile_0", "tile_1"]);
     await assertRejects(
@@ -468,7 +477,7 @@ Deno.test("write refuses paths outside the scene", async () => {
   });
 });
 
-Deno.test("write refuses versions before 0.6", async () => {
+test("write refuses versions before 0.6", async () => {
   await withTempDir(async (dir) => {
     const { scene } = await tilesScene();
     await assertRejects(
@@ -479,7 +488,7 @@ Deno.test("write refuses versions before 0.6", async () => {
   });
 });
 
-Deno.test("a requested version is checked against the stored one", async () => {
+test("a requested version is checked against the stored one", async () => {
   await withTempDir(async (dir) => {
     const { scene } = await tilesScene();
     const store = `${dir}/tiles.ome.zarr`;
@@ -499,7 +508,7 @@ Deno.test("a requested version is checked against the stored one", async () => {
   });
 });
 
-Deno.test("read validates references against the store", async () => {
+test("read validates references against the store", async () => {
   await withTempDir(async (dir) => {
     const { scene } = await tilesScene();
     const store = `${dir}/tiles.ome.zarr`;
@@ -510,7 +519,7 @@ Deno.test("read validates references against the store", async () => {
       unknown
     >;
     delete (ome.scene as Record<string, unknown>).coordinateSystems;
-    await Deno.writeTextFile(`${store}/zarr.json`, JSON.stringify(document));
+    await writeTextFile(`${store}/zarr.json`, JSON.stringify(document));
 
     const read = await fromOmeZarr(store, { kind: "scene" });
     assertEquals(read.coordinateSystems, undefined);
@@ -522,16 +531,14 @@ Deno.test("read validates references against the store", async () => {
   });
 });
 
-for (
-  const path of [
-    "../tile_0",
-    "..\\tile_0",
-    "%2e%2e/tile_0",
-    "%2e%2e%2ftile_0",
-    "/tile_0",
-  ]
-) {
-  Deno.test(`read refuses the image path ${path} outside the scene`, async () => {
+for (const path of [
+  "../tile_0",
+  "..\\tile_0",
+  "%2e%2e/tile_0",
+  "%2e%2e%2ftile_0",
+  "/tile_0",
+]) {
+  test(`read refuses the image path ${path} outside the scene`, async () => {
     await withTempDir(async (dir) => {
       const { scene } = await tilesScene();
       const store = `${dir}/tiles.ome.zarr`;
@@ -542,7 +549,7 @@ for (
       const transforms = (ome.scene as Record<string, unknown>)
         .coordinateTransformations as Array<{ input: { path: string } }>;
       transforms[0].input.path = path;
-      await Deno.writeTextFile(`${store}/zarr.json`, JSON.stringify(document));
+      await writeTextFile(`${store}/zarr.json`, JSON.stringify(document));
       await assertRejects(
         () => fromOmeZarr(store, { kind: "scene" }),
         Error,
@@ -552,7 +559,7 @@ for (
   });
 }
 
-Deno.test("the kind option selects what a store holds", async () => {
+test("the kind option selects what a store holds", async () => {
   await withTempDir(async (dir) => {
     const { multiscales } = await tile(0);
     const image = `${dir}/image.ome.zarr`;
@@ -585,10 +592,7 @@ async function assertScenePixels(
   }
 }
 
-function documentAt(
-  store: MemoryStore,
-  key: string,
-): Record<string, unknown> {
+function documentAt(store: MemoryStore, key: string): Record<string, unknown> {
   return JSON.parse(new TextDecoder().decode(store.get(key)));
 }
 
@@ -618,7 +622,7 @@ function progressLog(): {
   };
 }
 
-Deno.test("the browser writer writes a scene to a MemoryStore", async () => {
+test("the browser writer writes a scene to a MemoryStore", async () => {
   const { pixels, scene } = await tilesScene(["tile_0", "sample/tile_1"]);
   const store: MemoryStore = new Map();
   const progress = progressLog();
@@ -637,15 +641,13 @@ Deno.test("the browser writer writes a scene to a MemoryStore", async () => {
   assertEquals(documentAt(store, "/sample/zarr.json").attributes, {});
   const datasetPath = scene.images.tile_0.metadata.datasets[0].path;
   const nodes = consolidatedNodes(document);
-  for (
-    const node of [
-      "tile_0",
-      `tile_0/${datasetPath}`,
-      "sample",
-      "sample/tile_1",
-      `sample/tile_1/${datasetPath}`,
-    ]
-  ) {
+  for (const node of [
+    "tile_0",
+    `tile_0/${datasetPath}`,
+    "sample",
+    "sample/tile_1",
+    `sample/tile_1/${datasetPath}`,
+  ]) {
     assertEquals(nodes.includes(node), true, node);
   }
 
@@ -653,7 +655,10 @@ Deno.test("the browser writer writes a scene to a MemoryStore", async () => {
   // the last one reaches.
   const [, total] = progress.reports.at(-1)!;
   assertEquals(progress.reports.at(-1), [total, total]);
-  assertEquals(progress.reports.every(([, each]) => each === total), true);
+  assertEquals(
+    progress.reports.every(([, each]) => each === total),
+    true,
+  );
 
   for (const read of [fromOmeZarrBrowser, fromOmeZarr]) {
     const scene_ = await read(store, { kind: "scene", validate: true });
@@ -665,7 +670,7 @@ Deno.test("the browser writer writes a scene to a MemoryStore", async () => {
   }
 });
 
-Deno.test("toOmeZarrOzx zips a scene with its images", async () => {
+test("toOmeZarrOzx zips a scene with its images", async () => {
   const { pixels, scene } = await tilesScene();
   // The scene's progress counts what the images count on their own.
   let imageWrites = 0;
@@ -690,8 +695,9 @@ Deno.test("toOmeZarrOzx zips a scene with its images", async () => {
     const archive = ZipFileStore.fromBlob(new Blob([zip as BlobPart]));
     const datasetPath = scene.images.tile_0.metadata.datasets[0].path;
     assertEquals(
-      consolidatedNodes(await archiveDocument(archive, "/zarr.json"))
-        .includes(`tile_1/${datasetPath}`),
+      consolidatedNodes(await archiveDocument(archive, "/zarr.json")).includes(
+        `tile_1/${datasetPath}`,
+      ),
       true,
     );
     // Sharded, as an image's .ozx is by default.
@@ -712,12 +718,12 @@ Deno.test("toOmeZarrOzx zips a scene with its images", async () => {
   }
 });
 
-Deno.test("toOmeZarr writes a scene to an .ozx path and to a MemoryStore", async () => {
+test("toOmeZarr writes a scene to an .ozx path and to a MemoryStore", async () => {
   await withTempDir(async (dir) => {
     const { pixels, scene } = await tilesScene();
     const path = `${dir}/tiles.ozx`;
     await toOmeZarr(path, scene);
-    const zip = await Deno.readFile(path);
+    const zip = await readFile(path);
     assertEquals(readOzxVersion(zip), "0.6");
     await assertScenePixels(
       await fromOmeZarr(ZipFileStore.fromBlob(new Blob([zip as BlobPart])), {
@@ -736,7 +742,7 @@ Deno.test("toOmeZarr writes a scene to an .ozx path and to a MemoryStore", async
   });
 });
 
-Deno.test("a scene reads from a store object", async () => {
+test("a scene reads from a store object", async () => {
   await withTempDir(async (dir) => {
     const { pixels, scene } = await tilesScene(["tile_0", "sample/tile_1"]);
     const store = `${dir}/tiles.ome.zarr`;
@@ -751,14 +757,17 @@ Deno.test("a scene reads from a store object", async () => {
   });
 });
 
-Deno.test("the matrix arrays of a scene's images are written and consolidated", async () => {
+test("the matrix arrays of a scene's images are written and consolidated", async () => {
   await withTempDir(async (dir) => {
     const { scene } = await tilesScene();
     const tile0 = scene.images.tile_0.metadata;
     const toPhysical: Affine = {
       type: "affine",
       name: "to_physical",
-      affine: [[1, 0, 0.5], [0, 1, 0.25]],
+      affine: [
+        [1, 0, 0.5],
+        [0, 1, 0.25],
+      ],
       input: { name: tile0.coordinateSystems![0].name },
       output: { name: "physical" },
     };
@@ -791,7 +800,7 @@ Deno.test("the matrix arrays of a scene's images are written and consolidated", 
   });
 });
 
-Deno.test("a scene is written where it can be held", async () => {
+test("a scene is written where it can be held", async () => {
   await withTempDir(async (dir) => {
     const { scene } = await tilesScene();
     await assertRejects(
@@ -832,28 +841,26 @@ Deno.test("a scene is written where it can be held", async () => {
       Error,
       "written in one piece",
     );
-    await assertRejects(
-      () => Deno.stat(`${dir}/tiles.ozx`),
-      Deno.errors.NotFound,
-    );
+    await assertRejects(() => stat(`${dir}/tiles.ozx`), Error, "ENOENT");
   });
 });
 
 async function upstream(name: string): Promise<Record<string, unknown>> {
-  const document = JSON.parse(
-    await Deno.readTextFile(new URL(name, FIXTURES)),
-  );
+  const document = JSON.parse(await readTextFile(new URL(name, FIXTURES)));
   const attributes = document.attributes as Record<string, unknown>;
   return attributes.ome as Record<string, unknown>;
 }
 
-Deno.test("upstream stitching example", async () => {
+test("upstream stitching example", async () => {
   const ome = await upstream("scene_stitching.json");
   const { coordinateSystems, coordinateTransformations } = sceneFromOmeValue(
     ome.scene as Record<string, unknown>,
     "0.6",
   );
-  assertEquals(coordinateSystems!.map((system) => system.name), ["world"]);
+  assertEquals(
+    coordinateSystems!.map((system) => system.name),
+    ["world"],
+  );
   assertEquals(
     coordinateSystems![0].axes.map((axis) => axis.unit),
     ["micrometer", "micrometer"],
@@ -863,8 +870,8 @@ Deno.test("upstream stitching example", async () => {
     ["tile_0", "tile_1", "tile_2", "tile_3"],
   );
   assertEquals(
-    coordinateTransformations.every((t) =>
-      t.input!.name === "physical" && t.output!.name === "world"
+    coordinateTransformations.every(
+      (t) => t.input!.name === "physical" && t.output!.name === "world",
     ),
     true,
   );
@@ -874,7 +881,7 @@ Deno.test("upstream stitching example", async () => {
   );
 });
 
-Deno.test("upstream registration example", async () => {
+test("upstream registration example", async () => {
   const ome = await upstream("scene_registration.json");
   const { coordinateSystems, coordinateTransformations } = sceneFromOmeValue(
     ome.scene as Record<string, unknown>,
@@ -894,21 +901,16 @@ Deno.test("upstream registration example", async () => {
   assertEquals(field.interpolation, "linear");
 });
 
-Deno.test("overwrite false surfaces a malformed root instead of replacing it", async () => {
+test("overwrite false surfaces a malformed root instead of replacing it", async () => {
   const { scene } = await tilesScene();
   const store: MemoryStore = new Map([
     ["/zarr.json", new TextEncoder().encode("{not json")],
   ]);
-  await assertRejects(
-    () => toOmeZarr(store, scene, { overwrite: false }),
-  );
-  assertEquals(
-    new TextDecoder().decode(store.get("/zarr.json")),
-    "{not json",
-  );
+  await assertRejects(() => toOmeZarr(store, scene, { overwrite: false }));
+  assertEquals(new TextDecoder().decode(store.get("/zarr.json")), "{not json");
 });
 
-Deno.test("scene .ozx archives use the codecs they are given", async () => {
+test("scene .ozx archives use the codecs they are given", async () => {
   const { scene } = await tilesScene();
   const datasetPath = scene.images.tile_0.metadata.datasets[0].path;
   for (const zipScene of [toOmeZarrOzxBrowser, toOmeZarrOzxData]) {
@@ -922,7 +924,7 @@ Deno.test("scene .ozx archives use the codecs they are given", async () => {
   }
 });
 
-Deno.test("a scene .ozx path reads back by path", async () => {
+test("a scene .ozx path reads back by path", async () => {
   await withTempDir(async (dir) => {
     const { pixels, scene } = await tilesScene();
     const archive = `${dir}/tiles.ozx`;

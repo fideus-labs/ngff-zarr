@@ -1,4 +1,3 @@
-#!/usr/bin/env -S deno test --allow-read --allow-write
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 /**
@@ -9,7 +8,8 @@
  * axis model outside that vocabulary alone.
  */
 
-import { assertEquals, assertNotEquals, assertRejects } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals, assertNotEquals, assertRejects } from "./_assert.ts";
 import * as zarr from "zarrita";
 
 import {
@@ -23,10 +23,7 @@ import { zarrGet, zarrSet } from "../src/utils/worker_pool.ts";
 import { calculateStride } from "../src/utils/transpose.ts";
 
 /** A ramp image over `dims`/`shape`, values `0..n-1` in row-major order. */
-async function rampImage(
-  dims: string[],
-  shape: number[],
-): Promise<NgffImage> {
+async function rampImage(dims: string[], shape: number[]): Promise<NgffImage> {
   const total = shape.reduce((a, b) => a * b, 1);
   const data = new Float32Array(total);
   for (let i = 0; i < total; i++) {
@@ -43,7 +40,7 @@ async function readAll(
   return Array.from(result.data as ArrayLike<number>);
 }
 
-Deno.test("canonicalAxisOrder - a non-canonical order is normalized", async () => {
+test("canonicalAxisOrder - a non-canonical order is normalized", async () => {
   const image = await rampImage(["z", "y", "x", "c"], [2, 3, 4, 2]);
   const normalized = await canonicalAxisOrder(image);
 
@@ -51,7 +48,7 @@ Deno.test("canonicalAxisOrder - a non-canonical order is normalized", async () =
   assertEquals([...normalized.data.shape], [2, 2, 3, 4]);
 });
 
-Deno.test("canonicalAxisOrder - the data follows the axes", async () => {
+test("canonicalAxisOrder - the data follows the axes", async () => {
   // A relabelling that left the buffer alone would keep the ramp intact, so
   // compare against the transpose computed independently.
   const dims = ["y", "x", "c"];
@@ -68,20 +65,20 @@ Deno.test("canonicalAxisOrder - the data follows the axes", async () => {
     for (let y = 0; y < newShape[1]; y++) {
       for (let x = 0; x < newShape[2]; x++) {
         const target = (c * newShape[1] + y) * newShape[2] + x;
-        expected[target] = y * sourceStride[0] + x * sourceStride[1] +
-          c * sourceStride[2];
+        expected[target] =
+          y * sourceStride[0] + x * sourceStride[1] + c * sourceStride[2];
       }
     }
   }
   assertEquals(await readAll(normalized.data), expected);
 });
 
-Deno.test("canonicalAxisOrder - already ordered input is untouched", async () => {
+test("canonicalAxisOrder - already ordered input is untouched", async () => {
   const image = await rampImage(["c", "y", "x"], [2, 3, 4]);
   assertEquals(await canonicalAxisOrder(image), image);
 });
 
-Deno.test("canonicalAxisOrder - a non-canonical vocabulary is left alone", async () => {
+test("canonicalAxisOrder - a non-canonical vocabulary is left alone", async () => {
   // RFC-3 axis names carry no spec ordering to normalize to.
   const image = await rampImage(["b", "a"], [2, 3]);
   const normalized = await canonicalAxisOrder(image);
@@ -90,7 +87,7 @@ Deno.test("canonicalAxisOrder - a non-canonical vocabulary is left alone", async
   assertEquals(normalized.dims, ["b", "a"]);
 });
 
-Deno.test("toMultiscales - generated axes are spec-ordered", async () => {
+test("toMultiscales - generated axes are spec-ordered", async () => {
   const image = await rampImage(["z", "y", "x", "c"], [8, 16, 16, 2]);
   const multiscales = await toMultiscales(image, {
     scaleFactors: [],
@@ -120,14 +117,19 @@ async function chunkedImage(
     dtype: dataType,
     fillValue: 0,
   });
-  const data = dataType === "int64"
-    ? BigInt64Array.from({ length: total }, (_, i) => BigInt(i))
-    : Float32Array.from({ length: total }, (_, i) => i);
-  await zarrSet(array as never, shape.map(() => null), {
-    data,
-    shape,
-    stride: calculateStride(shape),
-  } as never);
+  const data =
+    dataType === "int64"
+      ? BigInt64Array.from({ length: total }, (_, i) => BigInt(i))
+      : Float32Array.from({ length: total }, (_, i) => i);
+  await zarrSet(
+    array as never,
+    shape.map(() => null),
+    {
+      data,
+      shape,
+      stride: calculateStride(shape),
+    } as never,
+  );
   const scale: Record<string, number> = {};
   const translation: Record<string, number> = {};
   for (const dim of dims) {
@@ -145,7 +147,7 @@ async function chunkedImage(
   });
 }
 
-Deno.test("canonicalAxisOrder - a multi-chunk array transposes correctly", async () => {
+test("canonicalAxisOrder - a multi-chunk array transposes correctly", async () => {
   // The copy walks the source chunk grid, so a single-chunk fixture would not
   // exercise the per-chunk region arithmetic.
   const shape = [4, 6, 2];
@@ -174,7 +176,7 @@ Deno.test("canonicalAxisOrder - a multi-chunk array transposes correctly", async
   assertEquals(await readAll(normalized.data), expected);
 });
 
-Deno.test("canonicalAxisOrder - a 64-bit integer image transposes", async () => {
+test("canonicalAxisOrder - a 64-bit integer image transposes", async () => {
   // int64 reads back as a BigInt64Array; treating it as float32 would allocate
   // the wrong buffer and throw on the first bigint assignment.
   const image = await chunkedImage(
@@ -195,7 +197,7 @@ Deno.test("canonicalAxisOrder - a 64-bit integer image transposes", async () => 
   );
 });
 
-Deno.test("toMultiscales - preserve keeps the order the caller chose", async () => {
+test("toMultiscales - preserve keeps the order the caller chose", async () => {
   const image = await rampImage(["z", "y", "x", "c"], [8, 16, 16, 2]);
   const multiscales = await toMultiscales(image, {
     scaleFactors: [2],
@@ -212,13 +214,12 @@ Deno.test("toMultiscales - preserve keeps the order the caller chose", async () 
   assertEquals(multiscales.images[1].data.shape, [4, 8, 8, 2]);
 });
 
-Deno.test("toMultiscales - an unknown axis order is refused", async () => {
+test("toMultiscales - an unknown axis order is refused", async () => {
   const image = await rampImage(["z", "y", "x", "c"], [8, 16, 16, 2]);
   await assertRejects(
     () =>
       toMultiscales(image, {
         scaleFactors: [],
-        // deno-lint-ignore no-explicit-any
         axisOrder: "spec" as any,
       }),
     Error,

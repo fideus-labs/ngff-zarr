@@ -4,7 +4,16 @@
  * A transformation on its own, read and written with `kind: "transformation"`.
  * Mirrors `py/test/test_transformation.py`.
  */
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "vite-plus/test";
+import {
+  makeTempDir,
+  readFile,
+  readTextFile,
+  remove,
+  stat,
+  writeTextFile,
+} from "./_fs.ts";
+import { assertEquals, assertRejects } from "./_assert.ts";
 import { ZipFileStore } from "@zarrita/storage";
 import {
   type Affine,
@@ -30,7 +39,10 @@ import {
 function affine(): Affine {
   return {
     type: "affine",
-    affine: [[1, 2, 3], [4, 5, 6]],
+    affine: [
+      [1, 2, 3],
+      [4, 5, 6],
+    ],
     input: { name: "ji" },
     output: { name: "yx" },
     name: "ji to yx",
@@ -38,7 +50,7 @@ function affine(): Affine {
 }
 
 async function rootOme(store: string): Promise<Record<string, unknown>> {
-  const document = JSON.parse(await Deno.readTextFile(`${store}/zarr.json`));
+  const document = JSON.parse(await readTextFile(`${store}/zarr.json`));
   return (document.attributes as Record<string, unknown>).ome as Record<
     string,
     unknown
@@ -48,27 +60,32 @@ async function rootOme(store: string): Promise<Record<string, unknown>> {
 async function withTempDir(
   body: (dir: string) => Promise<void>,
 ): Promise<void> {
-  const dir = await Deno.makeTempDir();
+  const dir = await makeTempDir();
   try {
     await body(dir);
   } finally {
-    await Deno.remove(dir, { recursive: true });
+    await remove(dir, { recursive: true });
   }
 }
 
-Deno.test("transformation round trip", async () => {
+test("transformation round trip", async () => {
   await withTempDir(async (dir) => {
     const store = `${dir}/affine.ome.zarr`;
     await toOmeZarr(store, affine());
     const ome = await rootOme(store);
     assertEquals(ome.version, "0.6");
-    assertEquals(ome.coordinateTransformations, [{
-      type: "affine",
-      name: "ji to yx",
-      input: { name: "ji" },
-      output: { name: "yx" },
-      affine: [[1, 2, 3], [4, 5, 6]],
-    }]);
+    assertEquals(ome.coordinateTransformations, [
+      {
+        type: "affine",
+        name: "ji to yx",
+        input: { name: "ji" },
+        output: { name: "yx" },
+        affine: [
+          [1, 2, 3],
+          [4, 5, 6],
+        ],
+      },
+    ]);
     assertEquals(
       await fromOmeZarr(store, { kind: "transformation" }),
       affine(),
@@ -83,12 +100,12 @@ Deno.test("transformation round trip", async () => {
   });
 });
 
-Deno.test("consolidateMetadata: false leaves a transformation unconsolidated", async () => {
+test("consolidateMetadata: false leaves a transformation unconsolidated", async () => {
   await withTempDir(async (dir) => {
     const store = `${dir}/affine.ome.zarr`;
     await toOmeZarr(store, affine());
     await toOmeZarr(store, affine(), { consolidateMetadata: false });
-    const document = JSON.parse(await Deno.readTextFile(`${store}/zarr.json`));
+    const document = JSON.parse(await readTextFile(`${store}/zarr.json`));
     assertEquals("consolidated_metadata" in document, false);
     assertEquals(
       await fromOmeZarr(store, { kind: "transformation" }),
@@ -97,14 +114,12 @@ Deno.test("consolidateMetadata: false leaves a transformation unconsolidated", a
 
     const memory: MemoryStore = new Map();
     await toOmeZarrBrowser(memory, affine(), { consolidateMetadata: false });
-    const root = JSON.parse(
-      new TextDecoder().decode(memory.get("/zarr.json")),
-    );
+    const root = JSON.parse(new TextDecoder().decode(memory.get("/zarr.json")));
     assertEquals("consolidated_metadata" in root, false);
   });
 });
 
-Deno.test("nested transformation round trips", async () => {
+test("nested transformation round trips", async () => {
   await withTempDir(async (dir) => {
     const sequence: TransformSequence = {
       type: "sequence",
@@ -126,7 +141,7 @@ Deno.test("nested transformation round trips", async () => {
   });
 });
 
-Deno.test("a requested version is checked against the stored one", async () => {
+test("a requested version is checked against the stored one", async () => {
   await withTempDir(async (dir) => {
     const store = `${dir}/affine.ome.zarr`;
     await toOmeZarr(store, affine());
@@ -143,7 +158,7 @@ Deno.test("a requested version is checked against the stored one", async () => {
   });
 });
 
-Deno.test("the kind option selects what a store holds", async () => {
+test("the kind option selects what a store holds", async () => {
   await withTempDir(async (dir) => {
     const store = `${dir}/affine.ome.zarr`;
     await toOmeZarr(store, affine());
@@ -184,12 +199,12 @@ Deno.test("the kind option selects what a store holds", async () => {
   });
 });
 
-Deno.test("a transformation zips into an .ozx archive", async () => {
+test("a transformation zips into an .ozx archive", async () => {
   await withTempDir(async (dir) => {
     const path = `${dir}/affine.ozx`;
     await toOmeZarr(path, affine());
     const archives = [
-      await Deno.readFile(path),
+      await readFile(path),
       await toOmeZarrOzxData(affine()),
       await toOmeZarrOzxBrowser(affine()),
     ];
@@ -206,13 +221,11 @@ Deno.test("a transformation zips into an .ozx archive", async () => {
   });
 });
 
-Deno.test("toOmeZarrOzx honors consolidateMetadata for a transformation", async () => {
-  for (
-    const zip of [
-      await toOmeZarrOzxData(affine(), { consolidateMetadata: false }),
-      await toOmeZarrOzxBrowser(affine(), { consolidateMetadata: false }),
-    ]
-  ) {
+test("toOmeZarrOzx honors consolidateMetadata for a transformation", async () => {
+  for (const zip of [
+    await toOmeZarrOzxData(affine(), { consolidateMetadata: false }),
+    await toOmeZarrOzxBrowser(affine(), { consolidateMetadata: false }),
+  ]) {
     const archive = ZipFileStore.fromBlob(new Blob([zip as BlobPart]));
     const root = JSON.parse(
       new TextDecoder().decode(await archive.get("/zarr.json")),
@@ -225,7 +238,7 @@ Deno.test("toOmeZarrOzx honors consolidateMetadata for a transformation", async 
   }
 });
 
-Deno.test("an .ozx archive refuses what a transformation store cannot hold", async () => {
+test("an .ozx archive refuses what a transformation store cannot hold", async () => {
   await assertRejects(
     () => toOmeZarrOzxData(affine(), { version: "0.5" }),
     Error,
@@ -243,13 +256,11 @@ Deno.test("an .ozx archive refuses what a transformation store cannot hold", asy
   }
 });
 
-for (
-  const [module, write, pack] of [
-    ["Node", toOmeZarr, storeToZip],
-    ["browser", toOmeZarrBrowser, storeToZipBrowser],
-  ] as const
-) {
-  Deno.test(`${module}: a transformation with a displacement field is staged and packed`, async () => {
+for (const [module, write, pack] of [
+  ["Node", toOmeZarr, storeToZip],
+  ["browser", toOmeZarrBrowser, storeToZipBrowser],
+] as const) {
+  test(`${module}: a transformation with a displacement field is staged and packed`, async () => {
     const warp: Displacements = {
       type: "displacements",
       path: "coordinateTransformations/dfield",
@@ -285,7 +296,7 @@ for (
   });
 }
 
-Deno.test("transformation with a displacement field", async () => {
+test("transformation with a displacement field", async () => {
   await withTempDir(async (dir) => {
     const warp: Displacements = {
       type: "displacements",
@@ -305,7 +316,7 @@ Deno.test("transformation with a displacement field", async () => {
       Error,
       "which the store does not hold",
     );
-    await assertRejects(() => Deno.stat(store), Deno.errors.NotFound);
+    await assertRejects(() => stat(store), Error, "ENOENT");
 
     const field = await toNgffImage(new Float32Array(2 * 8 * 8), {
       dims: ["c", "y", "x"],
@@ -322,7 +333,7 @@ Deno.test("transformation with a displacement field", async () => {
       { version: "0.6" },
     );
     await toOmeZarr(store, warp, { overwrite: false });
-    const document = JSON.parse(await Deno.readTextFile(`${store}/zarr.json`));
+    const document = JSON.parse(await readTextFile(`${store}/zarr.json`));
     const consolidated = document.consolidated_metadata as {
       metadata: Record<string, unknown>;
     };
@@ -342,7 +353,7 @@ Deno.test("transformation with a displacement field", async () => {
 });
 
 for (const path of ["../dfield", "..\\dfield", "%2e%2e/dfield"]) {
-  Deno.test(`the path ${path} outside the store is refused`, async () => {
+  test(`the path ${path} outside the store is refused`, async () => {
     await withTempDir(async (dir) => {
       const warp: Displacements = {
         type: "displacements",
@@ -358,12 +369,11 @@ for (const path of ["../dfield", "..\\dfield", "%2e%2e/dfield"]) {
 
       const store = `${dir}/affine.ome.zarr`;
       await toOmeZarr(store, affine());
-      const document = JSON.parse(
-        await Deno.readTextFile(`${store}/zarr.json`),
-      );
-      (document.attributes.ome as Record<string, unknown>)
-        .coordinateTransformations = [{ type: "displacements", path }];
-      await Deno.writeTextFile(`${store}/zarr.json`, JSON.stringify(document));
+      const document = JSON.parse(await readTextFile(`${store}/zarr.json`));
+      (
+        document.attributes.ome as Record<string, unknown>
+      ).coordinateTransformations = [{ type: "displacements", path }];
+      await writeTextFile(`${store}/zarr.json`, JSON.stringify(document));
       const read = await fromOmeZarr(store, { kind: "transformation" });
       assertEquals((read as Displacements).path, path);
       await assertRejects(

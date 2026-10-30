@@ -127,7 +127,7 @@ export function outerChunkShape(
     Math.min(
       chunk * multipliers[i],
       Math.max(1, Math.ceil(shape[i] / chunk)) * chunk,
-    )
+    ),
   );
 }
 

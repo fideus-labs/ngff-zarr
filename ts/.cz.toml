@@ -6,19 +6,20 @@ update_changelog_on_bump = true
 changelog_file = "CHANGELOG.md"
 template = ".commitizen/templates/changelog.md.j2"
 version_files = [
-    "deno.json:version",
-    "scripts/build_npm.ts:version"
+    "package.json:^  \"version\""
 ]
 bump_message = "chore(ts): bump @fideus-labs/ngff-zarr to version $new_version"
 annotated_tag = true
 gpg_sign = true
 major_version_zero = true
-# Format the generated CHANGELOG.md with `deno fmt` before it is staged and
-# committed. cz writes the changelog, then runs pre_bump_hooks, then stages and
-# commits the changelog + version files, so formatting here lands inside the
-# bump commit and keeps CI's `deno fmt --check` green (avoids a follow-up
-# "fix: format ts CHANGELOG" commit).
-pre_bump_hooks = ["deno fmt CHANGELOG.md"]
+# cz writes the changelog and version files, then runs pre_bump_hooks, then
+# stages and commits them all. The hooks sync package-lock.json's copy of the
+# version and format the generated CHANGELOG.md, so both land inside the bump
+# commit and CI's `npm run fmt:check` stays green.
+pre_bump_hooks = [
+    "npm install --package-lock-only --ignore-scripts --no-audit --no-fund",
+    "npx vp fmt CHANGELOG.md",
+]
 
 [tool.commitizen.customize]
 path = "../.commitizen"

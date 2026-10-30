@@ -11,7 +11,9 @@ test.describe("NGFF Zarr Browser Bundle Tests", () => {
     await page.waitForLoadState("networkidle");
   });
 
-  test("should load the browser-compatible bundle successfully", async ({ page }) => {
+  test("should load the browser-compatible bundle successfully", async ({
+    page,
+  }) => {
     const loadResult = await page.evaluate(async () => {
       try {
         // Import the browser-compatible bundle
@@ -80,9 +82,8 @@ test.describe("NGFF Zarr Browser Bundle Tests", () => {
   test("should validate units and dimensions", async ({ page }) => {
     const unitsResult = await page.evaluate(async () => {
       try {
-        const { isValidDimension, isValidUnit } = await import(
-          "./ngff-zarr.bundle.js"
-        );
+        const { isValidDimension, isValidUnit } =
+          await import("./ngff-zarr.bundle.js");
 
         return {
           validDimensions: {
@@ -124,9 +125,8 @@ test.describe("NGFF Zarr Browser Bundle Tests", () => {
   test("should handle multiscale validation", async ({ page }) => {
     const multiscaleResult = await page.evaluate(async () => {
       try {
-        const { MultiscalesOptionsSchema } = await import(
-          "./ngff-zarr.bundle.js"
-        );
+        const { MultiscalesOptionsSchema } =
+          await import("./ngff-zarr.bundle.js");
 
         const validMultiscaleOptions = {
           images: [
@@ -239,7 +239,9 @@ test.describe("fromNgffZarr Browser Tests", () => {
     await page.waitForLoadState("networkidle");
   });
 
-  test("should load fromNgffZarr function from browser bundle", async ({ page }) => {
+  test("should load fromNgffZarr function from browser bundle", async ({
+    page,
+  }) => {
     const loadResult = await page.evaluate(async () => {
       try {
         // Import the browser bundle
@@ -248,8 +250,9 @@ test.describe("fromNgffZarr Browser Tests", () => {
           success: "fromNgffZarr" in ngffZarr,
           hasFromNgffZarr: "fromNgffZarr" in ngffZarr,
           type: typeof ngffZarr.fromNgffZarr,
-          exports: Object.keys(ngffZarr).filter((k) =>
-            k.includes("Zarr") || k.includes("Store") || k.includes("Ngff")
+          exports: Object.keys(ngffZarr).filter(
+            (k) =>
+              k.includes("Zarr") || k.includes("Store") || k.includes("Ngff"),
           ),
         };
       } catch (error) {
@@ -281,7 +284,8 @@ test.describe("fromNgffZarr Browser Tests", () => {
           };
         } catch (error) {
           // Check that the error message indicates browser incompatibility
-          const rejectedCorrectly = error.message.includes("browser") ||
+          const rejectedCorrectly =
+            error.message.includes("browser") ||
             error.message.includes("Local file") ||
             error.message.includes("HTTP") ||
             error.message.includes("MemoryStore");
@@ -336,7 +340,9 @@ test.describe("RFC-9 Browser Tests", () => {
     await page.waitForLoadState("networkidle");
   });
 
-  test("should have RFC-9 functions available in browser bundle", async ({ page }) => {
+  test("should have RFC-9 functions available in browser bundle", async ({
+    page,
+  }) => {
     const loadResult = await page.evaluate(async () => {
       try {
         const ngffZarr = await import("./ngff-zarr.bundle.js");
@@ -403,9 +409,8 @@ test.describe("RFC-9 Browser Tests", () => {
   test("memoryStoreToZip should create valid ZIP data", async ({ page }) => {
     const zipResult = await page.evaluate(async () => {
       try {
-        const { memoryStoreToZip, readOzxVersion } = await import(
-          "./ngff-zarr.bundle.js"
-        );
+        const { memoryStoreToZip, readOzxVersion } =
+          await import("./ngff-zarr.bundle.js");
 
         // Create a simple memory store
         const store = new Map();
@@ -422,8 +427,11 @@ test.describe("RFC-9 Browser Tests", () => {
         const isUint8Array = zipData instanceof Uint8Array;
 
         // Verify ZIP magic number (PK\x03\x04)
-        const hasZipMagic = zipData[0] === 0x50 && zipData[1] === 0x4b &&
-          zipData[2] === 0x03 && zipData[3] === 0x04;
+        const hasZipMagic =
+          zipData[0] === 0x50 &&
+          zipData[1] === 0x4b &&
+          zipData[2] === 0x03 &&
+          zipData[3] === 0x04;
 
         // Read back the version from the ZIP comment
         const version = readOzxVersion(zipData);
@@ -468,8 +476,8 @@ test.describe("RFC-9 Browser Tests", () => {
           success: true,
           ordered,
           firstIsRootZarrJson: ordered[0] === "zarr.json",
-          zarrJsonsBeforeData: ordered.indexOf("c/0/0") >
-            ordered.indexOf("scale1/zarr.json"),
+          zarrJsonsBeforeData:
+            ordered.indexOf("c/0/0") > ordered.indexOf("scale1/zarr.json"),
         };
       } catch (error) {
         return {
@@ -484,7 +492,7 @@ test.describe("RFC-9 Browser Tests", () => {
     expect(orderResult.zarrJsonsBeforeData).toBe(true);
   });
 
-  // Note: Version validation test is covered in Deno tests (rfc9_test.ts)
+  // Note: Version validation test is covered in the Vitest suite (rfc9_test.ts)
   // Browser tests cannot easily create zarr arrays without zarrita import
 });
 
@@ -497,15 +505,17 @@ test.describe("OMERO WebWorker Computation Tests", () => {
     await page.waitForLoadState("networkidle");
   });
 
-  test("should have OMERO computation functions available", async ({ page }) => {
+  test("should have OMERO computation functions available", async ({
+    page,
+  }) => {
     const loadResult = await page.evaluate(async () => {
       try {
         const ngffZarr = await import("./ngff-zarr.bundle.js");
         return {
           success: true,
           hasComputeOmeroFromNgffImage: "computeOmeroFromNgffImage" in ngffZarr,
-          hasComputeOmeroFromMultiscales: "computeOmeroFromMultiscales" in
-            ngffZarr,
+          hasComputeOmeroFromMultiscales:
+            "computeOmeroFromMultiscales" in ngffZarr,
           hasTerminateOmeroWorkerPool: "terminateOmeroWorkerPool" in ngffZarr,
           hasGetDefaultColors: "getDefaultColors" in ngffZarr,
           hasGLASBEY_COLORS: "GLASBEY_COLORS" in ngffZarr,
@@ -531,9 +541,8 @@ test.describe("OMERO WebWorker Computation Tests", () => {
   test("getDefaultColors should return correct colors", async ({ page }) => {
     const colorsResult = await page.evaluate(async () => {
       try {
-        const { getDefaultColors, GLASBEY_COLORS } = await import(
-          "./ngff-zarr.bundle.js"
-        );
+        const { getDefaultColors, GLASBEY_COLORS } =
+          await import("./ngff-zarr.bundle.js");
 
         return {
           success: true,
@@ -564,9 +573,8 @@ test.describe("OMERO WebWorker Computation Tests", () => {
   test("terminateOmeroWorkerPool should not throw", async ({ page }) => {
     const terminateResult = await page.evaluate(async () => {
       try {
-        const { terminateOmeroWorkerPool } = await import(
-          "./ngff-zarr.bundle.js"
-        );
+        const { terminateOmeroWorkerPool } =
+          await import("./ngff-zarr.bundle.js");
 
         // Should not throw even if worker pool was never created
         terminateOmeroWorkerPool();
@@ -584,17 +592,18 @@ test.describe("OMERO WebWorker Computation Tests", () => {
     expect(terminateResult.success).toBeTruthy();
   });
 
-  test("should support Worker API and worker pool lifecycle", async ({ page }) => {
+  test("should support Worker API and worker pool lifecycle", async ({
+    page,
+  }) => {
     // This test verifies that the browser environment supports Workers
     // and that the worker pool lifecycle (terminate, re-create) works.
-    // Actual OMERO computation is tested in Deno unit tests since it
+    // Actual OMERO computation is tested in the Vitest unit tests since it
     // requires zarrita arrays which can't be dynamically imported in
     // browser tests due to CORS/security restrictions.
     const workerResult = await page.evaluate(async () => {
       try {
-        const { terminateOmeroWorkerPool } = await import(
-          "./ngff-zarr.bundle.js"
-        );
+        const { terminateOmeroWorkerPool } =
+          await import("./ngff-zarr.bundle.js");
 
         // Browser should have Worker support
         const hasWorkerApi = typeof Worker !== "undefined";
@@ -630,7 +639,9 @@ test.describe("OMERO WebWorker Computation Tests", () => {
     expect(workerResult.typeOfTerminate).toBe("function");
   });
 
-  test("should have shared OMERO computation functions for benchmarking", async ({ page }) => {
+  test("should have shared OMERO computation functions for benchmarking", async ({
+    page,
+  }) => {
     const benchmarkFunctionsResult = await page.evaluate(async () => {
       try {
         const ngffZarr = await import("./ngff-zarr.bundle.js");
@@ -642,8 +653,8 @@ test.describe("OMERO WebWorker Computation Tests", () => {
           hasFinalizeStatistics: "finalizeStatistics" in ngffZarr,
           hasComputeChannelStatistics: "computeChannelStatistics" in ngffZarr,
           hasExtractChannel: "extractChannel" in ngffZarr,
-          hasBuildOmeroFromAccumulators: "buildOmeroFromAccumulators" in
-            ngffZarr,
+          hasBuildOmeroFromAccumulators:
+            "buildOmeroFromAccumulators" in ngffZarr,
           hasValidateQuantiles: "validateQuantiles" in ngffZarr,
           hasQUANTILE_SAMPLE_SIZE: "QUANTILE_SAMPLE_SIZE" in ngffZarr,
         };
@@ -653,7 +664,8 @@ test.describe("OMERO WebWorker Computation Tests", () => {
 
         // Test createAccumulator
         const acc = ngffZarr.createAccumulator();
-        const accValid = acc &&
+        const accValid =
+          acc &&
           typeof acc.min === "number" &&
           typeof acc.max === "number" &&
           Array.isArray(acc.sample);
@@ -664,16 +676,16 @@ test.describe("OMERO WebWorker Computation Tests", () => {
 
         // Test finalizeStatistics
         const stats = ngffZarr.finalizeStatistics(acc, [0.1, 0.9]);
-        const statsValid = stats.min === 1 && stats.max === 10 &&
-          typeof stats.qLow === "number";
+        const statsValid =
+          stats.min === 1 && stats.max === 10 && typeof stats.qLow === "number";
 
         // Test computeChannelStatistics (convenience function)
-        const directStats = ngffZarr.computeChannelStatistics(testData, [
-          0.1,
-          0.9,
-        ]);
-        const directStatsValid = directStats.min === 1 &&
-          directStats.max === 10;
+        const directStats = ngffZarr.computeChannelStatistics(
+          testData,
+          [0.1, 0.9],
+        );
+        const directStatsValid =
+          directStats.min === 1 && directStats.max === 10;
 
         return {
           success: true,
@@ -735,7 +747,9 @@ test.describe("toNgffZarr Browser Tests", () => {
     await page.waitForLoadState("networkidle");
   });
 
-  test("should load toNgffZarr function from browser bundle", async ({ page }) => {
+  test("should load toNgffZarr function from browser bundle", async ({
+    page,
+  }) => {
     const loadResult = await page.evaluate(async () => {
       try {
         // Import the browser bundle
@@ -744,8 +758,9 @@ test.describe("toNgffZarr Browser Tests", () => {
           success: "toNgffZarr" in ngffZarr,
           hasToNgffZarr: "toNgffZarr" in ngffZarr,
           type: typeof ngffZarr.toNgffZarr,
-          exports: Object.keys(ngffZarr).filter((k) =>
-            k.includes("Zarr") || k.includes("Store") || k.includes("Ngff")
+          exports: Object.keys(ngffZarr).filter(
+            (k) =>
+              k.includes("Zarr") || k.includes("Store") || k.includes("Ngff"),
           ),
         };
       } catch (error) {
@@ -761,7 +776,9 @@ test.describe("toNgffZarr Browser Tests", () => {
     expect(loadResult.type).toBe("function");
   });
 
-  test("should reject local file paths in browser for writing", async ({ page }) => {
+  test("should reject local file paths in browser for writing", async ({
+    page,
+  }) => {
     const rejectLocalResult = await page.evaluate(async () => {
       try {
         const ngffZarr = await import("./ngff-zarr.bundle.js");
@@ -788,7 +805,8 @@ test.describe("toNgffZarr Browser Tests", () => {
           };
         } catch (error) {
           // Check that the error message indicates browser incompatibility
-          const rejectedCorrectly = error.message.includes("browser") ||
+          const rejectedCorrectly =
+            error.message.includes("browser") ||
             error.message.includes("Local file") ||
             error.message.includes("MemoryStore");
           return {
@@ -838,7 +856,8 @@ test.describe("toNgffZarr Browser Tests", () => {
           };
         } catch (error) {
           // Check that the error message indicates read-only
-          const rejectedCorrectly = error.message.includes("read-only") ||
+          const rejectedCorrectly =
+            error.message.includes("read-only") ||
             error.message.includes("HTTP") ||
             error.message.includes("MemoryStore");
           return {
@@ -857,7 +876,9 @@ test.describe("toNgffZarr Browser Tests", () => {
     expect(rejectHttpResult.rejectedAsExpected).toBeTruthy();
   });
 
-  test("should have related types available for toNgffZarr", async ({ page }) => {
+  test("should have related types available for toNgffZarr", async ({
+    page,
+  }) => {
     const typesResult = await page.evaluate(async () => {
       try {
         const ngffZarr = await import("./ngff-zarr.bundle.js");
@@ -931,7 +952,8 @@ test.describe("toNgffZarr Browser Tests", () => {
         return {
           success: true,
           codec: arrayMeta.codecs[0].name,
-          matches: back.data.length === data.length &&
+          matches:
+            back.data.length === data.length &&
             back.data.every((value, i) => value === data[i]),
         };
       } catch (error) {

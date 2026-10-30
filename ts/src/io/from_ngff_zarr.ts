@@ -81,7 +81,9 @@ export async function fromOmeZarr(
   options: FromOmeZarrOptions = {},
 ): Promise<NgffMultiscales | NgffScene | V06Transform> {
   if (
-    typeof store === "string" && isOzxPath(store) && !/^https?:\/\//.test(store)
+    typeof store === "string" &&
+    isOzxPath(store) &&
+    !/^https?:\/\//.test(store)
   ) {
     // A file-backed Blob: the archive is range-read, not loaded whole. Opened
     // first, so paths below it name entries of the archive.
@@ -134,11 +136,10 @@ export async function fromOmeZarr(
         );
       }
 
-      // Use dynamic import for FileSystemStore, ZipFileStore in Node.js/Deno environments
+      // Use dynamic import for FileSystemStore, ZipFileStore in Node.js environments
       try {
-        const { FileSystemStore, ZipFileStore } = await import(
-          "@zarrita/storage"
-        );
+        const { FileSystemStore, ZipFileStore } =
+          await import("@zarrita/storage");
         if (store instanceof FileSystemStore || store instanceof ZipFileStore) {
           resolvedStore = store as unknown as zarr.Readable;
         } else {
@@ -225,7 +226,8 @@ export async function fromOmeZarr(
     // `0.6.dev4` or `0.6rc0` that earlier releases wrote satisfies a
     // requested version of `"0.6"` (and vice versa).
     if (validate && requestedVersion) {
-      const versionsMatch = detectedVersion === requestedVersion ||
+      const versionsMatch =
+        detectedVersion === requestedVersion ||
         (isV06Version(detectedVersion) && isV06Version(requestedVersion));
       if (!versionsMatch) {
         throw new Error(
@@ -240,7 +242,8 @@ export async function fromOmeZarr(
     // layout.
     let result;
     if (
-      isV06Version(detectedVersion) || detectedVersion === NgffVersion.V09dev1
+      isV06Version(detectedVersion) ||
+      detectedVersion === NgffVersion.V09dev1
     ) {
       result = await fromZarrAttrsV06(rootAttrs, resolvedStore, validate);
       // The v0.6 parser records `0.6`, which is right for the whole 0.6
@@ -260,9 +263,8 @@ export async function fromOmeZarr(
     // Extract method metadata from the multiscales metadata
     const multiscalesArray = multiscalesSource.multiscales as unknown[];
     const multiscalesMetadata = multiscalesArray[0] as Record<string, unknown>;
-    const { method, methodType, methodMetadata } = extractMethodMetadata(
-      multiscalesMetadata,
-    );
+    const { method, methodType, methodMetadata } =
+      extractMethodMetadata(multiscalesMetadata);
 
     // Update metadata with method information
     if (methodType) {

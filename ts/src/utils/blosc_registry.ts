@@ -38,9 +38,7 @@ import { bloscShuffleToInt } from "./codecs.ts";
  * there rather than narrowing the entry to one method.
  */
 interface CodecEntryLike {
-  // deno-lint-ignore no-explicit-any
   fromConfig(config: any, meta: any): any;
-  // deno-lint-ignore no-explicit-any
   [key: string]: any;
 }
 
@@ -80,7 +78,6 @@ export function installBloscShuffleNormalization(
       // override below always wins, whether or not the entry exposes its
       // own enumerable `fromConfig`.
       ...Codec,
-      // deno-lint-ignore no-explicit-any
       fromConfig(config: any, meta: any) {
         if (config && typeof config.shuffle === "string") {
           config = { ...config, shuffle: bloscShuffleToInt(config.shuffle) };

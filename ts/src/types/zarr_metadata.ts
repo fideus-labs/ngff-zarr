@@ -315,9 +315,10 @@ export function createMetadataWithVersion(
   metadata: MetadataInterface,
   targetVersion: string | NgffVersion,
 ): MetadataInterface {
-  const version = typeof targetVersion === "string"
-    ? (targetVersion as NgffVersion)
-    : targetVersion;
+  const version =
+    typeof targetVersion === "string"
+      ? (targetVersion as NgffVersion)
+      : targetVersion;
 
   if (version === NgffVersion.V04) {
     return {
@@ -337,8 +338,9 @@ export function createMetadataWithVersion(
     return {
       ...metadata,
       version: "0.6",
-      coordinateSystems: metadata.coordinateSystems ??
-        [{ name: INTRINSIC_COORDINATE_SYSTEM_NAME, axes: metadata.axes }],
+      coordinateSystems: metadata.coordinateSystems ?? [
+        { name: INTRINSIC_COORDINATE_SYSTEM_NAME, axes: metadata.axes },
+      ],
     };
   } else {
     throw new Error(

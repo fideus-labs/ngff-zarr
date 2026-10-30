@@ -108,21 +108,20 @@ function itkAxisOrder(dims: string[]): string[] {
 }
 
 function identity(dimension: number): number[][] {
-  return Array.from(
-    { length: dimension },
-    (_, row) => Array.from({ length: dimension }, (_, col) => +(row === col)),
+  return Array.from({ length: dimension }, (_, row) =>
+    Array.from({ length: dimension }, (_, col) => +(row === col)),
   );
 }
 
 function allClose(left: number[][], right: number[][]): boolean {
   return left.every((row, i) =>
-    row.every((value, j) => Math.abs(value - right[i][j]) <= 1e-9)
+    row.every((value, j) => Math.abs(value - right[i][j]) <= 1e-9),
   );
 }
 
 function matvec(matrix: number[][], vector: number[]): number[] {
   return matrix.map((row) =>
-    row.reduce((sum, value, col) => sum + value * vector[col], 0)
+    row.reduce((sum, value, col) => sum + value * vector[col], 0),
   );
 }
 
@@ -177,13 +176,14 @@ function frameTerms(frame: FrameGeometry): FrameTerms {
     frame.originMoving,
   );
   const shiftMatrix = matrix.map((row, i) =>
-    row.map((value, j) => value - (i === j ? 1 : 0))
+    row.map((value, j) => value - (i === j ? 1 : 0)),
   );
   return {
     directionOut: frame.directionMoving,
     shiftMatrix,
     shiftVector: offset,
-    shifts: shiftMatrix.some((row) => row.some((value) => value !== 0)) ||
+    shifts:
+      shiftMatrix.some((row) => row.some((value) => value !== 0)) ||
       offset.some((value) => value !== 0),
   };
 }
@@ -198,7 +198,10 @@ function frameTerms(frame: FrameGeometry): FrameTerms {
  * `coordinates` field holds `q + d` rather than `d`, so `absolute` folds the
  * grid point itself into the positional term, in one pass over the grid.
  */
-function fieldValueConverters(frame: FrameGeometry, absolute: boolean): {
+function fieldValueConverters(
+  frame: FrameGeometry,
+  absolute: boolean,
+): {
   toIntrinsic: (vector: number[], point: number[]) => number[];
   toPhysical: (displacement: number[], point: number[]) => number[];
 } {
@@ -209,8 +212,9 @@ function fieldValueConverters(frame: FrameGeometry, absolute: boolean): {
       const rotated = matvec(inverseOut, vector);
       if (!terms.shifts && !absolute) return rotated;
       const shift = matvec(terms.shiftMatrix, point);
-      return rotated.map((value, i) =>
-        value + shift[i] + terms.shiftVector[i] + (absolute ? point[i] : 0)
+      return rotated.map(
+        (value, i) =>
+          value + shift[i] + terms.shiftVector[i] + (absolute ? point[i] : 0),
       );
     },
     toPhysical: (displacement: number[], point: number[]): number[] => {
@@ -220,8 +224,9 @@ function fieldValueConverters(frame: FrameGeometry, absolute: boolean): {
       const shift = matvec(terms.shiftMatrix, point);
       return matvec(
         terms.directionOut,
-        displacement.map((value, i) =>
-          value - shift[i] - terms.shiftVector[i] - (absolute ? point[i] : 0)
+        displacement.map(
+          (value, i) =>
+            value - shift[i] - terms.shiftVector[i] - (absolute ? point[i] : 0),
         ),
       );
     },
@@ -380,11 +385,7 @@ export async function itkDisplacementFieldToNgffTransform(
     );
   }
   const itkDims = itkAxisOrder(dims);
-  let frame = optionalFrameGeometry(
-    options.fixed,
-    options.moving,
-    itkDims,
-  );
+  let frame = optionalFrameGeometry(options.fixed, options.moving, itkDims);
   if (frame === undefined) {
     if (!allClose(direction, identity(dimension))) {
       throw new Error(
@@ -417,9 +418,10 @@ export async function itkDisplacementFieldToNgffTransform(
   // (c, *dims) with components in dims order, C-contiguous.
   const shape = dims.map((dim) => size[itkDims.indexOf(dim)]);
   const voxels = size.reduce((a, b) => a * b, 1);
-  const out = vectors instanceof Float32Array
-    ? new Float32Array(voxels * dimension)
-    : new Float64Array(voxels * dimension);
+  const out =
+    vectors instanceof Float32Array
+      ? new Float32Array(voxels * dimension)
+      : new Float64Array(voxels * dimension);
   const itkStrides = strides(size);
   const dimsStrides = new Array<number>(dimension);
   let step = 1;
@@ -453,8 +455,8 @@ export async function itkDisplacementFieldToNgffTransform(
     scale[dim] = spacing[itkDims.indexOf(dim)];
     translation[dim] = gridOrigin[itkDims.indexOf(dim)];
   }
-  const name = options.path.replace(/\/+$/, "").split("/").pop() ||
-    "displacement_field";
+  const name =
+    options.path.replace(/\/+$/, "").split("/").pop() || "displacement_field";
   const image = await toNgffImage(out, {
     dims: [COMPONENT_DIM, ...dims],
     shape: [dimension, ...shape],
@@ -467,17 +469,17 @@ export async function itkDisplacementFieldToNgffTransform(
   const fixed = options.fixed;
   const orientations = fixed?.axesOrientations
     ? Object.fromEntries(
-      dims
-        .filter((dim) => fixed.axesOrientations![dim] !== undefined)
-        .map((dim) => [dim, fixed.axesOrientations![dim]]),
-    )
+        dims
+          .filter((dim) => fixed.axesOrientations![dim] !== undefined)
+          .map((dim) => [dim, fixed.axesOrientations![dim]]),
+      )
     : undefined;
   const units = fixed?.axesUnits
     ? Object.fromEntries(
-      dims
-        .filter((dim) => fixed.axesUnits![dim] !== undefined)
-        .map((dim) => [dim, fixed.axesUnits![dim]]),
-    )
+        dims
+          .filter((dim) => fixed.axesUnits![dim] !== undefined)
+          .map((dim) => [dim, fixed.axesUnits![dim]]),
+      )
     : undefined;
   const field = new NgffImage({
     data: image.data,
@@ -486,9 +488,10 @@ export async function itkDisplacementFieldToNgffTransform(
     translation: image.translation,
     name: image.name,
     axesUnits: units && Object.keys(units).length > 0 ? units : undefined,
-    axesOrientations: orientations && Object.keys(orientations).length > 0
-      ? orientations
-      : undefined,
+    axesOrientations:
+      orientations && Object.keys(orientations).length > 0
+        ? orientations
+        : undefined,
     axesTypes: image.axesTypes,
     computedCallbacks: undefined,
   });
@@ -566,16 +569,16 @@ export function convertItkFieldBlock(
   }
   if (shape.length !== dimension + 1) {
     throw new Error(
-      `the block has shape ${shape.join(", ")}; dims ${
-        dims.join(", ")
-      } need one component axis and ${dimension} spatial axes`,
+      `the block has shape ${shape.join(", ")}; dims ${dims.join(
+        ", ",
+      )} need one component axis and ${dimension} spatial axes`,
     );
   }
   if (shape[0] !== dimension) {
     throw new Error(
-      `the block holds ${shape[0]} components per point, but dims ${
-        dims.join(", ")
-      } name ${dimension} axes`,
+      `the block holds ${shape[0]} components per point, but dims ${dims.join(
+        ", ",
+      )} name ${dimension} axes`,
     );
   }
   const expected = shape.reduce((a, b) => a * b, 1);
@@ -588,15 +591,16 @@ export function convertItkFieldBlock(
   for (const dim of dims) {
     if (translation[dim] === undefined || scale[dim] === undefined) {
       throw new Error(
-        `translation and scale must cover every axis dims ${
-          dims.join(", ")
-        } names; '${dim}' is missing`,
+        `translation and scale must cover every axis dims ${dims.join(
+          ", ",
+        )} names; '${dim}' is missing`,
       );
     }
   }
 
   const itkDims = itkAxisOrder(dims);
-  const frame = optionalFrameGeometry(options.fixed, options.moving, itkDims) ??
+  const frame =
+    optionalFrameGeometry(options.fixed, options.moving, itkDims) ??
     unorientedFrames(dimension);
   const absolute = transformType === "coordinates";
   const { toIntrinsic, toPhysical } = fieldValueConverters(frame, absolute);
@@ -605,9 +609,10 @@ export function convertItkFieldBlock(
 
   const spatial = shape.slice(1);
   const voxels = spatial.reduce((a, b) => a * b, 1);
-  const out = values instanceof Float32Array
-    ? new Float32Array(values.length)
-    : new Float64Array(values.length);
+  const out =
+    values instanceof Float32Array
+      ? new Float32Array(values.length)
+      : new Float64Array(values.length);
   // C-contiguous strides over the block's spatial axes, which are in dims order.
   const dimsStrides = new Array<number>(dimension);
   let step = 1;
@@ -621,8 +626,8 @@ export function convertItkFieldBlock(
     for (let axis = 0; axis < dimension; axis++) {
       const index = Math.floor(voxel / dimsStrides[axis]) % spatial[axis];
       // The point in ITK axis order, which is what the converters index.
-      point[itkDims.indexOf(dims[axis])] = translation[dims[axis]] +
-        scale[dims[axis]] * index;
+      point[itkDims.indexOf(dims[axis])] =
+        translation[dims[axis]] + scale[dims[axis]] * index;
     }
     for (let axis = 0; axis < dimension; axis++) {
       // Forward the components are ITK's already; inverse they follow dims.
@@ -672,9 +677,8 @@ export function fieldImage(
   field: NgffImage | NgffMultiscales,
   dims: string[],
 ): NgffImage {
-  const componentType = transform.type === "coordinates"
-    ? "coordinate"
-    : "displacement";
+  const componentType =
+    transform.type === "coordinates" ? "coordinate" : "displacement";
   let componentDims: string[];
   let image: NgffImage;
   if ("images" in field && "metadata" in field) {
@@ -751,9 +755,10 @@ export function fieldWindow(
   const window = dims.map((dim, axis) => {
     const extent = image.data.shape[1 + axis];
     if (shape[axis] === 0) return [0, 0] as [number, number];
-    const corners = [0, shape[axis] - 1].map((index) =>
-      (translation[dim] + scale[dim] * index - image.translation[dim]) /
-      image.scale[dim]
+    const corners = [0, shape[axis] - 1].map(
+      (index) =>
+        (translation[dim] + scale[dim] * index - image.translation[dim]) /
+        image.scale[dim],
     );
     if (Math.min(...corners) < 0 || Math.max(...corners) > extent - 1) {
       outside = true;
@@ -844,8 +849,8 @@ export async function fieldDisplacementRange(
         if (absolute) {
           // A coordinates field holds the output position of each grid point
           // rather than the offset from it, so the grid point comes off first.
-          const along = Math.floor(index / strides[component]) %
-            sizes[component];
+          const along =
+            Math.floor(index / strides[component]) % sizes[component];
           value -= origin_ + step * (origin[component] + along);
         }
         if (value < low[component]) low[component] = value;

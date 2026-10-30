@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 /** A channel axis changes neither the downsampled values nor the chunking. */
-import { assertEquals } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals } from "./_assert.ts";
 import * as zarr from "zarrita";
 
 import {
@@ -16,7 +17,7 @@ function pixels(size: number): Uint8Array {
   return data;
 }
 
-Deno.test("a size-1 channel axis does not change the pyramid", async () => {
+test("a size-1 channel axis does not change the pyramid", async () => {
   const size = 64;
   const plain = await toNgffImage(pixels(size), {
     dims: ["y", "x"],
@@ -41,7 +42,7 @@ Deno.test("a size-1 channel axis does not change the pyramid", async () => {
   }
 });
 
-Deno.test("chunks keyed by name land on their axes with a channel axis", async () => {
+test("chunks keyed by name land on their axes with a channel axis", async () => {
   const size = 64;
   const image = await toNgffImage(new Uint8Array(3 * size * size), {
     dims: ["c", "y", "x"],
@@ -55,7 +56,7 @@ Deno.test("chunks keyed by name land on their axes with a channel axis", async (
   assertEquals(multiscales.images[1].data.chunks.slice(1), [16, 16]);
 });
 
-Deno.test("label images with a few channels downsample per channel", async () => {
+test("label images with a few channels downsample per channel", async () => {
   const size = 16;
   const image = await toNgffImage(new Uint8Array(3 * size * size).fill(2), {
     dims: ["c", "y", "x"],

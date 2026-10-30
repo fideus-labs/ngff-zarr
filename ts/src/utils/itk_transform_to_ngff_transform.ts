@@ -69,22 +69,19 @@ export interface NgffMatrixAndOffset {
 }
 
 function identityMatrix(size: number): number[][] {
-  return Array.from(
-    { length: size },
-    (_, row) => Array.from({ length: size }, (_, col) => (row === col ? 1 : 0)),
+  return Array.from({ length: size }, (_, row) =>
+    Array.from({ length: size }, (_, col) => (row === col ? 1 : 0)),
   );
 }
 
 function multiply(left: number[][], right: number[][]): number[][] {
   const size = left.length;
-  return Array.from(
-    { length: size },
-    (_, row) =>
-      Array.from({ length: size }, (_, col) => {
-        let total = 0;
-        for (let k = 0; k < size; k++) total += left[row][k] * right[k][col];
-        return total;
-      }),
+  return Array.from({ length: size }, (_, row) =>
+    Array.from({ length: size }, (_, col) => {
+      let total = 0;
+      for (let k = 0; k < size; k++) total += left[row][k] * right[k][col];
+      return total;
+    }),
   );
 }
 
@@ -136,9 +133,9 @@ function decode(
       throw new Error(
         `ITK-Wasm '${parameterization}' transform carries ` +
           `${parameters.length} parameters, but a coordinate system with ` +
-          `${dimension} spatial axes requires exactly ${
-            expected(dimension)
-          }. ` +
+          `${dimension} spatial axes requires exactly ${expected(
+            dimension,
+          )}. ` +
           `The transform's dimensionality does not match dims.`,
       );
     }
@@ -153,9 +150,8 @@ function decode(
       );
     }
   }
-  const center = fixed.length === dimension
-    ? fixed
-    : new Array(dimension).fill(0);
+  const center =
+    fixed.length === dimension ? fixed : new Array(dimension).fill(0);
 
   /** Fold ITK's center of rotation into the offset: `b = t + c - A c`. */
   const foldCenter = (matrix: number[][], translation: number[]): number[] =>
@@ -186,9 +182,8 @@ function decode(
     return { matrix, offset: foldCenter(matrix, new Array(dimension).fill(0)) };
   }
   if (parameterization === "Affine") {
-    const matrix = Array.from(
-      { length: dimension },
-      (_, row) => parameters.slice(row * dimension, (row + 1) * dimension),
+    const matrix = Array.from({ length: dimension }, (_, row) =>
+      parameters.slice(row * dimension, (row + 1) * dimension),
     );
     const translation = parameters.slice(
       dimension * dimension,
@@ -297,9 +292,8 @@ export function itkTransformToNgffMatrix(
     total = multiply(total, homogeneous);
   }
 
-  let matrix = Array.from(
-    { length: dimension },
-    (_, row) => total[row].slice(0, dimension),
+  let matrix = Array.from({ length: dimension }, (_, row) =>
+    total[row].slice(0, dimension),
   );
   let offset = Array.from(
     { length: dimension },

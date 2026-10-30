@@ -103,9 +103,9 @@ export function declareFieldTransform(
     !Object.hasOwn(COMPONENT_TYPES, transformType)
   ) {
     throw new Error(
-      `transformType must be one of ${
-        Object.keys(COMPONENT_TYPES).join(", ")
-      }, got '${transformType}'`,
+      `transformType must be one of ${Object.keys(COMPONENT_TYPES).join(
+        ", ",
+      )}, got '${transformType}'`,
     );
   }
   const metadata = multiscales.metadata;
@@ -141,9 +141,11 @@ export function declareFieldTransform(
     for (const name of [inputSystem, outputSystem]) {
       if (!declared.has(name)) {
         throw new Error(
-          `'${name}' names no declared coordinate system (declared: ${
-            [...declared.keys()].sort().join(", ")
-          })`,
+          `'${name}' names no declared coordinate system (declared: ${[
+            ...declared.keys(),
+          ]
+            .sort()
+            .join(", ")})`,
         );
       }
     }
@@ -207,24 +209,25 @@ function checkFieldImage(
     );
   }
   const component = componentDims[0];
-  const other = image.dims.filter((dim) =>
-    dim !== component &&
-    (types[dim] ?? DEFAULT_AXIS_TYPES[dim] ?? "space") !== "space"
+  const other = image.dims.filter(
+    (dim) =>
+      dim !== component &&
+      (types[dim] ?? DEFAULT_AXIS_TYPES[dim] ?? "space") !== "space",
   );
   if (other.length) {
     throw new Error(
-      `a field transform is defined on spatial axes only; dims ${
-        image.dims.join(", ")
-      } name ${
-        other.join(", ")
-      }, which a coordinate system cannot carry as space`,
+      `a field transform is defined on spatial axes only; dims ${image.dims.join(
+        ", ",
+      )} name ${other.join(
+        ", ",
+      )}, which a coordinate system cannot carry as space`,
     );
   }
   if (image.dims[0] !== component) {
     throw new Error(
-      `the field's dims are ${
-        image.dims.join(", ")
-      }; the component axis '${component}' must come first, then the spatial ` +
+      `the field's dims are ${image.dims.join(
+        ", ",
+      )}; the component axis '${component}' must come first, then the spatial ` +
         "axes in order",
     );
   }
@@ -232,9 +235,9 @@ function checkFieldImage(
   const components = image.data.shape[0];
   if (components !== spatial.length) {
     throw new Error(
-      `the field holds ${components} components per point over spatial axes ${
-        spatial.join(", ")
-      }, which name ${spatial.length} axes`,
+      `the field holds ${components} components per point over spatial axes ${spatial.join(
+        ", ",
+      )}, which name ${spatial.length} axes`,
     );
   }
   return spatial;
@@ -255,20 +258,23 @@ function withSpatialSystem(
   if (existing) {
     const axes = existing.axes.map((axis) => axis.name);
     if (
-      axes.length !== spatial.length || axes.some((a, i) => a !== spatial[i])
+      axes.length !== spatial.length ||
+      axes.some((a, i) => a !== spatial[i])
     ) {
       throw new Error(
-        `coordinate system '${name}' is already declared with axes ${
-          axes.join(", ")
-        }, but the field's spatial axes are ${spatial.join(", ")}`,
+        `coordinate system '${name}' is already declared with axes ${axes.join(
+          ", ",
+        )}, but the field's spatial axes are ${spatial.join(", ")}`,
       );
     }
     const other = existing.axes.filter((axis) => axis.type !== "space");
     if (other.length > 0) {
       throw new Error(
-        `coordinate system '${name}' carries ${
-          other.map((axis) => `${axis.name} (${axis.type})`).join(", ")
-        } where a field transform needs space; it is defined on spatial axes ` +
+        `coordinate system '${name}' carries ${other
+          .map((axis) => `${axis.name} (${axis.type})`)
+          .join(
+            ", ",
+          )} where a field transform needs space; it is defined on spatial axes ` +
           `only`,
       );
     }

@@ -13,7 +13,8 @@
  * whole array's range and the rest came back null.
  */
 
-import { assertEquals } from "@std/assert";
+import { test } from "vite-plus/test";
+import { assertEquals } from "./_assert.ts";
 import * as zarr from "zarrita";
 
 import {
@@ -80,24 +81,21 @@ function expectedWindows(): Array<[number, number]> {
 // A chunk per channel, two channels per chunk (so the last chunk is a partial
 // edge chunk), and the unchunked baseline.
 for (const cChunk of [1, 2, N_CHANNELS]) {
-  Deno.test(
-    `omero channel statistics with channel chunk size ${cChunk}`,
-    async () => {
-      const image = await makeChannelImage(cChunk);
-      try {
-        const omero = await computeOmeroFromNgffImage(image);
+  test(`omero channel statistics with channel chunk size ${cChunk}`, async () => {
+    const image = await makeChannelImage(cChunk);
+    try {
+      const omero = await computeOmeroFromNgffImage(image);
 
-        assertEquals(omero.channels.length, N_CHANNELS);
-        for (const [c, [min, max]] of expectedWindows().entries()) {
-          assertEquals(
-            [omero.channels[c].window.min, omero.channels[c].window.max],
-            [min, max],
-            `channel ${c} statistics are wrong for chunk size ${cChunk}`,
-          );
-        }
-      } finally {
-        terminateOmeroWorkerPool();
+      assertEquals(omero.channels.length, N_CHANNELS);
+      for (const [c, [min, max]] of expectedWindows().entries()) {
+        assertEquals(
+          [omero.channels[c].window.min, omero.channels[c].window.max],
+          [min, max],
+          `channel ${c} statistics are wrong for chunk size ${cChunk}`,
+        );
       }
-    },
-  );
+    } finally {
+      terminateOmeroWorkerPool();
+    }
+  });
 }

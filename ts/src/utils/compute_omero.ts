@@ -4,7 +4,7 @@
 /**
  * Unified OMERO metadata computation using @fideus-labs/worker-pool.
  *
- * Works in Node.js, Deno, and browser environments. Each zarr chunk is
+ * Works in Node.js and browser environments. Each zarr chunk is
  * decoded and its per-channel statistics computed in parallel via a
  * WorkerPool. Decoded chunks are cached so that a subsequent zarrGet()
  * with the same cache avoids redundant decompression.
@@ -16,11 +16,7 @@ import {
   readArrayMetadata,
 } from "@fideus-labs/fizarrita";
 import type { WorkerLike, WorkerPoolTask } from "@fideus-labs/worker-pool";
-import {
-  isNodeRuntime,
-  NodeWorker,
-  WorkerPool,
-} from "@fideus-labs/worker-pool";
+import { WorkerPool } from "@fideus-labs/worker-pool";
 import type { Array as ZarrArray, DataType, Readable } from "zarrita";
 
 import { config } from "../config.ts";
@@ -40,6 +36,7 @@ import {
   validateQuantiles,
 } from "./compute_omero-shared.ts";
 import { workerDecodeAndStats } from "./omero_worker_rpc.ts";
+import { withCodecWorker } from "./worker_pool.ts";
 
 // Re-export shared utilities for backward compatibility
 export {
@@ -54,19 +51,9 @@ export {
   validateQuantiles,
 } from "./compute_omero-shared.ts";
 
-// fizarrita uses npm:zarrita while this project uses jsr:@zarrita/zarrita.
-// The types are structurally identical but TypeScript sees them as
-// incompatible due to differing #private class fields. We bridge with
-// explicit `as any` casts when calling into fizarrita.
-// deno-lint-ignore no-explicit-any
-type AnyZarrArray = any;
-
 // ---------------------------------------------------------------------------
 // Worker pool for omero computation
 // ---------------------------------------------------------------------------
-
-/** Blob URL used by inlined browser builds — set by inline_worker.ts. */
-let workerBlobUrl: string | null = null;
 
 let _omeroPool: WorkerPool | null = null;
 
@@ -78,33 +65,6 @@ function getOmeroPool(): WorkerPool {
 }
 
 /**
- * Create a new omero codec worker instance for the current runtime.
- *
- * The browser branch is written as a single
- * `new Worker(new URL(..., import.meta.url), { type: "module" })` expression
- * so bundlers recognise it as a worker entry point (and so
- * `scripts/inline_worker.ts` can swap in a blob URL). The Node branch keeps
- * its URL behind a variable for the opposite reason — bundlers targeting the
- * browser then leave it alone. This mirrors fizarrita's `createDefaultWorker`.
- */
-function createOmeroWorker(): WorkerLike {
-  if (typeof Worker !== "undefined") {
-    return new Worker(
-      new URL("../workers/omero_codec_worker.ts", import.meta.url),
-      { type: "module" },
-    );
-  }
-  if (isNodeRuntime()) {
-    const nodeEntry = "../workers/omero_codec_worker.ts";
-    return new NodeWorker(new URL(nodeEntry, import.meta.url));
-  }
-  throw new Error(
-    "No Worker implementation available: this runtime has no global `Worker` " +
-      "and is not Node.",
-  );
-}
-
-/**
  * Terminate the omero computation worker pool and release resources.
  * Call this when you're done with OMERO computations to free memory.
  */
@@ -112,10 +72,6 @@ export function terminateOmeroWorkerPool(): void {
   if (_omeroPool) {
     _omeroPool.terminateWorkers();
     _omeroPool = null;
-  }
-  if (workerBlobUrl) {
-    URL.revokeObjectURL(workerBlobUrl);
-    workerBlobUrl = null;
   }
 }
 
@@ -169,7 +125,6 @@ const _textDecoder = new TextDecoder();
  */
 const UNSUPPORTED_CODEC_NAMES = new Set(["sharding_indexed"]);
 
-// deno-lint-ignore no-explicit-any
 const _codecCheckCache = new WeakMap<any, Map<string, boolean>>();
 
 async function hasUnsupportedCodecs<Store extends Readable>(
@@ -267,9 +222,8 @@ async function computeOmeroMainThread(
   const result = await zarrGet(image.data);
   const fullData = result.data as ArrayLike<number>;
 
-  const accumulators = Array.from(
-    { length: nChannels },
-    () => createAccumulator(),
+  const accumulators = Array.from({ length: nChannels }, () =>
+    createAccumulator(),
   );
 
   if (hasChannelDim) {
@@ -344,9 +298,7 @@ export async function computeOmeroFromNgffImage(
   }
 
   // Read array metadata for codec pipeline + chunk key encoding
-  const { codecMeta, encodeChunkKey } = await readArrayMetadata(
-    image.data as AnyZarrArray,
-  );
+  const { codecMeta, encodeChunkKey } = await readArrayMetadata(image.data);
 
   const chunkShape = codecMeta.chunk_shape;
   const metaId = getMetaId(codecMeta);
@@ -367,7 +319,7 @@ export async function computeOmeroFromNgffImage(
 
     // Compute edge chunk shape
     const edgeChunkShape = chunk_coords.map((coord, dim) =>
-      Math.min(chunkShape[dim], shape[dim] - coord * chunkShape[dim])
+      Math.min(chunkShape[dim], shape[dim] - coord * chunkShape[dim]),
     );
 
     // Absolute index of this chunk's first channel, for placing its
@@ -376,7 +328,7 @@ export async function computeOmeroFromNgffImage(
 
     // Check cache before building the task
     const cacheKey = cache
-      ? createCacheKey(image.data as AnyZarrArray, encodeChunkKey, chunk_coords)
+      ? createCacheKey(image.data, encodeChunkKey, chunk_coords)
       : "";
     if (cache) {
       const cachedChunk = cache.get(cacheKey);
@@ -397,53 +349,49 @@ export async function computeOmeroFromNgffImage(
           Promise.resolve({
             worker: workerSlot ?? (null as unknown as WorkerLike),
             result: accs,
-          })
+          }),
         );
         continue;
       }
     }
 
-    tasks.push(async (workerSlot: WorkerLike | null) => {
-      const worker = workerSlot ?? createOmeroWorker();
+    tasks.push((workerSlot: WorkerLike | null) =>
+      withCodecWorker(workerSlot, async (worker) => {
+        // Fetch raw bytes from store on main thread
+        const rawBytes = await image.data.store.get(chunkPath);
 
-      // Fetch raw bytes from store on main thread
-      const rawBytes = await image.data.store.get(chunkPath);
-
-      if (!rawBytes) {
-        // Missing chunk — no data to accumulate. Cover only the channels this
-        // chunk spans, at their absolute positions.
-        const accs: ChannelStatisticsAccumulator[] = [];
-        const chunkChannels = cIndex >= 0
-          ? Math.min(chunkShape[cIndex], nChannels - cOffset)
-          : 1;
-        for (let ch = 0; ch < chunkChannels; ch++) {
-          accs[cOffset + ch] = createAccumulator();
+        if (!rawBytes) {
+          // Missing chunk — no data to accumulate. Cover only the channels this
+          // chunk spans, at their absolute positions.
+          const accs: ChannelStatisticsAccumulator[] = [];
+          const chunkChannels =
+            cIndex >= 0 ? Math.min(chunkShape[cIndex], nChannels - cOffset) : 1;
+          for (let ch = 0; ch < chunkChannels; ch++) {
+            accs[cOffset + ch] = createAccumulator();
+          }
+          return { worker, result: accs };
         }
-        return { worker, result: accs };
-      }
 
-      // Send to worker: decode + compute stats in one round-trip
-      const { chunk, accumulators } = await workerDecodeAndStats(
-        worker,
-        rawBytes,
-        metaId,
-        codecMeta,
-        nChannels,
-        cIndex,
-        edgeChunkShape,
-        cOffset,
-      );
+        // Send to worker: decode + compute stats in one round-trip
+        const { chunk, accumulators } = await workerDecodeAndStats(
+          worker,
+          rawBytes,
+          metaId,
+          codecMeta,
+          nChannels,
+          cIndex,
+          edgeChunkShape,
+          cOffset,
+        );
 
-      // Cache decoded chunk for future zarrGet reuse.
-      // Cast needed: jsr:zarrita vs npm:zarrita Chunk types are structurally
-      // identical but TypeScript sees differing #private class fields.
-      if (cache) {
-        // deno-lint-ignore no-explicit-any
-        cache.set(cacheKey, chunk as any);
-      }
+        // Cache decoded chunk for future zarrGet reuse.
+        if (cache) {
+          cache.set(cacheKey, chunk);
+        }
 
-      return { worker, result: accumulators };
-    });
+        return { worker, result: accumulators };
+      }),
+    );
   }
 
   // Execute all tasks with bounded concurrency

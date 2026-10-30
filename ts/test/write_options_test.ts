@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 /** toOmeZarr honors overwrite: false and the codecs it is given. */
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "vite-plus/test";
+import { makeTempDir, remove } from "./_fs.ts";
+import { assertEquals, assertRejects } from "./_assert.ts";
 import { unzipSync } from "fflate";
 import * as zarr from "zarrita";
 
@@ -42,7 +44,7 @@ async function multiscales() {
   return createMultiscales([image], metadata);
 }
 
-Deno.test("overwrite: false refuses a store that holds the image", async () => {
+test("overwrite: false refuses a store that holds the image", async () => {
   const store = new Map<string, Uint8Array>();
   await toOmeZarr(store, await multiscales());
   await assertRejects(
@@ -52,7 +54,7 @@ Deno.test("overwrite: false refuses a store that holds the image", async () => {
   );
 });
 
-Deno.test(".ozx archives use the codecs they are given", async () => {
+test(".ozx archives use the codecs they are given", async () => {
   const archive = await toOmeZarrOzxData(await multiscales(), {
     codecs: bytesOnlyCodecs(),
   });
@@ -63,8 +65,8 @@ Deno.test(".ozx archives use the codecs they are given", async () => {
   assertEquals(names.includes("blosc"), false, names);
 });
 
-Deno.test("overwrite: false refuses an existing .ozx file", async () => {
-  const dir = await Deno.makeTempDir();
+test("overwrite: false refuses an existing .ozx file", async () => {
+  const dir = await makeTempDir();
   const path = `${dir}/image.ozx`;
   await toOmeZarr(path, await multiscales());
   await assertRejects(
@@ -72,10 +74,10 @@ Deno.test("overwrite: false refuses an existing .ozx file", async () => {
     Error,
     "already exists",
   );
-  await Deno.remove(dir, { recursive: true });
+  await remove(dir, { recursive: true });
 });
 
-Deno.test("boolean images are written and read back", async () => {
+test("boolean images are written and read back", async () => {
   const source = new Map<string, Uint8Array>();
   const data = await zarr.create(zarr.root(source).resolve("mask"), {
     shape: [2, 2],
@@ -113,11 +115,11 @@ Deno.test("boolean images are written and read back", async () => {
   ]);
 });
 
-Deno.test("an .ozx path written by toOmeZarr reads back by path", async () => {
-  const dir = await Deno.makeTempDir();
+test("an .ozx path written by toOmeZarr reads back by path", async () => {
+  const dir = await makeTempDir();
   const path = `${dir}/image.ozx`;
   await toOmeZarr(path, await multiscales());
-  const read = await fromOmeZarr(path) as NgffMultiscales;
+  const read = (await fromOmeZarr(path)) as NgffMultiscales;
   assertEquals(read.images[0].data.shape, [8, 8]);
-  await Deno.remove(dir, { recursive: true });
+  await remove(dir, { recursive: true });
 });

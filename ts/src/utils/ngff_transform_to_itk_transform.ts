@@ -45,31 +45,27 @@ const SPATIAL_DIMS = ["x", "y", "z"];
 type Matrix = number[][];
 
 function zeroMatrix(size: number): Matrix {
-  return Array.from(
-    { length: size },
-    () => Array.from({ length: size }, () => 0),
+  return Array.from({ length: size }, () =>
+    Array.from({ length: size }, () => 0),
   );
 }
 
 function identityMatrix(size: number): Matrix {
-  return Array.from(
-    { length: size },
-    (_, row) => Array.from({ length: size }, (_, col) => (row === col ? 1 : 0)),
+  return Array.from({ length: size }, (_, row) =>
+    Array.from({ length: size }, (_, col) => (row === col ? 1 : 0)),
   );
 }
 
 function multiply(left: Matrix, right: Matrix): Matrix {
   const size = left.length;
-  return Array.from(
-    { length: size },
-    (_, row) =>
-      Array.from({ length: size }, (_, col) => {
-        let total = 0;
-        for (let k = 0; k < size; k++) {
-          total += left[row][k] * right[k][col];
-        }
-        return total;
-      }),
+  return Array.from({ length: size }, (_, row) =>
+    Array.from({ length: size }, (_, col) => {
+      let total = 0;
+      for (let k = 0; k < size; k++) {
+        total += left[row][k] * right[k][col];
+      }
+      return total;
+    }),
   );
 }
 
@@ -83,9 +79,9 @@ function describeShape(rows: number[][]): string {
   if (lengths.size <= 1) {
     return `${rows.length}x${rows[0]?.length ?? 0}`;
   }
-  return `${rows.length} rows of lengths ${
-    rows.map((row) => row.length).join(", ")
-  }`;
+  return `${rows.length} rows of lengths ${rows
+    .map((row) => row.length)
+    .join(", ")}`;
 }
 
 function assertMatrix(
@@ -168,9 +164,7 @@ function homogeneousFromTransform(
       // RFC-5 stores the upper M x (N+1) block of a homogeneous matrix: the
       // rotation/scale/shear part followed by the translation as the last
       // column, with the trailing [0 ... 0 1] row omitted.
-      if (
-        affine.length !== ndim || affine.some((r) => r.length !== ndim + 1)
-      ) {
+      if (affine.length !== ndim || affine.some((r) => r.length !== ndim + 1)) {
         throw new Error(
           `affine transformation is ${describeShape(affine)} but ` +
             `a coordinate system with ${ndim} axes requires ` +
@@ -290,12 +284,15 @@ function homogeneousFromByDimension(
     });
   });
 
-  const missing = Array.from({ length: ndim }, (_, axis) => axis)
-    .filter((axis) => !produced.has(axis));
+  const missing = Array.from({ length: ndim }, (_, axis) => axis).filter(
+    (axis) => !produced.has(axis),
+  );
   if (missing.length > 0) {
     throw new Error(
       `byDimension transformation produces output axes ` +
-        `[${Array.from(produced).sort((a, b) => a - b).join(", ")}], leaving ` +
+        `[${Array.from(produced)
+          .sort((a, b) => a - b)
+          .join(", ")}], leaving ` +
         `[${missing.join(", ")}] of the ${ndim} axes of the coordinate ` +
         `system unset; every output axis must be produced by exactly one item`,
     );
@@ -315,9 +312,9 @@ function byDimensionItemBlock(item: ByDimensionItem, ndim: number): Matrix {
   const axes = [...item.inputAxes, ...item.outputAxes];
   if (!axes.every((axis) => Number.isInteger(axis) && axis >= 0)) {
     throw new Error(
-      `byDimension axis indices must be non-negative integers; got [${
-        axes.join(", ")
-      }]`,
+      `byDimension axis indices must be non-negative integers; got [${axes.join(
+        ", ",
+      )}]`,
     );
   }
   const beyond = axes.filter((axis) => axis >= ndim);
@@ -402,11 +399,11 @@ export function ngffTransformToItkMatrix(
   // rather than by reversing, which is only equivalent for the canonical
   // (z, y, x) order.
   const spatialNames = spatialIndices.map((index) => dims[index]);
-  const itkIndices = SPATIAL_DIMS
-    .filter((dim) => spatialNames.includes(dim))
-    .map((dim) => spatialIndices[spatialNames.indexOf(dim)]);
+  const itkIndices = SPATIAL_DIMS.filter((dim) =>
+    spatialNames.includes(dim),
+  ).map((dim) => spatialIndices[spatialNames.indexOf(dim)]);
   const matrix = itkIndices.map((row) =>
-    itkIndices.map((col) => homogeneous[row][col])
+    itkIndices.map((col) => homogeneous[row][col]),
   );
   const offset = itkIndices.map((row) => homogeneous[row][ndim]);
 
