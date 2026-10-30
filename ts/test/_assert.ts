@@ -84,17 +84,16 @@ export function assertInstanceOf<
   );
 }
 
-/** Absolute tolerance, matching `@std/assert`'s default. */
-const DEFAULT_TOLERANCE = 1e-7;
-
 export function assertAlmostEquals(
   actual: number,
   expected: number,
-  tolerance: number = DEFAULT_TOLERANCE,
+  tolerance?: number,
   msg?: string,
 ): void {
   if (Object.is(actual, expected)) return;
   const delta = Math.abs(expected - actual);
+  // `@std/assert`'s default: relative to `expected`, absolute at ±Infinity.
+  tolerance ??= Number.isFinite(expected) ? Math.abs(expected * 1e-7) : 1e-7;
   if (delta <= tolerance) return;
   assert_.fail(
     msg ??

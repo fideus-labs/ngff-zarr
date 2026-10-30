@@ -79,11 +79,10 @@
     "fmt:check": "vp fmt --check",
     "test": "vp test",
     "test:node": "npm run build && node --test \"test/node/*.test.mjs\"",
-    "test:browser": "node scripts/run_playwright.mjs",
+    "test:browser": "npm run build:bundle && node scripts/run_playwright.mjs",
     "test:browser:ui": "node scripts/run_playwright.mjs --ui",
     "test:browser:debug": "node scripts/run_playwright.mjs --debug",
-    "test:browser:bundle": "npm run build:bundle && npm run test:browser",
-    "test:all": "npm test && npm run test:node && npm run test:browser:bundle"
+    "test:all": "npm test && npm run test:node && npm run test:browser"
   },
   "dependencies": {
     "@fideus-labs/fizarrita": "^3.0.0",

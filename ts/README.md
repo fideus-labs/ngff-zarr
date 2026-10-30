@@ -216,7 +216,7 @@ browser environments.
 
 ```bash
 # Build the package, inline the worker, bundle, and run the browser tests
-npm run test:browser:bundle
+npm run test:browser
 
 # Run browser tests with interactive UI
 npm run test:browser:ui

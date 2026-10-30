@@ -95,6 +95,26 @@ export function createCodecWorker(): WorkerLike {
   );
 }
 
+/**
+ * Run `task` on `slot`, or on a fresh codec worker when the slot is empty.
+ *
+ * The pool learns of a worker only through the resolved `{ worker }`, so a
+ * fresh one whose task rejects would otherwise leak — in Node, a thread that
+ * keeps the process alive. A lent worker is the pool's to terminate.
+ */
+export async function withCodecWorker<T>(
+  slot: WorkerLike | null,
+  task: (worker: WorkerLike) => Promise<{ worker: WorkerLike; result: T }>,
+): Promise<{ worker: WorkerLike; result: T }> {
+  const worker = slot ?? createCodecWorker();
+  try {
+    return await task(worker);
+  } catch (error) {
+    if (slot === null) worker.terminate();
+    throw error;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Codec pool — used by getWorker/setWorker for codec operations
 // ---------------------------------------------------------------------------
@@ -114,7 +134,7 @@ class CodecWorkerPool extends WorkerPool {
     options?: WorkerPoolRunTasksOptions,
   ): WorkerPoolRunTasksResult<T> {
     return super.runTasks(
-      taskFns.map((task) => (worker) => task(worker ?? createCodecWorker())),
+      taskFns.map((task) => (slot) => withCodecWorker(slot, task)),
       progressCallback,
       options,
     );

@@ -36,7 +36,7 @@ import {
   validateQuantiles,
 } from "./compute_omero-shared.ts";
 import { workerDecodeAndStats } from "./omero_worker_rpc.ts";
-import { createCodecWorker } from "./worker_pool.ts";
+import { withCodecWorker } from "./worker_pool.ts";
 
 // Re-export shared utilities for backward compatibility
 export {
@@ -355,43 +355,43 @@ export async function computeOmeroFromNgffImage(
       }
     }
 
-    tasks.push(async (workerSlot: WorkerLike | null) => {
-      const worker = workerSlot ?? createCodecWorker();
+    tasks.push((workerSlot: WorkerLike | null) =>
+      withCodecWorker(workerSlot, async (worker) => {
+        // Fetch raw bytes from store on main thread
+        const rawBytes = await image.data.store.get(chunkPath);
 
-      // Fetch raw bytes from store on main thread
-      const rawBytes = await image.data.store.get(chunkPath);
-
-      if (!rawBytes) {
-        // Missing chunk — no data to accumulate. Cover only the channels this
-        // chunk spans, at their absolute positions.
-        const accs: ChannelStatisticsAccumulator[] = [];
-        const chunkChannels =
-          cIndex >= 0 ? Math.min(chunkShape[cIndex], nChannels - cOffset) : 1;
-        for (let ch = 0; ch < chunkChannels; ch++) {
-          accs[cOffset + ch] = createAccumulator();
+        if (!rawBytes) {
+          // Missing chunk — no data to accumulate. Cover only the channels this
+          // chunk spans, at their absolute positions.
+          const accs: ChannelStatisticsAccumulator[] = [];
+          const chunkChannels =
+            cIndex >= 0 ? Math.min(chunkShape[cIndex], nChannels - cOffset) : 1;
+          for (let ch = 0; ch < chunkChannels; ch++) {
+            accs[cOffset + ch] = createAccumulator();
+          }
+          return { worker, result: accs };
         }
-        return { worker, result: accs };
-      }
 
-      // Send to worker: decode + compute stats in one round-trip
-      const { chunk, accumulators } = await workerDecodeAndStats(
-        worker,
-        rawBytes,
-        metaId,
-        codecMeta,
-        nChannels,
-        cIndex,
-        edgeChunkShape,
-        cOffset,
-      );
+        // Send to worker: decode + compute stats in one round-trip
+        const { chunk, accumulators } = await workerDecodeAndStats(
+          worker,
+          rawBytes,
+          metaId,
+          codecMeta,
+          nChannels,
+          cIndex,
+          edgeChunkShape,
+          cOffset,
+        );
 
-      // Cache decoded chunk for future zarrGet reuse.
-      if (cache) {
-        cache.set(cacheKey, chunk);
-      }
+        // Cache decoded chunk for future zarrGet reuse.
+        if (cache) {
+          cache.set(cacheKey, chunk);
+        }
 
-      return { worker, result: accumulators };
-    });
+        return { worker, result: accumulators };
+      }),
+    );
   }
 
   // Execute all tasks with bounded concurrency

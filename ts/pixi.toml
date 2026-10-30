@@ -40,9 +40,6 @@ cmd = "npm run test:browser:ui"
 [tasks.test-browser-debug]
 cmd = "npm run test:browser:debug"
 
-[tasks.test-browser-bundle]
-cmd = "npm run test:browser:bundle"
-
 [tasks.test-node]
 cmd = "npm run test:node"
 
