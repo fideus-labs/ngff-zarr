@@ -29,6 +29,7 @@ from types import SimpleNamespace
 import dask.array
 import numpy as np
 
+from ._v2_store_reader import AttrsDict
 from ._zarrista_utils import (
     _array_doc,
     _native_contiguous,
@@ -250,7 +251,10 @@ class JsZarrStore(Mapping):
         self.prefix = "/".join(
             part for part in str(prefix).split("/") if part not in ("", ".")
         )
-        is_url = isinstance(source, str) and source.startswith(("http://", "https://"))
+        is_url = isinstance(source, str) and "://" in source
+        if is_url and not source.startswith(("http://", "https://")):
+            msg = f"ngff-zarr on Pyodide reads URLs over HTTP(S) only; got {source!r}"
+            raise ValueError(msg)
         self._py = None if is_url else _PyStore(source)
         # A mutable cell so with_prefix views (shallow copies) share one JS store.
         self._handle = {"js": None}
@@ -335,13 +339,16 @@ class JsArrayAdapter(_ZarristaArrayAdapter):
     from the array document because zarrita exposes only the outer grid.
     """
 
-    def __init__(self, arr, chunks, write_chunks, store_path=None, node_path=None):
+    def __init__(
+        self, arr, chunks, write_chunks, store_path=None, node_path=None, attrs=None
+    ):
         self._arr = arr
         self.shape = tuple(int(n) for n in arr.shape)
         self.dtype = np.dtype(str(arr.dtype))
         self.ndim = len(self.shape)
         self.chunks = tuple(int(c) for c in chunks)
         self.write_chunks = tuple(int(c) for c in write_chunks)
+        self.attrs = AttrsDict(attrs or {})
         self.store_path = store_path
         self.node_path = node_path
 
@@ -382,20 +389,25 @@ class JsArrayAdapter(_ZarristaArrayAdapter):
         return dask.array.from_array(self, chunks=self.chunks)
 
 
-def _chunk_layout(store: JsZarrStore, component) -> tuple[tuple, tuple]:
-    """``(read chunks, write chunks)`` of the array at *component*, from its doc."""
+def _array_layout(store: JsZarrStore, component) -> tuple[tuple, tuple, dict]:
+    """``(read chunks, write chunks, attributes)`` of the array at *component*."""
     node = str(component or "").strip("/")
     key = f"{node}/" if node else ""
     try:
         doc = json.loads(store[f"{key}zarr.json"])
     except KeyError:
         chunks = tuple(json.loads(store[f"{key}.zarray"])["chunks"])
-        return chunks, chunks
+        try:
+            attrs = json.loads(store[f"{key}.zattrs"])
+        except KeyError:
+            attrs = {}
+        return chunks, chunks, attrs
+    attrs = doc.get("attributes") or {}
     shard = tuple(doc["chunk_grid"]["configuration"]["chunk_shape"])
     first = (doc.get("codecs") or [{}])[0]
     if first.get("name") == "sharding_indexed":
-        return tuple(first["configuration"]["chunk_shape"]), shard
-    return shard, shard
+        return tuple(first["configuration"]["chunk_shape"]), shard, attrs
+    return shard, shard, attrs
 
 
 def open_js_array(
@@ -405,8 +417,8 @@ def open_js_array(
     js = _js()
     location = js.zarr.root(store.js).resolve(store.node_path(component))
     arr = _block_on(js.zarr.open(location, _to_js({"kind": "array"})))
-    chunks, write_chunks = _chunk_layout(store, component)
-    return JsArrayAdapter(arr, chunks, write_chunks, store_path, node_path)
+    chunks, write_chunks, attrs = _array_layout(store, component)
+    return JsArrayAdapter(arr, chunks, write_chunks, store_path, node_path, attrs)
 
 
 def open_js_lazy(store: JsZarrStore, component=None) -> dask.array.Array:

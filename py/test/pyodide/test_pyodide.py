@@ -2,16 +2,18 @@
 # SPDX-License-Identifier: MIT
 """Checks run inside Pyodide by run.mjs; a failing assert fails the run."""
 
+import os
 import shutil
 import sys
 from pathlib import Path
 
+import itkwasm_downsample
 import ngff_zarr
 import numpy as np
 import zarr
 from dask.base import get_scheduler
 from dask.local import get_sync
-from ngff_zarr import to_ngff_image
+from ngff_zarr import from_ome_zarr, to_multiscales, to_ngff_image, to_ome_zarr
 from ngff_zarr._js_zarr import JsZarrStore, create_js_array, open_js_array, open_js_lazy
 from pyodide.ffi import can_run_sync
 
@@ -85,5 +87,47 @@ for dtype in ("uint8", "int64", "float32", "bool"):
         np.testing.assert_array_equal(
             open_js_array(JsZarrStore(root / "out"), name)[:], expected
         )
+
+# Phase 3: the public API end to end. /out is a host directory run.mjs also
+# serves over HTTP, so the stores come back three ways: local path, URL, and
+# zarr-python as the independent reader.
+out = Path("/out")
+http_base = os.environ["NGFF_ZARR_HTTP_BASE"]
+volume = np.arange(8 * 12 * 16, dtype=np.uint16).reshape(8, 12, 16)
+image = to_ngff_image(
+    volume,
+    dims=("z", "y", "x"),
+    scale={"z": 2.0, "y": 0.5, "x": 0.5},
+    translation={"z": 1.0, "y": 0.0, "x": 0.0},
+)
+# shortcut: Phase 4 routes itkwasm through run_sync; until then only the
+# sync name the empty-scale-factor path imports needs to exist.
+itkwasm_downsample.gaussian_kernel_radius = None
+multiscales = to_multiscales(image, scale_factors=[], chunks=4)
+
+
+def check(read):
+    first = read.images[0]
+    assert first.dims == ("z", "y", "x"), first.dims
+    assert first.scale == {"z": 2.0, "y": 0.5, "x": 0.5}, first.scale
+    assert first.translation == {"z": 1.0, "y": 0.0, "x": 0.0}, first.translation
+    assert first.data.chunksize == (4, 4, 4), first.data.chunksize
+    np.testing.assert_array_equal(first.data.compute(), volume)
+
+
+for name, kwargs in (
+    ("v04", {"version": "0.4"}),
+    ("v05", {"version": "0.5"}),
+    ("sharded", {"version": "0.5", "chunks_per_shard": 2}),
+):
+    path = out / f"{name}.ome.zarr"
+    to_ome_zarr(path, multiscales, **kwargs)
+    check(from_ome_zarr(path))
+    check(from_ome_zarr(f"{http_base}/{name}.ome.zarr"))
+    level0 = zarr.open_group(str(path), mode="r")[multiscales.metadata.datasets[0].path]
+    np.testing.assert_array_equal(level0[:], volume)
+
+to_ome_zarr(out / "img.ozx", multiscales, version="0.5")
+check(from_ome_zarr(out / "img.ozx"))
 
 print(f"ngff_zarr {ngff_zarr.__version__} on Pyodide, Python {sys.version}")

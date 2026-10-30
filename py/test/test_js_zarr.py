@@ -3,22 +3,40 @@
 """The Pyodide bridge's pure-Python parts; the JS half runs in test/pyodide."""
 
 import asyncio
+import importlib
 import inspect
 import json
+import sys
+import zipfile
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import dask.array as da
 import numpy as np
 import pytest
-from ngff_zarr import _js_zarr
+from ngff_zarr import _js_zarr, _zarrista_utils
 from ngff_zarr._js_zarr import (
     TYPED_ARRAYS,
+    JsArrayAdapter,
     JsZarrStore,
+    _array_layout,
     _block_on,
-    _chunk_layout,
     _PyStore,
 )
-from ngff_zarr._zarrista_utils import _array_doc, create_zarrista_array
+from ngff_zarr._zarrista_utils import (
+    LocalZarrGroup,
+    _array_doc,
+    create_zarrista_array,
+    create_zarrista_subgroup,
+    open_array,
+    open_lazy_array,
+    open_local_node,
+    open_zarrista_array,
+    open_zarrista_lazy,
+    write_dask_array,
+)
+from ngff_zarr.rfc9_zip import ZipReadStore
 from ngff_zarr.to_ngff_zarr import _numpy_to_zarr_dtype
 
 pytest.importorskip("zarrista")
@@ -178,16 +196,173 @@ def test_block_on_refuses_without_jspi():
     assert inspect.getcoroutinestate(coroutine) == inspect.CORO_CLOSED
 
 
-def test_chunk_layout_reads_the_inner_chunks_of_a_sharded_array(tmp_path):
+def test_array_layout_reads_inner_chunks_and_attributes(tmp_path):
+    attrs = {"k": [1, 2]}
     create_zarrista_array(tmp_path, "s", SHAPE, "uint8", CHUNKS, 3, chunks_per_shard=2)
-    create_zarrista_array(tmp_path, "p", SHAPE, "uint8", CHUNKS, 3)
-    create_zarrista_array(tmp_path, "v2", SHAPE, "uint8", CHUNKS, 2)
+    create_zarrista_array(tmp_path, "p", SHAPE, "uint8", CHUNKS, 3, attributes=attrs)
+    create_zarrista_array(tmp_path, "v2", SHAPE, "uint8", CHUNKS, 2, attributes=attrs)
     store = JsZarrStore(tmp_path)
 
-    assert _chunk_layout(store, "s") == (CHUNKS, SHAPE)
-    assert _chunk_layout(store, "p") == (CHUNKS, CHUNKS)
-    assert _chunk_layout(store, "v2") == (CHUNKS, CHUNKS)
-    assert _chunk_layout(store.with_prefix("s"), None) == (CHUNKS, SHAPE)
+    assert _array_layout(store, "s") == (CHUNKS, SHAPE, {})
+    assert _array_layout(store, "p") == (CHUNKS, CHUNKS, attrs)
+    assert _array_layout(store, "v2") == (CHUNKS, CHUNKS, attrs)
+    assert _array_layout(store.with_prefix("s"), None) == (CHUNKS, SHAPE, {})
+
+
+def test_js_zarr_store_reads_http_urls_only():
+    with pytest.raises(ValueError, match="HTTP"):
+        JsZarrStore("s3://bucket/a.zarr")
+
+
+@pytest.fixture
+def use_js(monkeypatch):
+    monkeypatch.setattr(_zarrista_utils, "_USE_JS", True)
+
+
+def test_group_creation_needs_no_zarrista_on_pyodide(tmp_path, use_js, monkeypatch):
+    monkeypatch.setitem(sys.modules, "zarrista", None)  # import would fail
+
+    group = create_zarrista_subgroup(tmp_path, "a/b", {"k": 1}, 3)
+
+    assert isinstance(group, LocalZarrGroup)
+    assert group.attrs.asdict() == {"k": 1}
+    assert (
+        json.loads((tmp_path / "a" / "zarr.json").read_text())["node_type"] == "group"
+    )
+
+
+def test_write_dask_array_writes_whole_shards_on_pyodide(use_js):
+    class Target(JsArrayAdapter):
+        def __init__(self):
+            self.shape, self.ndim, self.dtype = SHAPE, 3, np.dtype("uint8")
+            self.write_chunks, self.writes = (4, 3, 8), []
+
+        def __setitem__(self, selection, value):
+            self.writes.append((selection, value.shape))
+
+    target = Target()
+    write_dask_array(da.ones(SHAPE, dtype="uint8", chunks=CHUNKS), target)
+
+    assert sorted(shape for _, shape in target.writes) == [(4, 3, 8), (4, 3, 8)]
+
+
+class _Opened(JsArrayAdapter):
+    """What the stubbed bridge hands back: enough for the seams' return paths."""
+
+    def __init__(self):
+        self.shape, self.ndim, self.dtype = SHAPE, 3, np.dtype("uint8")
+        self.chunks = self.write_chunks = CHUNKS
+
+    def to_dask(self):
+        return "lazy"
+
+
+@pytest.fixture
+def js_opens(use_js, monkeypatch):
+    """Record every array open the seams route to the bridge."""
+    opened = []
+
+    def open_js_array(store, component=None, store_path=None, node_path=None):
+        opened.append((store.source, store.prefix, component, store_path, node_path))
+        if component == "missing":
+            raise KeyError(component)
+        return _Opened()
+
+    monkeypatch.setattr(_js_zarr, "open_js_array", open_js_array)
+    return opened
+
+
+def test_create_array_passes_every_argument_to_the_bridge_on_pyodide(
+    tmp_path, use_js, monkeypatch
+):
+    calls = []
+    signature = inspect.signature(_js_zarr.create_js_array)
+    monkeypatch.setattr(_js_zarr, "create_js_array", lambda *a: calls.append(a))
+    kwargs = {
+        "compressor": {"id": "gzip"},
+        "chunks_per_shard": 2,
+        "dimension_names": ("z", "y", "x"),
+        "fill_value": 1,
+        "attributes": {"k": 1},
+        "chunk_key_encoding": {"name": "v2", "configuration": {"separator": "."}},
+    }
+
+    create_zarrista_array(tmp_path, "a", SHAPE, "uint8", CHUNKS, 3, **kwargs)
+
+    bound = signature.bind(*calls[0]).arguments
+    assert bound == {
+        "path": tmp_path,
+        "name": "a",
+        "shape": SHAPE,
+        "dtype": "uint8",
+        "chunks": CHUNKS,
+        "zarr_format": 3,
+        "dimension_separator": "/",
+        "compressors": None,
+        "shards": None,
+        **kwargs,
+    }
+
+
+def test_local_opens_route_through_the_bridge_on_pyodide(tmp_path, js_opens):
+    adapter = open_zarrista_array(tmp_path, "0")
+    assert isinstance(adapter, _Opened)
+    assert open_zarrista_lazy(tmp_path, "0") == "lazy"
+    assert open_lazy_array(JsZarrStore(tmp_path).with_prefix("w"), "0") == "lazy"
+    # Creation writes the doc then opens it; a local handle opens it again
+    # and reads its chunk grid from the adapter.
+    create_zarrista_array(tmp_path, "a", SHAPE, "uint8", CHUNKS, 3)
+    node = open_local_node(tmp_path, "a", zarr_format=3)
+    assert node.chunks == CHUNKS
+    assert node.to_dask() == "lazy"
+    # .ozx archives go through the bridge over the zip mapping.
+    archive = tmp_path / "img.ozx"
+    zipfile.ZipFile(archive, "w").close()
+    assert open_lazy_array(ZipReadStore(archive), "0") == "lazy"
+
+    sources = [
+        (src if isinstance(src, Path) else type(src), p, c)
+        for src, p, c, *_ in js_opens
+    ]
+    assert sources == [
+        (tmp_path, "", "0"),
+        (tmp_path, "", "0"),
+        (tmp_path, "w", "0"),
+        (tmp_path, "", "a"),  # create
+        (tmp_path, "", "a"),  # .chunks
+        (tmp_path, "", "a"),  # .to_dask()
+        (ZipReadStore, "", "0"),
+    ]
+    assert js_opens[0][3:] == (tmp_path, "0")  # store_path/node_path for the writer
+
+
+def test_open_array_on_a_url_returns_the_adapter_on_pyodide(js_opens):
+    assert isinstance(open_array("https://h/a.zarr", "0"), _Opened)
+    assert js_opens == [("https://h/a.zarr", "", "0", None, None)]
+    with pytest.warns(UserWarning, match="storage_options are ignored"):
+        open_array("https://h/a.zarr", "0", storage_options={"headers": {}})
+    with pytest.raises(FileNotFoundError, match="missing"):
+        open_array("https://h/a.zarr", "missing")
+
+
+def test_from_ome_zarr_routes_urls_to_the_js_store_on_pyodide(use_js, monkeypatch):
+    from ngff_zarr import from_ome_zarr
+
+    # The package re-exports the function under the module's name.
+    reader = importlib.import_module("ngff_zarr.from_ngff_zarr")
+    monkeypatch.setattr(reader, "_USE_JS", True)
+    asked = []
+
+    def getitem(self, key):
+        asked.append((self.source, key))
+        raise KeyError(key)
+
+    monkeypatch.setattr(JsZarrStore, "__getitem__", getitem)
+
+    with pytest.raises(ValueError, match="group"):
+        from_ome_zarr("https://example.org/a.zarr")
+
+    assert ("https://example.org/a.zarr", "zarr.json") in asked
 
 
 def test_every_zarr_v3_dtype_has_a_typed_array():

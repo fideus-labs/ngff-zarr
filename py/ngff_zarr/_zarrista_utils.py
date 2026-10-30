@@ -547,9 +547,6 @@ def create_zarrista_group(
     ``zarrista.Group`` reads the documents back, hiding the hand-written JSON
     from callers.
     """
-    from zarrista import Group
-    from zarrista.store import FilesystemStore
-
     path = normalize_store(path)
     if overwrite and path.exists():
         shutil.rmtree(path)
@@ -570,6 +567,11 @@ def create_zarrista_group(
         _write_group_doc(path / "zarr.json", metadata)
     else:
         raise ValueError(f"Unsupported zarr format: {zarr_format}")
+    if _USE_JS:
+        return open_local_node(path, zarr_format=zarr_format)
+    from zarrista import Group
+    from zarrista.store import FilesystemStore
+
     return Group.open(FilesystemStore(path), "/")
 
 
@@ -848,6 +850,26 @@ def create_zarrista_array(
     chunk keys resolvable. The metadata is stored immediately; the returned
     ``zarrista.Array`` is ready for chunk writes.
     """
+    if _USE_JS:
+        from ._js_zarr import create_js_array
+
+        return create_js_array(
+            path,
+            name,
+            shape,
+            dtype,
+            chunks,
+            zarr_format,
+            compressor,
+            chunks_per_shard,
+            dimension_names,
+            dimension_separator,
+            compressors,
+            shards,
+            fill_value,
+            attributes,
+            chunk_key_encoding,
+        )
     path = normalize_store(path)
     path.mkdir(parents=True, exist_ok=True)
     node_path = "/" + str(name).strip("/")
@@ -940,10 +962,13 @@ def write_dask_array(darr, zarrista_array, region=None) -> None:
     darr = dask.array.asarray(darr)
     if darr.size == 0:
         return
-    write_chunks = tuple(zarrista_array.chunk_shape([0] * zarrista_array.ndim))
+    if _USE_JS:  # a JsArrayAdapter is dask's target itself
+        write_chunks, target = zarrista_array.write_chunks, zarrista_array
+    else:
+        write_chunks = tuple(zarrista_array.chunk_shape([0] * zarrista_array.ndim))
+        target = _ZarristaArrayAdapter(zarrista_array)
     if darr.chunksize != write_chunks:
         darr = darr.rechunk(write_chunks)
-    target = _ZarristaArrayAdapter(zarrista_array)
     store_kwargs = {"lock": False}
     if region is not None:
         store_kwargs["regions"] = region
@@ -958,10 +983,15 @@ def open_zarrista_array(path, component: str | None = None):
     must be C-contiguous; :class:`_ZarristaArrayAdapter` or
     :func:`write_dask_array` handle that for adapter-mediated writes.
     """
+    path = normalize_store(path)
+    if _USE_JS:
+        from ._js_zarr import JsZarrStore, open_js_array
+
+        node = str(component).strip("/") if component else ""
+        return open_js_array(JsZarrStore(path), node or None, path, node)
     from zarrista import Array
     from zarrista.store import FilesystemStore
 
-    path = normalize_store(path)
     node_path = "/" + str(component).strip("/") if component else "/"
     return Array.open(FilesystemStore(path), node_path)
 
@@ -998,7 +1028,10 @@ def open_zarrista_lazy(path, component: str | None = None) -> dask.array.Array:
     """Open the array at *component* within *path* as a lazy dask array."""
     path = normalize_store(path)
     node_path = str(component).strip("/") if component else ""
-    return zarrista_array_to_dask(open_zarrista_array(path, component), path, node_path)
+    arr = open_zarrista_array(path, component)
+    if _USE_JS:
+        return arr.to_dask()
+    return zarrista_array_to_dask(arr, path, node_path)
 
 
 def open_ozx_store(path):
@@ -1019,6 +1052,14 @@ def open_zip_lazy(store: ZipReadStore, component: str | None = None):
     which only zarrista can decode. The node path combines the store's
     prefix (HCS well/field views) with *component*.
     """
+    if _USE_JS:
+        from ._js_zarr import JsZarrStore, open_js_lazy
+
+        # The mapping resolves keys under its own prefix. shortcut: a range
+        # read of a zip member decompresses the whole member (_PyStore.read),
+        # two reads per chunk of a sharded array; stream members with
+        # ZipFile.open().seek() if .ozx reads on Pyodide turn out slow.
+        return open_js_lazy(JsZarrStore(store), component)
     from zarrista import Array
     from zarrista.store import FilesystemStore, ZipStore
 
@@ -1054,6 +1095,11 @@ def open_lazy_array(store, component: str | None = None) -> dask.array.Array:
     reader (either zarr format), and local paths through zarrista. Any other
     store object raises ``TypeError``.
     """
+    if _USE_JS:
+        from ._js_zarr import JsZarrStore, open_js_lazy
+
+        if isinstance(store, JsZarrStore):
+            return open_js_lazy(store, component)
     if isinstance(store, ZipReadStore):
         return open_zip_lazy(store, component)
     from ._remote_reader import RemoteZarrStore, open_remote_lazy
@@ -1135,7 +1181,10 @@ class LocalZarrArray:
     def _array(self) -> _ZarristaArrayAdapter:
         if self._adapter is None:
             arr = open_zarrista_array(self._store_root, self.path or None)
-            self._adapter = _ZarristaArrayAdapter(arr, self._store_root, self.path)
+            if _USE_JS:
+                self._adapter = arr
+            else:
+                self._adapter = _ZarristaArrayAdapter(arr, self._store_root, self.path)
         return self._adapter
 
     @property
@@ -1145,6 +1194,8 @@ class LocalZarrArray:
     @property
     def chunks(self) -> tuple[int, ...]:
         """The stored chunk grid, the inner chunk shape of a sharded array."""
+        if _USE_JS:
+            return self._array().chunks
         arr = self._array()._arr
         if arr.is_sharded:
             return tuple(int(c) for c in arr.subchunk_shape)
@@ -1247,6 +1298,17 @@ def open_local_node(store, node_path=None, *, zarr_format: int):
     return LocalZarrGroup(root, path, zarr_format, doc)
 
 
+def _warn_unused_storage_options(storage_options: dict | None) -> None:
+    """Pyodide fetches with zarrita's FetchStore, which takes no options."""
+    if storage_options:
+        import warnings
+
+        warnings.warn(
+            "storage_options are ignored on Pyodide: URLs are fetched as-is",
+            stacklevel=3,
+        )
+
+
 def _remote_handle(store, storage_options: dict | None):
     """A handle on ``store``'s remote backend, or ``None`` when it has none.
 
@@ -1259,6 +1321,15 @@ def _remote_handle(store, storage_options: dict | None):
     from ._remote_reader import RemoteZarrStore, remote_read_available
     from .from_ngff_zarr import REMOTE_URL_SCHEMES, _remote_backend_import_error
 
+    if _USE_JS:
+        from ._js_zarr import JsZarrStore
+
+        if isinstance(store, JsZarrStore):
+            return store
+        if isinstance(store, str) and store.startswith(REMOTE_URL_SCHEMES):
+            _warn_unused_storage_options(storage_options)
+            return JsZarrStore(store)
+        return None
     if isinstance(store, RemoteZarrStore):
         return store
     if isinstance(store, str) and store.startswith(REMOTE_URL_SCHEMES):
@@ -1282,6 +1353,13 @@ def open_array(store, path: str | None = None, storage_options: dict | None = No
     engine, fsspec-style names included.
     """
     remote = _remote_handle(store, storage_options)
+    if remote is not None and _USE_JS:
+        from ._js_zarr import open_js_array
+
+        try:
+            return open_js_array(remote, path)
+        except (KeyError, OSError) as error:
+            raise FileNotFoundError(f"No array at '{path}' in '{remote}'.") from error
     if remote is not None:
         from ._remote_reader import RemoteZarrArray, open_remote_node
 
