@@ -71,6 +71,7 @@ The same reference is in [`CITATION.cff`](https://github.com/fideus-labs/ngff-za
 quick_start.md
 installation.md
 python.md
+pyodide.md
 typescript.md
 cli.md
 mcp.md

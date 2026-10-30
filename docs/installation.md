@@ -22,6 +22,11 @@ import micropip
 await micropip.install("ngff-zarr")
 ```
 
+Needs a runtime with JSPI (Chrome/Edge 137+, Firefox 153+, Safari 27+, Node
+25+) and code entered through `runPythonAsync`, which the REPL and JupyterLite
+already do. Details, limits and the JavaScript setup for your own app are in
+[Pyodide](./pyodide.md).
+
 :::
 
 ::::
