@@ -732,20 +732,24 @@ def resample_bounding_box(
     passed in ``fields``.
 
     A field transform holds where each sample of its lattice goes, so its
-    region is the same boundary walk, read off the samples the boundary of
-    the grid lies between rather than made by the pipeline. It reports what
-    the pipeline reports for the field as an ITK transform, with the limits
-    named below, and the field is read one chunk at a time, so a field
-    larger than memory is never held.
+    region is the box of the landing points of the samples the grid lies
+    between. A point lands inside the hull of the landing points of the
+    samples around it, so the box holds every point of the grid, and it is
+    the exact region when the field is at the grid's resolution. The field
+    is read one chunk at a time, so a field larger than memory is never held.
 
-    An ITK transform is measured by walking every boundary pixel of the
-    grid through it. A transform that is continuous and does not fold
-    keeps the inside of the grid inside the image of its boundary, so the
-    walk reports it exactly, linear or not. Two things inside the grid
-    escape it: a fold, where the transform turns the grid over on itself,
-    and the edge of a displacement stage's domain, past which ITK
-    displaces nothing. Registration results rarely do either; a fixed grid
-    that reaches past a B-spline's domain is the one to watch for.
+    Any other transform, as an ITK transform list, is carried through its
+    stages one at a time, ITK's last entry first: a linear stage maps the
+    box's corners, a B-spline stage samples a lattice over the box and
+    widens its box by the interpolation error between lattice points, and a
+    displacement field stage takes the box of the landing points of the
+    samples under the box. Each rule holds whatever the transform does
+    inside the grid, a fold or the edge of a stage's domain included. A
+    list holding a stage of another kind (a thin-plate spline, say) or a
+    nested composite is measured by the ITK-Wasm pipeline instead, which
+    walks every boundary pixel of the grid through it: exact for a
+    continuous transform that does not fold, blind to a fold or a domain
+    edge inside the grid.
 
     In both cases the transform maps *fixed* points into *moving* space.
 
