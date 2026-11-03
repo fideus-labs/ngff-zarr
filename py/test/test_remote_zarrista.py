@@ -409,6 +409,22 @@ def test_a_remote_ozx_without_the_remote_extra_names_the_extra(monkeypatch):
         from_hcs_zarr("https://example.org/plate.ozx")
 
 
+def test_a_remote_ozx_on_pyodide_says_it_is_unsupported(monkeypatch):
+    """The JS bridge has no zip store, so the error says so rather than
+    pointing at a pip extra that Pyodide cannot install."""
+    import importlib
+
+    from ngff_zarr.hcs import from_hcs_zarr
+
+    monkeypatch.setattr(
+        importlib.import_module("ngff_zarr.from_ngff_zarr"), "_USE_JS", True
+    )
+    with pytest.raises(NotImplementedError, match=r"Pyodide"):
+        from_ngff_zarr("https://example.org/image.ozx")
+    with pytest.raises(NotImplementedError, match=r"Pyodide"):
+        from_hcs_zarr("https://example.org/plate.ozx")
+
+
 def test_a_missing_remote_archive_error_names_the_url(tmp_path):
     """Opening an absent or non-zip remote archive fails naming the URL."""
     (tmp_path / "not-a-zip.ozx").write_bytes(b"not a zip archive")

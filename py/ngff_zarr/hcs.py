@@ -33,8 +33,8 @@ from ._zarrista_utils import (
 )
 from .from_ngff_zarr import (
     REMOTE_URL_SCHEMES,
+    _check_remote_archive_readable,
     _open_root_node,
-    _remote_backend_import_error,
     from_ome_zarr,
 )
 from .multiscales import NgffMultiscales
@@ -394,8 +394,7 @@ def from_hcs_zarr(
     if isinstance(store, (str, Path)) and is_ozx_path(store):
         if isinstance(store, str) and store.startswith(REMOTE_URL_SCHEMES):
             # A remote archive reads in place by byte range (see from_ome_zarr).
-            if not remote_read_available():
-                raise _remote_backend_import_error(store, None)
+            _check_remote_archive_readable(store)
             store = RemoteZarrStore(store)
         else:
             # Read the archive through the zarrista-backed zip store handle

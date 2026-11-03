@@ -69,6 +69,18 @@ def _remote_backend_import_error(store, original: ImportError | None) -> ImportE
     return ImportError(message)
 
 
+def _check_remote_archive_readable(store) -> None:
+    """Raise when the remote archive at *store* cannot be read here: on
+    Pyodide, whose JS bridge has no zip store, or without the remote extra."""
+    if _USE_JS:
+        raise NotImplementedError(
+            f"Reading the remote archive '{store}' is not supported on Pyodide; "
+            "download it and read the local file."
+        )
+    if not remote_read_available():
+        raise _remote_backend_import_error(store, None)
+
+
 class _NoValidZarrGroupError(ValueError):
     """No zarr group exists in the store (any format, any backend).
 
@@ -296,8 +308,7 @@ def from_ome_zarr(
         if isinstance(store, str) and store.startswith(REMOTE_URL_SCHEMES):
             # A remote archive reads in place: zarrista's zip store over
             # obstore fetches the central directory and entries by byte range.
-            if not remote_read_available():
-                raise _remote_backend_import_error(store, None)
+            _check_remote_archive_readable(store)
             store = RemoteZarrStore(store, storage_options=storage_options)
             if version is None:
                 version = store.archive_version()
