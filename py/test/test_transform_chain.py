@@ -169,6 +169,8 @@ def test_the_bounding_box_of_a_sequence_covers_its_field_stage():
     expected = resample_bounding_box(itk_list, fixed, moving)
     assert region.start_index == expected.start_index
     assert region.size == expected.size
-    # The field stage reaches past what the affine alone covers.
+    # The affine sends the grid onto the edge of the bump, where the field
+    # pulls points below what the affine alone reaches in x and moves none
+    # past it in y.
     affine_only = resample_bounding_box(Affine(affine=affine.tolist()), fixed, moving)
-    assert region.size["y"] > affine_only.size["y"]
+    assert region.start_index["x"] < affine_only.start_index["x"]
