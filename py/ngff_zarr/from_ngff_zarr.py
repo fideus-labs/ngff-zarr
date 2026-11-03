@@ -232,7 +232,8 @@ def from_ome_zarr(
     store : StoreLike
         Store or path to directory in file system. Can be a string URL
         (e.g., 's3://bucket/path') for remote storage. For .ozx files,
-        provide the path to the .ozx file.
+        provide the path or URL of the .ozx file; a remote archive is read
+        in place with byte-range requests.
 
         For HCS (High Content Screening) plates, provide the path to a
         specific well and field within the plate (e.g., 'plate.zarr/A/1/0'
@@ -284,22 +285,31 @@ def from_ome_zarr(
     subpath = None
     if isinstance(store, (str, Path)):
         store_str = str(store)
-        # Only parse for local file paths (not URLs)
-        if not store_str.startswith(REMOTE_URL_SCHEMES):
+        # A URL is a store prefix as it stands, unless it points inside a
+        # remote archive, which must be split at the archive boundary.
+        if not store_str.startswith(REMOTE_URL_SCHEMES) or ".ozx/" in store_str:
             store, subpath = _parse_hcs_path(store_str)
 
     # RFC-9: Handle .ozx (zipped OME-Zarr) files, and plain .zip archives
     is_zip = isinstance(store, (str, Path)) and str(store).lower().endswith(".zip")
     if is_zip or (isinstance(store, (str, Path)) and is_ozx_path(store)):
-        # Read version from the RFC-9 comment if not provided
-        if version is None:
-            version = read_ozx_version(store)
-            if version is None and not is_zip:
-                version = "0.5"  # Default to 0.5 for .ozx files
-
-        # Read the archive through the zarrista-backed zip store handle
-        # (zarr-python ZipStore only when zarrista is unavailable).
-        store = open_ozx_store(store)
+        if isinstance(store, str) and store.startswith(REMOTE_URL_SCHEMES):
+            # A remote archive reads in place: zarrista's zip store over
+            # obstore fetches the central directory and entries by byte range.
+            if not remote_read_available():
+                raise _remote_backend_import_error(store, None)
+            store = RemoteZarrStore(store, storage_options=storage_options)
+            if version is None:
+                version = store.archive_version()
+        else:
+            # Read version from the RFC-9 comment if not provided
+            if version is None:
+                version = read_ozx_version(store)
+            # Read the archive through the zarrista-backed zip store handle
+            # (zarr-python ZipStore only when zarrista is unavailable).
+            store = open_ozx_store(store)
+        if version is None and not is_zip:
+            version = "0.5"  # Default to 0.5 for .ozx files
 
     # Remote URL strings read through zarrista's async API over obstore
     # (storage_options translated to obstore configuration). On Pyodide the

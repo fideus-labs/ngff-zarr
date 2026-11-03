@@ -288,6 +288,28 @@ def write_store_to_zip(
         _write_rfc9_comment(zf, version)
 
 
+def zip_comment_version(comment: bytes) -> str | None:
+    """The OME-Zarr version recorded in an RFC-9 zip archive *comment*, if any."""
+    try:
+        comment_dict = json.loads(comment.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        # ZIP comment is not valid JSON or not UTF-8 encoded
+        return None
+    ome = comment_dict.get("ome") if isinstance(comment_dict, dict) else None
+    return ome.get("version") if isinstance(ome, dict) else None
+
+
+def zip_tail_version(tail: bytes) -> str | None:
+    """The OME-Zarr version in the zip comment held in *tail*, the final bytes
+    of an archive: at least the 22-byte end-of-central-directory record plus
+    the comment that follows it."""
+    start = tail.rfind(b"PK\x05\x06")
+    if start < 0:
+        return None
+    length = int.from_bytes(tail[start + 20 : start + 22], "little")
+    return zip_comment_version(tail[start + 22 : start + 22 + length])
+
+
 def read_ozx_version(zip_path: str | Path) -> str | None:
     """
     Read the OME-Zarr version from a .ozx file's ZIP comment.
@@ -305,14 +327,7 @@ def read_ozx_version(zip_path: str | Path) -> str | None:
     try:
         with zipfile.ZipFile(str(zip_path), "r") as zf:
             if zf.comment:
-                try:
-                    comment_str = zf.comment.decode("utf-8")
-                    comment_dict = json.loads(comment_str)
-                    if "ome" in comment_dict and "version" in comment_dict["ome"]:
-                        return comment_dict["ome"]["version"]
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    # ZIP comment is not valid JSON or not UTF-8 encoded
-                    pass
+                return zip_comment_version(zf.comment)
     except (zipfile.BadZipFile, FileNotFoundError):
         # File is not a valid ZIP or doesn't exist
         pass

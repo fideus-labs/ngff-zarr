@@ -19,7 +19,12 @@ from ngff_zarr import (
     to_ngff_image,
     to_ngff_zarr,
 )
-from ngff_zarr.rfc9_zip import is_ozx_path, read_ozx_json_first, read_ozx_version
+from ngff_zarr.rfc9_zip import (
+    is_ozx_path,
+    read_ozx_json_first,
+    read_ozx_version,
+    zip_tail_version,
+)
 
 from ._data import verify_against_baseline
 
@@ -573,6 +578,9 @@ def test_write_ozx_at_versions_after_0_5(tmp_path, version):
     to_ngff_zarr(str(ozx_path), multiscales, version=version)
 
     assert read_ozx_version(ozx_path) == version
+    # The remote reader parses the same comment out of the archive's tail.
+    assert zip_tail_version(ozx_path.read_bytes()[-200:]) == version
+    assert zip_tail_version(b"not a zip archive") is None
     with zipfile.ZipFile(ozx_path) as zf:
         assert zf.namelist()[0] == "zarr.json"
         root_attrs = json.loads(zf.read("zarr.json"))["attributes"]
