@@ -581,7 +581,8 @@ def _windowed_fields(transform_list: list, grid) -> list:
         origin = lattice[dimension : 2 * dimension]
         spacing = lattice[2 * dimension : 3 * dimension]
         direction = lattice[3 * dimension :].reshape(dimension, dimension)
-        result = itkwasm_bounding_box(
+        result = call_itkwasm(
+            itkwasm_bounding_box,
             windowed[position + 1 :] or identity,
             grid,
             Image(
