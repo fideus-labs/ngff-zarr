@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 """The stage-by-stage region holds every point of a block, and reads little."""
 
+import itertools
 import math
 
 import numpy as np
@@ -84,14 +85,18 @@ def _exact_reads(exact, moving_shape):
     )
 
 
-def test_the_spline_evaluation_is_itks():
+@pytest.mark.parametrize("dimension", [2, 3])
+def test_the_spline_evaluation_is_itks(dimension):
     rng = np.random.default_rng(0)
-    spline = _bspline(2, 64.0, 6, lambda n: rng.normal(0, 3, n))
+    extent, mesh = {2: (64.0, 6), 3: (32.0, 4)}[dimension]
+    spline = _bspline(dimension, extent, mesh, lambda n: rng.normal(0, 3, n))
     fixed = np.asarray(spline.GetFixedParameters(), dtype=float)
-    size = fixed[:2].astype(int)
-    coefficients = np.asarray(spline.GetParameters()).reshape(2, *size[::-1])
-    points = rng.uniform(-10, 74, size=(2000, 2))
-    index = (points - fixed[2:4]) / fixed[4:6]
+    size = fixed[:dimension].astype(int)
+    coefficients = np.asarray(spline.GetParameters()).reshape(dimension, *size[::-1])
+    points = rng.uniform(-10, extent + 10, size=(2000, dimension))
+    origin = fixed[dimension : 2 * dimension]
+    spacing = fixed[2 * dimension : 3 * dimension]
+    index = (points - origin) / spacing
 
     displacement = bspline_displacement(coefficients, size, index)
 
@@ -118,6 +123,25 @@ def test_a_random_spline_is_contained_on_every_block(seed):
             _assert_contains(bounding_box, exact)
             total += _reads(bounding_box)
             exact_total += _exact_reads(exact, moving.data.shape)
+    assert total <= 1.6 * exact_total
+
+
+def test_a_random_3d_spline_is_contained_on_every_block():
+    rng = np.random.default_rng(7)
+    spline = _bspline(3, 48.0, 4, lambda n: rng.normal(0, 4, n))
+    unit = {"z": 1.0, "y": 1.0, "x": 1.0}
+    moving = _image((80, 80, 80), unit, {"z": -16.0, "y": -16.0, "x": -16.0})
+    total = 0
+    exact_total = 0
+    for z, y, x in itertools.product(range(0, 48, 16), repeat=3):
+        fixed = _image(
+            (16, 16, 16), unit, {"z": float(z), "y": float(y), "x": float(x)}
+        )
+        bounding_box = resample_bounding_box(spline, fixed, moving)
+        exact = _exact_region(spline, fixed, moving)
+        _assert_contains(bounding_box, exact)
+        total += _reads(bounding_box)
+        exact_total += _exact_reads(exact, moving.data.shape)
     assert total <= 1.6 * exact_total
 
 
