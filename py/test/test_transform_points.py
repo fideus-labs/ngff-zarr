@@ -274,8 +274,8 @@ def test_a_field_outside_the_scene_and_other_output_axes_are_refused(tmp_path, c
 
     metadata = json.loads((store / "zarr.json").read_text())
     (step,) = metadata["attributes"]["ome"]["scene"]["coordinateTransformations"]
+    # The matrix lives in an array the step names by path, not inline.
     step.update(type="displacements", path="../outside", output=step["input"])
-    step.pop("affine")
     (store / "zarr.json").write_text(json.dumps(metadata))
     with pytest.raises(SystemExit):
         main(["transform-points", str(store), str(points)])

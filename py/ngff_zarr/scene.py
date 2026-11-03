@@ -6,7 +6,8 @@ A scene is the Zarr group above a set of multiscale images. Its ``ome.scene``
 metadata declares the coordinate transformations between the images'
 coordinate systems and, optionally, coordinate systems of its own, such as a
 common world system the images map into. Transformation parameters stored as
-arrays, such as displacement fields, live in a ``coordinateTransformations``
+arrays, displacement fields and the rotation and affine matrices the writer
+moves out of the JSON document, live in a ``coordinateTransformations``
 subgroup beside the images. The layout is specified at
 https://ngff.openmicroscopy.org/0.6/#scene-md.
 """
@@ -16,12 +17,18 @@ from __future__ import annotations
 import copy
 import os
 import posixpath
-import re
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
-from pathlib import PureWindowsPath
 from typing import Any
-from urllib.parse import unquote
 
+from ._matrix_transform_arrays import (
+    check_matrix_destinations,
+    externalize_matrix_transforms,
+    is_path_below_root,
+    resolve_matrix_transforms,
+    stored_matrix_paths,
+    write_matrix_arrays,
+)
 from ._store_types import StoreLike
 from ._supported_versions import V06_ONDISK_VERSION, NgffVersion
 from .multiscales import NgffMultiscales
@@ -80,13 +87,10 @@ class NgffScene:
 def _check_image_path(path: object, parent: str = "scene group") -> None:
     """Reject an image path that is not a plain path below its *parent* group.
 
-    The path is joined to the store, so a backslash counts as a separator
-    and a drive such as ``C:`` replaces the store (Windows does both), and a
-    percent-encoded part is read as a URL store does.
+    The path is joined to the store; see :func:`is_path_below_root` for the
+    separators and encodings a store reads.
     """
-    parts = re.split(r"[\\/]", path) if isinstance(path, str) else [""]
-    drive = isinstance(path, str) and PureWindowsPath(path).drive
-    if drive or any(unquote(part) in ("", ".", "..") for part in parts):
+    if not is_path_below_root(path):
         raise ValueError(
             f"Image path {path!r} must be a relative path below the {parent}."
         )
@@ -97,18 +101,25 @@ def _image_systems(multiscales: NgffMultiscales) -> list[CoordinateSystem]:
     return list(multiscales.metadata.to_version("0.6").coordinateSystems)
 
 
-def _field_paths(transforms: list[Transform]) -> set[str]:
-    """The paths of the arrays and field groups the transformations reference."""
+def _field_paths(transforms: list[Transform], matrices: bool = True) -> set[str]:
+    """The paths of the arrays and field groups the transformations reference.
+
+    Without ``matrices``, the paths of the rotation and affine matrices are
+    left out: the writer stores those arrays itself.
+    """
     paths: set[str] = set()
     for transform in transforms:
         path = getattr(transform, "path", None)
-        if isinstance(path, str):
+        if isinstance(path, str) and (
+            matrices or transform.type not in ("rotation", "affine")
+        ):
             paths.add(path)
         paths |= _field_paths(
             [
                 item.transformation if hasattr(item, "transformation") else item
                 for item in getattr(transform, "transformations", None) or ()
-            ]
+            ],
+            matrices,
         )
         paths |= _field_paths(
             [
@@ -118,9 +129,29 @@ def _field_paths(transforms: list[Transform]) -> set[str]:
                     getattr(transform, "inverse", None),
                 )
                 if nested is not None
-            ]
+            ],
+            matrices,
         )
     return paths
+
+
+def _externalize_matrices(
+    transforms: list[Transform], serialized: list[dict], reserved: Iterable[str] = ()
+) -> tuple[dict, list[str]]:
+    """Move the matrices in ``serialized``, the written ``transforms``, into arrays.
+
+    Returns the matrices to write, keyed by path below the group as
+    :func:`~ngff_zarr._matrix_transform_arrays.externalize_matrix_transforms`
+    assigns them, and the sorted paths of the stored nodes the transformations
+    reference and the writer does not produce: the fields, and a matrix array
+    a transform names without holding its values. ``reserved`` holds the paths
+    the write uses for other nodes, the images; no matrix may land on one of
+    those or on a field.
+    """
+    arrays = externalize_matrix_transforms(
+        serialized, [*reserved, *_field_paths(transforms, matrices=False)]
+    )
+    return arrays, sorted(_field_paths(transforms) - set(arrays))
 
 
 def _check_scene(scene: NgffScene, version: str = "0.6") -> None:
@@ -265,9 +296,13 @@ def _scene_to_dict(scene: NgffScene) -> dict[str, Any]:
 
 
 def _scene_from_dict(
-    document: dict[str, Any], version: str | None
+    document: dict[str, Any], version: str | None, store: Any = None
 ) -> tuple[list[CoordinateSystem] | None, list[Transform]]:
-    """Parse an ``ome.scene`` object into its coordinate systems and transformations."""
+    """Parse an ``ome.scene`` object into its coordinate systems and transformations.
+
+    With ``store``, the group the document was read from, each rotation and
+    affine matrix stored in an array below it is loaded inline.
+    """
     from .v09.zarr_metadata import _filter_axis_dict
 
     systems = None
@@ -280,6 +315,8 @@ def _scene_from_dict(
             for entry in document["coordinateSystems"]
         ]
     raw = document.get("coordinateTransformations") or []
+    if store is not None:
+        raw = resolve_matrix_transforms(raw, store)
     transforms = Metadata_v06._parse_transforms(raw, systems or [], version)
     # The multiscales parser keeps a reference only when its name resolves in
     # the systems it is given. A scene's references mostly name systems of its
@@ -321,7 +358,10 @@ def _write_scene(
     The scene metadata lands in the root group's ``ome.scene`` and each image
     is written below its path with :func:`~ngff_zarr.to_ome_zarr`, at
     ``version``, with ``kwargs``. The scene is checked against the spec
-    first (see :func:`_check_scene`); nothing is written when it fails. A
+    first (see :func:`_check_scene`); nothing is written when it fails. Each
+    rotation and affine matrix goes to a float64 array below the scene group,
+    at ``coordinateTransformations/<name>`` unless the transform names a
+    ``path`` (see :mod:`~ngff_zarr._matrix_transform_arrays`). A
     transformation that references an array or a field group by ``path``,
     such as a ``displacements`` field, needs that node written first, below
     the scene's store, and the scene written with ``overwrite=False``, which
@@ -332,6 +372,7 @@ def _write_scene(
         create_zarrista_group,
         create_zarrista_subgroup,
         normalize_store,
+        read_group_attributes,
     )
     from .to_ngff_zarr import to_ome_zarr
 
@@ -341,11 +382,18 @@ def _write_scene(
         )
     _check_scene(scene, version)
     store_path = normalize_store(store)
-    # An array-backed transformation points at a node of the store, which
-    # the scene writer does not produce: it has to be there already, so it is
-    # written first and the scene keeps it.
-    fields = sorted(_field_paths(scene.coordinateTransformations))
-    for path in fields:
+    document = _scene_to_dict(scene)
+    # The matrices go to arrays below the scene group, as an image's do; the
+    # images and the fields claim their paths first.
+    matrix_arrays, fields = _externalize_matrices(
+        scene.coordinateTransformations,
+        document["coordinateTransformations"],
+        scene.images,
+    )
+    # A field transformation points at a node of the store, which the scene
+    # writer does not produce: it has to be there already, so it is written
+    # first and the scene keeps it.
+    for path in [*fields, *matrix_arrays]:
         _check_image_path(path)
     if fields and overwrite:
         raise ValueError(
@@ -360,9 +408,24 @@ def _write_scene(
                 "store does not hold; write it first with to_ome_zarr() below "
                 "the scene's store, then the scene with overwrite=False."
             )
+    if not overwrite:
+        # The store keeps what it holds: a matrix may only replace an array
+        # the current root already names as one.
+        check_matrix_destinations(
+            store_path,
+            matrix_arrays,
+            stored_matrix_paths(read_group_attributes(store_path, zarr_format=3)),
+        )
     ondisk = V06_ONDISK_VERSION.value if version == "0.6" else version
-    root_attrs = {"ome": {"version": ondisk, "scene": _scene_to_dict(scene)}}
+    root_attrs = {"ome": {"version": ondisk, "scene": document}}
+    # The arrays land before the root names them, so a failed write leaves a
+    # kept store readable; an overwrite clears the store when it creates the
+    # root, so there they follow it.
+    if not overwrite:
+        write_matrix_arrays(store_path, matrix_arrays)
     create_zarrista_group(store_path, root_attrs, 3, overwrite=overwrite)
+    if overwrite:
+        write_matrix_arrays(store_path, matrix_arrays)
     for path in fields:
         parent = posixpath.dirname(path)
         if parent:
@@ -389,14 +452,17 @@ def _read_scene(
     validate: bool,
     version: str | None,
     storage_options: dict | None,
+    array_store: Any = None,
 ) -> NgffScene:
     """Read the scene ``root_attrs`` declares, with the images it references.
 
     ``store`` is what the caller passed to ``from_ome_zarr``: a local directory
     path, a remote URL or an ``.ozx`` path, below which each referenced image is
-    read with :func:`~ngff_zarr.from_ome_zarr`. ``validate`` checks the root
-    against the bundled ``scene`` schema, validates each image, and runs the
-    spec checks of :func:`_check_scene` on the result.
+    read with :func:`~ngff_zarr.from_ome_zarr`. ``array_store`` is the opened
+    form of it that ``root_attrs`` was read from, from which the matrices
+    stored in arrays are read; ``store`` itself when omitted. ``validate``
+    checks the root against the bundled ``scene`` schema, validates each
+    image, and runs the spec checks of :func:`_check_scene` on the result.
     """
     from .from_ngff_zarr import from_ome_zarr
     from .parse_metadata import _detect_version
@@ -411,7 +477,9 @@ def _read_scene(
 
         validate_ngff(root_attrs, version=version, model="scene")
 
-    systems, transforms = _scene_from_dict(document, version)
+    systems, transforms = _scene_from_dict(
+        document, version, store if array_store is None else array_store
+    )
     images: dict[str, NgffMultiscales] = {}
     for transform in transforms:
         for reference in (transform.input, transform.output):

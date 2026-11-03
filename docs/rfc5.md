@@ -155,18 +155,22 @@ The example above writes the transform into the root `zarr.json` as
 and the matrix into `coordinateTransformations/to_output`: a `3 x 4` float64
 array in a single uncompressed chunk, its first dimension indexing rows.
 
-The array path is relative to the multiscales group. A transform that already
-names a `path` keeps it. Otherwise the path is `coordinateTransformations/<name>`,
-with the transform type (`rotation` or `affine`) standing in for a name that is
-absent or not a valid Zarr node name, and a `_1`, `_2`, ... suffix when an
-earlier transform took the path. Matrices nested in a `sequence`, `bijection`
-or `byDimension` are written the same way. Before it touches the store, the
-writer refuses a `path` that is absolute, has `.` or `..` segments, or overlaps
-one of the image's own dataset arrays. A write that keeps what the store holds
--- `overwrite=False`, an append with `start_level`, or an in-place
-`upgrade_ome_zarr` -- also refuses to put a matrix where the store already
-holds a node, unless the store's current metadata names that node as a matrix
-array.
+The array path is relative to the group that declares the transform: the
+multiscales group, or for the transformations of a [scene](#scenes) or a
+[transformation on its own](#a-transformation-on-its-own), the scene or
+transformation group. A transform that already names a `path` keeps it.
+Otherwise the path is `coordinateTransformations/<name>`, with the transform
+type (`rotation` or `affine`) standing in for a name that is absent or not a
+valid Zarr node name, and a `_1`, `_2`, ... suffix when an earlier transform,
+an image of the scene or a field such as `coordinateTransformations/dfield`
+took the path. Matrices nested in a `sequence`, `bijection` or `byDimension`
+are written the same way. Before it touches the store, the writer refuses a
+`path` that is absolute, has `.` or `..` segments, or overlaps one of the
+image's own dataset arrays, or a scene's images and fields. A write that keeps
+what the store holds -- `overwrite=False`, an append with `start_level`, or an
+in-place `upgrade_ome_zarr` -- also refuses to put a matrix where the store
+already holds a node, unless the store's current metadata names that node as a
+matrix array.
 
 `from_ome_zarr` loads each array back into the `rotation` or `affine` field and
 keeps `path`, so the in-memory transform holds its values, converts to ITK as
@@ -453,7 +457,11 @@ A scene that fails a check raises `ValueError`. `validate=True` runs the same
 checks after reading. Put the common coordinate system first: viewers use it
 as the default. A scene reads from a local directory, a URL or an `.ozx`
 archive, and `to_ome_zarr` passes options such as `chunks_per_shard` on to
-each image.
+each image. A `rotation` or `affine` among the scene's transformations stores
+its matrix in an array below the scene group, at
+`coordinateTransformations/<name>`, and reads back with that `path`, as
+[Matrix parameters in Zarr arrays](#matrix-parameters-in-zarr-arrays)
+describes for an image.
 
 `kind` says what a store holds, like zarrita's `open`. Without it,
 `from_ome_zarr` reads multiscales images only. `NgffScene.from_ome_zarr` is a
@@ -507,9 +515,12 @@ transform = nz.from_ome_zarr("registration.ome.zarr", kind="transformation")
 nz.ngff_transform_to_itk_transform(transform, dims=["y", "x"])
 ```
 
-A transformation stored as an array, such as a `displacements` field, points
-to it by `path`. Write the field first, below the store, then the
-transformation with `overwrite=False`, as for a scene.
+The matrix goes to the array `coordinateTransformations/affine` below the
+store, as in a multiscales group (the transform has no name, so its type names
+the array), and `transform` reads back with that `path`. A transformation
+stored as an array, such as a `displacements` field, points to it by `path`.
+Write the field first, below the store, then the transformation with
+`overwrite=False`, as for a scene.
 
 ## TypeScript
 
@@ -632,7 +643,9 @@ over an `.ozx` archive. Without `kind: "scene"`, `fromOmeZarr` keeps its
 first with `toOmeZarr`, then the scene with `{ overwrite: false }`. A
 transformation on its own works the same way: `toOmeZarr(store, transform)`
 writes it, to a directory or a `MemoryStore`, and
-`fromOmeZarr(store, { kind: "transformation" })` reads it back.
+`fromOmeZarr(store, { kind: "transformation" })` reads it back. Either
+writer stores a rotation or affine matrix in an array below the group, as the
+Python one does, and either reader loads it back.
 
 Both are written in the browser too. The browser module's `toOmeZarr` writes
 a scene or a transformation to a `MemoryStore`, and `toOmeZarrOzx` zips

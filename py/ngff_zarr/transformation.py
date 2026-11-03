@@ -8,7 +8,7 @@ an image: the shape of a scene without images. A transformation store is a
 group whose ``ome`` metadata is such a document with one transformation.
 Parameters that live in arrays, such as a ``displacements`` field, are nodes
 below the store, written first, that the transformation references by
-``path``.
+``path``; a rotation or affine matrix the writer stores there itself.
 """
 
 from __future__ import annotations
@@ -16,9 +16,20 @@ from __future__ import annotations
 import posixpath
 from typing import Any
 
+from ._matrix_transform_arrays import (
+    check_matrix_destinations,
+    stored_matrix_paths,
+    write_matrix_arrays,
+)
 from ._store_types import StoreLike
 from ._supported_versions import V06_ONDISK_VERSION
-from .scene import SCENE_VERSIONS, _check_image_path, _field_paths, _scene_from_dict
+from .scene import (
+    SCENE_VERSIONS,
+    _check_image_path,
+    _externalize_matrices,
+    _field_paths,
+    _scene_from_dict,
+)
 from .v06.zarr_metadata import Transform, validate_transform
 
 
@@ -38,15 +49,20 @@ def _write_transformation(
     """Write ``transform`` as the only transformation of a store; see ``to_ome_zarr``.
 
     The transformation lands in the root group's
-    ``ome.coordinateTransformations``. A node it references by ``path`` has
-    to be in the store already, written first, and the store written with
-    ``overwrite=False``, which also keeps the root group's other attributes.
+    ``ome.coordinateTransformations``, and a rotation or affine matrix in a
+    float64 array below the store, at ``coordinateTransformations/<name>``
+    unless the transform names a ``path`` (see
+    :mod:`~ngff_zarr._matrix_transform_arrays`). A node it references by
+    ``path`` has to be in the store already, written first, and the store
+    written with ``overwrite=False``, which also keeps the root group's other
+    attributes.
     """
     from ._zarrista_utils import (
         consolidate_metadata,
         create_zarrista_group,
         create_zarrista_subgroup,
         normalize_store,
+        read_group_attributes,
     )
     from .to_ngff_zarr import _remove_none_values
 
@@ -57,8 +73,9 @@ def _write_transformation(
         )
     validate_transform(transform, None, version)
     store_path = normalize_store(store)
-    fields = sorted(_field_paths([transform]))
-    for path in fields:
+    serialized = [_remove_none_values(transform.to_dict())]
+    matrix_arrays, fields = _externalize_matrices([transform], serialized)
+    for path in [*fields, *matrix_arrays]:
         _check_image_path(path)
     if fields and overwrite:
         raise ValueError(
@@ -73,12 +90,27 @@ def _write_transformation(
                 "not hold; write it first with to_ome_zarr() below the store, "
                 "then the transformation with overwrite=False."
             )
+    if not overwrite:
+        # The store keeps what it holds: a matrix may only replace an array
+        # the current root already names as one.
+        check_matrix_destinations(
+            store_path,
+            matrix_arrays,
+            stored_matrix_paths(read_group_attributes(store_path, zarr_format=3)),
+        )
     ondisk = V06_ONDISK_VERSION.value if version == "0.6" else version
     document: dict[str, Any] = {
         "version": ondisk,
-        "coordinateTransformations": [_remove_none_values(transform.to_dict())],
+        "coordinateTransformations": serialized,
     }
+    # The arrays land before the root names them, so a failed write leaves a
+    # kept store readable; an overwrite clears the store when it creates the
+    # root, so there they follow it.
+    if not overwrite:
+        write_matrix_arrays(store_path, matrix_arrays)
     create_zarrista_group(store_path, {"ome": document}, 3, overwrite=overwrite)
+    if overwrite:
+        write_matrix_arrays(store_path, matrix_arrays)
     for path in fields:
         parent = posixpath.dirname(path)
         if parent:
@@ -87,15 +119,19 @@ def _write_transformation(
 
 
 def _read_transformation(
-    root_attrs: dict[str, Any], validate: bool, version: str | None
+    root_attrs: dict[str, Any], validate: bool, version: str | None, store: Any = None
 ) -> Transform:
-    """The transformation ``root_attrs`` declares; see ``from_ome_zarr``."""
+    """The transformation ``root_attrs`` declares; see ``from_ome_zarr``.
+
+    ``store`` is the opened store the document came from; a matrix stored in
+    an array below it is loaded inline.
+    """
     from .parse_metadata import _detect_version
 
     ome = root_attrs["ome"]
     if version is None:
         version = _detect_version(root_attrs).value
-    _, transforms = _scene_from_dict(ome, version)
+    _, transforms = _scene_from_dict(ome, version, store)
     if len(transforms) != 1:
         raise ValueError(
             "A transformation store holds one coordinateTransformations entry; "

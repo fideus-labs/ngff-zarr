@@ -539,7 +539,14 @@ test("a matrix array that is not 2D is refused on read", async () => {
   );
 });
 
-for (const path of ["../outside/r", "/outside/r", "params/./r"]) {
+for (const path of [
+  "../outside/r",
+  "/outside/r",
+  "params/./r",
+  "%2e%2e/outside/r",
+  "%2e%2e%2foutside/r",
+  "..\\outside\\r",
+]) {
   test(`a matrix path outside the group is refused on read: ${path}`, async () => {
     // A crafted path cannot read an array beside the multiscales group.
     const store: MemoryStore = new Map();
@@ -692,7 +699,7 @@ test("a matrix path overlapping a dataset is refused", async () => {
     await assertRejects(
       () => toOmeZarr(store, multiscales, { version: "0.6" }),
       Error,
-      `overlaps the dataset array '${dataset}'`,
+      `overlaps '${dataset}'`,
     );
     assertEquals(store.size, 0);
   }

@@ -329,6 +329,18 @@ test("scene with a displacement field between two images", async () => {
       output: { path: "tile_1", name: "intrinsic" },
     };
     scene.coordinateTransformations.push(warp);
+    // A matrix named like the field gets the next free path below the group.
+    const aligned: Affine = {
+      type: "affine",
+      name: "dfield",
+      affine: [
+        [1, 0, 0],
+        [0, 1, 0],
+      ],
+      input: { path: "tile_0", name: "intrinsic" },
+      output: { name: "world" },
+    };
+    scene.coordinateTransformations.push(aligned);
     const store = `${dir}/registered.ome.zarr`;
 
     await assertRejects(
@@ -366,9 +378,14 @@ test("scene with a displacement field between two images", async () => {
     // The field's own arrays too, as the Python writer, which consolidates
     // the whole store, lists them.
     assertEquals(`${fieldPath}/scale0` in consolidated.metadata, true);
+    assertEquals(`${fieldPath}_1` in consolidated.metadata, true);
 
     const read = await fromOmeZarr(store, { kind: "scene", validate: true });
     assertEquals(read.coordinateTransformations[2], warp);
+    assertEquals(read.coordinateTransformations[3], {
+      ...aligned,
+      path: `${fieldPath}_1`,
+    });
     const fieldRead = await fromOmeZarr(`${store}/${fieldPath}`, {
       version: "0.6",
     });
@@ -388,6 +405,10 @@ test("scene with a displacement field between two images", async () => {
       validate: true,
     });
     assertEquals(fromArchive.coordinateTransformations[2], warp);
+    assertEquals(
+      (fromArchive.coordinateTransformations[3] as Affine).affine,
+      aligned.affine,
+    );
     assertEquals(
       (await fromOmeZarr(archive, { path: fieldPath })).images[0].data.shape,
       [2, 16, 16],
@@ -474,6 +495,29 @@ test("write refuses paths outside the scene", async () => {
       Error,
       "relative path below the scene group",
     );
+  });
+});
+
+test("write refuses a matrix path that overlaps an image", async () => {
+  await withTempDir(async (dir) => {
+    const { scene } = await tilesScene();
+    scene.coordinateTransformations[1] = {
+      type: "affine",
+      path: "tile_1",
+      affine: [
+        [1, 0, 0],
+        [0, 1, 8],
+      ],
+      input: { path: "tile_1", name: "intrinsic" },
+      output: { name: "world" },
+    } as Affine;
+    const store = `${dir}/tiles.ome.zarr`;
+    await assertRejects(
+      () => toOmeZarr(store, scene),
+      Error,
+      "overlaps 'tile_1'",
+    );
+    await assertRejects(() => stat(store), Error, "ENOENT");
   });
 });
 
@@ -797,6 +841,90 @@ test("the matrix arrays of a scene's images are written and consolidated", async
       const [affine] = read.images.tile_0.metadata.coordinateTransformations!;
       assertEquals((affine as Affine).affine, toPhysical.affine);
     }
+  });
+});
+
+test("the scene's own matrices are stored in arrays", async () => {
+  await withTempDir(async (dir) => {
+    const { scene } = await tilesScene();
+    const toWorld: Affine = {
+      type: "affine",
+      name: "tile_1",
+      affine: [
+        [1, 0, 0.1],
+        [0, 1, 8.2],
+      ],
+      input: { path: "tile_1", name: "intrinsic" },
+      output: { name: "world" },
+    };
+    scene.coordinateTransformations[1] = toWorld;
+    const path = "coordinateTransformations/tile_1";
+
+    const directory = `${dir}/tiles.ome.zarr`;
+    await toOmeZarr(directory, scene);
+    const memory: MemoryStore = new Map();
+    await toOmeZarrBrowser(memory, scene);
+    for (const document of [
+      await rootDocument(directory),
+      documentAt(memory, "/zarr.json"),
+    ]) {
+      const ome = (document.attributes as Record<string, unknown>)
+        .ome as Record<string, unknown>;
+      const written = (ome.scene as Record<string, unknown>)
+        .coordinateTransformations as unknown[];
+      assertEquals(written[1], {
+        type: "affine",
+        name: "tile_1",
+        input: { path: "tile_1", name: "intrinsic" },
+        output: { name: "world" },
+        path,
+      });
+      assertEquals(consolidatedNodes(document).includes(path), true);
+    }
+    const array = await zarr.open(zarr.root(memory).resolve(path), {
+      kind: "array",
+    });
+    assertEquals(array.dtype, "float64");
+    assertEquals(
+      [...((await zarr.get(array)).data as Float64Array)],
+      toWorld.affine.flat(),
+    );
+    for (const store of [directory, memory]) {
+      const read = await fromOmeZarr(store, { kind: "scene", validate: true });
+      assertEquals(read.coordinateTransformations[1], { ...toWorld, path });
+    }
+    const fromBrowser = await fromOmeZarrBrowser(memory, {
+      kind: "scene",
+      validate: true,
+    });
+    assertEquals(fromBrowser.coordinateTransformations[1], {
+      ...toWorld,
+      path,
+    });
+    // An archive, written in one piece, holds the array too.
+    const zip = await toOmeZarrOzxData(scene);
+    const fromArchive = await fromOmeZarr(
+      ZipFileStore.fromBlob(new Blob([zip as BlobPart])),
+      { kind: "scene", validate: true },
+    );
+    assertEquals(fromArchive.coordinateTransformations[1], {
+      ...toWorld,
+      path,
+    });
+
+    // A rewrite of what was read keeps the matrix at the path it was read
+    // from, and writes it again over the array a store already names there.
+    const read = await fromOmeZarr(directory, { kind: "scene" });
+    const copy = `${dir}/copy.ome.zarr`;
+    await toOmeZarr(copy, read);
+    await toOmeZarr(copy, read, { overwrite: false });
+    assertEquals(
+      ((await rootDocument(copy)).attributes as Record<string, unknown>).ome,
+      ((await rootDocument(directory)).attributes as Record<string, unknown>)
+        .ome,
+    );
+    const reread = await fromOmeZarr(copy, { kind: "scene" });
+    assertEquals(reread.coordinateTransformations[1], { ...toWorld, path });
   });
 });
 

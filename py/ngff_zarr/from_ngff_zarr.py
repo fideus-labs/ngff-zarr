@@ -337,6 +337,7 @@ def from_ome_zarr(
             validate=validate,
             version=version,
             storage_options=storage_options,
+            array_store=store,
         )
     if not subpath and _is_transformation_document(ome_initial):
         if kind != "transformation":
@@ -345,7 +346,7 @@ def from_ome_zarr(
                 "from_ome_zarr(store, kind='transformation')."
             )
         return _read_transformation(
-            root_attrs_initial, validate=validate, version=version
+            root_attrs_initial, validate=validate, version=version, store=store
         )
     if kind == "scene":
         raise ValueError(

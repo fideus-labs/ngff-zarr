@@ -1838,18 +1838,23 @@ def _to_ngff_zarr_impl(
         was_consolidated = has_consolidated_metadata(store, zarr_format)
         kept = copy.deepcopy(metadata_dict)
         kept["datasets"] = kept["datasets"][:start_level]
-        _create_zarr_root(store, version, overwrite, kept, root_attributes)
-        # The kept root names the matrix arrays; write them before it is
-        # consolidated, so an interrupted append still lists them.
+        # The arrays land before the kept root names them, so an interrupted
+        # append leaves a readable store whose consolidated block lists them.
         write_matrix_arrays(store_path, matrix_arrays)
+        _create_zarr_root(store, version, overwrite, kept, root_attributes)
         # Restore consolidation for the kept levels only when the final write
         # will re-consolidate; otherwise this partial block would go stale.
         if was_consolidated and consolidate_metadata:
             _zarrista_consolidate_metadata(store, zarr_format)
     else:
+        # The arrays land before the root names them, so a failed write leaves
+        # a kept store readable; an overwrite clears the store when it creates
+        # the root, so there they follow it.
+        if not overwrite:
+            write_matrix_arrays(store_path, matrix_arrays)
         _create_zarr_root(store, version, overwrite, metadata_dict, root_attributes)
-        # After the root: an overwrite clears the store when it creates it.
-        write_matrix_arrays(store_path, matrix_arrays)
+        if overwrite:
+            write_matrix_arrays(store_path, matrix_arrays)
 
     if version == "0.4" and kwargs.get("compressors") is not None:
         raise ValueError(

@@ -328,7 +328,17 @@ def test_a_matrix_array_that_is_not_2d_is_refused_on_read(tmp_path):
         )
 
 
-@pytest.mark.parametrize("path", ["../outside/r", "/outside/r", "params/./r"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "../outside/r",
+        "/outside/r",
+        "params/./r",
+        "%2e%2e/outside/r",
+        "%2e%2e%2foutside/r",
+        "..\\outside\\r",
+    ],
+)
 def test_a_matrix_path_outside_the_group_is_refused_on_read(tmp_path, path):
     """A crafted path cannot read an array beside the multiscales group."""
     write_matrix_arrays(str(tmp_path), {"outside/r": np.asarray(ROTATION)})
@@ -501,7 +511,7 @@ def test_a_matrix_path_overlapping_a_dataset_is_refused(tmp_path, path):
     store = tmp_path / "image.ome.zarr"
     multiscales = _multiscales([Affine(affine=AFFINE, path=path)])
 
-    with pytest.raises(ValueError, match="overlaps the dataset array 'scale0/image'"):
+    with pytest.raises(ValueError, match="overlaps 'scale0/image'"):
         nz.to_ome_zarr(str(store), multiscales, version="0.6")
     assert not store.exists()
 

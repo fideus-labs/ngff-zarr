@@ -18,6 +18,7 @@
 
 import * as zarr from "zarrita";
 import { bytesOnlyCodecs } from "./codecs.ts";
+import { isPathBelowRoot } from "./store_below.ts";
 
 /**
  * The group generated matrix arrays are written under, as in the
@@ -107,12 +108,12 @@ function isNodeName(name: unknown): name is string {
   );
 }
 
-/** `path`, refused when it could resolve outside the multiscales group. */
+/**
+ * `path`, refused when it could resolve outside the multiscales group: see
+ * {@link isPathBelowRoot} for the separators and encodings a store reads.
+ */
 function checkedPath(path: string, transform: JsonObject): string {
-  if (
-    path.startsWith("/") ||
-    path.split("/").some((part) => part === "" || part === "." || part === "..")
-  ) {
+  if (!isPathBelowRoot(path)) {
     throw new Error(
       `${describe(transform)} names the array path '${path}'; a matrix ` +
         "array sits at a relative path inside the multiscales group, with " +
@@ -253,8 +254,8 @@ export function externalizeMatrixTransforms(
     if (overlapped.length > 0) {
       throw new Error(
         `${describe(transform)} names the array path '${path}', which ` +
-          `overlaps the dataset array '${overlapped[0]}' of the same ` +
-          "multiscales",
+          `overlaps '${overlapped[0]}', reserved for a dataset, image or ` +
+          "field of the same store",
       );
     }
     claimed.add(path);
