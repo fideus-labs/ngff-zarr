@@ -74,6 +74,12 @@ multiscales = from_ngff_zarr(
 )
 ```
 
+An `http://` or `https://` URL is fetched with unsigned HTTP(S) requests,
+including a bucket spelled as an HTTPS URL such as
+`https://ome-zarr-scivis.s3.us-east-1.amazonaws.com/v0.5/96x2/carp.ome.zarr`,
+so public data needs no `storage_options` there; signed access goes through
+the service's own scheme (`s3://`, `gs://`, `azure://`).
+
 fsspec-style option names (`key`, `secret`, `anon`, `token`, `endpoint_url`,
 `region_name`, ...) are accepted and translated to their obstore equivalents;
 obstore-native option names also work and are passed through as-is.

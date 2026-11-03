@@ -246,13 +246,20 @@ def _build_obstore(url: str, storage_options: dict | None):
 
     def _construct(options: dict):
         if scheme in ("http", "https"):
-            # HTTPStore accepts no bucket configuration; every option is a
-            # client option (headers, timeouts, proxies, ...). A plain
-            # http:// URL is an explicit opt-out of TLS, which obstore
-            # otherwise rejects.
+            from obstore.store import HTTPStore
+
+            # An http(s) URL is fetched with unsigned HTTP(S) requests, so
+            # public data on any host works without credentials; signed access
+            # goes through the service's own scheme (s3://, gs://, azure://).
+            # ``from_url``
+            # would instead hand an S3 or Azure host to that service's store,
+            # which blocks on a credential lookup and then fails. HTTPStore
+            # accepts no bucket configuration; every option is a client
+            # option (headers, timeouts, proxies, ...). A plain http:// URL
+            # is an explicit opt-out of TLS, which obstore otherwise rejects.
             if scheme == "http":
                 options = {"allow_http": True, **options}
-            return from_url(url, client_options=options or None)
+            return HTTPStore.from_url(url, client_options=options or None)
         return from_url(url, config=options or None)
 
     try:

@@ -219,6 +219,22 @@ def test_remote_s3_storage_options_construct_store():
     assert str(handle) == "s3://bucket/data.zarr"
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://bucket.s3.us-east-1.amazonaws.com/image.zarr",
+        "https://account.blob.core.windows.net/container/image.ozx",
+    ],
+)
+def test_an_https_url_on_an_object_store_host_is_fetched_unsigned(url):
+    """obstore's ``from_url`` would pick that service's store for such a host
+    and block on a credential lookup; an https URL is unsigned HTTP(S) here."""
+    from ngff_zarr._remote_reader import _build_obstore
+    from obstore.store import HTTPStore
+
+    assert isinstance(_build_obstore(url, None), HTTPStore)
+
+
 def test_translate_storage_options_s3_aliases():
     translated, passthrough = _translate_storage_options(
         "s3",
