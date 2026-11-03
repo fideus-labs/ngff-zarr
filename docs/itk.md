@@ -248,8 +248,9 @@ Displacement-field transforms work directly:
 ```
 
 A block reads only the part of the field its points land in, so each block
-hands ITK that window of the field rather than the whole of it. The cost of a
-block then follows the block, not the size of the field.
+hands ITK that window of the field rather than the whole of it, sized by the
+same bound as the region. The cost of a block then follows the block, not the
+size of the field.
 
 ### Registration transforms from Elastix
 

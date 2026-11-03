@@ -43,6 +43,7 @@ import { resampleBoundingBoxNode } from "@itk-wasm/downsample";
 import {
   metadataOnlyItkImage,
   resampleBoundingBoxShared,
+  windowedFields,
 } from "../src/io/resample_bounding_box-shared.ts";
 import { RAS } from "../src/types/rfc4.ts";
 import type { AnatomicalOrientation } from "../src/types/rfc4.ts";
@@ -1911,4 +1912,64 @@ test("a B-spline stage reports the region Python reports", async () => {
     assertEquals(region.startIndex, startIndex);
     assertEquals(region.size, size);
   }
+});
+
+test("a field's window covers what a B-spline bump before it sends inside", async () => {
+  // One control point of 60 at (24, 24), x component, on 11 x 11 control
+  // points 8 apart from (-8, -8): the block [16, 32)^2 folds onto itself, and
+  // its center lands at x = 24 + 60 * (2/3)^2, past the 41 its boundary
+  // reaches, which a boundary walk does not see.
+  const coefficients = new Float64Array(2 * 11 * 11);
+  coefficients[4 * 11 + 4] = 60;
+  const spline = {
+    transformType: {
+      transformParameterization: "BSpline",
+      parametersValueType: "float64",
+      inputDimension: 2,
+      outputDimension: 2,
+    },
+    name: "BSplineTransform",
+    inputSpaceName: "",
+    outputSpaceName: "",
+    numberOfFixedParameters: 10,
+    numberOfParameters: coefficients.length,
+    fixedParameters: new Float64Array([11, 11, -8, -8, 8, 8, 1, 0, 0, 1]),
+    parameters: coefficients,
+    metadata: new Map(),
+  };
+  const field = {
+    transformType: {
+      transformParameterization: "DisplacementField",
+      parametersValueType: "float64",
+      inputDimension: 2,
+      outputDimension: 2,
+    },
+    name: "DisplacementFieldTransform",
+    inputSpaceName: "",
+    outputSpaceName: "",
+    numberOfFixedParameters: 10,
+    numberOfParameters: 2 * 64 * 64,
+    fixedParameters: new Float64Array([64, 64, 0, 0, 1, 1, 1, 0, 0, 1]),
+    parameters: new Float64Array(2 * 64 * 64),
+    metadata: new Map(),
+  };
+  const block = await geometryImage(
+    ["y", "x"],
+    { y: 16, x: 16 },
+    { y: 1, x: 1 },
+    { y: 16, x: 16 },
+  );
+  const direction = new Float64Array([1, 0, 0, 1]);
+
+  // ITK applies the spline first, then the field.
+  const [cut] = await windowedFields(
+    resampleBoundingBoxNode,
+    [field, spline] as never,
+    metadataOnlyItkImage(block, ["x", "y"], direction),
+  );
+
+  const [width, , first] = Array.from(cut.fixedParameters ?? [], Number);
+  const last = first + width - 1;
+  assert(last >= 51, `the window ends at x = ${last}`);
+  assert(width < 64, "the whole field was handed over");
 });

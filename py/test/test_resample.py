@@ -646,6 +646,23 @@ def _composite(*transforms):
     return composite
 
 
+def _bspline_bump():
+    """A cubic B-spline with one control point of 60 at (24, 24), x component.
+
+    The block ``[16, 32)^2`` folds onto itself: its center lands at
+    ``24 + 60 * (2/3)^2``, past where its boundary reaches, which a boundary
+    walk does not see.
+    """
+    from .test_lattice_bound import _bspline
+
+    def coefficients(count):
+        values = np.zeros(count)
+        values[4 * 11 + 4] = 60.0
+        return values
+
+    return _bspline(2, 64.0, 8, coefficients)
+
+
 _ITK_FIELD_CASES = {
     "a lone field": lambda: _field_transform((64, 64)),
     "a field applied after an affine": lambda: _composite(
@@ -653,6 +670,9 @@ _ITK_FIELD_CASES = {
     ),
     "a field applied before an affine": lambda: _composite(
         _affine([[1.0, 0.1], [0.0, 0.9]], [2.5, -1.0]), _field_transform((64, 64))
+    ),
+    "a field applied after a B-spline bump": lambda: _composite(
+        _field_transform((64, 64)), _bspline_bump()
     ),
     "two fields": lambda: _composite(
         _field_transform((64, 64)), _field_transform((40, 48), origin=(8.0, 4.0))

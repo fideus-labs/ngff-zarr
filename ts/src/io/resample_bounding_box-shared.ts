@@ -16,6 +16,7 @@ import type { NgffMultiscales } from "../types/multiscales.ts";
 import { identityDirection, itkDirection } from "../utils/itk_direction.ts";
 export { itkDirection };
 import { ngffTransformToItkTransform } from "../utils/ngff_transform_to_itk_transform.ts";
+import { asNumbers } from "../utils/itk_transform_to_ngff_transform.ts";
 import {
   absRowSums,
   apply,
@@ -520,6 +521,30 @@ export async function resampleBoundingBoxShared(
 }
 
 /**
+ * The physical box of an ITK-Wasm image's sample centers, and its voxel: the
+ * spacing along each physical axis, direction included, which caps how fine a
+ * B-spline stage's lattice gets.
+ */
+function imageBox(image: Image): {
+  low: number[];
+  high: number[];
+  voxel: number[];
+} {
+  const dimension = image.imageType.dimension;
+  const direction = asNumbers(image.direction);
+  const last = image.size.map(
+    (extent, axis) => (extent - 1) * image.spacing[axis],
+  );
+  const { low, high } = boxOf(
+    corners(new Array(dimension).fill(0), last).map((corner) =>
+      apply(direction, corner).map((value, axis) => value + image.origin[axis]),
+    ),
+  );
+  const voxel = absRowSums(direction, dimension, image.spacing.map(Math.abs));
+  return { low, high, voxel };
+}
+
+/**
  * The region of `moving` a grid reads, from the stages of `transformList`.
  *
  * The grid's box is carried through the stages: corners for a linear stage, a
@@ -540,26 +565,10 @@ function stageRegion(
   movingShape: Record<string, number>,
 ): ResampleBoundingBox | undefined {
   const dimension = itkDims.length;
-  const direction = Array.from(fixedDirection);
-  const origin = itkDims.map((dim) => fixed.translation[dim]);
-  const spacing = itkDims.map((dim) => fixed.scale[dim]);
-  const last = itkDims.map(
-    (dim, axis) =>
-      (fixed.data.shape[fixed.dims.indexOf(dim)] - 1) * spacing[axis],
+  const { low, high, voxel } = imageBox(
+    metadataOnlyItkImage(fixed, itkDims, fixedDirection),
   );
-  const block = boxOf(
-    corners(new Array(dimension).fill(0), last).map((corner) =>
-      apply(direction, corner).map((value, axis) => value + origin[axis]),
-    ),
-  );
-  const voxel = absRowSums(direction, dimension, spacing.map(Math.abs));
-  const box = transformBox(
-    transformList,
-    dimension,
-    block.low,
-    block.high,
-    voxel,
-  );
+  const box = transformBox(transformList, dimension, low, high, voxel);
   if (box === undefined) return undefined;
 
   // The box in the moving image's index space, through its direction matrix.
@@ -610,14 +619,17 @@ function stageRegion(
  * The pipeline copies a transform's parameters into WebAssembly on every
  * call, and the parameters of a `DisplacementField` stage are the whole
  * field. A grid reads only the part of the field its points land in, so each
- * such stage is cut to that window first: the region the stages applied
- * before the field send the grid to, in the field's own index space, with
- * one sample of margin on every side. ITK applies the last entry of a list
- * first, so those stages are the entries after the field. ITK displaces
- * nothing beyond a field's lattice, so a grid that misses the field takes
- * the identity in its place.
+ * such stage is cut to that window first: the box the stages applied before
+ * the field send the grid to, in the field's own index space, with one
+ * sample of margin on every side. ITK applies the last entry of a list
+ * first, so those stages are the entries after the field. The box is the
+ * stage bound of `transformBox`, which holds every point of the grid
+ * whatever those stages do inside it; a stage the bound cannot size leaves
+ * the window to the pipeline's boundary walk. ITK displaces nothing beyond a
+ * field's lattice, so a grid that misses the field takes the identity in its
+ * place.
  */
-async function windowedFields(
+export async function windowedFields(
   pipeline: Parameters<typeof resampleBoundingBoxShared>[0],
   transformList: TransformList,
   grid: Image,
@@ -625,9 +637,10 @@ async function windowedFields(
   const dimension = grid.imageType.dimension;
   const axes = SPATIAL_DIMS.slice(0, dimension);
   const identity = ngffTransformToItkTransform({ type: "identity" }, axes);
+  const { low, high, voxel } = imageBox(grid);
   const windowed = [...transformList];
   // Innermost first: a field's window depends on the stages after it, and
-  // those are walked as already cut.
+  // those are carried as already cut.
   for (let position = windowed.length - 1; position >= 0; position--) {
     const entry = windowed[position];
     const lattice = Array.from(entry.fixedParameters ?? [], Number);
@@ -643,29 +656,48 @@ async function windowedFields(
     const spacing = lattice.slice(2 * dimension, 3 * dimension);
     const direction = Float64Array.from(lattice.slice(3 * dimension));
     const inner = windowed.slice(position + 1);
-    const { boundingBox } = await pipeline(
-      inner.length > 0 ? inner : identity,
-      grid,
-      {
-        imageType: grid.imageType,
-        name: "",
-        origin,
-        spacing,
-        direction,
-        size,
-        metadata: new Map(),
-        data: new Uint8Array(0),
-      },
-      { padding: 1 },
-    );
-    const raw = boundingBox as RawBoundingBox;
-    checkIndexArrays(raw, axes);
+    const box = transformBox(inner, dimension, low, high, voxel);
+    let first: number[];
+    let stop: number[];
+    if (box !== undefined) {
+      const inv = inverse(lattice.slice(3 * dimension), dimension);
+      const index = boxOf(
+        corners(box.low, box.high).map((corner) =>
+          apply(
+            inv,
+            corner.map((value, axis) => value - origin[axis]),
+          ).map((value, axis) => value / spacing[axis]),
+        ),
+      );
+      first = index.low.map((value) => Math.floor(value) - 1);
+      stop = index.high.map((value) => Math.ceil(value) + 2);
+    } else {
+      const { boundingBox } = await pipeline(
+        inner.length > 0 ? inner : identity,
+        grid,
+        {
+          imageType: grid.imageType,
+          name: "",
+          origin,
+          spacing,
+          direction,
+          size,
+          metadata: new Map(),
+          data: new Uint8Array(0),
+        },
+        { padding: 1 },
+      );
+      const raw = boundingBox as RawBoundingBox;
+      checkIndexArrays(raw, axes);
+      first = raw.paddedStartIndex;
+      stop = raw.paddedStartIndex.map(
+        (value, axis) => value + raw.paddedSize[axis],
+      );
+    }
     const clip = (value: number, axis: number) =>
       Math.min(Math.max(value, 0), size[axis]);
-    const start = raw.paddedStartIndex.map(clip);
-    const stop = raw.paddedStartIndex.map((first, axis) =>
-      clip(first + raw.paddedSize[axis], axis),
-    );
+    const start = first.map(clip);
+    stop = stop.map(clip);
     if (stop.some((value, axis) => value <= start[axis])) {
       windowed[position] = identity[0];
       continue;
