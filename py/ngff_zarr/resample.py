@@ -10,6 +10,7 @@ from dataclasses import replace
 import numpy as np
 
 from ._itkwasm_pipelines import call_itkwasm
+from ._zarrista_utils import _USE_JS
 from .displacement_field_transform import field_window
 from .itk_transform_to_ngff_transform import _parameterization_name
 from .ngff_image import NgffImage
@@ -550,19 +551,17 @@ def resample(
     if field is not None:
         regions = _field_regions(transform, field, grids, moving, padding)
     else:
-        # One pipeline call per block, each independent of the others.
-        with ThreadPoolExecutor(_REGION_THREADS) as pool:
-            regions = dict(
-                zip(
-                    grids,
-                    pool.map(
-                        lambda grid: resample_bounding_box(
-                            transform_list, grid, moving, padding=padding
-                        ),
-                        grids.values(),
-                    ),
-                )
-            )
+
+        def region_of(grid):
+            return resample_bounding_box(transform_list, grid, moving, padding=padding)
+
+        if _USE_JS:
+            # Emscripten starts no threads.
+            regions = {index: region_of(grid) for index, grid in grids.items()}
+        else:
+            # One pipeline call per block, each independent of the others.
+            with ThreadPoolExecutor(_REGION_THREADS) as pool:
+                regions = dict(zip(grids, pool.map(region_of, grids.values())))
     for index, grid in grids.items():
         shape = grid.data.shape
         block_transform = transform_key
