@@ -17,12 +17,10 @@ permissions:
 
 network: defaults
 
-# Pin a model supported by the Copilot subscription tier. The default
-# (claude-sonnet-4.6) is not available on Copilot Pro/Education and causes
-# "400 The requested model is not supported" failures (issue #547).
+# Pin a model advertised by the Copilot agentic-workflows integration.
 engine:
   id: copilot
-  model: gpt-5-mini
+  model: claude-haiku-5.5
   version: "1.0.98"
 
 tools:
