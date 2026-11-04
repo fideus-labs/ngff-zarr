@@ -14,44 +14,23 @@
 import * as zarr from "zarrita";
 
 /**
- * Whether `path` is a plain path below a store's root: relative, with no
- * empty, `.` or `..` segment. A backslash counts as a separator (Windows
- * does), a scheme or drive prefix such as `file:` or `C:` replaces the root
- * (a URL resolves it so, as zarrita's `Location.resolve` does), and a
- * control character or a leading space is dropped before a URL parser looks
- * for that prefix or a leading slash, so none is allowed. The checks see
- * each part percent-decoded until nothing decodes further, split again at
- * the separators that come out: a URL store decodes a path once, and
- * `Location.resolve` decodes it again at every node it opens below, so
- * `%2e%2e`, `%252e%252e` and `%09..` are all read as `..` in the end.
+ * Whether `path` is a plain path below a store's root: `/`-separated
+ * segments, none empty, `.` or `..`, that a store reads as written. zarrita
+ * resolves a path through the URL parser, once to reach the node and again
+ * at every node below it, so a path that parser rewrites, cuts or drops
+ * could name another node: a backslash (read as `/`), a `%` (decoded, or
+ * refused when malformed), a `?` or `#` (cut with what follows), a control
+ * character or a leading or trailing space (dropped), or a scheme or drive
+ * prefix such as `file:`, `C:` or `C|` (which replaces the root). None is
+ * allowed, and the Python port refuses the same, so both ports accept the
+ * same documents.
  */
 export function isPathBelowRoot(path: unknown): path is string {
-  if (typeof path !== "string") {
-    return false;
-  }
-  const separators = /[\\/]/;
-  const decode = (part: string): string => {
-    try {
-      return decodeURIComponent(part);
-    } catch {
-      return part;
-    }
-  };
-  const decodeFully = (part: string): string => {
-    let decoded = part;
-    for (let next = decode(decoded); next !== decoded; next = decode(decoded)) {
-      decoded = next;
-    }
-    return decoded;
-  };
-  const segments = path
-    .split(separators)
-    .flatMap((part) => decodeFully(part).split(separators));
   return (
-    !/^(?: |[A-Za-z][A-Za-z0-9+.-]*:)/.test(segments[0]) &&
-    !segments.some(
-      (segment) => ["", ".", ".."].includes(segment) || /\p{Cc}/u.test(segment),
-    )
+    typeof path === "string" &&
+    !/[\\%?#\p{Cc}]|^ | $/u.test(path) &&
+    !/^[A-Za-z](?:[A-Za-z0-9+.-]*:|\|)/.test(path) &&
+    !path.split("/").some((segment) => ["", ".", ".."].includes(segment))
   );
 }
 

@@ -110,7 +110,7 @@ function isNodeName(name: unknown): name is string {
 
 /**
  * `path`, refused when it could resolve outside the multiscales group: see
- * {@link isPathBelowRoot} for the separators and encodings a store reads.
+ * {@link isPathBelowRoot} for the characters a store does not read as written.
  */
 function checkedPath(path: string, transform: JsonObject): string {
   if (!isPathBelowRoot(path)) {

@@ -138,8 +138,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * Reject an image path that is not a plain path below the scene group.
  *
- * The path is joined to the store, so a backslash counts as a separator
- * (Windows does) and a percent-encoded part is read as a URL store does.
+ * The path is joined to the store; see {@link isPathBelowRoot} for the
+ * characters a store does not read as written.
  */
 export function checkImagePath(path: unknown): asserts path is string {
   if (!isPathBelowRoot(path)) {

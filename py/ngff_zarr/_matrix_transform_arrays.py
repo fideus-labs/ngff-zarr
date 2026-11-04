@@ -18,7 +18,6 @@ import copy
 import posixpath
 import re
 from collections.abc import Iterable, Iterator
-from urllib.parse import unquote
 
 import numpy as np
 
@@ -78,36 +77,24 @@ def _is_node_name(name) -> bool:
     )
 
 
-def _unquote_fully(part: str) -> str:
-    while (decoded := unquote(part)) != part:
-        part = decoded
-    return part
-
-
 def is_path_below_root(path: object) -> bool:
     """Whether ``path`` is a plain path below a store's root.
 
-    Relative, with no empty, ``.`` or ``..`` segment. A backslash counts as a
-    separator (Windows does), a scheme or drive prefix such as ``file:`` or
-    ``C:`` replaces the root (a URL resolves it so, as the TypeScript reader
-    does), and a control character or a leading space is dropped before a URL
-    parser looks for that prefix or a leading slash, so none is allowed. The
-    checks see each part percent-decoded until nothing decodes further, split
-    again at the separators that come out: a URL store decodes a path once,
-    and the TypeScript reader decodes it again at every node it opens below,
-    so ``%2e%2e``, ``%252e%252e`` and ``%09..`` are all read as ``..`` in the
-    end.
+    ``/``-separated segments, none empty, ``.`` or ``..``, that a store reads
+    as written. The TypeScript reader resolves a path through the URL parser,
+    once to reach the node and again at every node below it, so a path that
+    parser rewrites, cuts or drops could name another node: a backslash (read
+    as ``/``), a ``%`` (decoded, or refused when malformed), a ``?`` or ``#``
+    (cut with what follows), a control character or a leading or trailing
+    space (dropped), or a scheme or drive prefix such as ``file:``, ``C:`` or
+    ``C|`` (which replaces the root). None is allowed, so both ports accept
+    the same documents.
     """
-    if not isinstance(path, str):
-        return False
-    segments = [
-        segment
-        for part in re.split(r"[\\/]", path)
-        for segment in re.split(r"[\\/]", _unquote_fully(part))
-    ]
-    return not re.match(r" |[A-Za-z][A-Za-z0-9+.-]*:", segments[0]) and not any(
-        segment in ("", ".", "..") or re.search(r"[\x00-\x1f\x7f-\x9f]", segment)
-        for segment in segments
+    return (
+        isinstance(path, str)
+        and not re.search(r"[\\%?#\x00-\x1f\x7f-\x9f]|^ | $", path)
+        and not re.match(r"[A-Za-z](?:[A-Za-z0-9+.-]*:|\|)", path)
+        and not any(segment in ("", ".", "..") for segment in path.split("/"))
     )
 
 

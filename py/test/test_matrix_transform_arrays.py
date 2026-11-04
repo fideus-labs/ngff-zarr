@@ -343,6 +343,11 @@ def test_a_matrix_array_that_is_not_2d_is_refused_on_read(tmp_path):
         " /outside/r",
         "%09..%2foutside/r",
         "%252e%252e/outside/r",
+        "C|/outside/r",
+        "params?/r",
+        "params#/r",
+        "params/r ",
+        "a%20b/r",
     ],
 )
 def test_a_matrix_path_outside_the_group_is_refused_on_read(tmp_path, path):

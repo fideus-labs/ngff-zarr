@@ -88,7 +88,7 @@ def _check_image_path(path: object, parent: str = "scene group") -> None:
     """Reject an image path that is not a plain path below its *parent* group.
 
     The path is joined to the store; see :func:`is_path_below_root` for the
-    separators and encodings a store reads.
+    characters a store does not read as written.
     """
     if not is_path_below_root(path):
         raise ValueError(

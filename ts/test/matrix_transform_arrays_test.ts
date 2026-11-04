@@ -40,6 +40,7 @@ import {
   toMultiscales,
   toNgffImage,
 } from "../src/process/to_multiscales-node.ts";
+import { isPathBelowRoot } from "../src/utils/store_below.ts";
 import {
   externalizeMatrixTransforms,
   resolveMatrixTransforms,
@@ -552,6 +553,11 @@ for (const path of [
   " /outside/r",
   "%09..%2foutside/r",
   "%252e%252e/outside/r",
+  "C|/outside/r",
+  "params?/r",
+  "params#/r",
+  "params/r ",
+  "a%20b/r",
 ]) {
   test(`a matrix path outside the group is refused on read: ${path}`, async () => {
     // A crafted path cannot read an array beside the multiscales group.
@@ -647,6 +653,32 @@ test("an in-place upgrade moves inline matrices into arrays", async () => {
     bits(JSON.parse(JSON.stringify(AFFINE))),
   );
   assertEquals(bits(readRotation.rotation), bits(ROTATION));
+});
+
+test("an accepted matrix path is one zarrita reads as written", () => {
+  // The refusals above model what the URL parser inside zarrita rewrites;
+  // what passes must come out of it unchanged, as a node and as a base.
+  for (const path of [
+    "r",
+    "a b/r",
+    "µm/r",
+    "日本/r",
+    "tile_0/scale0/image",
+    "a.b-c_d",
+    "a+b=c,d;e",
+    "a@b&c'd",
+    "a(b)!c~d*e$f",
+    "a[b]{c}",
+    'a"b<c>d`e',
+    "x/a|b",
+    "x/a:b",
+    "coordinateTransformations/affine_1",
+  ]) {
+    assertEquals(isPathBelowRoot(path), true, path);
+    const node = zarr.root().resolve("image").resolve(path);
+    assertEquals(node.path, `/image/${path}`);
+    assertEquals(node.resolve("x").path, `/image/${path}/x`);
+  }
 });
 
 test("an in-place upgrade refuses an occupied matrix path", async () => {
