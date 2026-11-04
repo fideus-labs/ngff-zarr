@@ -221,7 +221,8 @@ The `store` argument accepts:
 - A remote URL string (`s3://`, `gs://`, `azure://`, `http://`, `https://`)
   with the `remote` extra installed -- see
   [Network Storage and Authentication](./faq.md#network-storage-and-authentication)
-- A `.ozx` / `.zip` archive path
+- A `.ozx` / `.zip` archive path or URL; a remote archive is read in place
+  with byte-range requests
 - An in-memory key-to-bytes `MutableMapping` (e.g. a plain `dict` of a store's
   contents), read through a pure-Python reader (Zarr v2, or unsharded Zarr v3)
 
@@ -242,6 +243,15 @@ accepted -- pass the path they wrap instead.
 ```
 
 The `.ozx` extension is automatically detected and handled appropriately.
+A remote archive reads the same way, in place, with `storage_options`
+applied as for any remote store:
+
+```python
+>>> multiscales = nz.from_ngff_zarr(
+...     's3://ome-zarr-scivis/v0.5/64x2-ozx/aneurism.ozx',
+...     storage_options={'anon': True},
+... )
+```
 
 ### Writing .ozx files
 

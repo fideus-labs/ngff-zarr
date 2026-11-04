@@ -31,7 +31,12 @@ from ._zarrista_utils import (
     open_ozx_store,
     read_group_attributes,
 )
-from .from_ngff_zarr import REMOTE_URL_SCHEMES, _open_root_node, from_ome_zarr
+from .from_ngff_zarr import (
+    REMOTE_URL_SCHEMES,
+    _check_remote_archive_readable,
+    _open_root_node,
+    from_ome_zarr,
+)
 from .multiscales import NgffMultiscales
 from .rfc9_zip import is_ozx_path, write_store_to_zip
 from .scene import _check_image_path
@@ -387,9 +392,14 @@ def from_hcs_zarr(
 
     # RFC-9: Handle .ozx (zipped OME-Zarr) files
     if isinstance(store, (str, Path)) and is_ozx_path(store):
-        # Read the archive through the zarrista-backed zip store handle
-        # (zarr-python ZipStore only when zarrista is unavailable).
-        store = open_ozx_store(store)
+        if isinstance(store, str) and store.startswith(REMOTE_URL_SCHEMES):
+            # A remote archive reads in place by byte range (see from_ome_zarr).
+            _check_remote_archive_readable(store)
+            store = RemoteZarrStore(store)
+        else:
+            # Read the archive through the zarrista-backed zip store handle
+            # (zarr-python ZipStore only when zarrista is unavailable).
+            store = open_ozx_store(store)
 
     # Remote plate URLs read through zarrista's async API over obstore
     # (the zarr-python/fsspec engine remains the fallback); on Pyodide the

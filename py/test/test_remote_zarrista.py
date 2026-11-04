@@ -55,7 +55,7 @@ class _RangeHandler(http.server.SimpleHTTPRequestHandler):
             start = int(start_text)
             end = int(end_text) if end_text else size - 1
         else:
-            start, end = size - int(end_text), size - 1
+            start, end = max(0, size - int(end_text)), size - 1
         end = min(end, size - 1)
         with open(path, "rb") as f:
             f.seek(start)
@@ -132,6 +132,22 @@ def test_remote_http_read_sharded(tmp_path):
         assert np.array_equal(np.asarray(scale0), data)
 
 
+def test_remote_http_read_ozx(tmp_path):
+    """A remote .ozx reads in place through zarrista's zip store over obstore,
+    taking its version from the RFC-9 zip comment."""
+    data = _write_ramp_store(tmp_path / "image.ozx", "0.5")
+
+    open_group_patch, from_zarr_patch = _forbid_zarr_python()
+    with _serve(tmp_path) as base_url, open_group_patch, from_zarr_patch:
+        with patch("ngff_zarr.parse_metadata._detect_version") as detect_version:
+            multiscales = from_ngff_zarr(f"{base_url}/image.ozx")
+        detect_version.assert_not_called()
+        scale0 = multiscales.images[0].data
+        assert scale0.chunksize == (8, 8)
+        assert np.array_equal(np.asarray(scale0), data)
+    assert len(multiscales.images) == 2
+
+
 def test_remote_http_read_validate(tmp_path):
     """validate=True works on remote reads (attrs-based validation)."""
     _write_ramp_store(tmp_path / "image.zarr", "0.4")
@@ -203,6 +219,22 @@ def test_remote_s3_storage_options_construct_store():
     assert str(handle) == "s3://bucket/data.zarr"
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://bucket.s3.us-east-1.amazonaws.com/image.zarr",
+        "https://account.blob.core.windows.net/container/image.ozx",
+    ],
+)
+def test_an_https_url_on_an_object_store_host_is_fetched_unsigned(url):
+    """obstore's ``from_url`` would pick that service's store for such a host
+    and block on a credential lookup; an https URL is unsigned HTTP(S) here."""
+    from ngff_zarr._remote_reader import _build_obstore
+    from obstore.store import HTTPStore
+
+    assert isinstance(_build_obstore(url, None), HTTPStore)
+
+
 def test_translate_storage_options_s3_aliases():
     translated, passthrough = _translate_storage_options(
         "s3",
@@ -257,6 +289,27 @@ def test_remote_hcs_plate_read(tmp_path):
         assert isinstance(image.images[0].data, dask.array.Array)
         # Pixel data resolves through the shared obstore client.
         np.asarray(image.images[0].data)
+
+
+def test_remote_hcs_plate_read_ozx(tmp_path):
+    """An HCS plate in a remote .ozx reads in place as well."""
+    from ngff_zarr.hcs import from_hcs_zarr
+    from ngff_zarr.rfc9_zip import write_store_to_zip
+
+    fixture = Path(__file__).parent / "data" / "input" / "hcs.ome.zarr"
+    if not fixture.exists():
+        pytest.skip("hcs.ome.zarr test fixture not downloaded")
+    write_store_to_zip(fixture, tmp_path / "hcs.ozx", version="0.4")
+
+    open_group_patch, from_zarr_patch = _forbid_zarr_python()
+    with _serve(tmp_path) as base_url, open_group_patch, from_zarr_patch:
+        plate = from_hcs_zarr(f"{base_url}/hcs.ozx")
+        assert len(plate.wells) == 4
+        image = plate.get_well("A", "1").get_image(0)
+        expected = np.asarray(image.images[0].data)
+        # A URL into a well splits at the archive boundary like a local path.
+        field = from_ngff_zarr(f"{base_url}/hcs.ozx/A/1/0")
+        assert np.array_equal(np.asarray(field.images[0].data), expected)
 
 
 def test_open_array_reads_regions_from_a_remote_store(tmp_path):
@@ -337,6 +390,48 @@ def test_a_url_without_the_remote_extra_names_the_extra(monkeypatch):
     monkeypatch.setattr(remote_reader, "remote_read_available", lambda: False)
     with pytest.raises(ImportError, match=r"ngff-zarr\[remote\]"):
         _remote_handle("https://example.org/image.zarr", None)
+
+
+def test_a_remote_ozx_without_the_remote_extra_names_the_extra(monkeypatch):
+    """A remote archive URL gives the same install hint as a remote folder."""
+    import importlib
+
+    from ngff_zarr.hcs import from_hcs_zarr
+
+    # The package exports a function named like the module; go via importlib.
+    for module in ("ngff_zarr.from_ngff_zarr", "ngff_zarr.hcs"):
+        monkeypatch.setattr(
+            importlib.import_module(module), "remote_read_available", lambda: False
+        )
+    with pytest.raises(ImportError, match=r"ngff-zarr\[remote\]"):
+        from_ngff_zarr("https://example.org/image.ozx")
+    with pytest.raises(ImportError, match=r"ngff-zarr\[remote\]"):
+        from_hcs_zarr("https://example.org/plate.ozx")
+
+
+def test_a_remote_ozx_on_pyodide_says_it_is_unsupported(monkeypatch):
+    """The JS bridge has no zip store, so the error says so rather than
+    pointing at a pip extra that Pyodide cannot install."""
+    import importlib
+
+    from ngff_zarr.hcs import from_hcs_zarr
+
+    monkeypatch.setattr(
+        importlib.import_module("ngff_zarr.from_ngff_zarr"), "_USE_JS", True
+    )
+    with pytest.raises(NotImplementedError, match=r"Pyodide"):
+        from_ngff_zarr("https://example.org/image.ozx")
+    with pytest.raises(NotImplementedError, match=r"Pyodide"):
+        from_hcs_zarr("https://example.org/plate.ozx")
+
+
+def test_a_missing_remote_archive_error_names_the_url(tmp_path):
+    """Opening an absent or non-zip remote archive fails naming the URL."""
+    (tmp_path / "not-a-zip.ozx").write_bytes(b"not a zip archive")
+    with _serve(tmp_path) as base_url:
+        for name in ("missing.ozx", "not-a-zip.ozx"):
+            with pytest.raises(Exception, match=re.escape(f"{base_url}/{name}")):
+                from_ngff_zarr(f"{base_url}/{name}")
 
 
 def test_open_array_reads_a_real_s3_store():

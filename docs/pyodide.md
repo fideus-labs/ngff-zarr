@@ -59,6 +59,8 @@ Integration, `pyodide.ffi.run_sync`). Two things have to hold:
   on other platforms.
 - `storage_options` on reads. URLs are fetched as they are, so the server has
   to allow the request (CORS in browsers); passing options emits a warning.
+- Remote `.ozx` archives. Download the archive and read the local file;
+  the read raises `NotImplementedError` otherwise.
 - Writing sharded `bool` arrays; unsharded ones work.
 - Listing the children of a URL store. Readers that navigate by the paths in
   the OME metadata, multiscales and HCS included, are unaffected.

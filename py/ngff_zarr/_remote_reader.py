@@ -38,6 +38,7 @@ import dask.array
 import numpy as np
 
 from ._v2_store_reader import AttrsDict
+from .rfc9_zip import is_ozx_path, zip_tail_version
 
 __all__ = [
     "RemoteZarrArray",
@@ -245,13 +246,20 @@ def _build_obstore(url: str, storage_options: dict | None):
 
     def _construct(options: dict):
         if scheme in ("http", "https"):
-            # HTTPStore accepts no bucket configuration; every option is a
-            # client option (headers, timeouts, proxies, ...). A plain
-            # http:// URL is an explicit opt-out of TLS, which obstore
-            # otherwise rejects.
+            from obstore.store import HTTPStore
+
+            # An http(s) URL is fetched with unsigned HTTP(S) requests, so
+            # public data on any host works without credentials; signed access
+            # goes through the service's own scheme (s3://, gs://, azure://).
+            # ``from_url``
+            # would instead hand an S3 or Azure host to that service's store,
+            # which blocks on a credential lookup and then fails. HTTPStore
+            # accepts no bucket configuration; every option is a client
+            # option (headers, timeouts, proxies, ...). A plain http:// URL
+            # is an explicit opt-out of TLS, which obstore otherwise rejects.
             if scheme == "http":
                 options = {"allow_http": True, **options}
-            return from_url(url, client_options=options or None)
+            return HTTPStore.from_url(url, client_options=options or None)
         return from_url(url, config=options or None)
 
     try:
@@ -277,8 +285,11 @@ class RemoteZarrStore:
     """Handle for a remote OME-Zarr store read via zarrista's async API.
 
     Wraps the obstore store for *url* plus an optional node *prefix*
-    (HCS well/field views). ``str()`` is the full URL so shared error
-    messages keep pointing at what the user passed in.
+    (HCS well/field views). A ``.ozx``/``.zip`` *url* instead wraps
+    zarrista's zip store over the obstore for the archive's parent URL, so
+    the central directory and each entry are fetched by byte range.
+    ``str()`` is the full URL so shared error messages keep pointing at
+    what the user passed in.
     """
 
     def __init__(self, url: str, storage_options: dict | None = None, prefix: str = ""):
@@ -287,7 +298,22 @@ class RemoteZarrStore:
         self.prefix = "/".join(
             part for part in str(prefix).split("/") if part not in ("", ".")
         )
-        self._store = _build_obstore(self.url, storage_options)
+        self._archive = None
+        if is_ozx_path(self.url) or self.url.lower().endswith(".zip"):
+            from zarrista.store import AsyncZipStore
+
+            parent, key = self.url.rsplit("/", 1)
+            self._archive = (_build_obstore(parent, storage_options), key)
+            try:
+                self._store = _run(lambda: AsyncZipStore.open(*self._archive))
+            except Exception as error:
+                # zarrista reports only the key (missing, unreadable, or not a
+                # zip); name the URL the user passed in.
+                raise type(error)(
+                    f"Could not open the zip archive '{self.url}': {error}"
+                ) from error
+        else:
+            self._store = _build_obstore(self.url, storage_options)
 
     def with_prefix(self, prefix: str) -> "RemoteZarrStore":
         """A view of the same store narrowed to *prefix* (joined to any
@@ -296,8 +322,21 @@ class RemoteZarrStore:
         view.url = self.url
         view.storage_options = self.storage_options
         view.prefix = posixpath.join(self.prefix, str(prefix).strip("/"))
+        view._archive = self._archive
         view._store = self._store
         return view
+
+    def archive_version(self) -> str | None:
+        """The OME-Zarr version in the archive's RFC-9 zip comment, if any.
+
+        Only for a ``.ozx``/``.zip`` URL. One suffix-range read covers the
+        end-of-central-directory record plus the longest possible comment.
+        """
+        import obstore
+
+        store, key = self._archive
+        tail = obstore.get(store, key, options={"range": {"suffix": 65535 + 22}})
+        return zip_tail_version(bytes(tail.bytes()))
 
     def node_path(self, component: str | None = None) -> str:
         """The zarrista node path for *component* under this view's prefix."""
