@@ -296,7 +296,8 @@ def zip_comment_version(comment: bytes) -> str | None:
         # ZIP comment is not valid JSON or not UTF-8 encoded
         return None
     ome = comment_dict.get("ome") if isinstance(comment_dict, dict) else None
-    return ome.get("version") if isinstance(ome, dict) else None
+    version = ome.get("version") if isinstance(ome, dict) else None
+    return version if isinstance(version, str) else None
 
 
 def zip_tail_version(tail: bytes) -> str | None:
