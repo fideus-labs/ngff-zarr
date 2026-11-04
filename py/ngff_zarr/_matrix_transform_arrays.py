@@ -84,11 +84,15 @@ def is_path_below_root(path: object) -> bool:
     Relative, with no empty, ``.`` or ``..`` segment. A backslash counts as a
     separator (Windows does), a scheme or drive prefix such as ``file:`` or
     ``C:`` replaces the root (a URL resolves it so, as the TypeScript reader
-    does), and a percent-encoded part is read as a URL store does, split
-    again at the separators it decodes to, such as ``%2f``, so a path joined
-    to a directory or a URL stays below it too.
+    does), a control character or a leading space is dropped before a URL
+    parser looks for that prefix or a leading slash (so none is allowed), and
+    a percent-encoded part is read as a URL store does, split again at the
+    separators it decodes to, such as ``%2f``, so a path joined to a
+    directory or a URL stays below it too.
     """
-    if not isinstance(path, str) or re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", path):
+    if not isinstance(path, str) or re.search(r"[\x00-\x1f\x7f-\x9f]|^ ", path):
+        return False
+    if re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", path):
         return False
     return not any(
         segment in ("", ".", "..")

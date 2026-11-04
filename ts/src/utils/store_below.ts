@@ -17,10 +17,12 @@ import * as zarr from "zarrita";
  * Whether `path` is a plain path below a store's root: relative, with no
  * empty, `.` or `..` segment. A backslash counts as a separator (Windows
  * does), a scheme or drive prefix such as `file:` or `C:` replaces the root
- * (a URL resolves it so, as zarrita's `Location.resolve` does), and a
- * percent-encoded segment is read as a URL store does, split again at the
- * separators it decodes to, such as `%2f`, so a path joined to a directory
- * or a URL stays below it too.
+ * (a URL resolves it so, as zarrita's `Location.resolve` does), a control
+ * character or a leading space is dropped before a URL parser looks for
+ * that prefix or a leading slash (so none is allowed), and a percent-encoded
+ * segment is read as a URL store does, split again at the separators it
+ * decodes to, such as `%2f`, so a path joined to a directory or a URL stays
+ * below it too.
  */
 export function isPathBelowRoot(path: unknown): path is string {
   const separators = /[\\/]/;
@@ -33,6 +35,7 @@ export function isPathBelowRoot(path: unknown): path is string {
   };
   return (
     typeof path === "string" &&
+    !/\p{Cc}|^ /u.test(path) &&
     !/^[A-Za-z][A-Za-z0-9+.-]*:/.test(path) &&
     !path.split(separators).some((part) =>
       decode(part)
