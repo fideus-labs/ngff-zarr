@@ -287,3 +287,13 @@ def test_a_composite_entry_is_left_to_the_pipeline():
         parameters=np.zeros(0),
     )
     assert transform_box([header], 2, [0.0, 0.0], [8.0, 8.0], [1.0, 1.0]) is None
+
+
+def test_a_transform_that_is_not_finite_is_refused():
+    """A NaN parameter has to raise, not size a region from NaN corners."""
+    spline = _bspline(2, 64.0, 6, lambda n: np.full(n, np.nan))
+    fixed = _image((16, 16), {"y": 1.0, "x": 1.0}, {"y": 8.0, "x": 8.0})
+    moving = _image((64, 64), {"y": 1.0, "x": 1.0}, {"y": 0.0, "x": 0.0})
+
+    with pytest.raises(ValueError, match="not finite"):
+        resample_bounding_box(spline, fixed, moving)

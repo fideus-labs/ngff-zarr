@@ -560,6 +560,8 @@ function fieldStage(
  *
  * @param voxel The fixed image's voxel extent per physical axis, which caps
  *   how fine a lattice gets.
+ * @throws When the box is not finite, as a transform holding a NaN or
+ *   infinite parameter makes it.
  */
 export function transformBox(
   transformList: TransformList,
@@ -606,5 +608,9 @@ export function transformBox(
     box = next;
     affine = identity();
   }
-  return mappedBox(box, affine);
+  const result = mappedBox(box, affine);
+  if (![...result.low, ...result.high].every(Number.isFinite)) {
+    throw new Error("the transform sends the grid to a box that is not finite");
+  }
+  return result;
 }

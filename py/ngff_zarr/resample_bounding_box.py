@@ -570,21 +570,17 @@ def _windowed_fields(transform_list: list, grid) -> list:
     first, so those stages are the entries after the field. The box is the
     stage bound of :func:`~ngff_zarr._lattice_bound.transform_box`, which
     holds every point of the grid whatever those stages do inside it; a
-    stage the bound cannot size leaves the window to the pipeline's boundary
-    walk. ITK displaces nothing beyond a field's lattice, so a grid that
-    misses the field takes the identity in its place.
+    field behind a stage the bound cannot size is kept whole. ITK displaces
+    nothing beyond a field's lattice, so a grid that misses the field takes
+    the identity in its place.
 
     :param grid: The grid as a metadata-only ITK-Wasm image.
     """
-    from itkwasm import Image
-    from itkwasm_downsample import resample_bounding_box as itkwasm_bounding_box
-
     from ._lattice_bound import _index_box, transform_box
     from .itk_transform_to_ngff_transform import _parameterization_name
 
     dimension = grid.imageType.dimension
-    axes = ("x", "y", "z")[:dimension]
-    identity = _identity_transform_list(axes[::-1])
+    identity = _identity_transform_list(("x", "y", "z")[:dimension][::-1])
     low, high, voxel = _image_box(grid)
     windowed = list(transform_list)
     # Innermost first: a field's window depends on the stages after it, and
@@ -603,33 +599,12 @@ def _windowed_fields(transform_list: list, grid) -> list:
         origin = lattice[dimension : 2 * dimension]
         spacing = lattice[2 * dimension : 3 * dimension]
         direction = lattice[3 * dimension :].reshape(dimension, dimension)
-        inner = windowed[position + 1 :]
-        box = transform_box(inner, dimension, low, high, voxel)
-        if box is not None:
-            index_low, index_high = _index_box(*box, origin, spacing, direction)
-            first = np.floor(index_low).astype(int) - 1
-            stop = np.ceil(index_high).astype(int) + 2
-        else:
-            result = call_itkwasm(
-                itkwasm_bounding_box,
-                inner or identity,
-                grid,
-                Image(
-                    imageType=grid.imageType,
-                    origin=origin.tolist(),
-                    spacing=spacing.tolist(),
-                    direction=direction,
-                    size=size.tolist(),
-                    metadata={},
-                    data=np.empty((0,), dtype=np.uint8),
-                ),
-                padding=1,
-            )
-            _check_index_arrays(result, axes)
-            first = np.asarray(result["paddedStartIndex"], dtype=int)
-            stop = first + np.asarray(result["paddedSize"], dtype=int)
-        start = np.clip(first, 0, size)
-        stop = np.clip(stop, 0, size)
+        box = transform_box(windowed[position + 1 :], dimension, low, high, voxel)
+        if box is None:
+            continue
+        index_low, index_high = _index_box(*box, origin, spacing, direction)
+        start = np.clip(np.floor(index_low).astype(int) - 1, 0, size)
+        stop = np.clip(np.ceil(index_high).astype(int) + 2, 0, size)
         if np.any(stop <= start):
             windowed[position] = identity[0]
             continue

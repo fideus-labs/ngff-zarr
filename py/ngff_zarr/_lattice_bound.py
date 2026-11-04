@@ -275,6 +275,9 @@ def transform_box(transform_list: Sequence, dimension: int, low, high, voxel):
     ITK applies the last entry of a list first. Linear stages are composed and
     applied to the points a B-spline stage samples, so a rotation ahead of a
     B-spline does not widen its box; they map the box's corners otherwise.
+
+    :raises ValueError: If the box is not finite, as a transform holding a NaN
+        or infinite parameter makes it.
     """
     from .itk_transform_to_ngff_transform import (
         _matrix_offset_from_itkwasm,
@@ -313,4 +316,8 @@ def transform_box(transform_list: Sequence, dimension: int, low, high, voxel):
         low, high = result
         matrix = np.eye(dimension)
         offset = np.zeros(dimension)
-    return _mapped_box(low, high, matrix, offset)
+    low, high = _mapped_box(low, high, matrix, offset)
+    if not (np.all(np.isfinite(low)) and np.all(np.isfinite(high))):
+        msg = "the transform sends the grid to a box that is not finite"
+        raise ValueError(msg)
+    return low, high

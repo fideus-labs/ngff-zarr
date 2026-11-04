@@ -477,8 +477,7 @@ export async function resampleBoundingBoxShared(
   );
   if (staged !== undefined) return staged;
   if (Array.isArray(transform)) {
-    transformList = await windowedFields(
-      pipeline,
+    transformList = windowedFields(
       transformList,
       metadataOnlyItkImage(fixed, itkDims, fixedDirection),
     );
@@ -624,16 +623,14 @@ function stageRegion(
  * sample of margin on every side. ITK applies the last entry of a list
  * first, so those stages are the entries after the field. The box is the
  * stage bound of `transformBox`, which holds every point of the grid
- * whatever those stages do inside it; a stage the bound cannot size leaves
- * the window to the pipeline's boundary walk. ITK displaces nothing beyond a
- * field's lattice, so a grid that misses the field takes the identity in its
- * place.
+ * whatever those stages do inside it; a field behind a stage the bound
+ * cannot size is kept whole. ITK displaces nothing beyond a field's lattice,
+ * so a grid that misses the field takes the identity in its place.
  */
-export async function windowedFields(
-  pipeline: Parameters<typeof resampleBoundingBoxShared>[0],
+export function windowedFields(
   transformList: TransformList,
   grid: Image,
-): Promise<TransformList> {
+): TransformList {
   const dimension = grid.imageType.dimension;
   const axes = SPATIAL_DIMS.slice(0, dimension);
   const identity = ngffTransformToItkTransform({ type: "identity" }, axes);
@@ -655,49 +652,31 @@ export async function windowedFields(
     const origin = lattice.slice(dimension, 2 * dimension);
     const spacing = lattice.slice(2 * dimension, 3 * dimension);
     const direction = Float64Array.from(lattice.slice(3 * dimension));
-    const inner = windowed.slice(position + 1);
-    const box = transformBox(inner, dimension, low, high, voxel);
-    let first: number[];
-    let stop: number[];
-    if (box !== undefined) {
-      const inv = inverse(lattice.slice(3 * dimension), dimension);
-      const index = boxOf(
-        corners(box.low, box.high).map((corner) =>
-          apply(
-            inv,
-            corner.map((value, axis) => value - origin[axis]),
-          ).map((value, axis) => value / spacing[axis]),
-        ),
-      );
-      first = index.low.map((value) => Math.floor(value) - 1);
-      stop = index.high.map((value) => Math.ceil(value) + 2);
-    } else {
-      const { boundingBox } = await pipeline(
-        inner.length > 0 ? inner : identity,
-        grid,
-        {
-          imageType: grid.imageType,
-          name: "",
-          origin,
-          spacing,
-          direction,
-          size,
-          metadata: new Map(),
-          data: new Uint8Array(0),
-        },
-        { padding: 1 },
-      );
-      const raw = boundingBox as RawBoundingBox;
-      checkIndexArrays(raw, axes);
-      first = raw.paddedStartIndex;
-      stop = raw.paddedStartIndex.map(
-        (value, axis) => value + raw.paddedSize[axis],
-      );
-    }
+    const box = transformBox(
+      windowed.slice(position + 1),
+      dimension,
+      low,
+      high,
+      voxel,
+    );
+    if (box === undefined) continue;
+    const inv = inverse(lattice.slice(3 * dimension), dimension);
+    const index = boxOf(
+      corners(box.low, box.high).map((corner) =>
+        apply(
+          inv,
+          corner.map((value, axis) => value - origin[axis]),
+        ).map((value, axis) => value / spacing[axis]),
+      ),
+    );
     const clip = (value: number, axis: number) =>
       Math.min(Math.max(value, 0), size[axis]);
-    const start = first.map(clip);
-    stop = stop.map(clip);
+    const start = index.low.map((value, axis) =>
+      clip(Math.floor(value) - 1, axis),
+    );
+    const stop = index.high.map((value, axis) =>
+      clip(Math.ceil(value) + 2, axis),
+    );
     if (stop.some((value, axis) => value <= start[axis])) {
       windowed[position] = identity[0];
       continue;

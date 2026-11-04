@@ -1795,23 +1795,23 @@ test("an ITK displacement field reaches the pipeline as the grid's window", asyn
     transform,
     ...rest
   ) => {
-    received.push(transform[0].numberOfParameters);
+    received.push(transform[1].numberOfParameters);
     return resampleBoundingBoxNode(transform, ...rest);
   };
   // A stage the staged bound cannot read keeps the list on the pipeline path,
-  // where the field is windowed before the call.
+  // where the field is windowed before the call; applied after the field, it
+  // leaves the window to the bound.
   const cut = await resampleBoundingBoxShared(
     recording,
-    [...whole, ...pipelineOnly()] as never,
+    [...pipelineOnly(), ...whole] as never,
     fixed,
     moving,
   );
 
-  // The identity that finds the window, then the window itself: sixteen
-  // samples, the three pixels the field moves them by at most, and a sample
-  // of margin on either side.
-  assertEquals(received.length, 2);
-  assert(received[1] <= 2 * 24 * 24, `the pipeline received ${received[1]}`);
+  // Sixteen samples, the three pixels the field moves them by at most, and a
+  // sample of margin on either side.
+  assertEquals(received.length, 1);
+  assert(received[0] <= 2 * 24 * 24, `the pipeline received ${received[0]}`);
 
   const direction = new Float64Array([1, 0, 0, 1]);
   const { boundingBox } = await resampleBoundingBoxNode(
@@ -1914,14 +1914,14 @@ test("a B-spline stage reports the region Python reports", async () => {
   }
 });
 
-test("a field's window covers what a B-spline bump before it sends inside", async () => {
-  // One control point of 60 at (24, 24), x component, on 11 x 11 control
-  // points 8 apart from (-8, -8): the block [16, 32)^2 folds onto itself, and
-  // its center lands at x = 24 + 60 * (2/3)^2, past the 41 its boundary
-  // reaches, which a boundary walk does not see.
+/**
+ * An ITK-Wasm cubic B-spline on 11 x 11 control points 8 apart from (-8, -8),
+ * with one control point of `value` at (24, 24), x component.
+ */
+const bsplineBump = (value: number): any => {
   const coefficients = new Float64Array(2 * 11 * 11);
-  coefficients[4 * 11 + 4] = 60;
-  const spline = {
+  coefficients[4 * 11 + 4] = value;
+  return {
     transformType: {
       transformParameterization: "BSpline",
       parametersValueType: "float64",
@@ -1937,6 +1937,13 @@ test("a field's window covers what a B-spline bump before it sends inside", asyn
     parameters: coefficients,
     metadata: new Map(),
   };
+};
+
+test("a field's window covers what a B-spline bump before it sends inside", async () => {
+  // A bump of 60: the block [16, 32)^2 folds onto itself, and its center
+  // lands at x = 24 + 60 * (2/3)^2, past the 41 its boundary reaches, which
+  // a boundary walk does not see.
+  const spline = bsplineBump(60);
   const field = {
     transformType: {
       transformParameterization: "DisplacementField",
@@ -1962,8 +1969,7 @@ test("a field's window covers what a B-spline bump before it sends inside", asyn
   const direction = new Float64Array([1, 0, 0, 1]);
 
   // ITK applies the spline first, then the field.
-  const [cut] = await windowedFields(
-    resampleBoundingBoxNode,
+  const [cut] = windowedFields(
     [field, spline] as never,
     metadataOnlyItkImage(block, ["x", "y"], direction),
   );
@@ -1972,4 +1978,26 @@ test("a field's window covers what a B-spline bump before it sends inside", asyn
   const last = first + width - 1;
   assert(last >= 51, `the window ends at x = ${last}`);
   assert(width < 64, "the whole field was handed over");
+});
+
+test("a transform that sends the grid to a box that is not finite is rejected", async () => {
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 16, x: 16 },
+    { y: 1, x: 1 },
+    { y: 16, x: 16 },
+  );
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 64, x: 64 },
+    { y: 1, x: 1 },
+    { y: 0, x: 0 },
+  );
+
+  await assertRejects(
+    () =>
+      resampleBoundingBox([bsplineBump(Number.NaN)] as never, fixed, moving),
+    Error,
+    "not finite",
+  );
 });
