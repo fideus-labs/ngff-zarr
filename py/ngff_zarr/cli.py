@@ -40,16 +40,19 @@ from .detect_cli_io_backend import (
 )
 from .from_ngff_zarr import from_ome_zarr
 from .methods import Methods, methods_values
+from .ngff_image import _DEFAULT_AXIS_TYPES, non_default_axes_types
 from .ngff_image_to_itk_image import ngff_image_to_itk_image
 from .rfc4 import (
     AnatomicalOrientation,
     AnatomicalOrientationValues,
+    axes_orientations_from_axes,
     orientation_from_name,
 )
 from .rich_dask_progress import NgffProgress, NgffProgressCallback
 from .to_multiscales import to_multiscales
 from .to_ngff_zarr import to_ome_zarr
 from .v04.zarr_metadata import Omero, OmeroChannel, OmeroWindow, is_unit_supported
+from .v06.zarr_metadata import Scale, TransformSequence, Translation
 
 _REMOTE_SCHEMES = ("s3://", "gs://", "az://", "azure://", "http://", "https://")
 
@@ -426,6 +429,83 @@ def _apply_cli_metadata_overrides(ngff_image, args, live):
         ngff_image.axes_orientations = _parse_orientation_arg(args.orientation, live)
     elif args.no_orientation:
         ngff_image.axes_orientations = None
+
+
+def _apply_cli_metadata_overrides_to_multiscales(multiscales, args, live):
+    """Apply user CLI metadata overrides to an existing multiscales.
+
+    An existing OME-Zarr is written from ``multiscales.metadata``, not its
+    images, so the overrides also go to the intrinsic axes and to every
+    dataset's transform. ``--scale``/``--translation`` set the first level;
+    each other level keeps its placement relative to the first.
+    """
+    overrides = (args.dims, args.scale, args.translation, args.units, args.name)
+    if not any(overrides) and not args.orientation and not args.no_orientation:
+        return
+    images = multiscales.images
+    base = images[0]
+    levels = [
+        (
+            [image.scale.get(dim, 1.0) for dim in image.dims],
+            [image.translation.get(dim, 0.0) for dim in image.dims],
+        )
+        for image in images
+    ]
+    if args.dims and len(args.dims) == len(base.dims):
+        # Key the first level by the new names so --scale/--translation
+        # address them; a count mismatch exits in the call below.
+        base.scale = dict(zip(args.dims, levels[0][0]))
+        base.translation = dict(zip(args.dims, levels[0][1]))
+    _apply_cli_metadata_overrides(base, args, live)
+    dims = list(base.dims)
+
+    metadata = multiscales.metadata
+    metadata.name = base.name
+    axes = metadata.axes
+    for axis, dim in zip(axes, dims):
+        if axis.name != dim:
+            axis.name = dim
+            axis.type = _DEFAULT_AXIS_TYPES.get(dim, axis.type)
+        if args.units and dim in base.axes_units:
+            axis.unit = base.axes_units[dim]
+        if args.orientation and dim in base.axes_orientations:
+            axis.orientation = base.axes_orientations[dim]
+    if args.no_orientation:
+        for system in metadata.coordinateSystems:
+            for axis in system.axes:
+                axis.orientation = None
+
+    def placed(scale, translation):
+        for dim, s, t, s0, t0 in zip(dims, scale, translation, *levels[0]):
+            new_s0 = base.scale.get(dim, 1.0)
+            new_t0 = base.translation.get(dim, 0.0)
+            if (new_s0, new_t0) == (s0, t0):
+                yield dim, s, t
+            else:
+                yield dim, s / s0 * new_s0, new_t0 + (t - t0) / s0 * new_s0
+
+    for image, dataset, level in zip(images, metadata.datasets, levels):
+        placement = list(placed(*level))
+        image.dims, image.name = dims, base.name
+        image.scale = {dim: s for dim, s, _ in placement}
+        image.translation = {dim: t for dim, _, t in placement}
+        image.axes_units = {axis.name: axis.unit for axis in axes}
+        image.axes_orientations = axes_orientations_from_axes(axes)
+        image.axes_types = non_default_axes_types(axes)
+        if args.scale or args.translation:
+            first = dataset.coordinateTransformations[0]
+            sequence = [
+                Scale(scale=list(image.scale.values())),
+                Translation(translation=list(image.translation.values())),
+            ]
+            dataset.coordinateTransformations = [
+                TransformSequence(
+                    transformations=sequence,
+                    input=first.input,
+                    output=first.output,
+                    name=first.name,
+                )
+            ]
 
 
 def _parse_orientation_arg(values, live):
@@ -1018,15 +1098,7 @@ def _convert_main(argv: list[str] | None = None) -> None:
                 args.input[0], args.storage_options
             )
             multiscales = from_ome_zarr(input_store, storage_options=storage_options)
-            if args.no_orientation:
-                # An existing store is written from its metadata, not its images.
-                metadata = multiscales.metadata
-                systems = getattr(metadata, "coordinateSystems", None) or []
-                for axis in [
-                    *(getattr(metadata, "axes", None) or []),
-                    *(axis for system in systems for axis in system.axes),
-                ]:
-                    axis.orientation = None
+            _apply_cli_metadata_overrides_to_multiscales(multiscales, args, live)
             _multiscales_to_ngff_zarr(
                 live,
                 args,
