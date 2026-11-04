@@ -19,12 +19,12 @@ from typing import Any
 def get_available_codecs() -> list[str]:
     """Return the list of supported compression codec names.
 
-    Always includes ``"none"``, ``"gzip"``, ``"lz4"``, and ``"zstd"``.
+    Always includes ``"none"``, ``"gzip"``, and ``"zstd"``.
     When *numcodecs* is installed the blosc family is appended:
     ``"blosc"``, ``"blosc:blosclz"``, ``"blosc:lz4"``, ``"blosc:lz4hc"``,
     ``"blosc:snappy"``, ``"blosc:zlib"``, ``"blosc:zstd"``.
     """
-    codecs: list[str] = ["none", "gzip", "lz4", "zstd"]
+    codecs: list[str] = ["none", "gzip", "zstd"]
 
     try:
         import numcodecs  # noqa: F401
@@ -77,9 +77,6 @@ def codec_from_name(name: str, level: int | None = None) -> Any:
 
     if name == "gzip":
         return numcodecs.GZip(level=level if level is not None else 6)
-
-    if name == "lz4":
-        return numcodecs.LZ4()
 
     if name == "zstd":
         return numcodecs.Zstd(level=level if level is not None else 3)

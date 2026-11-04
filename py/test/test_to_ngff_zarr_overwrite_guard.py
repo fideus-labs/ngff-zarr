@@ -115,3 +115,46 @@ def test_level_alone_in_reading_the_store_raises(tmp_path):
     multiscales.images[1].data = open_lazy_array(f"{path}/scale1/image")
     with pytest.raises(ValueError, match=r"images\[1\] reads its data"):
         to_ome_zarr(path, multiscales, overwrite=True, version="0.4")
+
+
+@pytest.mark.parametrize("name", ["documents", "documents.ozx"])
+def test_overwrite_refuses_a_folder_that_is_not_a_store(tmp_path, name):
+    folder = tmp_path / name
+    folder.mkdir()
+    (folder / "notes.txt").write_text("keep me")
+
+    with pytest.raises(ValueError, match="not a Zarr store"):
+        to_ome_zarr(folder, _multiscales(), overwrite=True)
+    assert (folder / "notes.txt").read_text() == "keep me"
+
+
+def test_overwrite_accepts_an_empty_folder_and_a_store(tmp_path):
+    folder = tmp_path / "out.ome.zarr"
+    folder.mkdir()
+    to_ome_zarr(folder, _multiscales(), overwrite=True)
+    to_ome_zarr(folder, _multiscales(rng_seed=1), overwrite=True)
+    assert from_ome_zarr(folder).images[0].data.shape == (1, 64, 64, 64)
+
+
+@pytest.mark.parametrize("version", ["0.4", "0.5"])
+def test_refused_overwrite_keeps_the_store_readable(tmp_path, version):
+    store = tmp_path / "image.ome.zarr"
+    multiscales = _multiscales(scale_factors=[2])
+    to_ome_zarr(store, multiscales, version=version)
+
+    with pytest.raises(ValueError, match="already holds scale level 0"):
+        to_ome_zarr(store, multiscales, version=version, overwrite=False)
+    assert len(from_ome_zarr(store).images) == 2
+
+
+@pytest.mark.parametrize(
+    "kwargs", [{"overwrite": True}, {"overwrite": False, "metadata_only": True}]
+)
+def test_invalid_option_leaves_the_store_untouched(tmp_path, kwargs):
+    store = tmp_path / "image.ome.zarr"
+    multiscales = _multiscales(scale_factors=[2])
+    to_ome_zarr(store, multiscales, version="0.4")
+
+    with pytest.raises(ValueError, match="compressors"):
+        to_ome_zarr(store, multiscales, version="0.4", compressors=[{}], **kwargs)
+    assert len(from_ome_zarr(store).images) == 2

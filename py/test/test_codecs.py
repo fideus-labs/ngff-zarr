@@ -12,7 +12,8 @@ class TestGetAvailableCodecs:
         codecs = get_available_codecs()
         assert "none" in codecs
         assert "gzip" in codecs
-        assert "lz4" in codecs
+        # The writer has no plain lz4 codec; blosc:lz4 is the lz4 option.
+        assert "lz4" not in codecs
         assert "zstd" in codecs
 
     def test_includes_blosc_variants(self):
@@ -63,9 +64,9 @@ class TestCodecFromName:
 
     # -- lz4 ------------------------------------------------------------
 
-    def test_lz4(self):
-        c = codec_from_name("lz4")
-        assert isinstance(c, numcodecs.LZ4)
+    def test_lz4_is_unknown(self):
+        with pytest.raises(ValueError, match="Unknown codec"):
+            codec_from_name("lz4")
 
     # -- blosc ----------------------------------------------------------
 

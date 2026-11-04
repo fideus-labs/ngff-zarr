@@ -8,8 +8,10 @@ in ZIP archives according to RFC-9 specification.
 """
 
 import json
+import os
 import posixpath
 import threading
+import uuid
 import zipfile
 from collections.abc import Iterator, Mapping
 from pathlib import Path
@@ -239,29 +241,37 @@ def write_store_to_zip(
 
     ordered_files = _order_files_rfc9(all_files)
 
-    # Prepare the destination. On Windows, opening a directory path in write
-    # mode raises PermissionError (Errno 13) rather than IsADirectoryError, so
-    # an existing directory at the destination must be removed explicitly. This
-    # commonly happens when a plate was first written as an unzipped store to
-    # the same path before being converted to .ozx (see GH #241). A pre-existing
-    # regular file is fine -- zipfile mode="w" overwrites it.
-    if zip_path.exists() and zip_path.is_dir():
-        # Refuse to delete the source store itself.
-        if root_dir is not None:
-            try:
-                same_path = zip_path.resolve() == root_dir.resolve()
-            except OSError:
-                same_path = False
-            if same_path:
-                raise ValueError(
-                    f"Destination path '{zip_path}' is the same as the source "
-                    "store. Choose a different destination for the .ozx archive."
-                )
-        import shutil
+    # Refuse to replace the source store itself.
+    if zip_path.is_dir() and root_dir is not None:
+        try:
+            same_path = zip_path.resolve() == root_dir.resolve()
+        except OSError:
+            same_path = False
+        if same_path:
+            raise ValueError(
+                f"Destination path '{zip_path}' is the same as the source "
+                "store. Choose a different destination for the .ozx archive."
+            )
 
-        shutil.rmtree(zip_path)
+    # Write beside the destination and move it into place only when complete,
+    # so a failure (e.g. a full disk) keeps any previous archive intact. The
+    # name is unique per call so concurrent writers never share it.
+    partial = zip_path.with_name(f"{zip_path.name}.{uuid.uuid4().hex}.partial")
+    try:
+        _write_zip(partial, ordered_files, root_dir, source_store, version, compression)
+        # A directory at the destination, e.g. a plate first written unzipped
+        # to the same path (GH #241), must go: os.replace cannot overwrite it.
+        if zip_path.is_dir():
+            from ._zarrista_utils import remove_zarr_store
 
-    # Create ZIP archive with ZIP64 support
+            remove_zarr_store(zip_path)
+        os.replace(partial, zip_path)
+    finally:
+        partial.unlink(missing_ok=True)
+
+
+def _write_zip(zip_path, ordered_files, root_dir, source_store, version, compression):
+    """Write *ordered_files* to a new ZIP64 archive at *zip_path*."""
     with zipfile.ZipFile(
         zip_path, mode="w", compression=compression, allowZip64=True
     ) as zf:

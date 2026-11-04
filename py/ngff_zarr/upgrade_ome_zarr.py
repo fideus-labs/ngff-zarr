@@ -64,6 +64,7 @@ from ._zarrista_utils import (
     create_zarrista_group,
     create_zarrista_subgroup,
     has_consolidated_metadata,
+    normalize_store,
     read_group_attributes,
 )
 from ._zarrista_utils import (
@@ -78,6 +79,7 @@ from .from_ngff_zarr import (
     from_ome_zarr,
 )
 from .to_ngff_zarr import (
+    _foreign_root_attrs,
     _gate_axis_model,
     _pop_metadata_optionals,
     _root_ome_attrs,
@@ -363,7 +365,6 @@ def _read_v2_array_specs_local(store: StoreLike, array_paths: list[str]) -> list
     import json
 
     from ._v2_store_reader import _decode_dtype, _parse_fill_value
-    from ._zarrista_utils import normalize_store
 
     root = normalize_store(store)
     array_specs: list[dict] = []
@@ -389,6 +390,12 @@ def _read_v2_array_specs_local(store: StoreLike, array_paths: list[str]) -> list
             )
 
         dtype = _decode_dtype(meta["dtype"])
+        if dtype.str.startswith(">"):
+            raise ValueError(
+                f"Array '{path}' stores big-endian values ({dtype.str!r}); Zarr v3 "
+                "records byte order in a codec an in-place rewrite does not set. "
+                "Pass an `output` store to write a new upgraded copy instead."
+            )
         attrs_doc = node_dir / ".zattrs"
         attrs = json.loads(attrs_doc.read_text()) if attrs_doc.exists() else {}
         array_specs.append(
@@ -430,6 +437,23 @@ def _rewrite_v2_group_to_v3(
     group_paths = _parent_group_paths(array_paths)
 
     # --- Read phase: capture all Zarr v2 metadata before writing anything. ---
+    # Only the image's own nodes are rewritten, so any other v2 node (labels,
+    # a second image) would lose its metadata to the sidecar cleanup.
+    root = normalize_store(store)
+    rewritten = {".", *group_paths, *array_paths}
+    others = sorted(
+        doc.parent.relative_to(root).as_posix()
+        for name in (".zarray", ".zgroup")
+        for doc in root.rglob(name)
+        if doc.parent.relative_to(root).as_posix() not in rewritten
+    )
+    if others:
+        raise ValueError(
+            "The store holds Zarr v2 nodes the in-place upgrade does not "
+            f"rewrite: {', '.join(others)}. Pass an `output` store to write a "
+            "new upgraded copy instead."
+        )
+    foreign_root_attrs = _foreign_root_attrs(store)
     group_attrs: dict[str, dict] = {}
     array_specs = _read_v2_array_specs_local(store, array_paths)
     for group_path in group_paths:
@@ -464,8 +488,13 @@ def _rewrite_v2_group_to_v3(
                 "configuration": {"separator": spec["separator"]},
             },
         )
-    # Root OME attributes, exactly as to_ome_zarr / _upgrade_in_place emit.
-    create_zarrista_group(store, _root_ome_attrs(metadata_dict, target_version), 3)
+    # Root OME attributes, exactly as to_ome_zarr / _upgrade_in_place emit,
+    # beside the application attributes the v2 root carried.
+    create_zarrista_group(
+        store,
+        {**foreign_root_attrs, **_root_ome_attrs(metadata_dict, target_version)},
+        3,
+    )
     # Drop the now-obsolete Zarr v2 sidecars; chunk files are left in place.
     _delete_v2_sidecars(store)
     # Consolidate so the store matches a freshly written Zarr v3 store.
