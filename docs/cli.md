@@ -121,6 +121,10 @@ ngff-zarr --dims "z" "y" "x" --scale x 1.4 y 1.4 z 2.5 --translation x 6.24 y 36
 
 ![ngff-zarr metadata](https://i.imgur.com/AecFANr.png)
 
+An OME-Zarr input keeps its levels, as does a pyramidal TIFF unless `--dims` is
+given. `--scale` and `--translation` set the first level, and every other level
+keeps its placement relative to the first.
+
 ### Limit memory consumption
 
 Limit memory consumption by passing a rough memory limit in human-readable
