@@ -15,6 +15,7 @@
 
 import { test } from "vite-plus/test";
 import {
+  assert,
   assertAlmostEquals,
   assertEquals,
   assertRejects,
@@ -38,7 +39,12 @@ import {
   resampleBoundingBox,
 } from "../src/mod.ts";
 import { ngffTransformToItkMatrix } from "../src/utils/ngff_transform_to_itk_transform.ts";
-import { resampleBoundingBoxShared } from "../src/io/resample_bounding_box-shared.ts";
+import { resampleBoundingBoxNode } from "@itk-wasm/downsample";
+import {
+  metadataOnlyItkImage,
+  resampleBoundingBoxShared,
+  windowedFields,
+} from "../src/io/resample_bounding_box-shared.ts";
 import { RAS } from "../src/types/rfc4.ts";
 import type { AnatomicalOrientation } from "../src/types/rfc4.ts";
 
@@ -63,6 +69,29 @@ function itkTranslation(offset: number[]): any {
     },
   ];
 }
+
+/**
+ * An ITK Euler2D entry at angle zero: the identity, in a parameterization the
+ * staged bound does not decode, so the pipeline sizes the region.
+ */
+const pipelineOnly = (): any => [
+  {
+    transformType: {
+      transformParameterization: "Euler2D",
+      parametersValueType: "float64",
+      inputDimension: 2,
+      outputDimension: 2,
+    },
+    name: "Euler2DTransform",
+    inputSpaceName: "",
+    outputSpaceName: "",
+    numberOfFixedParameters: 2,
+    numberOfParameters: 3,
+    fixedParameters: new Float64Array([0, 0]),
+    parameters: new Float64Array([0, 0, 0]),
+    metadata: new Map(),
+  },
+];
 
 const identity = (dimension: number): any =>
   itkTranslation(new Array(dimension).fill(0));
@@ -727,11 +756,42 @@ test("a 3D-only orientation on a 2D image falls back to identity", async () => {
   assertEquals(Array.from(direction), [1, 0, 0, 1]);
 });
 
+test("a grid far larger than the moving image reads all of it", async () => {
+  // The region is computed in floating point from the grid's corners, so a
+  // grid that covers the whole moving image many times over clamps to all of
+  // it rather than wrapping an integer index.
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 16, x: 16 },
+    {
+      y: 1e9,
+      x: 1e9,
+    },
+    { y: 0, x: 0 },
+  );
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 64, x: 64 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: 0, x: 0 },
+  );
+
+  const region = await resampleBoundingBox(identity(2), fixed, moving, {
+    padding: 1,
+  });
+
+  assert(!region.isEmpty);
+  assertEquals(region.clamped(), { y: [0, 64], x: [0, 64] });
+});
+
 test("an index range overflow is reported, not silently empty", async () => {
-  // The region is computed in 32-bit index space while the corners come back
-  // as doubles, so a fixed/moving scale mismatch this large wraps the integer
-  // region. Reporting "no overlap" for a grid covering the whole moving image
-  // would be a silent, wrong answer.
+  // On the pipeline path the region is computed in 32-bit index space while
+  // the corners come back as doubles, so a fixed/moving scale mismatch this
+  // large wraps the integer region. Reporting "no overlap" for a grid
+  // covering the whole moving image would be a silent, wrong answer.
   const fixed = await geometryImage(
     ["y", "x"],
     { y: 16, x: 16 },
@@ -753,7 +813,7 @@ test("an index range overflow is reported, not silently empty", async () => {
 
   await assertRejects(
     () =>
-      resampleBoundingBox(identity(2), fixed, moving, {
+      resampleBoundingBox(pipelineOnly(), fixed, moving, {
         padding: 1,
       }),
     Error,
@@ -1274,7 +1334,7 @@ test("unusable pipeline index arrays are rejected", async () => {
         },
       });
     await assertRejects(
-      () => resampleBoundingBoxShared(pipeline, identity(2), fixed, fixed),
+      () => resampleBoundingBoxShared(pipeline, pipelineOnly(), fixed, fixed),
       Error,
       message,
     );
@@ -1503,13 +1563,11 @@ function interiorBump(extent: number, radius: number, peaks: number[]) {
   return values;
 }
 
-test("a bump inside the grid widens the region", async () => {
-  // The pipeline sizes a region by walking the boundary of the transformed
-  // grid, so a displacement that is zero there and large inside left the
-  // region unchanged and the pixels it reaches unread.
+test("a bump strictly inside the grid widens the region", async () => {
+  // A region is the box of the landing points of the samples under the grid,
+  // so a displacement that is zero on the boundary and large inside reaches
+  // the region all the same.
   const extent = 64;
-  // The peak carries the grid past its own extent, so a region that only
-  // covers the grid is not enough.
   const values = interiorBump(extent, 20, [60, -60]);
   const field = await bumpField(values, ["y", "x"], extent, 16);
   const fixed = await geometryImage(
@@ -1534,21 +1592,25 @@ test("a bump inside the grid widens the region", async () => {
     moving,
     { fields: { warp: field } },
   );
-
+  // Every point the field displaces onto lies in the region.
   const voxels = extent * extent;
   ["y", "x"].forEach((dim, component) => {
-    let lowest = Number.POSITIVE_INFINITY;
-    let highest = Number.NEGATIVE_INFINITY;
+    let reachedMin = Infinity;
+    let reachedMax = -Infinity;
     for (let y = 0; y < extent; y++) {
       for (let x = 0; x < extent; x++) {
-        const index = component === 0 ? y : x;
-        const reached = index + values[component * voxels + y * extent + x];
-        lowest = Math.min(lowest, reached);
-        highest = Math.max(highest, reached);
+        const reached =
+          (component === 0 ? y : x) +
+          values[component * voxels + y * extent + x];
+        reachedMin = Math.min(reachedMin, reached);
+        reachedMax = Math.max(reachedMax, reached);
       }
     }
-    assertEquals(region.startIndex[dim] <= lowest, true);
-    assertEquals(region.startIndex[dim] + region.size[dim] >= highest, true);
+    assert(region.startIndex[dim] <= reachedMin, `${dim} start`);
+    assert(
+      region.startIndex[dim] + region.size[dim] >= reachedMax,
+      `${dim} end`,
+    );
   });
 });
 
@@ -1680,54 +1742,15 @@ test("an oriented field is refused by the bounding box", async () => {
   );
 });
 
-function displacementFieldEntry(
-  vectors: Float64Array,
-  size: number[],
-  spacing: number[],
-): any {
-  const dimension = size.length;
-  return {
-    transformType: {
-      transformParameterization: "DisplacementField",
-      parametersValueType: "float64",
-      inputDimension: dimension,
-      outputDimension: dimension,
-    },
-    name: "DisplacementFieldTransform",
-    inputSpaceName: "",
-    outputSpaceName: "",
-    numberOfFixedParameters: 3 * dimension + dimension * dimension,
-    numberOfParameters: vectors.length,
-    fixedParameters: new Float64Array([
-      ...size,
-      ...size.map(() => 0),
-      ...spacing,
-      ...Array.from({ length: dimension * dimension }, (_, index) =>
-        index % (dimension + 1) === 0 ? 1 : 0,
-      ),
-    ]),
-    parameters: vectors,
-    metadata: new Map(),
-  };
-}
-
-test("the stage interval reads the layouts itk writes", async () => {
-  // A field interleaves components per point; a B-spline blocks them per
-  // component. Misreading the layout would produce plausible wrong bounds.
-  const { resampleBoundingBox } =
-    await import("../src/io/resample_bounding_box.ts");
-  const vectors = new Float64Array(4 * 3 * 2);
-  vectors[(1 * 4 + 2) * 2] = 7.0;
-  vectors[(1 * 4 + 2) * 2 + 1] = -9.0;
-  const warp = displacementFieldEntry(vectors, [4, 3], [8, 8]);
+test("an ITK displacement field reaches the pipeline as the grid's window", async () => {
   const fixed = await geometryImage(
     ["y", "x"],
-    { y: 4, x: 4 },
-    { y: 1, x: 1 },
+    { y: 16, x: 16 },
     {
-      y: 0,
-      x: 0,
+      y: 1,
+      x: 1,
     },
+    { y: 20, x: 30 },
   );
   const moving = await geometryImage(
     ["y", "x"],
@@ -1739,194 +1762,242 @@ test("the stage interval reads the layouts itk writes", async () => {
     { y: 0, x: 0 },
   );
 
-  const region = await resampleBoundingBox([warp], fixed, moving, {
-    padding: 0,
-  });
-
-  // The x range is [0, 7] and the y range [-9, 0], zero joined since the
-  // 4x4 grid leaves nothing to check against the field's own 32x24 reach:
-  // the grid is inside, so the values' range stands alone.
-  assertEquals(region.startIndex, { y: -9, x: 0 });
-  assertEquals(region.size, { y: 13, x: 11 });
-});
-
-test("an interior bump in an itk field widens the region", async () => {
-  const { resampleBoundingBox } =
-    await import("../src/io/resample_bounding_box.ts");
-  const extent = 64;
-  const vectors = new Float64Array(extent * extent * 2);
-  const reach = { y: [0, 0], x: [0, 0] };
-  for (let y = 0; y < extent; y++) {
-    for (let x = 0; x < extent; x++) {
-      const distance = Math.hypot(y - extent / 2, x - extent / 2);
-      const profile =
-        distance < 20 ? 0.5 * (1 + Math.cos((Math.PI * distance) / 20)) : 0;
-      const index = (y * extent + x) * 2;
-      vectors[index] = -60 * profile;
-      vectors[index + 1] = 60 * profile;
-      reach.y = [
-        Math.min(reach.y[0], y + 60 * profile),
-        Math.max(reach.y[1], y + 60 * profile),
-      ];
-      reach.x = [
-        Math.min(reach.x[0], x - 60 * profile),
-        Math.max(reach.x[1], x - 60 * profile),
-      ];
+  // A 64 x 64 field in ITK layout: one (x, y) vector per point, x fastest. It
+  // varies by less than a pixel per pixel, so it does not fold.
+  const parameters = new Float64Array(2 * 64 * 64);
+  for (let y = 0; y < 64; y++) {
+    for (let x = 0; x < 64; x++) {
+      parameters[2 * (y * 64 + x)] = 3 * Math.sin(y / 5);
+      parameters[2 * (y * 64 + x) + 1] = 2 * Math.cos(x / 7);
     }
   }
-  const warp = displacementFieldEntry(vectors, [extent, extent], [1, 1]);
-  const fixed = await geometryImage(
-    ["y", "x"],
-    { y: extent, x: extent },
-    { y: 1, x: 1 },
-    { y: 0, x: 0 },
-  );
-  const moving = await geometryImage(
-    ["y", "x"],
-    { y: 256, x: 256 },
+  const whole = [
     {
-      y: 1,
-      x: 1,
+      transformType: {
+        transformParameterization: "DisplacementField",
+        parametersValueType: "float64",
+        inputDimension: 2,
+        outputDimension: 2,
+      },
+      name: "DisplacementFieldTransform",
+      inputSpaceName: "",
+      outputSpaceName: "",
+      numberOfFixedParameters: 10,
+      numberOfParameters: parameters.length,
+      fixedParameters: new Float64Array([64, 64, 0, 0, 1, 1, 1, 0, 0, 1]),
+      parameters,
+      metadata: new Map(),
     },
-    { y: 0, x: 0 },
-  );
+  ];
 
-  const region = await resampleBoundingBox([warp], fixed, moving, {
-    padding: 1,
-  });
-
-  for (const dim of ["y", "x"] as const) {
-    assertEquals(region.startIndex[dim] <= reach[dim][0], true);
-    assertEquals(
-      region.startIndex[dim] + region.size[dim] >= reach[dim][1],
-      true,
-    );
-  }
-});
-
-/** A field that shifts every point of its lattice by the same vector. */
-function constantFieldEntry(
-  shift: number[],
-  size: number[],
-  spacing: number[],
-): any {
-  const points = size.reduce((total, extent) => total * extent, 1);
-  const vectors = new Float64Array(points * shift.length);
-  for (let point = 0; point < points; point++) {
-    for (let component = 0; component < shift.length; component++) {
-      vectors[point * shift.length + component] = shift[component];
-    }
-  }
-  return displacementFieldEntry(vectors, size, spacing);
-}
-
-/** A field that is zero on its boundary and peaks at its centre.
- *
- * The boundary walk sees only the zero, so a stage outside this one has to
- * carry the peak for the region to hold it. `peaks` is in ITK component
- * order (x, y); the returned entry's lattice is unit-spaced at the origin. */
-function bumpFieldEntry(extent: number, peaks: number[], radius: number): any {
-  const vectors = new Float64Array(extent * extent * 2);
-  for (let y = 0; y < extent; y++) {
-    for (let x = 0; x < extent; x++) {
-      const distance = Math.hypot(y - extent / 2, x - extent / 2);
-      const profile =
-        distance < radius
-          ? 0.5 * (1 + Math.cos((Math.PI * distance) / radius))
-          : 0;
-      const index = (y * extent + x) * 2;
-      vectors[index] = peaks[0] * profile;
-      vectors[index + 1] = peaks[1] * profile;
-    }
-  }
-  return displacementFieldEntry(vectors, [extent, extent], [1, 1]);
-}
-
-test("a field outside an interior bump carries its range", async () => {
-  // ITK applies the last entry first, so the bump's range has to travel
-  // through the constant field outside it, which is itself non-linear:
-  // folding stage by stage stops there and the walk, which sees only the
-  // bump's zero boundary, reports a region the composition leaves.
-  const { resampleBoundingBox } =
-    await import("../src/io/resample_bounding_box.ts");
-  const extent = 64;
-  const peaks = [-60, 60];
-  const bump = bumpFieldEntry(extent, peaks, 20);
-  const shift = [-3, 11];
-  const outer = constantFieldEntry(shift, [256, 256], [1, 1]);
-  const fixed = await geometryImage(
-    ["y", "x"],
-    { y: extent, x: extent },
-    { y: 1, x: 1 },
-    { y: 0, x: 0 },
-  );
-  const moving = await geometryImage(
-    ["y", "x"],
-    { y: 512, x: 512 },
-    {
-      y: 1,
-      x: 1,
-    },
-    { y: -128, x: -128 },
-  );
-
-  const region = await resampleBoundingBox([outer, bump], fixed, moving, {
-    padding: 0,
-  });
-
-  // The grid centre takes the whole peak, then the constant shift.
-  const centre = extent / 2;
-  assertEquals(region.cornersMax.y >= centre + peaks[1] + shift[1], true);
-  assertEquals(region.cornersMin.x <= centre + peaks[0] + shift[0], true);
-});
-
-test("an affine outside two fields carries both their ranges", async () => {
-  const { resampleBoundingBox } =
-    await import("../src/io/resample_bounding_box.ts");
-  const extent = 64;
-  const peaks = [-60, 60];
-  const bump = bumpFieldEntry(extent, peaks, 20);
-  const shift = [-3, 11];
-  const outer = constantFieldEntry(shift, [256, 256], [1, 1]);
-  const [affine] = itkAffine(
-    [
-      [2, 0],
-      [0, 3],
-    ],
-    [4, -6],
-  );
-  const fixed = await geometryImage(
-    ["y", "x"],
-    { y: extent, x: extent },
-    { y: 1, x: 1 },
-    { y: 0, x: 0 },
-  );
-  const moving = await geometryImage(
-    ["y", "x"],
-    { y: 1024, x: 1024 },
-    {
-      y: 1,
-      x: 1,
-    },
-    { y: -512, x: -512 },
-  );
-
-  const region = await resampleBoundingBox(
-    [affine, outer, bump],
+  const received: number[] = [];
+  const recording: Parameters<typeof resampleBoundingBoxShared>[0] = (
+    transform,
+    ...rest
+  ) => {
+    received.push(transform[1].numberOfParameters);
+    return resampleBoundingBoxNode(transform, ...rest);
+  };
+  // A stage the staged bound cannot read keeps the list on the pipeline path,
+  // where the field is windowed before the call; applied after the field, it
+  // leaves the window to the bound.
+  const cut = await resampleBoundingBoxShared(
+    recording,
+    [...pipelineOnly(), ...whole] as never,
     fixed,
     moving,
-    { padding: 0 },
   );
 
-  // The centre takes the peak and the shift, then the affine scales it:
-  // x' = 2 (x + peak_x + shift_x) + 4, y' = 3 (y + peak_y + shift_y) - 6.
-  const centre = extent / 2;
-  assertEquals(
-    region.cornersMax.y >= 3 * (centre + peaks[1] + shift[1]) - 6,
-    true,
+  // Sixteen samples, the three pixels the field moves them by at most, and a
+  // sample of margin on either side.
+  assertEquals(received.length, 1);
+  assert(received[0] <= 2 * 24 * 24, `the pipeline received ${received[0]}`);
+
+  const direction = new Float64Array([1, 0, 0, 1]);
+  const { boundingBox } = await resampleBoundingBoxNode(
+    whole as never,
+    metadataOnlyItkImage(fixed, ["x", "y"], direction),
+    metadataOnlyItkImage(moving, ["x", "y"], direction),
+    { padding: 1 },
   );
-  assertEquals(
-    region.cornersMin.x <= 2 * (centre + peaks[0] + shift[0]) + 4,
-    true,
+  const uncut = boundingBox as {
+    paddedStartIndex: number[];
+    paddedSize: number[];
+  };
+  assertEquals(cut.startIndex, {
+    y: uncut.paddedStartIndex[1],
+    x: uncut.paddedStartIndex[0],
+  });
+  assertEquals(cut.size, { y: uncut.paddedSize[1], x: uncut.paddedSize[0] });
+});
+
+test("a B-spline stage reports the region Python reports", async () => {
+  // The same control points as py/test/test_lattice_bound.py's cross-port
+  // case; the regions are Python's, to the pixel.
+  const size = [7, 6];
+  const parameters = new Float64Array([
+    2.0, 7.347244, 6.850978, 1.053526, -3.709612, -2.233242, 3.869248, 5.620471,
+    7.598251, 3.190661, -2.78565, -3.799723, 1.256629, 6.857785, 6.993303,
+    4.671437, -1.574518, -4.918935, -1.707008, 4.551243, 7.016754, 5.320731,
+    -0.20877, -5.355521, -4.495113, 1.432194, 5.948992, 4.11929, 1.177635,
+    -4.958891, -6.585839, -1.925269, 3.929714, 4.580737, -0.683641, -3.706987,
+    -7.564433, -4.9064, 1.362393, 4.391361, 0.870424, -5.352711, -5.0,
+    -1.939795, 3.288079, 7.316478, 7.482513, 3.781871, -1.147075, -4.126678,
+    -3.608427, 0.34028, 5.320348, 7.948683, 6.357554, 1.588895, -1.811789,
+    -3.608427, -1.97461, 2.442431, 6.685689, 7.665291, 4.477694, 1.13601,
+    -1.939795, -2.847932, -0.311933, 4.134731, 7.248253, 6.510182, 3.686969,
+    0.814569, -1.97461, -1.980565, 1.186932, 5.252123, 6.976352, 4.949962,
+    3.692486, 0.34028, -1.980565, -1.127957, 2.374206, 5.713358,
+  ]);
+  const spline = [
+    {
+      transformType: {
+        transformParameterization: "BSpline",
+        parametersValueType: "float64",
+        inputDimension: 2,
+        outputDimension: 2,
+      },
+      name: "BSplineTransform",
+      inputSpaceName: "",
+      outputSpaceName: "",
+      numberOfFixedParameters: 10,
+      numberOfParameters: parameters.length,
+      fixedParameters: new Float64Array([
+        ...size,
+        -16,
+        -16,
+        16,
+        16,
+        1,
+        0,
+        0,
+        1,
+      ]),
+      parameters,
+      metadata: new Map(),
+    },
+  ];
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 128, x: 128 },
+    {
+      y: 1,
+      x: 1,
+    },
+    { y: -32, x: -32 },
+  );
+  const cases: [
+    number,
+    number,
+    number,
+    number,
+    Record<string, number>,
+    Record<string, number>,
+  ][] = [
+    [0, 0, 32, 32, { y: 28, x: 30 }, { y: 38, x: 34 }],
+    [20, 24, 24, 40, { y: 50, x: 50 }, { y: 33, x: 52 }],
+    [40, 8, 16, 48, { y: 67, x: 31 }, { y: 30, x: 66 }],
+  ];
+  for (const [y, x, height, width, startIndex, size] of cases) {
+    const fixed = await geometryImage(
+      ["y", "x"],
+      { y: height, x: width },
+      {
+        y: 1,
+        x: 1,
+      },
+      { y, x },
+    );
+    const region = await resampleBoundingBox(spline as never, fixed, moving);
+    assertEquals(region.startIndex, startIndex);
+    assertEquals(region.size, size);
+  }
+});
+
+/**
+ * An ITK-Wasm cubic B-spline on 11 x 11 control points 8 apart from (-8, -8),
+ * with one control point of `value` at (24, 24), x component.
+ */
+const bsplineBump = (value: number): any => {
+  const coefficients = new Float64Array(2 * 11 * 11);
+  coefficients[4 * 11 + 4] = value;
+  return {
+    transformType: {
+      transformParameterization: "BSpline",
+      parametersValueType: "float64",
+      inputDimension: 2,
+      outputDimension: 2,
+    },
+    name: "BSplineTransform",
+    inputSpaceName: "",
+    outputSpaceName: "",
+    numberOfFixedParameters: 10,
+    numberOfParameters: coefficients.length,
+    fixedParameters: new Float64Array([11, 11, -8, -8, 8, 8, 1, 0, 0, 1]),
+    parameters: coefficients,
+    metadata: new Map(),
+  };
+};
+
+test("a field's window covers what a B-spline bump before it sends inside", async () => {
+  // A bump of 60: the block [16, 32)^2 folds onto itself, and its center
+  // lands at x = 24 + 60 * (2/3)^2, past the 41 its boundary reaches, which
+  // a boundary walk does not see.
+  const spline = bsplineBump(60);
+  const field = {
+    transformType: {
+      transformParameterization: "DisplacementField",
+      parametersValueType: "float64",
+      inputDimension: 2,
+      outputDimension: 2,
+    },
+    name: "DisplacementFieldTransform",
+    inputSpaceName: "",
+    outputSpaceName: "",
+    numberOfFixedParameters: 10,
+    numberOfParameters: 2 * 64 * 64,
+    fixedParameters: new Float64Array([64, 64, 0, 0, 1, 1, 1, 0, 0, 1]),
+    parameters: new Float64Array(2 * 64 * 64),
+    metadata: new Map(),
+  };
+  const block = await geometryImage(
+    ["y", "x"],
+    { y: 16, x: 16 },
+    { y: 1, x: 1 },
+    { y: 16, x: 16 },
+  );
+  const direction = new Float64Array([1, 0, 0, 1]);
+
+  // ITK applies the spline first, then the field.
+  const [cut] = windowedFields(
+    [field, spline] as never,
+    metadataOnlyItkImage(block, ["x", "y"], direction),
+  );
+
+  const [width, , first] = Array.from(cut.fixedParameters ?? [], Number);
+  const last = first + width - 1;
+  assert(last >= 51, `the window ends at x = ${last}`);
+  assert(width < 64, "the whole field was handed over");
+});
+
+test("a transform that sends the grid to a box that is not finite is rejected", async () => {
+  const fixed = await geometryImage(
+    ["y", "x"],
+    { y: 16, x: 16 },
+    { y: 1, x: 1 },
+    { y: 16, x: 16 },
+  );
+  const moving = await geometryImage(
+    ["y", "x"],
+    { y: 64, x: 64 },
+    { y: 1, x: 1 },
+    { y: 0, x: 0 },
+  );
+
+  await assertRejects(
+    () =>
+      resampleBoundingBox([bsplineBump(Number.NaN)] as never, fixed, moving),
+    Error,
+    "not finite",
   );
 });
