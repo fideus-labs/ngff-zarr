@@ -606,3 +606,44 @@ def test_a_real_s3_store_reads_without_a_region():
         raise
 
     assert multiscales.images[0].data.shape[-1] > 0
+
+
+def test_remote_read_gzip_default_level(tmp_path):
+    """zarrs rejects gzip ``level: -1``, zlib's default level as numcodecs'
+    ``GZip(level=-1)`` stores it; the remote read respells it (issue #833)
+    and keeps the array's attributes."""
+    from ngff_zarr import from_ome_zarr, open_array
+
+    store_path = tmp_path / "image.zarr"
+    data = _write_ramp_store(store_path, "0.4", compressor={"id": "gzip"})
+    for doc in store_path.rglob(".zarray"):
+        metadata = json.loads(doc.read_text())
+        metadata["compressor"]["level"] = -1
+        doc.write_text(json.dumps(metadata))
+        doc.with_name(".zattrs").unlink(missing_ok=True)
+    (store_path / "scale0" / "image" / ".zattrs").write_text('{"note": "kept"}')
+
+    with _serve(tmp_path) as base_url:
+        store = f"{base_url}/image.zarr"
+        multiscales = from_ome_zarr(store)
+        assert np.array_equal(np.asarray(multiscales.images[0].data), data)
+        array = open_array(store, multiscales.metadata.datasets[0].path)
+        assert array.attrs == {"note": "kept"}
+        assert np.array_equal(np.asarray(array[...]), data)
+
+
+def test_remote_read_other_rejected_zarray_keeps_zarrista_error(tmp_path):
+    """Metadata zarrs rejects for another reason raises zarrista's error."""
+    from ngff_zarr import from_ome_zarr
+    from zarrista.exceptions import ArrayCreateError
+
+    store_path = tmp_path / "image.zarr"
+    _write_ramp_store(store_path, "0.4", compressor={"id": "gzip"})
+    for doc in store_path.rglob(".zarray"):
+        metadata = json.loads(doc.read_text())
+        metadata["compressor"] = {"id": "zlib", "level": -1}
+        doc.write_text(json.dumps(metadata))
+
+    with _serve(tmp_path) as base_url:
+        with pytest.raises(ArrayCreateError, match="zlib"):
+            np.asarray(from_ome_zarr(f"{base_url}/image.zarr").images[0].data)
