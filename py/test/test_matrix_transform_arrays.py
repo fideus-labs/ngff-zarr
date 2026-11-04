@@ -348,6 +348,7 @@ def test_a_matrix_array_that_is_not_2d_is_refused_on_read(tmp_path):
         "params#/r",
         "params/r ",
         "a%20b/r",
+        "a\ud800/r",
     ],
 )
 def test_a_matrix_path_outside_the_group_is_refused_on_read(tmp_path, path):

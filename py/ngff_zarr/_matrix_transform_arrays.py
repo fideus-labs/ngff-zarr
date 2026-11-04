@@ -86,13 +86,13 @@ def is_path_below_root(path: object) -> bool:
     parser rewrites, cuts or drops could name another node: a backslash (read
     as ``/``), a ``%`` (decoded, or refused when malformed), a ``?`` or ``#``
     (cut with what follows), a control character or a leading or trailing
-    space (dropped), or a scheme or drive prefix such as ``file:``, ``C:`` or
-    ``C|`` (which replaces the root). None is allowed, so both ports accept
-    the same documents.
+    space (dropped), an unpaired surrogate (replaced with U+FFFD), or a scheme
+    or drive prefix such as ``file:``, ``C:`` or ``C|`` (which replaces the
+    root). None is allowed, so both ports accept the same documents.
     """
     return (
         isinstance(path, str)
-        and not re.search(r"[\\%?#\x00-\x1f\x7f-\x9f]|^ | $", path)
+        and not re.search(r"[\\%?#\x00-\x1f\x7f-\x9f\ud800-\udfff]|^ | $", path)
         and not re.match(r"[A-Za-z](?:[A-Za-z0-9+.-]*:|\|)", path)
         and not any(segment in ("", ".", "..") for segment in path.split("/"))
     )

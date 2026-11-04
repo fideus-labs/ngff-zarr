@@ -558,6 +558,7 @@ for (const path of [
   "params#/r",
   "params/r ",
   "a%20b/r",
+  "a\ud800/r",
 ]) {
   test(`a matrix path outside the group is refused on read: ${path}`, async () => {
     // A crafted path cannot read an array beside the multiscales group.
@@ -663,6 +664,7 @@ test("an accepted matrix path is one zarrita reads as written", () => {
     "a b/r",
     "µm/r",
     "日本/r",
+    "😀/r",
     "tile_0/scale0/image",
     "a.b-c_d",
     "a+b=c,d;e",
