@@ -78,26 +78,36 @@ def _is_node_name(name) -> bool:
     )
 
 
+def _unquote_fully(part: str) -> str:
+    while (decoded := unquote(part)) != part:
+        part = decoded
+    return part
+
+
 def is_path_below_root(path: object) -> bool:
     """Whether ``path`` is a plain path below a store's root.
 
     Relative, with no empty, ``.`` or ``..`` segment. A backslash counts as a
     separator (Windows does), a scheme or drive prefix such as ``file:`` or
     ``C:`` replaces the root (a URL resolves it so, as the TypeScript reader
-    does), a control character or a leading space is dropped before a URL
-    parser looks for that prefix or a leading slash (so none is allowed), and
-    a percent-encoded part is read as a URL store does, split again at the
-    separators it decodes to, such as ``%2f``, so a path joined to a
-    directory or a URL stays below it too.
+    does), and a control character or a leading space is dropped before a URL
+    parser looks for that prefix or a leading slash, so none is allowed. The
+    checks see each part percent-decoded until nothing decodes further, split
+    again at the separators that come out: a URL store decodes a path once,
+    and the TypeScript reader decodes it again at every node it opens below,
+    so ``%2e%2e``, ``%252e%252e`` and ``%09..`` are all read as ``..`` in the
+    end.
     """
-    if not isinstance(path, str) or re.search(r"[\x00-\x1f\x7f-\x9f]|^ ", path):
+    if not isinstance(path, str):
         return False
-    if re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", path):
-        return False
-    return not any(
-        segment in ("", ".", "..")
+    segments = [
+        segment
         for part in re.split(r"[\\/]", path)
-        for segment in re.split(r"[\\/]", unquote(part))
+        for segment in re.split(r"[\\/]", _unquote_fully(part))
+    ]
+    return not re.match(r" |[A-Za-z][A-Za-z0-9+.-]*:", segments[0]) and not any(
+        segment in ("", ".", "..") or re.search(r"[\x00-\x1f\x7f-\x9f]", segment)
+        for segment in segments
     )
 
 

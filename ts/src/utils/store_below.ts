@@ -17,14 +17,18 @@ import * as zarr from "zarrita";
  * Whether `path` is a plain path below a store's root: relative, with no
  * empty, `.` or `..` segment. A backslash counts as a separator (Windows
  * does), a scheme or drive prefix such as `file:` or `C:` replaces the root
- * (a URL resolves it so, as zarrita's `Location.resolve` does), a control
- * character or a leading space is dropped before a URL parser looks for
- * that prefix or a leading slash (so none is allowed), and a percent-encoded
- * segment is read as a URL store does, split again at the separators it
- * decodes to, such as `%2f`, so a path joined to a directory or a URL stays
- * below it too.
+ * (a URL resolves it so, as zarrita's `Location.resolve` does), and a
+ * control character or a leading space is dropped before a URL parser looks
+ * for that prefix or a leading slash, so none is allowed. The checks see
+ * each part percent-decoded until nothing decodes further, split again at
+ * the separators that come out: a URL store decodes a path once, and
+ * `Location.resolve` decodes it again at every node it opens below, so
+ * `%2e%2e`, `%252e%252e` and `%09..` are all read as `..` in the end.
  */
 export function isPathBelowRoot(path: unknown): path is string {
+  if (typeof path !== "string") {
+    return false;
+  }
   const separators = /[\\/]/;
   const decode = (part: string): string => {
     try {
@@ -33,14 +37,20 @@ export function isPathBelowRoot(path: unknown): path is string {
       return part;
     }
   };
+  const decodeFully = (part: string): string => {
+    let decoded = part;
+    for (let next = decode(decoded); next !== decoded; next = decode(decoded)) {
+      decoded = next;
+    }
+    return decoded;
+  };
+  const segments = path
+    .split(separators)
+    .flatMap((part) => decodeFully(part).split(separators));
   return (
-    typeof path === "string" &&
-    !/\p{Cc}|^ /u.test(path) &&
-    !/^[A-Za-z][A-Za-z0-9+.-]*:/.test(path) &&
-    !path.split(separators).some((part) =>
-      decode(part)
-        .split(separators)
-        .some((segment) => ["", ".", ".."].includes(segment)),
+    !/^(?: |[A-Za-z][A-Za-z0-9+.-]*:)/.test(segments[0]) &&
+    !segments.some(
+      (segment) => ["", ".", ".."].includes(segment) || /\p{Cc}/u.test(segment),
     )
   );
 }

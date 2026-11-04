@@ -341,6 +341,8 @@ def test_a_matrix_array_that_is_not_2d_is_refused_on_read(tmp_path):
         "file:/outside/r",
         "fi\nle:/outside/r",
         " /outside/r",
+        "%09..%2foutside/r",
+        "%252e%252e/outside/r",
     ],
 )
 def test_a_matrix_path_outside_the_group_is_refused_on_read(tmp_path, path):
