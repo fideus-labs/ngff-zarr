@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: MIT
 """CLI metadata overrides on OME-Zarr input, which keeps its pyramid."""
 
+import json
+
 import numpy as np
 import pytest
 import zarr
@@ -58,6 +60,33 @@ def test_overrides_reach_every_level_of_ome_zarr_input(tmp_path, input_version):
         "y": "anterior-to-posterior",
         "x": "right-to-left",
     }
+
+
+@requires_zarr_v3
+def test_translation_replaces_split_dataset_transforms(tmp_path):
+    source = _write_pyramid(tmp_path, "0.6")
+    # Split each dataset's sequence into separate scale and translation
+    # entries; the reader accepts this form and folds both into the level.
+    zarr_json = source / "zarr.json"
+    attrs = json.loads(zarr_json.read_text())
+    for dataset in attrs["attributes"]["ome"]["multiscales"][0]["datasets"]:
+        sequence = dataset["coordinateTransformations"][0]
+        ends = {"input": sequence["input"], "output": sequence["output"]}
+        dataset["coordinateTransformations"] = [
+            {**transform, **ends} for transform in sequence["transformations"]
+        ]
+    zarr_json.write_text(json.dumps(attrs))
+    output = tmp_path / "output.ome.zarr"
+
+    main(
+        ["-q", "-i", str(source), "-o", str(output), "--ome-zarr-version", "0.6"]
+        + ["--translation", "y", "5"]
+    )
+
+    result = from_ome_zarr(output)
+    assert [level.translation["y"] for level in result.images] == [5.0, 5.25, 5.75]
+    # The 0.6 schema allows exactly one transformation per dataset.
+    assert all(len(d.coordinateTransformations) == 1 for d in result.metadata.datasets)
 
 
 @requires_zarr_v3

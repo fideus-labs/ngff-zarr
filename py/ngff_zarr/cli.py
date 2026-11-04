@@ -493,6 +493,8 @@ def _apply_cli_metadata_overrides_to_multiscales(multiscales, args, live):
         image.axes_orientations = axes_orientations_from_axes(axes)
         image.axes_types = non_default_axes_types(axes)
         if args.scale or args.translation:
+            # Replace every entry: the reader folds all of them into the level's
+            # scale and translation, so a kept entry would apply the old values.
             first = dataset.coordinateTransformations[0]
             sequence = [
                 Scale(scale=list(image.scale.values())),
