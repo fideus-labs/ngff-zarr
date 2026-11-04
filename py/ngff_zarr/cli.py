@@ -1043,7 +1043,10 @@ def _convert_main(argv: list[str] | None = None) -> None:
                     raise ImportError("tifffile not found")
 
                 from .multiscales import NgffMultiscales as MultiscalesType
-                from .tiff_to_ngff_image import tiff_file_to_ngff_images
+                from .tiff_to_ngff_image import (
+                    _pyramid_multiscales,
+                    tiff_file_to_ngff_images,
+                )
 
                 # Get series to convert based on --series argument
                 series_spec = args.series
@@ -1057,7 +1060,9 @@ def _convert_main(argv: list[str] | None = None) -> None:
                 series_list = tiff_file_to_ngff_images(
                     args.input[0],
                     series=series_spec,
-                    reuse_existing_pyramids=True,
+                    # --dims labels axes in file order, but reused pyramid levels
+                    # are already in spec order, so relabeled input is re-pyramided.
+                    reuse_existing_pyramids=not args.dims,
                 )
 
                 if len(series_list) == 0:
@@ -1075,10 +1080,14 @@ def _convert_main(argv: list[str] | None = None) -> None:
                     )
 
                     if isinstance(result, MultiscalesType):
-                        # Pyramidal TIFF: reuse existing pyramid levels
-                        multiscales = result
-                        # Apply CLI metadata overrides to the base image
-                        _apply_cli_metadata_overrides(multiscales.images[0], args, live)
+                        # Pyramidal TIFF: reuse existing pyramid levels. Apply
+                        # CLI overrides to the base image, then rebuild the
+                        # levels and metadata from it so they reach the output.
+                        base = result.images[0]
+                        _apply_cli_metadata_overrides(base, args, live)
+                        multiscales = _pyramid_multiscales(
+                            base, [image.data for image in result.images[1:]]
+                        )
                         if not args.quiet:
                             n_levels = len(multiscales.images)
                             live.console.log(

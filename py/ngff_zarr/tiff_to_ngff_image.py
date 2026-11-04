@@ -933,9 +933,6 @@ def _build_multiscales_from_pyramid(
     NgffMultiscales
         A NgffMultiscales object containing all pyramid levels.
     """
-    from .multiscales import NgffMultiscales
-    from .v04.zarr_metadata import Axis, Dataset, Metadata, Scale, Translation
-
     # One lazy array per stored pyramid level, largest (full resolution)
     # first -- the order tifffile enumerates levels in.
     level_arrays = [
@@ -1038,32 +1035,9 @@ def _build_multiscales_from_pyramid(
             channel_colors=ome_channel_colors,
         )
 
-    level0_shape = ngff_image_0.data.shape
-    base_scale = ngff_image_0.scale
-    base_translation = ngff_image_0.translation
-
-    # Build NgffImages for all levels. Levels are computed in the TIFF's own
-    # axis order and normalized to the spec order (t, c, z, y, x) on append,
-    # so the emitted metadata orders time, then channel, then space.
-    images = [_canonical_axis_order(ngff_image_0)]
+    # Lower levels' data, in the base image's axis order
+    level_datas = []
     for arr in level_arrays[1:]:
-        level_scale: dict[str, float] = {}
-        level_translation: dict[str, float] = {}
-
-        for dim in ngff_image_0.dims:
-            dim_idx = list(ngff_image_0.dims).index(dim)
-            if dim in _SPATIAL_DIMS:
-                factor = level0_shape[dim_idx] / arr.shape[dim_idx]
-                level_scale[dim] = base_scale[dim] * factor
-                level_translation[dim] = (
-                    base_translation[dim] + 0.5 * (factor - 1) * base_scale[dim]
-                )
-            else:
-                if dim in base_scale:
-                    level_scale[dim] = base_scale[dim]
-                if dim in base_translation:
-                    level_translation[dim] = base_translation[dim]
-
         level_data = arr
 
         # Apply the same axis mapping and channel reshaping that was applied to level 0
@@ -1095,28 +1069,54 @@ def _build_multiscales_from_pyramid(
                     dropped_indices,
                 )
 
-        level_image = NgffImage(
-            data=level_data,
-            dims=ngff_image_0.dims,
-            scale=level_scale,
-            translation=level_translation,
-            name=ngff_image_0.name,
-            axes_units=ngff_image_0.axes_units,
-            channel_names=ngff_image_0.channel_names,
-            channel_colors=ome_channel_colors,
+        level_datas.append(level_data)
+
+    return _pyramid_multiscales(ngff_image_0, level_datas)
+
+
+def _pyramid_multiscales(base: NgffImage, level_datas: list) -> "NgffMultiscales":
+    """Assemble a reused pyramid from its base image and lower-level arrays.
+
+    Each level's scale and translation are derived from ``base`` and the
+    level's shape, so a caller that changes ``base`` (e.g. CLI metadata
+    overrides) can rebuild consistent levels and metadata. ``level_datas`` are
+    in ``base``'s axis order; everything is normalized to the spec order
+    (t, c, z, y, x) so the metadata orders time, then channel, then space.
+    """
+    from dataclasses import replace
+
+    from .multiscales import NgffMultiscales
+    from .v04.zarr_metadata import Axis, Dataset, Metadata, Scale, Translation
+
+    base_image = _canonical_axis_order(base)
+    images = [base_image]
+    for level_data in level_datas:
+        level_image = _canonical_axis_order(
+            replace(base, data=level_data, computed_callbacks=[])
         )
-        images.append(_canonical_axis_order(level_image))
+        level_image.scale = dict(base_image.scale)
+        level_image.translation = dict(base_image.translation)
+        for index, dim in enumerate(level_image.dims):
+            if dim in _SPATIAL_DIMS:
+                factor = base_image.data.shape[index] / level_image.data.shape[index]
+                base_scale = base_image.scale.get(dim, 1.0)
+                level_image.scale[dim] = base_scale * factor
+                level_image.translation[dim] = (
+                    base_image.translation.get(dim, 0.0)
+                    + 0.5 * (factor - 1) * base_scale
+                )
+        images.append(level_image)
 
     # Build Metadata (axes, datasets, coordinate transforms)
     axes = []
-    for dim in images[0].dims:
+    for dim in base_image.dims:
         unit = None
-        if ngff_image_0.axes_units and dim in ngff_image_0.axes_units:
-            unit = ngff_image_0.axes_units[dim]
+        if base_image.axes_units and dim in base_image.axes_units:
+            unit = base_image.axes_units[dim]
 
         orientation = None
-        if ngff_image_0.axes_orientations and dim in ngff_image_0.axes_orientations:
-            orientation = ngff_image_0.axes_orientations[dim]
+        if base_image.axes_orientations and dim in base_image.axes_orientations:
+            orientation = base_image.axes_orientations[dim]
 
         if dim in {"x", "y", "z"}:
             axes.append(
@@ -1129,7 +1129,7 @@ def _build_multiscales_from_pyramid(
 
     datasets = []
     for index, image in enumerate(images):
-        path = f"scale{index}/{ngff_image_0.name}"
+        path = f"scale{index}/{base_image.name}"
         scale_values = [image.scale.get(d, 1.0) for d in image.dims]
         trans_values = [image.translation.get(d, 0.0) for d in image.dims]
         coord_transforms = [Scale(scale_values), Translation(trans_values)]
@@ -1138,7 +1138,7 @@ def _build_multiscales_from_pyramid(
     metadata = Metadata(
         axes=axes,
         datasets=datasets,
-        name=ngff_image_0.name,
+        name=base_image.name,
         coordinateTransformations=None,
     )
 
