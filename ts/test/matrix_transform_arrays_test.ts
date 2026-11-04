@@ -40,6 +40,7 @@ import {
   toMultiscales,
   toNgffImage,
 } from "../src/process/to_multiscales-node.ts";
+import { isPathBelowRoot } from "../src/utils/store_below.ts";
 import {
   externalizeMatrixTransforms,
   resolveMatrixTransforms,
@@ -539,7 +540,26 @@ test("a matrix array that is not 2D is refused on read", async () => {
   );
 });
 
-for (const path of ["../outside/r", "/outside/r", "params/./r"]) {
+for (const path of [
+  "../outside/r",
+  "/outside/r",
+  "params/./r",
+  "%2e%2e/outside/r",
+  "%2e%2e%2foutside/r",
+  "..\\outside\\r",
+  "C:/outside/r",
+  "file:/outside/r",
+  "fi\nle:/outside/r",
+  " /outside/r",
+  "%09..%2foutside/r",
+  "%252e%252e/outside/r",
+  "C|/outside/r",
+  "params?/r",
+  "params#/r",
+  "params/r ",
+  "a%20b/r",
+  "a\ud800/r",
+]) {
   test(`a matrix path outside the group is refused on read: ${path}`, async () => {
     // A crafted path cannot read an array beside the multiscales group.
     const store: MemoryStore = new Map();
@@ -636,6 +656,33 @@ test("an in-place upgrade moves inline matrices into arrays", async () => {
   assertEquals(bits(readRotation.rotation), bits(ROTATION));
 });
 
+test("an accepted matrix path is one zarrita reads as written", () => {
+  // The refusals above model what the URL parser inside zarrita rewrites;
+  // what passes must come out of it unchanged, as a node and as a base.
+  for (const path of [
+    "r",
+    "a b/r",
+    "µm/r",
+    "日本/r",
+    "😀/r",
+    "tile_0/scale0/image",
+    "a.b-c_d",
+    "a+b=c,d;e",
+    "a@b&c'd",
+    "a(b)!c~d*e$f",
+    "a[b]{c}",
+    'a"b<c>d`e',
+    "x/a|b",
+    "x/a:b",
+    "coordinateTransformations/affine_1",
+  ]) {
+    assertEquals(isPathBelowRoot(path), true, path);
+    const node = zarr.root().resolve("image").resolve(path);
+    assertEquals(node.path, `/image/${path}`);
+    assertEquals(node.resolve("x").path, `/image/${path}/x`);
+  }
+});
+
 test("an in-place upgrade refuses an occupied matrix path", async () => {
   // An unrelated array at the generated path is neither replaced nor lost.
   const inline = createAffine(AFFINE);
@@ -692,7 +739,7 @@ test("a matrix path overlapping a dataset is refused", async () => {
     await assertRejects(
       () => toOmeZarr(store, multiscales, { version: "0.6" }),
       Error,
-      `overlaps the dataset array '${dataset}'`,
+      `overlaps '${dataset}'`,
     );
     assertEquals(store.size, 0);
   }

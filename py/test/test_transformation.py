@@ -3,6 +3,7 @@
 """A transformation on its own, read and written with kind="transformation"."""
 
 import json
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -41,18 +42,41 @@ def test_transformation_round_trip(tmp_path):
     store = tmp_path / "affine.ome.zarr"
     to_ome_zarr(store, _affine())
 
-    ome = _root_ome(store)
+    document = json.loads((store / "zarr.json").read_text())
+    ome = document["attributes"]["ome"]
     assert ome["version"] == "0.6"
+    # The matrix goes to an array below the store, as an image's does; the
+    # name is not a Zarr node name, so the type names the array.
+    path = "coordinateTransformations/affine"
     assert ome["coordinateTransformations"] == [
         {
             "type": "affine",
-            "affine": [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
+            "path": path,
             "input": {"name": "ji"},
             "output": {"name": "yx"},
             "name": "ji to yx",
         }
     ]
-    assert from_ome_zarr(store, kind="transformation") == _affine()
+    assert path in document["consolidated_metadata"]["metadata"]
+    assert json.loads((store / path / "zarr.json").read_text())["shape"] == [2, 3]
+    read = from_ome_zarr(store, kind="transformation")
+    assert read == replace(_affine(), path=path)
+    assert all(type(value) is float for row in read.affine for value in row)
+
+    # A rewrite of what was read keeps the matrix at the path it was read from,
+    # over the array the store already names.
+    to_ome_zarr(store, read, overwrite=False)
+    assert from_ome_zarr(store, kind="transformation") == read
+
+
+def test_overwrite_false_refuses_an_occupied_matrix_path(tmp_path):
+    store = tmp_path / "affine.ome.zarr"
+    occupied = store / "coordinateTransformations" / "affine"
+    image = to_multiscales(np.zeros((8, 8), dtype=np.uint8), scale_factors=[])
+    to_ome_zarr(occupied, image, version="0.6")
+    with pytest.raises(ValueError, match="Cannot write the matrix array"):
+        to_ome_zarr(store, _affine(), overwrite=False)
+    assert from_ome_zarr(occupied).images[0].data.shape == (8, 8)
 
 
 def test_nested_transformation_round_trips(tmp_path):

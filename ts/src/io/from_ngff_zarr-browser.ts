@@ -158,6 +158,7 @@ export async function fromOmeZarr(
       }
       return await readScene(
         typeof store === "string" ? store : resolvedStore,
+        resolvedStore,
         rootAttrsForVersion,
         fromOmeZarr,
         options,
@@ -169,7 +170,11 @@ export async function fromOmeZarr(
           `'${store}' holds a transformation; read it with fromOmeZarr(store, { kind: "transformation" }).`,
         );
       }
-      return readTransformation(rootAttrsForVersion, options);
+      return await readTransformation(
+        resolvedStore,
+        rootAttrsForVersion,
+        options,
+      );
     }
     if (options.kind === "scene") {
       throw new Error(

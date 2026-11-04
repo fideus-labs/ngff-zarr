@@ -4,8 +4,9 @@
 
 RFC-5 lets a ``rotation`` or ``affine`` carry its matrix inline in the JSON
 metadata or in a 2D Zarr array the transform names by ``path``, relative to the
-multiscales group; the schema accepts one or the other, never both. The writer
-always takes the array form. A JSON number is decimal text, kept only to the
+group that declares the transform: a multiscales, a scene or a transformation
+store; the schema accepts one or the other, never both. The writers always
+take the array form. A JSON number is decimal text, kept only to the
 precision of every tool that parses and re-serializes the document, while a
 float64 array holds each entry bit for bit.
 
@@ -76,9 +77,30 @@ def _is_node_name(name) -> bool:
     )
 
 
+def is_path_below_root(path: object) -> bool:
+    """Whether ``path`` is a plain path below a store's root.
+
+    ``/``-separated segments, none empty, ``.`` or ``..``, that a store reads
+    as written. The TypeScript reader resolves a path through the URL parser,
+    once to reach the node and again at every node below it, so a path that
+    parser rewrites, cuts or drops could name another node: a backslash (read
+    as ``/``), a ``%`` (decoded, or refused when malformed), a ``?`` or ``#``
+    (cut with what follows), a control character or a leading or trailing
+    space (dropped), an unpaired surrogate (replaced with U+FFFD), or a scheme
+    or drive prefix such as ``file:``, ``C:`` or ``C|`` (which replaces the
+    root). None is allowed, so both ports accept the same documents.
+    """
+    return (
+        isinstance(path, str)
+        and not re.search(r"[\\%?#\x00-\x1f\x7f-\x9f\ud800-\udfff]|^ | $", path)
+        and not re.match(r"[A-Za-z](?:[A-Za-z0-9+.-]*:|\|)", path)
+        and not any(segment in ("", ".", "..") for segment in path.split("/"))
+    )
+
+
 def _checked_path(path: str, transform: dict) -> str:
     """``path``, refused when it could resolve outside the multiscales group."""
-    if path.startswith("/") or any(part in ("", ".", "..") for part in path.split("/")):
+    if not is_path_below_root(path):
         raise ValueError(
             f"{_describe(transform)} names the array path {path!r}; a matrix "
             "array sits at a relative path inside the multiscales group, with "
@@ -98,6 +120,13 @@ def _is_claimed(path: str, claimed: set[str]) -> bool:
 def _generated_path(transform: dict, claimed: set[str]) -> str:
     name = transform.get("name")
     base = name if _is_node_name(name) else transform["type"]
+    if MATRIX_ARRAY_GROUP in claimed:
+        # Every path below the group would count as taken, and the search
+        # below would never end.
+        raise ValueError(
+            f"Matrix arrays are stored below {MATRIX_ARRAY_GROUP!r}, but "
+            f"{MATRIX_ARRAY_GROUP!r} already holds that path."
+        )
     path = f"{MATRIX_ARRAY_GROUP}/{base}"
     suffix = 0
     while _is_claimed(path, claimed):
@@ -163,8 +192,8 @@ def externalize_matrix_transforms(
         if overlapped:
             raise ValueError(
                 f"{_describe(transform)} names the array path {path!r}, which "
-                f"overlaps the dataset array {overlapped[0]!r} of the same "
-                "multiscales"
+                f"overlaps {overlapped[0]!r}, reserved for a dataset, image or "
+                "field of the same store"
             )
         claimed.add(path)
     arrays: dict[str, np.ndarray] = {}
@@ -194,12 +223,27 @@ def externalize_matrix_transforms(
 
 
 def stored_matrix_paths(root_attrs: dict | None) -> set[str]:
-    """The matrix array paths a stored root document's multiscales names."""
+    """The matrix array paths a stored root document names.
+
+    Those of its multiscales, else of its scene, else of the transformation
+    it holds on its own.
+    """
     ome = (root_attrs or {}).get("ome")
-    multiscales = ome.get("multiscales") if isinstance(ome, dict) else None
-    if not multiscales or not isinstance(multiscales[0], dict):
+    if not isinstance(ome, dict):
         return set()
-    return named_matrix_paths(multiscales[0].get("coordinateTransformations"))
+    multiscales = ome.get("multiscales")
+    scene = ome.get("scene")
+    if isinstance(multiscales, list) and multiscales:
+        transforms = (
+            multiscales[0].get("coordinateTransformations")
+            if isinstance(multiscales[0], dict)
+            else None
+        )
+    elif isinstance(scene, dict):
+        transforms = scene.get("coordinateTransformations")
+    else:
+        transforms = ome.get("coordinateTransformations")
+    return named_matrix_paths(transforms)
 
 
 def check_matrix_destinations(

@@ -6,8 +6,11 @@
  * A scene is the Zarr group above a set of multiscale images. Its `ome.scene`
  * metadata declares the coordinate transformations between the images'
  * coordinate systems and, optionally, coordinate systems of its own, such as
- * a common world system the images map into. Mirrors the Python port's
- * `ngff_zarr.scene`. The layout is specified at
+ * a common world system the images map into. Transformation parameters
+ * stored as arrays, displacement fields and the rotation and affine matrices
+ * the writer moves out of the JSON document, live in a
+ * `coordinateTransformations` subgroup beside the images. Mirrors the Python
+ * port's `ngff_zarr.scene`. The layout is specified at
  * https://ngff.openmicroscopy.org/0.6/#scene-md.
  *
  * This module has no Node.js dependency: the Node and browser readers both
@@ -42,7 +45,16 @@ import {
   type ConsolidatableStore,
   consolidatedNodePaths,
   consolidateMetadata,
+  datasetNodePaths,
 } from "../utils/consolidate_metadata.ts";
+import {
+  checkMatrixDestinations,
+  externalizeMatrixTransforms,
+  type MatrixArrays,
+  namedMatrixPaths,
+  resolveMatrixTransforms,
+  writeMatrixArrays,
+} from "../utils/matrix_transform_arrays.ts";
 import { type ChunksPerShard, ensureRangeReads } from "../utils/sharding.ts";
 import {
   ensureAncestorGroups,
@@ -126,8 +138,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * Reject an image path that is not a plain path below the scene group.
  *
- * The path is joined to the store, so a backslash counts as a separator
- * (Windows does) and a percent-encoded part is read as a URL store does.
+ * The path is joined to the store; see {@link isPathBelowRoot} for the
+ * characters a store does not read as written.
  */
 export function checkImagePath(path: unknown): asserts path is string {
   if (!isPathBelowRoot(path)) {
@@ -154,12 +166,23 @@ function imageSystems(multiscales: NgffMultiscales): CoordinateSystem[] {
       ];
 }
 
-/** The paths of the arrays and field groups the transformations reference. */
-export function fieldPaths(transforms: V06Transform[]): Set<string> {
+/**
+ * The paths of the arrays and field groups the transformations reference.
+ * Without `matrices`, the paths of the rotation and affine matrices are left
+ * out: the writer stores those arrays itself.
+ */
+export function fieldPaths(
+  transforms: V06Transform[],
+  matrices: boolean = true,
+): Set<string> {
   const paths = new Set<string>();
   for (const transform of transforms) {
     const path = (transform as { path?: unknown }).path;
-    if (typeof path === "string") {
+    if (
+      typeof path === "string" &&
+      (matrices ||
+        (transform.type !== "rotation" && transform.type !== "affine"))
+    ) {
       paths.add(path);
     }
     const nested: V06Transform[] = [];
@@ -173,11 +196,57 @@ export function fieldPaths(transforms: V06Transform[]): Set<string> {
     if (transform.type === "bijection") {
       nested.push(transform.forward, transform.inverse);
     }
-    for (const path of fieldPaths(nested)) {
+    for (const path of fieldPaths(nested, matrices)) {
       paths.add(path);
     }
   }
   return paths;
+}
+
+/**
+ * Move the matrices in `serialized`, the written `transforms`, into arrays.
+ *
+ * Returns the matrices to write, keyed by path below the group as
+ * {@link externalizeMatrixTransforms} assigns them, and the sorted paths of
+ * the stored nodes the transformations reference and the writer does not
+ * produce: the fields, and a matrix array a transform names without holding
+ * its values. `reserved` holds the paths the write uses for other nodes, the
+ * images; no matrix may land on one of those or on a field.
+ */
+export function externalizeMatrices(
+  transforms: V06Transform[],
+  serialized: unknown,
+  reserved: Iterable<string> = [],
+): { matrixArrays: MatrixArrays; fields: string[] } {
+  const matrixArrays = externalizeMatrixTransforms(serialized, [
+    ...reserved,
+    ...fieldPaths(transforms, false),
+  ]);
+  const fields = [...fieldPaths(transforms)]
+    .filter((path) => !matrixArrays.has(path))
+    .sort();
+  return { matrixArrays, fields };
+}
+
+/**
+ * `document`, an `ome.scene` object or a transformation document, with each
+ * rotation and affine matrix stored in an array below `store`, the group the
+ * document was read from, loaded inline; see {@link resolveMatrixTransforms}.
+ */
+export async function resolveMatrices(
+  document: Record<string, unknown>,
+  store: zarr.Readable,
+): Promise<Record<string, unknown>> {
+  const raw = Array.isArray(document.coordinateTransformations)
+    ? document.coordinateTransformations.filter(isRecord)
+    : [];
+  return {
+    ...document,
+    coordinateTransformations: await resolveMatrixTransforms(
+      raw,
+      zarr.root(store),
+    ),
+  };
 }
 
 type Node = ["scene" | "image", string];
@@ -431,12 +500,15 @@ export function childStore(
 /**
  * Read the scene `rootAttrs` declares, with the images it references;
  * `fromOmeZarr` calls this. `store` is the path, URL, or store object the
- * caller passed, below which `readImage` reads each referenced image.
- * `validate` validates each image and runs the spec checks of
- * {@link checkScene} on the result.
+ * caller passed, below which `readImage` reads each referenced image;
+ * `resolved` the store object `rootAttrs` was read from, the opened form of
+ * `store`, from which the matrices stored in arrays are read. `validate`
+ * validates each image and runs the spec checks of {@link checkScene} on the
+ * result.
  */
 export async function readScene(
   store: string | zarr.Readable,
+  resolved: zarr.Readable,
   rootAttrs: Record<string, unknown>,
   readImage: ImageReader,
   options: ReadSceneOptions = {},
@@ -452,7 +524,7 @@ export async function readScene(
   }
   const version = readVersion(rootAttrs, options);
   const { coordinateTransformations, coordinateSystems } = sceneFromOmeValue(
-    document,
+    await resolveMatrices(document, resolved),
     version,
   );
   const images: Record<string, NgffMultiscales> = {};
@@ -518,12 +590,15 @@ export function hasSceneMetadata(rootAttrs: Record<string, unknown>): boolean {
  * written below its path, at `options.version`, by the calling writer's
  * arrays (`arrayWriter`, given the codecs and sharding of `options`). The
  * scene is checked against the spec first ({@link checkScene}); nothing is
- * written when it fails. A transformation that references an array or a
- * field group by `path`, such as a `displacements` field, needs that node
- * written first, below the scene's store, and the scene written with
- * `overwrite: false`, which also keeps the root group's other attributes.
- * The consolidated block at the root lists every node the scene wrote: each
- * image's datasets and matrix arrays, and the groups above them.
+ * written when it fails. Each rotation and affine matrix goes to a float64
+ * array below the scene group, at `coordinateTransformations/<name>` unless
+ * the transform names a `path` ({@link externalizeMatrixTransforms}). A
+ * transformation that references an array or a field group by `path`, such
+ * as a `displacements` field, needs that node written first, below the
+ * scene's store, and the scene written with `overwrite: false`, which also
+ * keeps the root group's other attributes. The consolidated block at the
+ * root lists every node the scene wrote: the scene's and each image's matrix
+ * arrays, each image's datasets, and the groups above them.
  */
 export async function writeSceneToStore(
   store: zarr.Mutable,
@@ -538,12 +613,18 @@ export async function writeSceneToStore(
     );
   }
   checkScene(scene, version);
-
-  // An array-backed transformation points at a node of the store, which the
-  // scene writer does not produce: it has to be there already, so it is
-  // written first and the scene keeps it.
-  const fields = [...fieldPaths(scene.coordinateTransformations)].sort();
-  for (const path of fields) {
+  const document = sceneToOmeValue(scene);
+  // The matrices go to arrays below the scene group, as an image's do; the
+  // images and the fields claim their paths first.
+  const { matrixArrays, fields } = externalizeMatrices(
+    scene.coordinateTransformations,
+    document.coordinateTransformations,
+    Object.keys(scene.images),
+  );
+  // A field transformation points at a node of the store, which the scene
+  // writer does not produce: it has to be there already, so it is written
+  // first and the scene keeps it.
+  for (const path of [...fields, ...matrixArrays.keys()]) {
     checkImagePath(path);
   }
   if (fields.length > 0 && (options.overwrite ?? true)) {
@@ -576,12 +657,30 @@ export async function writeSceneToStore(
       // not be replaced.
       if (!zarr.isZarritaError(error, "NotFoundError")) throw error;
     }
+    // The store keeps what it holds: a matrix may only replace an array the
+    // current root already names as one.
+    const ome = attributes.ome;
+    await checkMatrixDestinations(
+      root,
+      matrixArrays.keys(),
+      namedMatrixPaths(
+        isRecord(ome) && isRecord(ome.scene)
+          ? ome.scene.coordinateTransformations
+          : undefined,
+      ),
+    );
   }
   const ondisk = version === "0.6" ? V06_ONDISK_VERSION : version;
-  attributes.ome = { version: ondisk, scene: sceneToOmeValue(scene) };
+  attributes.ome = { version: ondisk, scene: document };
+  // The arrays land before the root names them, so a failed write leaves a
+  // kept store readable.
+  await writeMatrixArrays(root, matrixArrays);
   await zarr.create(root, { attributes });
 
-  const nodePaths = new Set<string>(await storedNodePaths(store, root, fields));
+  const nodePaths = new Set<string>([
+    ...(await storedNodePaths(store, root, fields)),
+    ...datasetNodePaths([...matrixArrays.keys()]),
+  ]);
   const ensureAncestors = async (path: string): Promise<void> => {
     for (const ancestor of await ensureAncestorGroups(root, path)) {
       nodePaths.add(ancestor);
@@ -685,7 +784,10 @@ export function refuseStoredNodes(
   transforms: V06Transform[],
   what: "scene" | "transformation",
 ): void {
-  const fields = [...fieldPaths(transforms)].sort();
+  const { fields } = externalizeMatrices(
+    transforms,
+    transforms.map(serializeV06Transform),
+  );
   if (fields.length > 0) {
     throw new Error(
       `An .ozx archive is written in one piece, so a ${what} whose ` +

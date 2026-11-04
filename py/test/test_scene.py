@@ -3,6 +3,7 @@
 """Scenes: images that share a spatial relationship (OME-Zarr 0.6, GH #563)."""
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +24,7 @@ from ngff_zarr._zarrista_utils import create_zarrista_group
 from ngff_zarr.rfc9_zip import write_store_to_zip
 from ngff_zarr.scene import _scene_from_dict
 from ngff_zarr.v06.zarr_metadata import (
+    Affine,
     Axis,
     Bijection,
     Displacements,
@@ -115,6 +117,45 @@ def test_scene_round_trip(tmp_path):
     assert read.coordinateTransformations == scene.coordinateTransformations
 
 
+def test_scene_matrices_are_stored_in_arrays(tmp_path):
+    _, scene = _tiles_scene()
+    matrix = [[1.0, 0.0, 0.1], [0.0, 1.0, 8.2]]
+    scene.coordinateTransformations[1] = Affine(
+        affine=matrix,
+        input=CoordinateSystemIdentifier(path="tile_1", name="intrinsic"),
+        output=CoordinateSystemIdentifier(name="world"),
+        name="tile_1",
+    )
+    store = tmp_path / "tiles.ome.zarr"
+    to_ome_zarr(store, scene)
+
+    document = _root_document(store)
+    scene_document = document["attributes"]["ome"]["scene"]
+    path = "coordinateTransformations/tile_1"
+    assert scene_document["coordinateTransformations"][1] == {
+        "type": "affine",
+        "path": path,
+        "name": "tile_1",
+        "input": {"path": "tile_1", "name": "intrinsic"},
+        "output": {"name": "world"},
+    }
+    assert path in document["consolidated_metadata"]["metadata"]
+    validate_ngff(document["attributes"], version="0.6", model="scene")
+
+    read = NgffScene.from_ome_zarr(store, validate=True)
+    affine = read.coordinateTransformations[1]
+    assert affine == replace(scene.coordinateTransformations[1], path=path)
+    assert np.asarray(affine.affine).tobytes() == np.asarray(matrix).tobytes()
+
+    # A rewrite of what was read keeps the matrix at the path it was read from,
+    # and writes it again over the array a store already names there.
+    copy_store = tmp_path / "copy.ome.zarr"
+    to_ome_zarr(copy_store, read)
+    to_ome_zarr(copy_store, read, overwrite=False)
+    assert _root_document(copy_store)["attributes"]["ome"]["scene"] == scene_document
+    assert NgffScene.from_ome_zarr(copy_store).coordinateTransformations[1] == affine
+
+
 @pytest.mark.skipif(
     packaging.version.parse(zarr.__version__).major < 3,
     reason="Zarr v3 stores need zarr-python >= 3",
@@ -135,6 +176,12 @@ def test_nested_image_paths_open_with_zarr_python(tmp_path):
 
 def test_scene_in_ozx_archive_reads(tmp_path):
     pixels, scene = _tiles_scene()
+    matrix = [[1.0, 0.0, 0.0], [0.0, 1.0, 8.0]]
+    scene.coordinateTransformations[1] = Affine(
+        affine=matrix,
+        input=CoordinateSystemIdentifier(path="tile_1", name="intrinsic"),
+        output=CoordinateSystemIdentifier(name="world"),
+    )
     store = tmp_path / "tiles.ome.zarr"
     to_ome_zarr(store, scene)
     archive = tmp_path / "tiles.ozx"
@@ -147,6 +194,8 @@ def test_scene_in_ozx_archive_reads(tmp_path):
         read.images["tile_1"].images[0].data, pixels["tile_1"]
     )
     assert read.coordinateTransformations[1].input.path == "tile_1"
+    # The matrix array is read from the archive too.
+    assert read.coordinateTransformations[1].affine == matrix
 
 
 def test_overwrite_false_keeps_root_attributes(tmp_path):
@@ -257,6 +306,15 @@ def test_scene_with_a_displacement_field_between_two_images(tmp_path):
         output=CoordinateSystemIdentifier(path="tile_1", name="intrinsic"),
     )
     scene.coordinateTransformations.append(warp)
+    # A matrix named like the field gets the next free path below the group.
+    scene.coordinateTransformations.append(
+        Affine(
+            affine=[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            input=CoordinateSystemIdentifier(path="tile_0", name="intrinsic"),
+            output=CoordinateSystemIdentifier(name="world"),
+            name="dfield",
+        )
+    )
     store = tmp_path / "registered.ome.zarr"
 
     with pytest.raises(ValueError, match="write those first"):
@@ -274,6 +332,8 @@ def test_scene_with_a_displacement_field_between_two_images(tmp_path):
 
     read = from_ome_zarr(store, kind="scene", validate=True)
     assert read.coordinateTransformations[2] == warp
+    assert read.coordinateTransformations[3].path == f"{field_path}_1"
+    assert f"{field_path}_1" in consolidated
     field = from_ome_zarr(store / read.coordinateTransformations[2].path)
     assert [axis.type for axis in field.metadata.coordinateSystems[0].axes] == [
         "displacement",
@@ -286,6 +346,33 @@ def test_write_refuses_paths_outside_the_scene(tmp_path):
     _, scene = _tiles_scene(("../tile_0", "tile_1"))
     with pytest.raises(ValueError, match="relative path below the scene group"):
         to_ome_zarr(tmp_path / "tiles.ome.zarr", scene)
+
+
+def test_write_refuses_a_matrix_path_that_overlaps_an_image(tmp_path):
+    _, scene = _tiles_scene()
+    scene.coordinateTransformations[1] = Affine(
+        affine=[[1.0, 0.0, 0.0], [0.0, 1.0, 8.0]],
+        path="tile_1",
+        input=CoordinateSystemIdentifier(path="tile_1", name="intrinsic"),
+        output=CoordinateSystemIdentifier(name="world"),
+    )
+    store = tmp_path / "tiles.ome.zarr"
+    with pytest.raises(ValueError, match="overlaps 'tile_1'"):
+        to_ome_zarr(store, scene)
+    assert not store.exists()
+
+    # An image holding the matrix group leaves no free path for a matrix.
+    _, scene = _tiles_scene(("tile_0", "coordinateTransformations"))
+    scene.coordinateTransformations[1] = Affine(
+        affine=[[1.0, 0.0, 0.0], [0.0, 1.0, 8.0]],
+        input=CoordinateSystemIdentifier(
+            path="coordinateTransformations", name="intrinsic"
+        ),
+        output=CoordinateSystemIdentifier(name="world"),
+    )
+    with pytest.raises(ValueError, match="already holds that path"):
+        to_ome_zarr(store, scene)
+    assert not store.exists()
 
 
 def test_write_refuses_versions_before_0_6(tmp_path):
@@ -315,7 +402,15 @@ def test_read_validates_references_against_the_store(tmp_path):
 
 @pytest.mark.parametrize(
     "path",
-    ["../tile_0", "..\\tile_0", "%2e%2e/tile_0", "/tile_0", "C:/tile_0", "C:tile_0"],
+    [
+        "../tile_0",
+        "..\\tile_0",
+        "%2e%2e/tile_0",
+        "%2e%2e%2ftile_0",
+        "/tile_0",
+        "C:/tile_0",
+        "C:tile_0",
+    ],
 )
 def test_read_refuses_image_paths_outside_the_scene(tmp_path, path):
     _, scene = _tiles_scene()

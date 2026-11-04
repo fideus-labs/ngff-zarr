@@ -10,23 +10,34 @@
  * a group whose `ome` metadata is such a document with one transformation.
  * Parameters that live in arrays, such as a `displacements` field, are nodes
  * below the store, written first, that the transformation references by
- * `path`. No Node.js dependency: both writers and both readers use it.
+ * `path`; a rotation or affine matrix the writer stores there itself. No
+ * Node.js dependency: both writers and both readers use it.
  */
 import * as zarr from "zarrita";
 import { NgffMultiscales } from "../types/multiscales.ts";
 import { NgffScene } from "../types/scene.ts";
 import { V06_ONDISK_VERSION } from "../types/supported_versions.ts";
 import type { V06Transform } from "../types/zarr_metadata.ts";
-import { consolidateMetadata } from "../utils/consolidate_metadata.ts";
+import {
+  consolidateMetadata,
+  datasetNodePaths,
+} from "../utils/consolidate_metadata.ts";
+import {
+  checkMatrixDestinations,
+  namedMatrixPaths,
+  writeMatrixArrays,
+} from "../utils/matrix_transform_arrays.ts";
 import {
   serializeV06Transform,
   validateV06Transform,
 } from "../utils/v06_metadata.ts";
 import {
   checkImagePath,
+  externalizeMatrices,
   fieldPaths,
   readVersion,
   refuseStoredNodes,
+  resolveMatrices,
   SCENE_VERSIONS,
   sceneFromOmeValue,
   storedNodePaths,
@@ -81,7 +92,9 @@ export interface WriteTransformationOptions {
 /**
  * Write `transform` as the only transformation of `store`; `toOmeZarr`
  * calls this. The transformation lands in the root group's
- * `ome.coordinateTransformations`.
+ * `ome.coordinateTransformations`, and a rotation or affine matrix in a
+ * float64 array below the store, at `coordinateTransformations/<name>`
+ * unless the transform names a `path`.
  */
 export async function writeTransformation(
   store: zarr.Mutable,
@@ -96,8 +109,9 @@ export async function writeTransformation(
     );
   }
   validateV06Transform(transform, [], version);
-  const fields = [...fieldPaths([transform])].sort();
-  for (const path of fields) {
+  const serialized = [serializeV06Transform(transform)];
+  const { matrixArrays, fields } = externalizeMatrices([transform], serialized);
+  for (const path of [...fields, ...matrixArrays.keys()]) {
     checkImagePath(path);
   }
   if (fields.length > 0 && (options.overwrite ?? true)) {
@@ -128,13 +142,29 @@ export async function writeTransformation(
       // not be replaced.
       if (!zarr.isZarritaError(error, "NotFoundError")) throw error;
     }
+    // The store keeps what it holds: a matrix may only replace an array the
+    // current root already names as one.
+    const ome = attributes.ome;
+    await checkMatrixDestinations(
+      root,
+      matrixArrays.keys(),
+      namedMatrixPaths(
+        isRecord(ome) ? ome.coordinateTransformations : undefined,
+      ),
+    );
   }
   attributes.ome = {
     version: version === "0.6" ? V06_ONDISK_VERSION : version,
-    coordinateTransformations: [serializeV06Transform(transform)],
+    coordinateTransformations: serialized,
   };
+  // The arrays land before the root names them, so a failed write leaves a
+  // kept store readable.
+  await writeMatrixArrays(root, matrixArrays);
   await zarr.create(root, { attributes });
-  const nodePaths = new Set(await storedNodePaths(store, root, fields));
+  const nodePaths = new Set([
+    ...(await storedNodePaths(store, root, fields)),
+    ...datasetNodePaths([...matrixArrays.keys()]),
+  ]);
   if (options.consolidateMetadata ?? true) {
     await consolidateMetadata(store, [...nodePaths].sort());
   }
@@ -168,14 +198,19 @@ export async function transformationToOzx(
   return memoryStoreToZip(store, { version });
 }
 
-/** The transformation `rootAttrs` declares; `fromOmeZarr` calls this. */
-export function readTransformation(
+/**
+ * The transformation `rootAttrs` declares; `fromOmeZarr` calls this. `store`
+ * is the store object the document was read from; a matrix stored in an
+ * array below it is loaded inline.
+ */
+export async function readTransformation(
+  store: zarr.Readable,
   rootAttrs: Record<string, unknown>,
   options: { validate?: boolean; version?: string } = {},
-): V06Transform {
+): Promise<V06Transform> {
   const version = readVersion(rootAttrs, options);
   const { coordinateTransformations } = sceneFromOmeValue(
-    rootAttrs.ome as Record<string, unknown>,
+    await resolveMatrices(rootAttrs.ome as Record<string, unknown>, store),
     version,
   );
   if (coordinateTransformations.length !== 1) {

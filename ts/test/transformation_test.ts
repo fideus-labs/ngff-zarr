@@ -49,6 +49,17 @@ function affine(): Affine {
   };
 }
 
+/**
+ * Where `affine()` stores its matrix: an array below the store, as an
+ * image's is; the name is not a Zarr node name, so the type names the array.
+ */
+const MATRIX_PATH = "coordinateTransformations/affine";
+
+/** `affine()` as it reads back, its matrix loaded from the array it names. */
+function stored(): Affine {
+  return { ...affine(), path: MATRIX_PATH };
+}
+
 async function rootOme(store: string): Promise<Record<string, unknown>> {
   const document = JSON.parse(await readTextFile(`${store}/zarr.json`));
   return (document.attributes as Record<string, unknown>).ome as Record<
@@ -72,7 +83,8 @@ test("transformation round trip", async () => {
   await withTempDir(async (dir) => {
     const store = `${dir}/affine.ome.zarr`;
     await toOmeZarr(store, affine());
-    const ome = await rootOme(store);
+    const document = JSON.parse(await readTextFile(`${store}/zarr.json`));
+    const ome = document.attributes.ome;
     assertEquals(ome.version, "0.6");
     assertEquals(ome.coordinateTransformations, [
       {
@@ -80,22 +92,27 @@ test("transformation round trip", async () => {
         name: "ji to yx",
         input: { name: "ji" },
         output: { name: "yx" },
-        affine: [
-          [1, 2, 3],
-          [4, 5, 6],
-        ],
+        path: MATRIX_PATH,
       },
     ]);
+    assertEquals(MATRIX_PATH in document.consolidated_metadata.metadata, true);
     assertEquals(
       await fromOmeZarr(store, { kind: "transformation" }),
-      affine(),
+      stored(),
+    );
+    // A rewrite of what was read keeps the matrix at the path it was read
+    // from, over the array the store already names.
+    await toOmeZarr(store, stored(), { overwrite: false });
+    assertEquals(
+      await fromOmeZarr(store, { kind: "transformation" }),
+      stored(),
     );
 
     const memory: MemoryStore = new Map();
     await toOmeZarr(memory, affine());
     assertEquals(
       await fromOmeZarr(memory, { kind: "transformation" }),
-      affine(),
+      stored(),
     );
   });
 });
@@ -109,13 +126,37 @@ test("consolidateMetadata: false leaves a transformation unconsolidated", async 
     assertEquals("consolidated_metadata" in document, false);
     assertEquals(
       await fromOmeZarr(store, { kind: "transformation" }),
-      affine(),
+      stored(),
     );
 
     const memory: MemoryStore = new Map();
     await toOmeZarrBrowser(memory, affine(), { consolidateMetadata: false });
     const root = JSON.parse(new TextDecoder().decode(memory.get("/zarr.json")));
     assertEquals("consolidated_metadata" in root, false);
+  });
+});
+
+test("overwrite false refuses an occupied matrix path", async () => {
+  await withTempDir(async (dir) => {
+    const store = `${dir}/affine.ome.zarr`;
+    const occupied = `${store}/${MATRIX_PATH}`;
+    const image = await toNgffImage(new Uint8Array(8 * 8), {
+      dims: ["y", "x"],
+      shape: [8, 8],
+    });
+    await toOmeZarr(
+      occupied,
+      await toMultiscales(image, { scaleFactors: [] }),
+      {
+        version: "0.6",
+      },
+    );
+    await assertRejects(
+      () => toOmeZarr(store, affine(), { overwrite: false }),
+      Error,
+      "Cannot write the matrix array",
+    );
+    assertEquals((await fromOmeZarr(occupied)).images[0].data.shape, [8, 8]);
   });
 });
 
@@ -214,7 +255,7 @@ test("a transformation zips into an .ozx archive", async () => {
       for (const read of [fromOmeZarr, fromOmeZarrBrowser]) {
         assertEquals(
           await read(archive, { kind: "transformation", validate: true }),
-          affine(),
+          stored(),
         );
       }
     }
@@ -233,7 +274,7 @@ test("toOmeZarrOzx honors consolidateMetadata for a transformation", async () =>
     assertEquals("consolidated_metadata" in root, false);
     assertEquals(
       await fromOmeZarr(archive, { kind: "transformation" }),
-      affine(),
+      stored(),
     );
   }
 });

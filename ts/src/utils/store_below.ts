@@ -14,28 +14,23 @@
 import * as zarr from "zarrita";
 
 /**
- * Whether `path` is a plain path below a store's root: relative, with no
- * empty, `.` or `..` segment. A backslash counts as a separator (Windows
- * does) and a percent-encoded segment is read as a URL store does, split
- * again at the separators it decodes to, such as `%2f`, so a path joined to
- * a directory or a URL stays below it too.
+ * Whether `path` is a plain path below a store's root: `/`-separated
+ * segments, none empty, `.` or `..`, that a store reads as written. zarrita
+ * resolves a path through the URL parser, once to reach the node and again
+ * at every node below it, so a path that parser rewrites, cuts or drops
+ * could name another node: a backslash (read as `/`), a `%` (decoded, or
+ * refused when malformed), a `?` or `#` (cut with what follows), a control
+ * character or a leading or trailing space (dropped), an unpaired surrogate
+ * (replaced with U+FFFD), or a scheme or drive prefix such as `file:`, `C:`
+ * or `C|` (which replaces the root). None is allowed, and the Python port
+ * refuses the same, so both ports accept the same documents.
  */
 export function isPathBelowRoot(path: unknown): path is string {
-  const separators = /[\\/]/;
-  const decode = (part: string): string => {
-    try {
-      return decodeURIComponent(part);
-    } catch {
-      return part;
-    }
-  };
   return (
     typeof path === "string" &&
-    !path.split(separators).some((part) =>
-      decode(part)
-        .split(separators)
-        .some((segment) => ["", ".", ".."].includes(segment)),
-    )
+    !/[\\%?#\p{Cc}\p{Cs}]|^ | $/u.test(path) &&
+    !/^[A-Za-z](?:[A-Za-z0-9+.-]*:|\|)/.test(path) &&
+    !path.split("/").some((segment) => ["", ".", ".."].includes(segment))
   );
 }
 
