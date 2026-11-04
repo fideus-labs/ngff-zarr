@@ -546,6 +546,8 @@ for (const path of [
   "%2e%2e/outside/r",
   "%2e%2e%2foutside/r",
   "..\\outside\\r",
+  "C:/outside/r",
+  "file:/outside/r",
 ]) {
   test(`a matrix path outside the group is refused on read: ${path}`, async () => {
     // A crafted path cannot read an array beside the multiscales group.

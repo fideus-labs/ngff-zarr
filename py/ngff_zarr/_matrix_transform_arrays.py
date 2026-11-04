@@ -18,7 +18,6 @@ import copy
 import posixpath
 import re
 from collections.abc import Iterable, Iterator
-from pathlib import PureWindowsPath
 from urllib.parse import unquote
 
 import numpy as np
@@ -83,12 +82,13 @@ def is_path_below_root(path: object) -> bool:
     """Whether ``path`` is a plain path below a store's root.
 
     Relative, with no empty, ``.`` or ``..`` segment. A backslash counts as a
-    separator and a drive replaces the store (Windows does both), and a
-    percent-encoded part is read as a URL store does, split again at the
-    separators it decodes to, such as ``%2f``, so a path joined to a
-    directory or a URL stays below it too.
+    separator (Windows does), a scheme or drive prefix such as ``file:`` or
+    ``C:`` replaces the root (a URL resolves it so, as the TypeScript reader
+    does), and a percent-encoded part is read as a URL store does, split
+    again at the separators it decodes to, such as ``%2f``, so a path joined
+    to a directory or a URL stays below it too.
     """
-    if not isinstance(path, str) or PureWindowsPath(path).drive:
+    if not isinstance(path, str) or re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", path):
         return False
     return not any(
         segment in ("", ".", "..")

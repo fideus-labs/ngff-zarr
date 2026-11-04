@@ -581,6 +581,8 @@ for (const path of [
   "%2e%2e/tile_0",
   "%2e%2e%2ftile_0",
   "/tile_0",
+  "C:/tile_0",
+  "C:tile_0",
 ]) {
   test(`read refuses the image path ${path} outside the scene`, async () => {
     await withTempDir(async (dir) => {
