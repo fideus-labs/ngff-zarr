@@ -13,6 +13,25 @@ import pytest
 tifffile = pytest.importorskip("tifffile")
 
 
+def _convert(input_path, output_path, *args):
+    """Run the ngff-zarr CLI and return the written multiscales metadata."""
+    cmd = [
+        sys.executable,
+        "-c",
+        "from ngff_zarr.cli import main; main()",
+        "-i",
+        str(input_path),
+        "-o",
+        str(output_path),
+        *args,
+    ]
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=120)
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    zarr_json = json.loads((output_path / "zarr.json").read_text())
+    return zarr_json["attributes"]["ome"]["multiscales"][0]
+
+
 @pytest.mark.parametrize("axes", ["YX", "TYX"])
 def test_cli_overrides_apply_to_reused_tiff_pyramid(tmp_path, axes):
     lead = (2,) * (len(axes) - 2)
@@ -27,14 +46,9 @@ def test_cli_overrides_apply_to_reused_tiff_pyramid(tmp_path, axes):
         tif.write(np.zeros((*lead, 128, 128), np.uint8), tile=(128, 128), subfiletype=1)
     output_path = tmp_path / "out.ome.zarr"
 
-    cmd = [
-        sys.executable,
-        "-c",
-        "from ngff_zarr.cli import main; main()",
-        "-i",
-        str(input_path),
-        "-o",
-        str(output_path),
+    multiscales = _convert(
+        input_path,
+        output_path,
         "--scale",
         "x",
         "2.5",
@@ -52,13 +66,7 @@ def test_cli_overrides_apply_to_reused_tiff_pyramid(tmp_path, axes):
         "renamed",
         "--orientation",
         "LPS",
-    ]
-    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-    result = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=120)
-    assert result.returncode == 0, f"stderr: {result.stderr}"
-
-    zarr_json = json.loads((output_path / "zarr.json").read_text())
-    multiscales = zarr_json["attributes"]["ome"]["multiscales"][0]
+    )
     assert multiscales["name"] == "renamed"
     by_name = {axis["name"]: axis for axis in multiscales["axes"]}
     assert list(by_name) == [*("t" * len(lead)), "y", "x"]
@@ -76,3 +84,18 @@ def test_cli_overrides_apply_to_reused_tiff_pyramid(tmp_path, axes):
         [*translation, 0.0, 10.0],
         [*translation, 1.25, 11.25],
     ]
+
+
+def test_cli_dims_on_rgb_tiff_pyramid_labels_file_order(tmp_path):
+    """``--dims`` labels a pyramid's file axes, as for a single-level TIFF."""
+    rgb = np.zeros((256, 256, 3), np.uint8)
+    input_path = tmp_path / "rgb.ome.tiff"
+    with tifffile.TiffWriter(input_path, ome=True) as tif:
+        tif.write(rgb, photometric="rgb", tile=(128, 128), subifds=1)
+        tif.write(rgb[::2, ::2], photometric="rgb", tile=(128, 128), subfiletype=1)
+    output_path = tmp_path / "out.ome.zarr"
+
+    multiscales = _convert(input_path, output_path, "--dims", "y", "x", "c")
+    assert [axis["name"] for axis in multiscales["axes"]] == ["c", "y", "x"]
+    base_path = output_path / multiscales["datasets"][0]["path"] / "zarr.json"
+    assert json.loads(base_path.read_text())["shape"] == [3, 256, 256]

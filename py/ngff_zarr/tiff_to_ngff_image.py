@@ -1108,8 +1108,6 @@ def _pyramid_multiscales(base: NgffImage, level_datas: list) -> "NgffMultiscales
             axes.append(Axis(name=dim, type="channel", unit=unit))
         elif dim == "t":
             axes.append(Axis(name=dim, type="time", unit=unit))
-        else:
-            raise KeyError(f"Dimension identifier is not valid: {dim}")
 
     datasets = []
     for index, image in enumerate(images):

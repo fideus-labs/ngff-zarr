@@ -1042,7 +1042,9 @@ def _convert_main(argv: list[str] | None = None) -> None:
                 series_list = tiff_file_to_ngff_images(
                     args.input[0],
                     series=series_spec,
-                    reuse_existing_pyramids=True,
+                    # --dims labels axes in file order, but reused pyramid levels
+                    # are already in spec order, so relabeled input is re-pyramided.
+                    reuse_existing_pyramids=not args.dims,
                 )
 
                 if len(series_list) == 0:
