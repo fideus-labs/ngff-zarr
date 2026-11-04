@@ -26,6 +26,7 @@ zarrista requires Python >= 3.11 and obstore is an optional dependency
 
 import asyncio
 import importlib.util
+import json
 import os
 import posixpath
 import threading
@@ -487,6 +488,18 @@ def _is_missing_metadata(error: Exception) -> bool:
     return _MISSING_METADATA_MARKER in str(error)
 
 
+def _fetch_node_doc(store: RemoteZarrStore, component: str | None, name: str) -> bytes:
+    """The raw *name* document (e.g. ``.zattrs``) of the node at *component*."""
+    key_prefix = store.node_path(component).strip("/")
+    key = f"{key_prefix}/{name}" if key_prefix else name
+
+    async def _get():
+        result = await store._store.get_async(key)
+        return bytes(await result.bytes_async())
+
+    return _run(_get)
+
+
 def _fetch_v2_group_attrs(store: RemoteZarrStore, component: str | None) -> dict | None:
     """The ``.zattrs`` of the zarr format 2 group at *component*, if one exists.
 
@@ -495,24 +508,47 @@ def _fetch_v2_group_attrs(store: RemoteZarrStore, component: str | None) -> dict
     format 2 store must not hide the real ``.zgroup``/``.zattrs`` documents.
     Returns ``None`` when there is no format 2 group here.
     """
-    import json
-
-    key_prefix = store.node_path(component).strip("/")
-
-    async def _get(name: str):
-        key = f"{key_prefix}/{name}" if key_prefix else name
-        result = await store._store.get_async(key)
-        return bytes(await result.bytes_async())
-
     try:
-        _run(lambda: _get(".zgroup"))
+        _fetch_node_doc(store, component, ".zgroup")
     except Exception:
         return None
     try:
-        loaded = json.loads(_run(lambda: _get(".zattrs")))
+        loaded = json.loads(_fetch_node_doc(store, component, ".zattrs"))
     except Exception:
         return {}
     return loaded if isinstance(loaded, dict) else {}
+
+
+def _open_remote_array(store: RemoteZarrStore, component: str | None):
+    """``AsyncArray.open`` at *component*, retried on the respelled format 2
+    metadata when zarrs rejects the stored ``.zarray`` (see
+    :func:`~ngff_zarr._zarrista_utils._zarrs_compatible_zarray`)."""
+    from zarrista import AsyncArray
+    from zarrista.exceptions import ArrayCreateError
+
+    from ._zarrista_utils import _zarrs_compatible_zarray
+
+    path = store.node_path(component)
+    try:
+        return _run(lambda: AsyncArray.open(store._store, path))
+    except ArrayCreateError as error:
+        if _is_missing_metadata(error):
+            raise
+        # shortcut: a remote zip archive has no get_async, so a rejected
+        # .zarray inside one still raises; read the member if that turns up.
+        try:
+            doc = _zarrs_compatible_zarray(_fetch_node_doc(store, component, ".zarray"))
+        except Exception:
+            doc = None
+        if doc is None:
+            raise
+        try:
+            attrs = json.loads(_fetch_node_doc(store, component, ".zattrs"))
+        except Exception:
+            attrs = None
+        if isinstance(attrs, dict):
+            doc["attributes"] = attrs
+        return AsyncArray.from_metadata(doc, store._store, path)
 
 
 def open_remote_node(store: RemoteZarrStore, component: str | None = None):
@@ -523,7 +559,7 @@ def open_remote_node(store: RemoteZarrStore, component: str | None = None):
     zarrista auto-detects the zarr format, preferring format 3; transport
     and store errors propagate unchanged.
     """
-    from zarrista import AsyncArray, AsyncGroup
+    from zarrista import AsyncGroup
     from zarrista.exceptions import ArrayCreateError, GroupCreateError
 
     path = store.node_path(component)
@@ -534,7 +570,7 @@ def open_remote_node(store: RemoteZarrStore, component: str | None = None):
         # Either the node is an array (missing or non-group metadata) or the
         # store itself is unreachable; the array attempt distinguishes them.
         try:
-            arr = _run(lambda: AsyncArray.open(store._store, path))
+            arr = _open_remote_array(store, component)
         except ArrayCreateError as array_error:
             if _is_missing_metadata(group_error) and _is_missing_metadata(array_error):
                 return None
@@ -554,8 +590,4 @@ def open_remote_lazy(
     store: RemoteZarrStore, component: str | None = None
 ) -> dask.array.Array:
     """Open the array at *component* within *store* as a lazy dask array."""
-    from zarrista import AsyncArray
-
-    path = store.node_path(component)
-    arr = _run(lambda: AsyncArray.open(store._store, path))
-    return _remote_array_to_dask(arr)
+    return _remote_array_to_dask(_open_remote_array(store, component))

@@ -31,6 +31,7 @@ zarrista is imported lazily inside each function to keep module import cheap.
 import ast
 import json
 import os
+import posixpath
 import re
 import shutil
 import sys
@@ -975,6 +976,47 @@ def write_dask_array(darr, zarrista_array, region=None) -> None:
     dask.array.store(darr, target, **store_kwargs)
 
 
+def _zarrs_compatible_zarray(zarray: bytes | None) -> dict | None:
+    """The ``.zarray`` document *zarray* respelled so zarrs accepts it, or
+    ``None`` when it is absent, unreadable or needs no respelling.
+
+    numcodecs' gzip takes ``level: -1``, zlib's default level 6, while zarrs
+    only accepts 0-9. The level does not change decoding, and 6 is what -1
+    compresses a write with.
+    """
+    if zarray is None:
+        return None
+    try:
+        doc = json.loads(zarray)
+    except ValueError:
+        return None
+    compressor = doc.get("compressor") if isinstance(doc, dict) else None
+    if not (
+        isinstance(compressor, dict)
+        and compressor.get("id") == "gzip"
+        and compressor.get("level") == -1
+    ):
+        return None
+    doc["compressor"] = {**compressor, "level": 6}
+    return doc
+
+
+def _open_sync_array(store, node_path: str, zarray):
+    """``Array.open``, retried on the respelled ``.zarray`` that *zarray*
+    returns when zarrs rejects the stored one (see
+    :func:`_zarrs_compatible_zarray`)."""
+    from zarrista import Array
+    from zarrista.exceptions import ArrayCreateError
+
+    try:
+        return Array.open(store, node_path)
+    except ArrayCreateError:
+        doc = _zarrs_compatible_zarray(zarray())
+        if doc is None:
+            raise
+        return Array.from_metadata(doc, store, node_path)
+
+
 def open_zarrista_array(path, component: str | None = None):
     """Open the existing array at *component* within the store at *path*.
 
@@ -989,11 +1031,15 @@ def open_zarrista_array(path, component: str | None = None):
 
         node = str(component).strip("/") if component else ""
         return open_js_array(JsZarrStore(path), node or None, path, node)
-    from zarrista import Array
     from zarrista.store import FilesystemStore
 
     node_path = "/" + str(component).strip("/") if component else "/"
-    return Array.open(FilesystemStore(path), node_path)
+    doc_path = path.joinpath(*node_path.strip("/").split("/"), ".zarray")
+    return _open_sync_array(
+        FilesystemStore(path),
+        node_path,
+        lambda: doc_path.read_bytes() if doc_path.is_file() else None,
+    )
 
 
 def is_zarrista_array(obj) -> bool:
@@ -1060,7 +1106,6 @@ def open_zip_lazy(store: ZipReadStore, component: str | None = None):
         # two reads per chunk of a sharded array; stream members with
         # ZipFile.open().seek() if .ozx reads on Pyodide turn out slow.
         return open_js_lazy(JsZarrStore(store), component)
-    from zarrista import Array
     from zarrista.store import FilesystemStore, ZipStore
 
     zip_store = ZipStore(FilesystemStore(store.path.parent), store.path.name)
@@ -1071,7 +1116,12 @@ def open_zip_lazy(store: ZipReadStore, component: str | None = None):
         for part in str(source).split("/")
         if part not in ("", ".")
     ]
-    return zarrista_array_to_dask(Array.open(zip_store, "/" + "/".join(parts)))
+    # The mapping resolves keys under its own prefix.
+    zarray_key = posixpath.join(str(component or "").strip("/"), ".zarray")
+    arr = _open_sync_array(
+        zip_store, "/" + "/".join(parts), lambda: store.get(zarray_key)
+    )
+    return zarrista_array_to_dask(arr)
 
 
 def _is_bytes_mapping(store) -> bool:

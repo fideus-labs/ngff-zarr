@@ -4,6 +4,7 @@
 
 import json
 import tempfile
+import zipfile
 from unittest.mock import patch
 
 import dask.array
@@ -12,9 +13,12 @@ import pytest
 from dask_image import imread
 from ngff_zarr import (
     from_ngff_zarr,
+    from_ome_zarr,
+    open_array,
     to_multiscales,
     to_ngff_image,
     to_ngff_zarr,
+    to_ome_zarr,
 )
 
 # zarrista requires Python >= 3.11; the py310 environment runs without it.
@@ -191,3 +195,84 @@ def test_v3_group_with_empty_attributes_is_not_discarded(tmp_path):
     node = _open_local_root(store, None)
     assert node is not None
     assert node.attrs == {}
+
+
+def _write_gzip_default_level_store(store_path):
+    """A format 2 store whose arrays record gzip ``level: -1``, zlib's default
+    level, as numcodecs' ``GZip(level=-1)`` stores it."""
+    data = np.arange(16 * 16, dtype="uint16").reshape(16, 16)
+    image = to_ngff_image(data, dims=["y", "x"])
+    multiscales = to_multiscales(image, scale_factors=[2], chunks=8)
+    to_ome_zarr(str(store_path), multiscales, version="0.4", compressor={"id": "gzip"})
+    for doc in store_path.rglob(".zarray"):
+        metadata = json.loads(doc.read_text())
+        metadata["compressor"]["level"] = -1
+        doc.write_text(json.dumps(metadata))
+    return data
+
+
+@pytest.mark.parametrize("zipped", [False, True])
+def test_read_gzip_default_level(tmp_path, zipped):
+    """zarrs rejects gzip ``level: -1``; the read respells it (issue #833)."""
+    store_path = tmp_path / "image.zarr"
+    data = _write_gzip_default_level_store(store_path)
+    target = store_path
+    if zipped:
+        target = tmp_path / "image.zarr.zip"
+        with zipfile.ZipFile(target, "w") as archive:
+            for path in sorted(store_path.rglob("*")):
+                if path.is_file():
+                    archive.write(path, path.relative_to(store_path).as_posix())
+
+    multiscales = from_ome_zarr(target)
+
+    assert len(multiscales.images) == 2
+    assert np.array_equal(np.asarray(multiscales.images[0].data), data)
+
+
+def test_open_array_gzip_default_level_writes(tmp_path):
+    """A region write into a gzip ``level: -1`` array reads back."""
+    store_path = tmp_path / "image.zarr"
+    _write_gzip_default_level_store(store_path)
+    path = from_ome_zarr(store_path).metadata.datasets[0].path
+
+    array = open_array(store_path, path)
+    array[:8, :8] = 7
+
+    assert np.all(open_array(store_path, path)[:8, :8] == 7)
+
+
+@pytest.mark.parametrize(
+    ("zarray", "expected"),
+    [
+        (b'{"compressor": {"id": "gzip", "level": -1}}', {"id": "gzip", "level": 6}),
+        (b'{"compressor": {"id": "gzip", "level": 5}}', None),
+        (b'{"compressor": {"id": "zlib", "level": -1}}', None),
+        (b'{"compressor": null}', None),
+        (b"[]", None),
+        (b"not json", None),
+        (None, None),
+    ],
+)
+def test_zarrs_compatible_zarray(zarray, expected):
+    """Only gzip ``level: -1`` is respelled; anything else is left alone."""
+    from ngff_zarr._zarrista_utils import _zarrs_compatible_zarray
+
+    doc = _zarrs_compatible_zarray(zarray)
+
+    assert (doc if doc is None else doc["compressor"]) == expected
+
+
+def test_read_other_rejected_zarray_keeps_zarrista_error(tmp_path):
+    """Metadata zarrs rejects for another reason raises zarrista's error."""
+    from zarrista.exceptions import ArrayCreateError
+
+    store_path = tmp_path / "image.zarr"
+    _write_gzip_default_level_store(store_path)
+    for doc in store_path.rglob(".zarray"):
+        metadata = json.loads(doc.read_text())
+        metadata["compressor"] = {"id": "zlib", "level": -1}
+        doc.write_text(json.dumps(metadata))
+
+    with pytest.raises(ArrayCreateError, match="zlib"):
+        np.asarray(from_ome_zarr(store_path).images[0].data)
