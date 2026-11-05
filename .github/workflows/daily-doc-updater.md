@@ -28,10 +28,8 @@ safe-outputs:
   noop: null
 description: Automatically reviews and updates documentation to ensure accuracy and completeness
 emoji: 📝
-# Pin a model advertised by the Copilot agentic-workflows integration.
 engine:
   id: copilot
-  model: claude-haiku-5.5
   version: "1.0.98"
 name: Daily Documentation Updater
 strict: true
