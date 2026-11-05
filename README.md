@@ -173,6 +173,7 @@ on an issue or pull request.
       <td align="center" valign="top" width="14.28%"><a href="https://napari.org"><img src="https://avatars.githubusercontent.com/u/47310455?v=4?s=100" width="100px;" alt="Tim Monko"/><br /><sub><b>Tim Monko</b></sub></a><br /><a href="https://github.com/fideus-labs/ngff-zarr/issues?q=author%3ATimMonko" title="Bug reports">🐛</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/tischi"><img src="https://avatars.githubusercontent.com/u/2157566?v=4?s=100" width="100px;" alt="Christian Tischer"/><br /><sub><b>Christian Tischer</b></sub></a><br /><a href="https://github.com/fideus-labs/ngff-zarr/issues?q=author%3Atischi" title="Bug reports">🐛</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/Tomaz-Vieira"><img src="https://avatars.githubusercontent.com/u/4031460?v=4?s=100" width="100px;" alt="Tomaz-Vieira"/><br /><sub><b>Tomaz-Vieira</b></sub></a><br /><a href="https://github.com/fideus-labs/ngff-zarr/issues?q=author%3ATomaz-Vieira" title="Ideas, Planning, & Feedback">🤔</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/aafkegros"><img src="https://avatars.githubusercontent.com/u/42999309?v=4?s=100" width="100px;" alt="Aafke Gros"/><br /><sub><b>Aafke Gros</b></sub></a><br /><a href="https://github.com/fideus-labs/ngff-zarr/issues?q=author%3Aaafkegros" title="Bug reports">🐛</a></td>
     </tr>
   </tbody>
 </table>
