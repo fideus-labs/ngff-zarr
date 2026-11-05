@@ -1,3 +1,44 @@
+## py-v0.52.0 (2026-11-05)
+
+### ⚡ Performance
+
+- **py,ts**: walk a field's boundary without a pipeline call ([ef512f5](https://github.com/fideus-labs/ngff-zarr/commit/ef512f5098bc43936cf83cf449de43fb073e6b04))
+- **py**: compute the blocks' regions on a thread pool ([c16b409](https://github.com/fideus-labs/ngff-zarr/commit/c16b409f20b20aaeaad618f85f9029f752d8becd))
+- **py,ts**: hand ITK a block's window of a displacement field ([e3fc18f](https://github.com/fideus-labs/ngff-zarr/commit/e3fc18f4fc05189fd9bda8a5cdd577233683b8ba))
+
+### ✨ Features
+
+- store scene and transformation matrices as zarr arrays ([780f7a8](https://github.com/fideus-labs/ngff-zarr/commit/780f7a823b4747a48b0d84876a024acf5e45fc3f))
+- **py**: read a remote .ozx in place over obstore ([a791d5a](https://github.com/fideus-labs/ngff-zarr/commit/a791d5a8740dae4788d06f5cea4a5e42b4262afb))
+- **py,ts**: size a block's region by a guaranteed bound through the transform's stages ([64d0ddf](https://github.com/fideus-labs/ngff-zarr/commit/64d0ddf75d2d0635e24a2e96f6a882a47b82d67c))
+- **py**: read HCS plates on Pyodide and run the harness in CI ([84bb2c7](https://github.com/fideus-labs/ngff-zarr/commit/84bb2c748cb49ab316b768faace9d0819d10a4f1))
+- **py**: run the itkwasm downsamplers on Pyodide through JSPI ([4a1346e](https://github.com/fideus-labs/ngff-zarr/commit/4a1346ef7a43cc2eb9c8df9f436b5852127b0d90))
+- **py**: route the zarr seams through the JS bridge on Pyodide ([5dc2ab0](https://github.com/fideus-labs/ngff-zarr/commit/5dc2ab04da0d9ea55b64dff96bb208af5c15e475))
+- **py**: add the Pyodide zarr bridge over the JS package ([3ab2f5e](https://github.com/fideus-labs/ngff-zarr/commit/3ab2f5ec645a49e0726288745f54e81410783552))
+- **py**: install and import under Pyodide, add a Node-hosted harness ([423e563](https://github.com/fideus-labs/ngff-zarr/commit/423e56308c21e249103b56b352cf5fefa5c741c3))
+
+### 🐛 Bug Fixes
+
+- refuse unpaired surrogates in store-relative paths ([69395a6](https://github.com/fideus-labs/ngff-zarr/commit/69395a652de92b5de4779868803bcdfecc886bb3))
+- accept only store-relative paths a store reads as written ([9fcbc96](https://github.com/fideus-labs/ngff-zarr/commit/9fcbc964650ef49d176889f37f08fa6ef190066f))
+- check store-relative paths on their fully decoded form ([478e2a7](https://github.com/fideus-labs/ngff-zarr/commit/478e2a70ded803cc1f82cbd1bd48453d29401520))
+- refuse control characters and a leading space in store-relative paths ([2b0c149](https://github.com/fideus-labs/ngff-zarr/commit/2b0c149ef37283a711914acd788e3d967da876ab))
+- refuse scheme and drive prefixes in store-relative paths ([8ac715b](https://github.com/fideus-labs/ngff-zarr/commit/8ac715b97f11aef1dc1caae713bf1ecda500dacc))
+- **py**: read zarr v2 arrays stored with gzip level -1 ([3431c6c](https://github.com/fideus-labs/ngff-zarr/commit/3431c6c280ef4b065bdc31fc05734c02c09e9ca2))
+- **py**: apply CLI metadata overrides to OME-Zarr input ([647068b](https://github.com/fideus-labs/ngff-zarr/commit/647068b0b2a1817e88b6c838af99d7cc349515c4))
+- **py**: regenerate TIFF pyramid levels when --dims is given ([04c49a7](https://github.com/fideus-labs/ngff-zarr/commit/04c49a7568a19d72285aa064029c157cb3dc1926))
+- **py**: apply CLI metadata overrides to reused TIFF pyramids ([52aa1fa](https://github.com/fideus-labs/ngff-zarr/commit/52aa1fa83b7cacdcb58041db6c1b5d05a95f505e))
+- **py**: require zarrista>=0.1.0 and ignore a non-string zip comment version ([4bf56e7](https://github.com/fideus-labs/ngff-zarr/commit/4bf56e771eca32b1365e83d701df076a2b980cf8))
+- **py**: say a remote .ozx is unsupported on Pyodide instead of naming a pip extra ([e09b91e](https://github.com/fideus-labs/ngff-zarr/commit/e09b91e4859b0b042d0bfebd6909e51b650b70c2))
+- **py**: fetch http(s) URLs unsigned instead of as the host's object store ([551aa3c](https://github.com/fideus-labs/ngff-zarr/commit/551aa3cdd8b9aafc2c67fbd468ff56122bfe3073))
+- **aw**: use advertised Copilot model ([50e5d81](https://github.com/fideus-labs/ngff-zarr/commit/50e5d812a177d607882bc76227d6c2193dcddcdb))
+- **py,ts**: keep a field whole behind an unsized stage, refuse a box that is not finite ([aeb6632](https://github.com/fideus-labs/ngff-zarr/commit/aeb663249516c57953afb120f7dc9517900c0add))
+- **py,ts**: size a field's window by the stage bound, not the boundary walk ([868b840](https://github.com/fideus-labs/ngff-zarr/commit/868b8401f50e469f7cb68044706fa355374bd47c))
+- **py**: size resample's blocks without a thread pool on Emscripten ([6b23b4a](https://github.com/fideus-labs/ngff-zarr/commit/6b23b4a852344be4df60c111fa2b8808a2a9197e))
+- **py**: call the field window's bounding box pipeline through call_itkwasm ([9ec1d7c](https://github.com/fideus-labs/ngff-zarr/commit/9ec1d7ced8b068a4f235623d5c5d2894f275b2a9))
+- **py,ts**: bound an ITK transform by the boundary walk again ([528d65e](https://github.com/fideus-labs/ngff-zarr/commit/528d65ed53a786bab56993710a58e11f0eea042a))
+- **py**: spell zarr v2 NaN fills as JSON and tidy the Pyodide harness and job ([9082d01](https://github.com/fideus-labs/ngff-zarr/commit/9082d01f64ad3403537da7db0f739849a0f51c71))
+
 ## py-v0.51.0 (2026-10-30)
 
 ### ♻️ Refactoring
