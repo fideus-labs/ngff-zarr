@@ -1,3 +1,27 @@
+## ts-v0.41.0 (2026-11-05)
+
+### ⚡ Performance
+
+- **py,ts**: walk a field's boundary without a pipeline call ([ef512f5](https://github.com/fideus-labs/ngff-zarr/commit/ef512f5098bc43936cf83cf449de43fb073e6b04))
+- **py,ts**: hand ITK a block's window of a displacement field ([e3fc18f](https://github.com/fideus-labs/ngff-zarr/commit/e3fc18f4fc05189fd9bda8a5cdd577233683b8ba))
+
+### ✨ Features
+
+- store scene and transformation matrices as zarr arrays ([780f7a8](https://github.com/fideus-labs/ngff-zarr/commit/780f7a823b4747a48b0d84876a024acf5e45fc3f))
+- **py,ts**: size a block's region by a guaranteed bound through the transform's stages ([64d0ddf](https://github.com/fideus-labs/ngff-zarr/commit/64d0ddf75d2d0635e24a2e96f6a882a47b82d67c))
+
+### 🐛 Bug Fixes
+
+- refuse unpaired surrogates in store-relative paths ([69395a6](https://github.com/fideus-labs/ngff-zarr/commit/69395a652de92b5de4779868803bcdfecc886bb3))
+- accept only store-relative paths a store reads as written ([9fcbc96](https://github.com/fideus-labs/ngff-zarr/commit/9fcbc964650ef49d176889f37f08fa6ef190066f))
+- check store-relative paths on their fully decoded form ([478e2a7](https://github.com/fideus-labs/ngff-zarr/commit/478e2a70ded803cc1f82cbd1bd48453d29401520))
+- refuse control characters and a leading space in store-relative paths ([2b0c149](https://github.com/fideus-labs/ngff-zarr/commit/2b0c149ef37283a711914acd788e3d967da876ab))
+- refuse scheme and drive prefixes in store-relative paths ([8ac715b](https://github.com/fideus-labs/ngff-zarr/commit/8ac715b97f11aef1dc1caae713bf1ecda500dacc))
+- **aw**: use advertised Copilot model ([50e5d81](https://github.com/fideus-labs/ngff-zarr/commit/50e5d812a177d607882bc76227d6c2193dcddcdb))
+- **py,ts**: keep a field whole behind an unsized stage, refuse a box that is not finite ([aeb6632](https://github.com/fideus-labs/ngff-zarr/commit/aeb663249516c57953afb120f7dc9517900c0add))
+- **py,ts**: size a field's window by the stage bound, not the boundary walk ([868b840](https://github.com/fideus-labs/ngff-zarr/commit/868b8401f50e469f7cb68044706fa355374bd47c))
+- **py,ts**: bound an ITK transform by the boundary walk again ([528d65e](https://github.com/fideus-labs/ngff-zarr/commit/528d65ed53a786bab56993710a58e11f0eea042a))
+
 ## ts-v0.40.0 (2026-10-30)
 
 ### 🐛 Bug Fixes
