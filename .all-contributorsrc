@@ -477,6 +477,15 @@
       "login": "Tomaz-Vieira",
       "name": "Tomaz-Vieira",
       "profile": "https://github.com/Tomaz-Vieira"
+    },
+    {
+      "login": "aafkegros",
+      "name": "Aafke Gros",
+      "avatar_url": "https://avatars.githubusercontent.com/u/42999309?v=4",
+      "profile": "https://github.com/aafkegros",
+      "contributions": [
+        "bug"
+      ]
     }
   ]
 }
