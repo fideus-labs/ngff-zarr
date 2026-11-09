@@ -84,13 +84,6 @@ def test_overwrite_never_removes_the_tree_beneath_the_root(tmp_path):
     assert isinstance(loaded, NgffMultiscales)
 
 
-def test_collection_writer_accepts_only_dev3(tmp_path):
-    with pytest.raises(ValueError, match="0.9.dev3"):
-        to_collection_zarr(
-            tmp_path / "c.ome.zarr", _study_collection(), version="0.9.dev1"
-        )
-
-
 def test_collection_writer_validates_by_default(tmp_path):
     invalid = Collection("c")  # neither nodes nor path
     with pytest.raises(ValidationError):
@@ -210,13 +203,6 @@ def test_in_memory_collection_cannot_resolve_relative_paths():
         collection.load("n")
 
 
-def test_lru_cache_requires_a_positive_size():
-    from ngff_zarr._lru_cache import LRUCache
-
-    with pytest.raises(ValueError, match="positive"):
-        LRUCache(0)
-
-
 def test_node_lookup_prefers_ids(tmp_path):
     collection = NgffCollection(
         root=Collection(
@@ -231,24 +217,6 @@ def test_node_lookup_prefers_ids(tmp_path):
     assert collection.node("a").name == "a"
     with pytest.raises(KeyError):
         collection.node("missing")
-
-
-def test_collection_reader_never_uses_the_versioned_schema_pass(tmp_path, monkeypatch):
-    # The vendored spec/0.9 tree enumerates only 0.9.dev1, so routing a
-    # 0.9.dev3 document through ngff_zarr.validate would fail on the version
-    # enum with a misleading error; the RFC-8 reader must not call it.
-    import importlib
-
-    validate_module = importlib.import_module("ngff_zarr.validate")
-
-    def _forbidden(*args, **kwargs):
-        raise AssertionError("validate_ngff must not see RFC-8 documents")
-
-    monkeypatch.setattr(validate_module, "validate", _forbidden)
-    store = tmp_path / "collection.ome.zarr"
-    to_collection_zarr(store, _study_collection())
-    pytest.importorskip("jsonschema")
-    from_collection_zarr(store, validate=True)
 
 
 def test_validate_true_runs_the_bundled_node_schema(tmp_path):

@@ -8,9 +8,8 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Union
 
-from .._lru_cache import LRUCache
 from .._supported_versions import NgffVersion
-from .model import Node, OmePath, Reference, is_collection_node
+from .model import PATH_TYPE_ZARR, Node, OmePath, Reference, is_collection_node
 from .resolve import document_base, resolve_location, resolve_ome_document
 from .serialize import node_from_ome_dict
 
@@ -39,12 +38,7 @@ class NgffCollection:
     base: str | None = None
     version: str = NgffVersion.V09dev3.value
     root_attributes: dict[str, Any] | None = None
-    _cache: LRUCache = field(
-        default_factory=lambda: LRUCache(max_size=32),
-        init=False,
-        repr=False,
-        compare=False,
-    )
+    _cache: dict = field(default_factory=dict, init=False, repr=False, compare=False)
 
     def walk(self) -> Iterator[Node]:
         """Yield every node in the document, depth-first, root first."""
@@ -63,13 +57,12 @@ class NgffCollection:
         are only unique among siblings, and the first match in depth-first
         order wins.
         """
-        for node in self.walk():
-            if node.id == id_or_name:
-                return node
-        for node in self.walk():
-            if node.name == id_or_name:
-                return node
-        raise KeyError(f"No node with id or name {id_or_name!r} in this document.")
+        node = next((n for n in self.walk() if n.id == id_or_name), None) or next(
+            (n for n in self.walk() if n.name == id_or_name), None
+        )
+        if node is None:
+            raise KeyError(f"No node with id or name {id_or_name!r} in this document.")
+        return node
 
     def load(self, target: Node | Reference | str) -> LoadedNode:
         """Materialize what ``target`` designates, dereferencing its path.
@@ -124,7 +117,7 @@ class NgffCollection:
             return cached
         location, document = resolve_ome_document(path, base=self.base)
         loaded = self._dispatch_document(path, location, document)
-        self._cache.set((path.type, location), loaded)
+        self._cache[(path.type, location)] = loaded
         return loaded
 
     def _dispatch_document(
@@ -147,7 +140,7 @@ class NgffCollection:
             isinstance(ome, Mapping) and "multiscales" in ome
         )
         if has_multiscales:
-            if path.type != "zarr":
+            if path.type != PATH_TYPE_ZARR:
                 raise ValueError(
                     f"The document at '{location}' holds multiscales image "
                     f"metadata, which only a 'zarr' path can designate; got "

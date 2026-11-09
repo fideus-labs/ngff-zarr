@@ -35,6 +35,12 @@ export const PATH_TYPE_ZARR = "zarr";
  */
 export const PATH_TYPE_JSON = "json";
 
+/** The unprefixed path types the core specification defines. */
+export const CORE_PATH_TYPES: ReadonlySet<string> = new Set([
+  PATH_TYPE_ZARR,
+  PATH_TYPE_JSON,
+]);
+
 /**
  * Whether a value is a prefixed extension identifier (`prefix:name`).
  *
