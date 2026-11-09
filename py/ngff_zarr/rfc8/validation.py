@@ -925,7 +925,8 @@ def validate_singlescale_transform_shape(
             entry.get("type") == "scale"
             or (
                 entry.get("type") == "sequence"
-                and _is_scale_then_translation(entry.get("transformations") or [])
+                and isinstance(entry.get("transformations"), list)
+                and _is_scale_then_translation(entry["transformations"])
             )
         )
         if not shaped:
