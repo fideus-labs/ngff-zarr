@@ -43,7 +43,7 @@ from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING, Union
 
 from .._store_types import StoreLike
-from .._supported_versions import NgffVersion
+from .._supported_versions import V09_DEV_SERIES, NgffVersion
 from ..rfc4 import AnatomicalOrientation
 
 # RFC-3 touches the axis model only; these symbols are unchanged from v0.6.
@@ -256,7 +256,7 @@ class Metadata:
         if isinstance(version, str):
             version = NgffVersion(version)
 
-        if version in (NgffVersion.V09dev1, NgffVersion.V09dev3):
+        if version in V09_DEV_SERIES:
             return self
         if version in (NgffVersion.V06, NgffVersion.V06dev4):
             return self._to_v06()

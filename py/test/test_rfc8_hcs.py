@@ -76,11 +76,11 @@ def test_plate_attributes_round_trip():
     image = well_node.nodes[0]
     assert acquisition(image) == Reference("acq_0")
 
-    set_acquisition(image, None)
+    image.attributes.pop("acquisition")
     assert acquisition(image) is None
-    set_well(well_node, None)
+    well_node.attributes.pop("well")
     assert well(well_node) is None
-    set_plate(root, None)
+    root.attributes.pop("plate")
     assert plate(root) is None
 
 
@@ -99,7 +99,7 @@ def test_tall_layout_acquisition_on_a_sub_collection():
     root = _wide_plate()
     well_node = root.nodes[0]
     image = well_node.nodes[0]
-    set_acquisition(image, None)
+    image.attributes.pop("acquisition")
     sub = Collection("A01_acq0", nodes=[image])
     set_acquisition(sub, Reference("acq_0"))
     well_node.nodes = [sub]

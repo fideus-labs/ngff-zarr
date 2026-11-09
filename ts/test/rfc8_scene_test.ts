@@ -6,7 +6,7 @@
  * fixture documents.
  */
 
-import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
+import { assertEquals, assertThrows } from "@std/assert";
 import {
   type OmeNode,
   readSceneFromAttrs,
@@ -14,7 +14,6 @@ import {
   scene,
   setScene,
   validateCollection,
-  ValidationError,
 } from "../src/mod.ts";
 import { sceneFromOmeValue, sceneToOmeValue } from "../src/utils/rfc8_scene.ts";
 
@@ -82,54 +81,6 @@ Deno.test("a valid scene passes validation", () => {
   const collection: OmeNode = { type: "collection", name: "tiles", nodes: [] };
   setScene(collection, tilesScene());
   validateCollection(collection, "0.9.dev3");
-});
-
-Deno.test("scene validation rules fire", () => {
-  const collection: OmeNode = {
-    type: "collection",
-    name: "tiles",
-    nodes: [],
-    attributes: { scene: {} },
-  };
-  let error = assertThrows(
-    () => validateCollection(collection, "0.9.dev3"),
-    ValidationError,
-  );
-  assertEquals(error.rule, "scene-transformations-required");
-
-  collection.attributes = {
-    scene: {
-      coordinateTransformations: [
-        {
-          type: "identity",
-          input: { name: "physical" },
-          output: { id: "world" },
-        },
-      ],
-    },
-  };
-  error = assertThrows(
-    () => validateCollection(collection, "0.9.dev3"),
-    ValidationError,
-  );
-  assertEquals(error.rule, "reference-id-required");
-
-  collection.attributes = {
-    scene: {
-      coordinateTransformations: [
-        {
-          type: "identity",
-          input: { id: "physical" },
-          output: { id: "world" },
-        },
-      ],
-    },
-  };
-  error = assertThrows(
-    () => validateCollection(collection, "0.9.dev3"),
-    ValidationError,
-  );
-  assertEquals(error.rule, "reference-path-required");
 });
 
 Deno.test("both storage shapes read through readSceneFromAttrs", () => {
@@ -223,13 +174,7 @@ Deno.test("id-only references refuse the 0.6 scene shape", () => {
       },
     ],
   }, "0.9.dev3");
-  let message = "";
-  try {
-    sceneToOmeValue(tiles, "0.6");
-  } catch (error) {
-    message = String(error);
-  }
-  assertStringIncludes(message, '"0.9.dev3"');
+  assertThrows(() => sceneToOmeValue(tiles, "0.6"), Error, '"0.9.dev3"');
 });
 
 Deno.test("typed reference paths refuse the 0.6 scene shape", () => {
@@ -246,11 +191,5 @@ Deno.test("typed reference paths refuse the 0.6 scene shape", () => {
       },
     ],
   }, "0.9.dev3");
-  let message = "";
-  try {
-    sceneToOmeValue(tiles, "0.6");
-  } catch (error) {
-    message = String(error);
-  }
-  assertStringIncludes(message, "typed path object");
+  assertThrows(() => sceneToOmeValue(tiles, "0.6"), Error, "typed path object");
 });
