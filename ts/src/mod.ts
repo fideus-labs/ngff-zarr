@@ -8,7 +8,6 @@ export {
   nodeFromOmeDict,
   nodeToOmeDict,
   resolveLocation,
-  type ToCollectionJsonOptions,
   type ToCollectionOptions,
 } from "./io/collection_common.ts";
 export * from "./io/from_collection_zarr.ts";
