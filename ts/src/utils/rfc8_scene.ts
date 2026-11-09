@@ -61,6 +61,39 @@ function identifierFrom(
   };
 }
 
+/**
+ * Restore the references of `parsed` and of the transforms it wraps: the
+ * wrapped parser resolves names against the declared systems and drops the
+ * rest; a scene keeps them verbatim at every nesting level.
+ */
+function restoreReferences(parsed: V06Transform, raw: unknown): void {
+  if (!isRecord(raw)) {
+    return;
+  }
+  for (const side of ["input", "output"] as const) {
+    const reference = identifierFrom(raw[side]);
+    if (reference !== undefined) {
+      parsed[side] = reference;
+    } else {
+      delete parsed[side];
+    }
+  }
+  if (parsed.type === "sequence") {
+    const rawChildren = raw.transformations as unknown[];
+    parsed.transformations.forEach((child, index) =>
+      restoreReferences(child, rawChildren[index])
+    );
+  } else if (parsed.type === "byDimension") {
+    const rawItems = raw.transformations as Record<string, unknown>[];
+    parsed.transformations.forEach((item, index) =>
+      restoreReferences(item.transformation, rawItems[index].transformation)
+    );
+  } else if (parsed.type === "bijection") {
+    restoreReferences(parsed.forward, raw.forward);
+    restoreReferences(parsed.inverse, raw.inverse);
+  }
+}
+
 /** Parse a raw scene object (either storage shape) into a {@link Scene}. */
 export function sceneFromOmeValue(
   raw: Record<string, unknown>,
@@ -83,20 +116,8 @@ export function sceneFromOmeValue(
     systems ?? [],
     version,
   );
-  // Restore the references verbatim: the wrapped parser resolves names
-  // against the declared systems and drops the rest.
   for (const [index, parsed] of transforms.entries()) {
-    const entry = rawTransforms[index];
-    if (isRecord(entry)) {
-      for (const side of ["input", "output"] as const) {
-        const reference = identifierFrom(entry[side]);
-        if (reference !== undefined) {
-          parsed[side] = reference;
-        } else {
-          delete parsed[side];
-        }
-      }
-    }
+    restoreReferences(parsed, rawTransforms[index]);
   }
   return {
     coordinateTransformations: transforms,
