@@ -33,6 +33,7 @@ from .._store_types import StoreLike
 from .._supported_versions import (
     V06_ONDISK_VERSION,
     V06_SUPERSEDED_TAGS,
+    V09_DEV_SERIES,
     NgffVersion,
 )
 from ..rfc4 import AnatomicalOrientation, axes_orientations_from_axes
@@ -741,7 +742,7 @@ class Metadata:
             return self._to_v05()
         if version == NgffVersion.V06:
             return self
-        if version in (NgffVersion.V09dev1, NgffVersion.V09dev3):
+        if version in V09_DEV_SERIES:
             from ..v09.zarr_metadata import Metadata as Metadata_v09
 
             return Metadata_v09.from_version(self)

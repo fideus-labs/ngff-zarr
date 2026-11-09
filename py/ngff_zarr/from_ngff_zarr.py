@@ -10,6 +10,7 @@ from ._remote_reader import (
     remote_read_available,
 )
 from ._store_types import StoreLike
+from ._supported_versions import V09_DEV_SERIES
 from ._zarrista_utils import (
     OME_ROOT_KEYS,
     _is_bytes_mapping,
@@ -184,6 +185,8 @@ def _distributed_singlescale_transforms(ome_value: dict, root) -> dict:
     ``coordinateTransformations``, keyed by dataset path, reading only the
     children the inlined document leaves empty.
     """
+    from .rfc8.multiscale import _dataset_path_from
+
     collected: dict[str, list] = {}
     for node in ome_value.get("nodes") or []:
         if not isinstance(node, dict) or node.get("type") != "singlescale":
@@ -194,7 +197,7 @@ def _distributed_singlescale_transforms(ome_value: dict, root) -> dict:
         raw_path = (node.get("path") or {}).get("path")
         if not isinstance(raw_path, str):
             continue
-        path = raw_path[2:] if raw_path.startswith("./") else raw_path
+        path = _dataset_path_from(node)
         try:
             child = root[path]
         except (KeyError, FileNotFoundError):
@@ -418,9 +421,7 @@ def from_ome_zarr(
         if validate:
             from .rfc8.io import _validate_document
 
-            declared = ome_value.get("version")
-            declared = declared if isinstance(declared, str) else None
-            _validate_document(ome_value, declared)
+            _validate_document(ome_value)
 
         singlescale_transforms = _distributed_singlescale_transforms(ome_value, root)
         entry, omero = multiscales_entry_from_ome(ome_value, singlescale_transforms)
@@ -510,7 +511,7 @@ def from_ome_zarr(
     # series store stays on the 0.9 model; downgrading it to 0.6 would discard
     # its RFC-3 axis model.
     metadata_obj = metadata_obj.to_version(
-        version if version in ("0.9.dev1", "0.9.dev3") else "0.6"
+        version if version in V09_DEV_SERIES else "0.6"
     )
     metadata_obj.type = method_type
     metadata_obj.metadata = method_metadata

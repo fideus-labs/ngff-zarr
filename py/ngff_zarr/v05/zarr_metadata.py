@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Union
 
 from .._store_types import StoreLike
-from .._supported_versions import NgffVersion
+from .._supported_versions import V09_DEV_SERIES, NgffVersion
 from ..v04.zarr_metadata import Axis, Dataset, MethodMetadata, Omero, Transform
 
 if TYPE_CHECKING:
@@ -41,7 +41,7 @@ class Metadata:
             return self
         if version == NgffVersion.V06:
             return self._to_v06()
-        if version in (NgffVersion.V09dev1, NgffVersion.V09dev3):
+        if version in V09_DEV_SERIES:
             from ..v09.zarr_metadata import Metadata as Metadata_v09
 
             return Metadata_v09.from_version(self)

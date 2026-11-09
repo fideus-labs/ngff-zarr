@@ -22,6 +22,7 @@ import {
   type ImageVersion,
   NgffVersion,
   V06_ONDISK_VERSION,
+  V09_DEV_SERIES,
 } from "../types/supported_versions.ts";
 import {
   SpecRule,
@@ -52,8 +53,7 @@ function axisViews(
 ): Array<{ location: string; axes: Axis[] }> {
   const systems = metadata.coordinateSystems ?? [];
   const serializesSystems = version === "0.6" ||
-    version === NgffVersion.V09dev1 ||
-    version === NgffVersion.V09dev3;
+    V09_DEV_SERIES.includes(version);
   if (serializesSystems && systems.length > 0) {
     // `buildV06MultiscalesEntry` serializes the first system from
     // `metadata.axes` and the later ones verbatim, and `MetadataInterface`

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 // SPDX-License-Identifier: MIT
 import type { AxisName, AxisType, AxisUnit, SupportedDims } from "./units.ts";
-import { NgffVersion } from "./supported_versions.ts";
+import { NgffVersion, V09_DEV_SERIES } from "./supported_versions.ts";
 import type { NgffImage } from "./ngff_image.ts";
 import type { AnatomicalOrientation } from "./rfc4.ts";
 
@@ -342,9 +342,7 @@ export function createMetadataWithVersion(
       version: "0.5",
     };
   } else if (
-    version === NgffVersion.V06 ||
-    version === NgffVersion.V09dev1 ||
-    version === NgffVersion.V09dev3
+    version === NgffVersion.V06 || V09_DEV_SERIES.includes(version)
   ) {
     // The in-memory model is version-agnostic (axes + per-dataset scale and
     // translation); v0.6 and the 0.9 development series additionally expose
