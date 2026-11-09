@@ -916,19 +916,18 @@ def validate_singlescale_transform_shape(
                     site,
                 )
             continue
-        shaped = isinstance(transformations, list) and len(transformations) == 1
-        entry = transformations[0] if shaped else None
-        if shaped and isinstance(entry, Mapping):
-            if entry.get("type") == "scale":
-                pass
-            elif entry.get("type") == "sequence" and _is_scale_then_translation(
-                entry.get("transformations") or []
-            ):
-                pass
-            else:
-                shaped = False
-        else:
-            shaped = False
+        entry = (
+            transformations[0]
+            if isinstance(transformations, list) and len(transformations) == 1
+            else None
+        )
+        shaped = isinstance(entry, Mapping) and (
+            entry.get("type") == "scale"
+            or (
+                entry.get("type") == "sequence"
+                and _is_scale_then_translation(entry.get("transformations") or [])
+            )
+        )
         if not shaped:
             raise ValidationError(
                 SpecRule.SINGLESCALE_TRANSFORM_SHAPE,
@@ -977,19 +976,20 @@ def validate_multiscale_output_consistent(
         attributes = node.get("attributes")
         # A missing or malformed coordinateSystems list declares nothing, so
         # every inline output reference fails the membership check below.
-        declared: set[str] = set()
-        if isinstance(attributes, Mapping) and isinstance(
-            attributes.get("coordinateSystems"), list
-        ):
-            declared = {
-                system["id"]
-                for system in attributes["coordinateSystems"]
-                if isinstance(system, Mapping) and isinstance(system.get("id"), str)
-            }
+        systems = (
+            attributes.get("coordinateSystems")
+            if isinstance(attributes, Mapping)
+            else None
+        )
+        declared = {
+            system["id"]
+            for system in (systems if isinstance(systems, list) else [])
+            if isinstance(system, Mapping) and isinstance(system.get("id"), str)
+        }
         children = node.get("nodes")
         if not isinstance(children, list):
             continue
-        seen: tuple[str, str] | None = None
+        seen: str | None = None
         for index, child in enumerate(children):
             if not isinstance(child, Mapping):
                 continue
@@ -1023,12 +1023,12 @@ def validate_multiscale_output_consistent(
                         site,
                     )
                 if seen is None:
-                    seen = (output_id, site)
-                elif output_id != seen[0]:
+                    seen = output_id
+                elif output_id != seen:
                     raise ValidationError(
                         SpecRule.MULTISCALE_OUTPUT_CONSISTENT,
                         f"Singlescale outputs must all reference the same "
-                        f"coordinate system; got {seen[0]!r} and "
+                        f"coordinate system; got {seen!r} and "
                         f"{output_id!r}.",
                         site,
                     )

@@ -976,25 +976,17 @@ export function validateSinglescaleTransformShape(
       }
       continue;
     }
-    let shaped = Array.isArray(transformations) &&
-      transformations.length === 1;
-    const entry = shaped ? (transformations as unknown[])[0] : undefined;
-    if (shaped && isRecord(entry)) {
-      if (entry.type === "scale") {
-        // A single scale is the simplest conforming shape.
-      } else if (
-        entry.type === "sequence" &&
+    const entry: unknown =
+      Array.isArray(transformations) && transformations.length === 1
+        ? transformations[0]
+        : undefined;
+    const shaped = isRecord(entry) && (
+      entry.type === "scale" ||
+      (entry.type === "sequence" &&
         isScaleThenTranslation(
           Array.isArray(entry.transformations) ? entry.transformations : [],
-        )
-      ) {
-        // A sequence of scale then translation also conforms.
-      } else {
-        shaped = false;
-      }
-    } else {
-      shaped = false;
-    }
+        ))
+    );
     if (!shaped || !isRecord(entry)) {
       throw new ValidationError(
         SpecRule.SinglescaleTransformShape,
@@ -1036,22 +1028,20 @@ export function validateMultiscaleOutputConsistent(
     const attributes = node.attributes;
     // A missing or malformed coordinateSystems list declares nothing, so
     // every inline output reference fails the membership check below.
-    let declared = new Set<string>();
-    if (
-      isRecord(attributes) && Array.isArray(attributes.coordinateSystems)
-    ) {
-      declared = new Set(
-        attributes.coordinateSystems
-          .filter(isRecord)
-          .map((system) => system.id)
-          .filter((id): id is string => typeof id === "string"),
-      );
-    }
+    const systems = isRecord(attributes)
+      ? attributes.coordinateSystems
+      : undefined;
+    const declared = new Set(
+      (Array.isArray(systems) ? systems : [])
+        .filter(isRecord)
+        .map((system) => system.id)
+        .filter((id): id is string => typeof id === "string"),
+    );
     const children = node.nodes;
     if (!Array.isArray(children)) {
       continue;
     }
-    let seen: [string, string] | undefined;
+    let seen: string | undefined;
     for (const [index, child] of children.entries()) {
       if (!isRecord(child) || child.type !== "singlescale") {
         continue;
@@ -1084,12 +1074,12 @@ export function validateMultiscaleOutputConsistent(
           );
         }
         if (seen === undefined) {
-          seen = [outputId, site];
-        } else if (outputId !== seen[0]) {
+          seen = outputId;
+        } else if (outputId !== seen) {
           throw new ValidationError(
             SpecRule.MultiscaleOutputConsistent,
             `Singlescale outputs must all reference the same coordinate ` +
-              `system; got ${pyRepr(seen[0])} and ${pyRepr(outputId)}.`,
+              `system; got ${pyRepr(seen)} and ${pyRepr(outputId)}.`,
             site,
           );
         }
