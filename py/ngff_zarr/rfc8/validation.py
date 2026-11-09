@@ -26,7 +26,7 @@ from ..structural_validation import (
     ValidationLevel,
     is_rfc8_node_model,
 )
-from .model import RFC8_ID_PATTERN, Node, is_prefixed_identifier
+from .model import CORE_PATH_TYPES, RFC8_ID_PATTERN, Node, is_prefixed_identifier
 from .serialize import node_to_ome_dict
 
 #: The node types whose schema declares the ``nodes`` / ``path`` pair, and for
@@ -34,9 +34,6 @@ from .serialize import node_to_ome_dict
 #: types are exempt (open-world). Issue #714's multiscale stage adds
 #: ``"multiscale"`` here rather than introducing a new rule.
 XOR_NODE_TYPES = frozenset({"collection"})
-
-#: The unprefixed path types the core specification defines.
-CORE_PATH_TYPES = frozenset({"zarr", "json"})
 
 
 def _iter_nodes(

@@ -21,6 +21,7 @@
  */
 
 import {
+  CORE_PATH_TYPES,
   isPrefixedIdentifier,
   type OmeNode,
   RFC8_ID_PATTERN,
@@ -62,9 +63,6 @@ function pyReprValue(value: unknown): string {
  * `"multiscale"` here rather than introducing a new rule.
  */
 export const XOR_NODE_TYPES: ReadonlySet<string> = new Set(["collection"]);
-
-/** The unprefixed path types the core specification defines. */
-export const CORE_PATH_TYPES: ReadonlySet<string> = new Set(["zarr", "json"]);
 
 function* iterNodes(
   node: Record<string, unknown>,
