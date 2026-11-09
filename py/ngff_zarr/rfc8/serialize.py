@@ -6,9 +6,11 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Mapping
+from dataclasses import asdict
 from typing import Any
 
-from .model import Collection, Node, OmePath
+from ..to_ngff_zarr import _remove_none_values
+from .model import Collection, Node, OmePath, Reference
 
 #: The node keys this package models; everything else round-trips through
 #: ``Node.extra``. ``version`` is the root-only key handled by the (de)serializer.
@@ -40,6 +42,11 @@ def node_to_ome_dict(node: Node, *, version: str | None = None) -> dict[str, Any
     for key, value in node.extra.items():
         out[key] = copy.deepcopy(value)
     return out
+
+
+def reference_to_dict(reference: Reference) -> dict[str, Any]:
+    """Serialize a reference to its ``{id, path?}`` dict, omitting an absent path."""
+    return _remove_none_values(asdict(reference))
 
 
 def _require_str(value: Any, key: str, location: str) -> str:

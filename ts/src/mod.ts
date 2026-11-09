@@ -132,16 +132,13 @@ export {
 } from "./utils/rfc8_multiscale.ts";
 export {
   acquisition,
-  ACQUISITION_KEY,
   plate,
-  PLATE_KEY,
   type PlateAttribute,
   type PlateEntry,
   setAcquisition,
   setPlate,
   setWell,
   well,
-  WELL_KEY,
   type WellAttribute,
 } from "./utils/rfc8_plate.ts";
 export {

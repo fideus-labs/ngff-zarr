@@ -156,23 +156,17 @@ export function plate(node: OmeNode): PlateAttribute | undefined {
 }
 
 /** Write `value` into `node.attributes`, replacing the key. */
-export function setPlate(
-  node: OmeNode,
-  value: PlateAttribute | undefined,
-): void {
-  const attributes = { ...(node.attributes ?? {}) };
-  if (value === undefined) {
-    delete attributes[PLATE_KEY];
-  } else {
-    attributes[PLATE_KEY] = {
+export function setPlate(node: OmeNode, value: PlateAttribute): void {
+  node.attributes = {
+    ...(node.attributes ?? {}),
+    [PLATE_KEY]: {
       ...(value.acquisitions !== undefined && {
         acquisitions: value.acquisitions.map(entryToDict),
       }),
       columns: value.columns.map(entryToDict),
       rows: value.rows.map(entryToDict),
-    };
-  }
-  node.attributes = attributes;
+    },
+  };
 }
 
 /** The parsed `well` attribute of `node`, or `undefined`. */
@@ -194,20 +188,14 @@ export function well(node: OmeNode): WellAttribute | undefined {
 }
 
 /** Write `value` into `node.attributes`, replacing the key. */
-export function setWell(
-  node: OmeNode,
-  value: WellAttribute | undefined,
-): void {
-  const attributes = { ...(node.attributes ?? {}) };
-  if (value === undefined) {
-    delete attributes[WELL_KEY];
-  } else {
-    attributes[WELL_KEY] = {
+export function setWell(node: OmeNode, value: WellAttribute): void {
+  node.attributes = {
+    ...(node.attributes ?? {}),
+    [WELL_KEY]: {
       column: referenceToDict(value.column),
       row: referenceToDict(value.row),
-    };
-  }
-  node.attributes = attributes;
+    },
+  };
 }
 
 /** The parsed `acquisition` attribute of `node`, or `undefined`. */
@@ -220,15 +208,9 @@ export function acquisition(node: OmeNode): Reference | undefined {
 }
 
 /** Write `value` into `node.attributes`, replacing the key. */
-export function setAcquisition(
-  node: OmeNode,
-  value: Reference | undefined,
-): void {
-  const attributes = { ...(node.attributes ?? {}) };
-  if (value === undefined) {
-    delete attributes[ACQUISITION_KEY];
-  } else {
-    attributes[ACQUISITION_KEY] = referenceToDict(value);
-  }
-  node.attributes = attributes;
+export function setAcquisition(node: OmeNode, value: Reference): void {
+  node.attributes = {
+    ...(node.attributes ?? {}),
+    [ACQUISITION_KEY]: referenceToDict(value),
+  };
 }

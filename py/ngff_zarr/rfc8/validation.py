@@ -37,16 +37,28 @@ from .serialize import node_to_ome_dict
 XOR_NODE_TYPES = frozenset({"collection", "multiscale"})
 
 
-def _iter_nodes(
-    node: Mapping[str, Any], location: str
-) -> Iterator[tuple[str, Mapping[str, Any]]]:
-    """Yield ``(location, node_dict)`` over the tree, depth-first, root first."""
-    yield location, node
+def _walk_with_plate(
+    node: Mapping[str, Any],
+    location: str,
+    plate: Mapping[str, Any] | None,
+) -> Iterator[tuple[str, Mapping[str, Any], Mapping[str, Any] | None]]:
+    yield location, node, plate
+    attributes = node.get("attributes")
+    if isinstance(attributes, Mapping) and isinstance(attributes.get("plate"), Mapping):
+        plate = attributes["plate"]
     children = node.get("nodes")
     if isinstance(children, list):
         for index, child in enumerate(children):
             if isinstance(child, Mapping):
-                yield from _iter_nodes(child, f"{location}.nodes[{index}]")
+                yield from _walk_with_plate(child, f"{location}.nodes[{index}]", plate)
+
+
+def _iter_nodes(
+    node: Mapping[str, Any], location: str
+) -> Iterator[tuple[str, Mapping[str, Any]]]:
+    """Yield ``(location, node_dict)`` over the tree, depth-first, root first."""
+    for node_location, child, _ in _walk_with_plate(node, location, None):
+        yield node_location, child
 
 
 def _iter_coordinate_containers(
@@ -211,25 +223,7 @@ def _iter_nodes_with_plate(
     plate-level collection, so a node's own ``plate`` never answers for its
     own references.
     """
-
-    def _walk(
-        node: Mapping[str, Any],
-        location: str,
-        plate: Mapping[str, Any] | None,
-    ) -> Iterator[tuple[str, Mapping[str, Any], Mapping[str, Any] | None]]:
-        yield location, node, plate
-        attributes = node.get("attributes")
-        if isinstance(attributes, Mapping) and isinstance(
-            attributes.get("plate"), Mapping
-        ):
-            plate = attributes["plate"]
-        children = node.get("nodes")
-        if isinstance(children, list):
-            for index, child in enumerate(children):
-                if isinstance(child, Mapping):
-                    yield from _walk(child, f"{location}.nodes[{index}]", plate)
-
-    yield from _walk(document, "ome", None)
+    yield from _walk_with_plate(document, "ome", None)
 
 
 def _plate_entry_ids(plate: Mapping[str, Any], field: str) -> set[str]:
@@ -241,6 +235,36 @@ def _plate_entry_ids(plate: Mapping[str, Any], field: str) -> set[str]:
         for entry in entries
         if isinstance(entry, Mapping) and isinstance(entry.get("id"), str)
     }
+
+
+def _check_hcs_reference(
+    rule: SpecRule,
+    site: str,
+    reference: Any,
+    plate: Mapping[str, Any] | None,
+    plural: str,
+    subject: str,
+) -> None:
+    """Raise unless ``reference`` names an entry of the enclosing ``plate``."""
+    value = reference.get("id") if isinstance(reference, Mapping) else None
+    if not isinstance(value, str):
+        raise ValidationError(
+            rule, f"{subject} must be a reference with an 'id'.", site
+        )
+    if plate is None:
+        raise ValidationError(
+            rule,
+            f"{subject} references {value!r}, but no enclosing collection "
+            f"declares a 'plate'.",
+            site,
+        )
+    if value not in _plate_entry_ids(plate, plural):
+        raise ValidationError(
+            rule,
+            f"{subject} references {value!r}, which the enclosing plate's "
+            f"{plural!r} do not declare.",
+            site,
+        )
 
 
 def _iter_path_sites(
@@ -765,29 +789,14 @@ def validate_well_reference_resolves(document: Mapping[str, Any]) -> None:
                 f"{location}.attributes.well",
             )
         for field, plural in (("column", "columns"), ("row", "rows")):
-            reference = well.get(field)
-            site = f"{location}.attributes.well.{field}"
-            value = reference.get("id") if isinstance(reference, Mapping) else None
-            if not isinstance(value, str):
-                raise ValidationError(
-                    SpecRule.WELL_REFERENCE_RESOLVES,
-                    f"Well {field!r} must be a reference with an 'id'.",
-                    site,
-                )
-            if plate is None:
-                raise ValidationError(
-                    SpecRule.WELL_REFERENCE_RESOLVES,
-                    f"Well {field!r} references {value!r}, but no enclosing "
-                    f"collection declares a 'plate'.",
-                    site,
-                )
-            if value not in _plate_entry_ids(plate, plural):
-                raise ValidationError(
-                    SpecRule.WELL_REFERENCE_RESOLVES,
-                    f"Well {field!r} references {value!r}, which the "
-                    f"enclosing plate's {plural!r} do not declare.",
-                    site,
-                )
+            _check_hcs_reference(
+                SpecRule.WELL_REFERENCE_RESOLVES,
+                f"{location}.attributes.well.{field}",
+                well.get(field),
+                plate,
+                plural,
+                f"Well {field!r}",
+            )
 
 
 def validate_acquisition_reference_resolves(
@@ -812,28 +821,14 @@ def validate_acquisition_reference_resolves(
         reference = attributes.get("acquisition")
         if reference is None:
             continue
-        site = f"{location}.attributes.acquisition"
-        value = reference.get("id") if isinstance(reference, Mapping) else None
-        if not isinstance(value, str):
-            raise ValidationError(
-                SpecRule.ACQUISITION_REFERENCE_RESOLVES,
-                "Acquisition must be a reference with an 'id'.",
-                site,
-            )
-        if plate is None:
-            raise ValidationError(
-                SpecRule.ACQUISITION_REFERENCE_RESOLVES,
-                f"Acquisition references {value!r}, but no enclosing "
-                f"collection declares a 'plate'.",
-                site,
-            )
-        if value not in _plate_entry_ids(plate, "acquisitions"):
-            raise ValidationError(
-                SpecRule.ACQUISITION_REFERENCE_RESOLVES,
-                f"Acquisition references {value!r}, which the enclosing "
-                f"plate's 'acquisitions' do not declare.",
-                site,
-            )
+        _check_hcs_reference(
+            SpecRule.ACQUISITION_REFERENCE_RESOLVES,
+            f"{location}.attributes.acquisition",
+            reference,
+            plate,
+            "acquisitions",
+            "Acquisition",
+        )
 
 
 #: The RFC-8 rules in canonical evaluation order (the SpecRule declaration

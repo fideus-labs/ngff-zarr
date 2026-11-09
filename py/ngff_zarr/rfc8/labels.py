@@ -13,11 +13,11 @@ maps, and the two can live anywhere relative to each other.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any
 
-from ..to_ngff_zarr import _remove_none_values
 from .model import Node, OmePath, Reference
+from .serialize import reference_to_dict
 
 #: The RFC-8 attribute key this module owns.
 LABELS_KEY = "labels"
@@ -122,6 +122,6 @@ def set_labels(node: Node, value: Labels | None) -> None:
         ]
     if value.source is not None:
         serialized["source"] = [
-            _remove_none_values(asdict(reference)) for reference in value.source
+            reference_to_dict(reference) for reference in value.source
         ]
     node.attributes[LABELS_KEY] = serialized

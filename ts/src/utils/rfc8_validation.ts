@@ -67,18 +67,36 @@ export const XOR_NODE_TYPES: ReadonlySet<string> = new Set([
   "multiscale",
 ]);
 
-function* iterNodes(
+function* walkWithPlate(
   node: Record<string, unknown>,
   location: string,
-): Generator<[string, Record<string, unknown>]> {
-  yield [location, node];
+  plate: Record<string, unknown> | undefined,
+): Generator<
+  [string, Record<string, unknown>, Record<string, unknown> | undefined]
+> {
+  yield [location, node, plate];
+  const attributes = node.attributes;
+  if (isRecord(attributes) && isRecord(attributes.plate)) {
+    plate = attributes.plate;
+  }
   const children = node.nodes;
   if (Array.isArray(children)) {
     for (const [index, child] of children.entries()) {
       if (isRecord(child)) {
-        yield* iterNodes(child, `${location}.nodes[${index}]`);
+        yield* walkWithPlate(child, `${location}.nodes[${index}]`, plate);
       }
     }
+  }
+}
+
+function* iterNodes(
+  node: Record<string, unknown>,
+  location: string,
+): Generator<[string, Record<string, unknown>]> {
+  for (
+    const [nodeLocation, child] of walkWithPlate(node, location, undefined)
+  ) {
+    yield [nodeLocation, child];
   }
 }
 
@@ -264,28 +282,7 @@ function* iterNodesWithPlate(
 ): Generator<
   [string, Record<string, unknown>, Record<string, unknown> | undefined]
 > {
-  function* walk(
-    node: Record<string, unknown>,
-    location: string,
-    plate: Record<string, unknown> | undefined,
-  ): Generator<
-    [string, Record<string, unknown>, Record<string, unknown> | undefined]
-  > {
-    yield [location, node, plate];
-    const attributes = node.attributes;
-    if (isRecord(attributes) && isRecord(attributes.plate)) {
-      plate = attributes.plate;
-    }
-    const children = node.nodes;
-    if (Array.isArray(children)) {
-      for (const [index, child] of children.entries()) {
-        if (isRecord(child)) {
-          yield* walk(child, `${location}.nodes[${index}]`, plate);
-        }
-      }
-    }
-  }
-  yield* walk(document, "ome", undefined);
+  yield* walkWithPlate(document, "ome", undefined);
 }
 
 function plateEntryIds(
@@ -302,6 +299,41 @@ function plateEntryIds(
     }
   }
   return ids;
+}
+
+/** Throw unless `reference` names an entry of the enclosing `plate`. */
+function checkHcsReference(
+  rule: SpecRule,
+  site: string,
+  reference: unknown,
+  plate: Record<string, unknown> | undefined,
+  plural: string,
+  subject: string,
+): void {
+  const value = isRecord(reference) ? reference.id : undefined;
+  if (typeof value !== "string") {
+    throw new ValidationError(
+      rule,
+      `${subject} must be a reference with an 'id'.`,
+      site,
+    );
+  }
+  if (plate === undefined) {
+    throw new ValidationError(
+      rule,
+      `${subject} references ${pyRepr(value)}, but no enclosing ` +
+        `collection declares a 'plate'.`,
+      site,
+    );
+  }
+  if (!plateEntryIds(plate, plural).has(value)) {
+    throw new ValidationError(
+      rule,
+      `${subject} references ${pyRepr(value)}, which the enclosing ` +
+        `plate's ${pyRepr(plural)} do not declare.`,
+      site,
+    );
+  }
 }
 
 /**
@@ -827,32 +859,14 @@ export function validateWellReferenceResolves(
         ["row", "rows"],
       ] as const
     ) {
-      const reference = well[field];
-      const site = `${location}.attributes.well.${field}`;
-      const value = isRecord(reference) ? reference.id : undefined;
-      if (typeof value !== "string") {
-        throw new ValidationError(
-          SpecRule.WellReferenceResolves,
-          `Well ${pyRepr(field)} must be a reference with an 'id'.`,
-          site,
-        );
-      }
-      if (plate === undefined) {
-        throw new ValidationError(
-          SpecRule.WellReferenceResolves,
-          `Well ${pyRepr(field)} references ${pyRepr(value)}, but no ` +
-            `enclosing collection declares a 'plate'.`,
-          site,
-        );
-      }
-      if (!plateEntryIds(plate, plural).has(value)) {
-        throw new ValidationError(
-          SpecRule.WellReferenceResolves,
-          `Well ${pyRepr(field)} references ${pyRepr(value)}, which the ` +
-            `enclosing plate's ${pyRepr(plural)} do not declare.`,
-          site,
-        );
-      }
+      checkHcsReference(
+        SpecRule.WellReferenceResolves,
+        `${location}.attributes.well.${field}`,
+        well[field],
+        plate,
+        plural,
+        `Well ${pyRepr(field)}`,
+      );
     }
   }
 }
@@ -873,31 +887,14 @@ export function validateAcquisitionReferenceResolves(
     if (reference === undefined || reference === null) {
       continue;
     }
-    const site = `${location}.attributes.acquisition`;
-    const value = isRecord(reference) ? reference.id : undefined;
-    if (typeof value !== "string") {
-      throw new ValidationError(
-        SpecRule.AcquisitionReferenceResolves,
-        "Acquisition must be a reference with an 'id'.",
-        site,
-      );
-    }
-    if (plate === undefined) {
-      throw new ValidationError(
-        SpecRule.AcquisitionReferenceResolves,
-        `Acquisition references ${pyRepr(value)}, but no enclosing ` +
-          `collection declares a 'plate'.`,
-        site,
-      );
-    }
-    if (!plateEntryIds(plate, "acquisitions").has(value)) {
-      throw new ValidationError(
-        SpecRule.AcquisitionReferenceResolves,
-        `Acquisition references ${pyRepr(value)}, which the enclosing ` +
-          `plate's 'acquisitions' do not declare.`,
-        site,
-      );
-    }
+    checkHcsReference(
+      SpecRule.AcquisitionReferenceResolves,
+      `${location}.attributes.acquisition`,
+      reference,
+      plate,
+      "acquisitions",
+      "Acquisition",
+    );
   }
 }
 
