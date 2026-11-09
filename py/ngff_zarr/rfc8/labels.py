@@ -12,6 +12,7 @@ maps, and the two can live anywhere relative to each other.
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -83,7 +84,7 @@ def labels(node: Node) -> Labels | None:
     if raw.get("labelAttributes") is not None:
         label_attributes = []
         for entry in raw["labelAttributes"]:
-            entry = dict(entry)
+            entry = copy.deepcopy(dict(entry))
             label_attributes.append(
                 LabelAttributes(
                     labelValue=entry.pop("labelValue", None),
@@ -114,7 +115,7 @@ def set_labels(node: Node, value: Labels | None) -> None:
             # Extra keys first: the typed fields stay authoritative when an
             # extra entry collides with one of them.
             {
-                **entry.extra,
+                **copy.deepcopy(entry.extra),
                 "labelValue": entry.labelValue,
                 **({"color": list(entry.color)} if entry.color is not None else {}),
             }
