@@ -17,8 +17,9 @@ as parsed on the identifier; dereferencing them is the concern of
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from dataclasses import asdict
 
+from ..to_ngff_zarr import _remove_none_values
 from ..v06.zarr_metadata import Metadata as _MetadataV06
 from ..v09.zarr_metadata import (
     Axis,
@@ -28,27 +29,6 @@ from ..v09.zarr_metadata import (
 )
 from .model import Node
 
-#: The two RFC-8 attribute keys this module owns.
-COORDINATE_SYSTEMS_KEY = "coordinateSystems"
-COORDINATE_TRANSFORMATIONS_KEY = "coordinateTransformations"
-
-
-def _without_none(value: Any) -> Any:
-    """Drop ``None`` entries recursively, as the multiscales writer does.
-
-    Applied only to dicts built from the model classes here, never to opaque
-    extension attributes, whose ``None`` values are legal JSON nulls.
-    """
-    if isinstance(value, dict):
-        return {
-            key: _without_none(entry)
-            for key, entry in value.items()
-            if entry is not None
-        }
-    if isinstance(value, list):
-        return [_without_none(entry) for entry in value]
-    return value
-
 
 def coordinate_systems(node: Node) -> list[CoordinateSystem]:
     """The coordinate systems declared in ``node.attributes``.
@@ -56,7 +36,7 @@ def coordinate_systems(node: Node) -> list[CoordinateSystem]:
     RFC-8 makes a system's ``name`` optional (the required ``id`` carries the
     identity), so ``name`` may come back ``None``.
     """
-    raw = (node.attributes or {}).get(COORDINATE_SYSTEMS_KEY, [])
+    raw = (node.attributes or {}).get("coordinateSystems", [])
     systems = []
     for entry in raw:
         axes = [Axis(**_filter_axis_dict(axis)) for axis in entry["axes"]]
@@ -68,20 +48,19 @@ def coordinate_systems(node: Node) -> list[CoordinateSystem]:
 
 def set_coordinate_systems(node: Node, systems: Sequence[CoordinateSystem]) -> None:
     """Write ``systems`` into ``node.attributes``, replacing the key."""
-    from dataclasses import asdict
-
-    serialized = []
-    for system in systems:
-        entry: dict[str, Any] = {}
-        if system.id is not None:
-            entry["id"] = system.id
-        if system.name is not None:
-            entry["name"] = system.name
-        entry["axes"] = [_without_none(asdict(axis)) for axis in system.axes]
-        serialized.append(entry)
+    serialized = [
+        _remove_none_values(
+            {
+                "id": system.id,
+                "name": system.name,
+                "axes": [asdict(axis) for axis in system.axes],
+            }
+        )
+        for system in systems
+    ]
     if node.attributes is None:
         node.attributes = {}
-    node.attributes[COORDINATE_SYSTEMS_KEY] = serialized
+    node.attributes["coordinateSystems"] = serialized
 
 
 def coordinate_transformations(
@@ -95,7 +74,7 @@ def coordinate_transformations(
     resolve against; they default to the ones declared on ``node`` itself.
     Identifiers keep the RFC-8 ``id`` alongside any RFC-5 ``name``/``path``.
     """
-    raw = (node.attributes or {}).get(COORDINATE_TRANSFORMATIONS_KEY, [])
+    raw = (node.attributes or {}).get("coordinateTransformations", [])
     if not raw:
         return []
     resolved = list(systems) if systems is not None else coordinate_systems(node)
@@ -106,7 +85,9 @@ def set_coordinate_transformations(
     node: Node, transformations: Sequence[Transform]
 ) -> None:
     """Write ``transformations`` into ``node.attributes``, replacing the key."""
-    serialized = [_without_none(transform.to_dict()) for transform in transformations]
+    serialized = [
+        _remove_none_values(transform.to_dict()) for transform in transformations
+    ]
     if node.attributes is None:
         node.attributes = {}
-    node.attributes[COORDINATE_TRANSFORMATIONS_KEY] = serialized
+    node.attributes["coordinateTransformations"] = serialized

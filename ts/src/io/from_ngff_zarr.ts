@@ -17,12 +17,7 @@ import {
   detectVersion,
   extractMethodMetadata,
 } from "../utils/parse_metadata.ts";
-import {
-  distributedSinglescaleTransforms,
-  multiscalesEntryFromOme,
-} from "../utils/rfc8_multiscale.ts";
-import { validateCollection } from "../utils/rfc8_validation.ts";
-import { OmeNodeDocumentSchema } from "../schemas/rfc8.ts";
+import { dev3MultiscaleAsDev1 } from "../utils/rfc8_multiscale.ts";
 import { zarrGet } from "../utils/worker_pool.ts";
 
 export type { ChunkCache } from "../utils/worker_pool.ts";
@@ -140,32 +135,11 @@ export async function fromOmeZarr(
       (rootAttrs.ome as Record<string, unknown>).version ===
         NgffVersion.V09dev3
     ) {
-      const omeValue = rootAttrs.ome as Record<string, unknown>;
-      if (omeValue.type !== "multiscale") {
-        throw new Error(
-          `The input is an OME-Zarr 0.9.dev3 store whose root is a ` +
-            `'${omeValue.type}' node. 0.9.dev3 stores the RFC-8 node model ` +
-            `in place of the multiscales metadata; use fromCollectionZarr() ` +
-            `to read it. fromOmeZarr() reads multiscale image stores.`,
-        );
-      }
-      if (validate) {
-        const declared = typeof omeValue.version === "string"
-          ? omeValue.version
-          : undefined;
-        validateCollection(omeValue, declared);
-        OmeNodeDocumentSchema.parse(omeValue);
-      }
-      const singlescale = await distributedSinglescaleTransforms(
-        omeValue,
+      const convertedOme = await dev3MultiscaleAsDev1(
+        rootAttrs.ome as Record<string, unknown>,
         resolvedStore as zarr.Readable,
+        validate,
       );
-      const { entry, omero } = multiscalesEntryFromOme(omeValue, singlescale);
-      const convertedOme: Record<string, unknown> = {
-        version: NgffVersion.V09dev1,
-        multiscales: [entry],
-        ...(omero !== undefined && { omero }),
-      };
       rootAttrs = { ...rootAttrs, ome: convertedOme };
       multiscalesSource = convertedOme;
       isDev2Multiscale = true;

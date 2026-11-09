@@ -24,8 +24,6 @@ import posixpath
 import re
 from typing import Any
 
-from .model import RFC8_ID_PATTERN
-
 _INVALID_ID_CHARS = re.compile(r"[^a-zA-Z0-9\-_.]")
 
 
@@ -123,8 +121,6 @@ def multiscale_ome_dict(entry: dict, version: str) -> dict[str, Any]:
     attributes.update(entry)
 
     ome: dict[str, Any] = {"version": version, "type": "multiscale"}
-    if RFC8_ID_PATTERN.match(name) and name not in used_ids:
-        ome["id"] = name
     ome["name"] = name
     ome["nodes"] = nodes
     ome["attributes"] = attributes
@@ -133,9 +129,7 @@ def multiscale_ome_dict(entry: dict, version: str) -> dict[str, Any]:
 
 def _dataset_path_from(node: dict) -> str:
     """The dataset path a singlescale node's zarr path designates."""
-    path = node.get("path", {}).get("path", "")
-    normalized = posixpath.normpath(path)
-    return normalized[2:] if normalized.startswith("./") else normalized
+    return posixpath.normpath(node.get("path", {}).get("path", ""))
 
 
 def _reference_to_names(

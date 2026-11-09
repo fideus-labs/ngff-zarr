@@ -12,11 +12,11 @@ maps, and the two can live anywhere relative to each other.
 
 from __future__ import annotations
 
-import copy
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from ..to_ngff_zarr import _remove_none_values
 from .model import Node, OmePath, Reference
 
 #: The RFC-8 attribute key this module owns.
@@ -88,7 +88,7 @@ def labels(node: Node) -> Labels | None:
                 LabelAttributes(
                     labelValue=entry.pop("labelValue", None),
                     color=entry.pop("color", None),
-                    extra=copy.deepcopy(entry),
+                    extra=entry,
                 )
             )
     source = None
@@ -114,7 +114,7 @@ def set_labels(node: Node, value: Labels | None) -> None:
             # Extra keys first: the typed fields stay authoritative when an
             # extra entry collides with one of them.
             {
-                **copy.deepcopy(entry.extra),
+                **entry.extra,
                 "labelValue": entry.labelValue,
                 **({"color": list(entry.color)} if entry.color is not None else {}),
             }
@@ -122,19 +122,6 @@ def set_labels(node: Node, value: Labels | None) -> None:
         ]
     if value.source is not None:
         serialized["source"] = [
-            {
-                "id": reference.id,
-                **(
-                    {
-                        "path": {
-                            "type": reference.path.type,
-                            "path": reference.path.path,
-                        }
-                    }
-                    if reference.path is not None
-                    else {}
-                ),
-            }
-            for reference in value.source
+            _remove_none_values(asdict(reference)) for reference in value.source
         ]
     node.attributes[LABELS_KEY] = serialized

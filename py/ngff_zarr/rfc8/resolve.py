@@ -24,7 +24,7 @@ from urllib.parse import urljoin, urlparse
 from urllib.request import url2pathname, urlopen
 
 from .._remote_reader import remote_read_available
-from .model import PATH_TYPE_JSON, PATH_TYPE_ZARR, OmePath
+from .model import CORE_PATH_TYPES, PATH_TYPE_ZARR, OmePath
 
 _HTTP_SCHEMES = ("http://", "https://")
 
@@ -116,7 +116,7 @@ def resolve_ome_document(
     group's attribute mapping or the JSON file's root object. A prefixed
     extension path type is opaque to this package and reported as such.
     """
-    if path.type not in (PATH_TYPE_ZARR, PATH_TYPE_JSON):
+    if path.type not in CORE_PATH_TYPES:
         raise ValueError(
             f"Path type {path.type!r} is not resolvable by ngff-zarr; only "
             f"'zarr' and 'json' paths are. A prefixed extension type is "

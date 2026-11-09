@@ -132,7 +132,7 @@ function isUrl(s: string): boolean {
  * relative path absolute against the cwd; genuinely equivalent forms that
  * differ in those respects still fall back to the never-mutating copy path.
  */
-function normalizeLocalPath(p: string): string {
+export function normalizeLocalPath(p: string): string {
   const isAbsolute = p.startsWith("/");
   const stack: string[] = [];
   for (const seg of p.split("/")) {
