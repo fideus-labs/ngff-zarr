@@ -163,6 +163,38 @@ Deno.test("typed reference paths survive scene parsing", () => {
   });
 });
 
+Deno.test("wrapped transformation references survive scene parsing", () => {
+  // A wrapped step may reference a system declared in a member document.
+  const step = { path: "./tile_0.zarr", name: "intermediate" };
+  const transformations = [
+    {
+      type: "sequence",
+      input: { path: "./tile_0.zarr", name: "physical" },
+      output: { path: "./atlas.zarr", name: "world" },
+      transformations: [
+        { type: "translation", output: step, translation: [0.0, 100.0] },
+        {
+          type: "bijection",
+          forward: {
+            type: "translation",
+            input: step,
+            translation: [1.0, 0.0],
+          },
+          inverse: { type: "translation", translation: [-1.0, 0.0] },
+        },
+      ],
+    },
+  ];
+  const parsed = sceneFromOmeValue(
+    { coordinateTransformations: transformations },
+    "0.6",
+  );
+  assertEquals(
+    sceneToOmeValue(parsed, "0.6").coordinateTransformations,
+    transformations,
+  );
+});
+
 Deno.test("id-only references refuse the 0.6 scene shape", () => {
   const tiles = sceneFromOmeValue({
     coordinateTransformations: [

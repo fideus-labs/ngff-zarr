@@ -21,6 +21,7 @@ from ngff_zarr.v09.zarr_metadata import (
     Affine,
     Axis,
     CoordinateSystem,
+    TransformSequence,
     Translation,
 )
 from ngff_zarr.v09.zarr_metadata import (
@@ -154,6 +155,31 @@ def test_bijection_scene_transform_round_trips():
     parsed = scene(collection)
     assert parsed.coordinateTransformations[0].input.path == "JRC2018F"
     assert parsed.coordinateTransformations[0].forward.type == "affine"
+
+
+def test_wrapped_transform_references_round_trip(tmp_path):
+    # A wrapped step may reference a system declared in a member document.
+    step = Identifier(name="intermediate", path="./tile_0.zarr")
+    value = Scene(
+        coordinateTransformations=[
+            TransformSequence(
+                transformations=[
+                    Translation(translation=[0.0, 100.0], output=step),
+                    Bijection(
+                        forward=Translation(translation=[1.0, 0.0], input=step),
+                        inverse=Translation(translation=[-1.0, 0.0]),
+                    ),
+                ],
+                input=Identifier(name="physical", path="./tile_0.zarr"),
+                output=Identifier(name="world", path="./atlas.zarr"),
+            )
+        ]
+    )
+    store = tmp_path / "scene.ome.zarr"
+    write_scene(store, value, version="0.6")
+    sequence = read_scene(store).coordinateTransformations[0]
+    assert sequence.transformations[0].output == step
+    assert sequence.transformations[1].forward.input == step
 
 
 def test_id_only_references_refuse_the_0_6_shape(tmp_path):

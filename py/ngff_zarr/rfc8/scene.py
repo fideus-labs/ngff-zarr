@@ -23,12 +23,14 @@ from typing import Any
 
 from .._store_types import StoreLike
 from ..to_ngff_zarr import _remove_none_values
+from ..v06.zarr_metadata import Bijection, ByDimension
 from ..v06.zarr_metadata import Metadata as _MetadataV06
 from ..v09.zarr_metadata import (
     Axis,
     CoordinateSystem,
     CoordinateSystemIdentifier,
     Transform,
+    TransformSequence,
     _filter_axis_dict,
 )
 from .model import Node
@@ -66,6 +68,30 @@ def _identifier_from(raw: Any) -> CoordinateSystemIdentifier | None:
     )
 
 
+def _restore_references(parsed: Transform, raw: Any) -> None:
+    """Restore the references of ``parsed`` and of the transforms it wraps.
+
+    The wrapped parser resolves names against the declared systems and drops
+    the rest; a scene keeps them verbatim at every nesting level.
+    """
+    if not isinstance(raw, Mapping):
+        return
+    parsed.input = _identifier_from(raw.get("input"))
+    parsed.output = _identifier_from(raw.get("output"))
+    children: list[tuple[Transform, Any]] = []
+    if isinstance(parsed, TransformSequence):
+        children = list(zip(parsed.transformations, raw["transformations"]))
+    elif isinstance(parsed, Bijection):
+        children = [(parsed.forward, raw["forward"]), (parsed.inverse, raw["inverse"])]
+    elif isinstance(parsed, ByDimension):
+        children = [
+            (item.transformation, raw_item["transformation"])
+            for item, raw_item in zip(parsed.transformations, raw["transformations"])
+        ]
+    for child, raw_child in children:
+        _restore_references(child, raw_child)
+
+
 def _parse_scene(raw: Mapping[str, Any], version: str | None) -> Scene:
     systems = None
     if raw.get("coordinateSystems") is not None:
@@ -79,12 +105,8 @@ def _parse_scene(raw: Mapping[str, Any], version: str | None) -> Scene:
         ]
     raw_transforms = raw.get("coordinateTransformations") or []
     transforms = _MetadataV06._parse_transforms(raw_transforms, systems or [], version)
-    # Restore the references verbatim: the wrapped parser resolves names
-    # against the declared systems and drops the rest.
     for parsed, entry in zip(transforms, raw_transforms):
-        if isinstance(entry, Mapping):
-            parsed.input = _identifier_from(entry.get("input"))
-            parsed.output = _identifier_from(entry.get("output"))
+        _restore_references(parsed, entry)
     return Scene(coordinateTransformations=transforms, coordinateSystems=systems)
 
 
