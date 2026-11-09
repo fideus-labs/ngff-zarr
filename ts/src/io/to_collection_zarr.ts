@@ -14,11 +14,17 @@ import type * as zarr from "zarrita";
 import type { NgffCollection, OmeNode } from "../types/rfc8.ts";
 import {
   toCollectionJsonDocument,
-  type ToCollectionJsonOptions,
+  type ToCollectionJsonOptions as ToCollectionJsonDocumentOptions,
   type ToCollectionOptions,
   writeCollectionRoot,
 } from "./collection_common.ts";
 import type { MemoryStore } from "./from_ngff_zarr.ts";
+
+export interface ToCollectionJsonOptions
+  extends ToCollectionJsonDocumentOptions {
+  /** Also write the document to this local file path. */
+  path?: string;
+}
 
 async function resolveWriteStore(
   store: string | MemoryStore,
@@ -62,7 +68,7 @@ export async function toCollectionZarr(
  */
 export async function toCollectionJson(
   collection: NgffCollection | OmeNode,
-  options: ToCollectionJsonOptions & { path?: string } = {},
+  options: ToCollectionJsonOptions = {},
 ): Promise<Record<string, unknown>> {
   const document = toCollectionJsonDocument(collection, options);
   if (options.path !== undefined) {
