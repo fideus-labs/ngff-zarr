@@ -64,7 +64,7 @@ export function labels(node: OmeNode): Labels | undefined {
   if (Array.isArray(raw.labelAttributes)) {
     result.labelAttributes = raw.labelAttributes.filter(isRecord).map(
       (entry) => {
-        const { labelValue, color, ...extra } = entry;
+        const { labelValue, color, ...extra } = structuredClone(entry);
         return {
           labelValue: labelValue as number,
           ...(color !== undefined && { color: color as number[] }),
