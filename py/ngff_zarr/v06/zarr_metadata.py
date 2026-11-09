@@ -139,6 +139,29 @@ def _resolved_axis_count(
     return None if identifier is None else identifier.axis_count(coordinateSystems)
 
 
+def _identifier_from(
+    raw: object, coordinate_system_names: list
+) -> CoordinateSystemIdentifier | None:
+    """The identifier a transform's ``input``/``output`` dict declares.
+
+    A name resolves an RFC-5 reference, so it is kept only when a declared
+    system carries it; on an RFC-8 reference the id is the identity and the
+    name is a label, kept as given.
+    """
+    if not isinstance(raw, dict):
+        return None
+    identifier = CoordinateSystemIdentifier()
+    if "name" in raw and (
+        raw["name"] in coordinate_system_names or isinstance(raw.get("id"), str)
+    ):
+        identifier.name = raw["name"]
+    if "path" in raw:
+        identifier.path = raw["path"]
+    if isinstance(raw.get("id"), str):
+        identifier.id = raw["id"]
+    return identifier
+
+
 def _require_keys(data: dict, keys: tuple[str, ...], context: str) -> None:
     """Reject a transformation payload that omits a required field."""
     missing = [key for key in keys if key not in data]
@@ -1114,43 +1137,12 @@ class Metadata:
             # because coordinate system may not exist for multiscale transforms
             # where input is a dataset path
             coordinate_system_names = [cs.name for cs in coordinateSystems]
-            tf_input = transform.get("input", None)
-            tf_output = transform.get("output", None)
-
-            input = None
-            output = None
-            if isinstance(tf_input, dict):
-                input = CoordinateSystemIdentifier()
-                # A name resolves an RFC-5 reference, so it is kept only when a
-                # declared system carries it; on an RFC-8 reference the id is the
-                # identity and the name is a label, kept as given.
-                if "name" in tf_input and (
-                    tf_input["name"] in coordinate_system_names
-                    or isinstance(tf_input.get("id"), str)
-                ):
-                    input.name = tf_input["name"]
-                if "path" in tf_input:
-                    input.path = tf_input["path"]
-                if isinstance(tf_input.get("id"), str):
-                    input.id = tf_input["id"]
-
-            if isinstance(tf_output, dict):
-                output = CoordinateSystemIdentifier()
-                # A name resolves an RFC-5 reference, so it is kept only when a
-                # declared system carries it; on an RFC-8 reference the id is the
-                # identity and the name is a label, kept as given.
-                if "name" in tf_output and (
-                    tf_output["name"] in coordinate_system_names
-                    or isinstance(tf_output.get("id"), str)
-                ):
-                    output.name = tf_output["name"]
-                if "path" in tf_output:
-                    output.path = tf_output["path"]
-                if isinstance(tf_output.get("id"), str):
-                    output.id = tf_output["id"]
-
-            transformation.input = input
-            transformation.output = output
+            transformation.input = _identifier_from(
+                transform.get("input", None), coordinate_system_names
+            )
+            transformation.output = _identifier_from(
+                transform.get("output", None), coordinate_system_names
+            )
             # The wrapper branches above construct their transform from the
             # payload fields alone, so the optional name is restored here for
             # every type.

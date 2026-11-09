@@ -145,37 +145,45 @@ function* iterPathSites(
 }
 
 /**
- * Every id in the document: declared sites (node ids and coordinate-system
- * ids, which share the document-wide uniqueness namespace) and reference
- * sites (which reuse a declared id and are checked for format only).
+ * Every declared id in the document: node ids and coordinate-system ids,
+ * which share the document-wide uniqueness namespace.
  */
-function* iterIdSites(
+function* iterDeclaredIdSites(
   document: Record<string, unknown>,
-): Generator<[string, unknown, boolean]> {
+): Generator<[string, unknown]> {
   for (const [location, node] of iterNodes(document, "ome")) {
     if (node.id !== undefined && node.id !== null) {
-      yield [`${location}.id`, node.id, true];
+      yield [`${location}.id`, node.id];
     }
   }
   for (const [location, system] of iterCoordinateSystems(document)) {
     if (system.id !== undefined && system.id !== null) {
-      yield [`${location}.id`, system.id, true];
+      yield [`${location}.id`, system.id];
     }
   }
+}
+
+/**
+ * Every reference id in the document, which reuses a declared id and is
+ * checked for format only.
+ */
+function* iterReferenceIdSites(
+  document: Record<string, unknown>,
+): Generator<[string, unknown]> {
   for (const [location, reference] of iterTransformReferenceSites(document)) {
     if (
       isRecord(reference) && reference.id !== undefined &&
       reference.id !== null
     ) {
-      yield [`${location}.id`, reference.id, false];
+      yield [`${location}.id`, reference.id];
     }
   }
 }
 
 function declaredIds(document: Record<string, unknown>): Set<string> {
   const declared = new Set<string>();
-  for (const [, value, isDeclared] of iterIdSites(document)) {
-    if (isDeclared && typeof value === "string") {
+  for (const [, value] of iterDeclaredIdSites(document)) {
+    if (typeof value === "string") {
       declared.add(value);
     }
   }
@@ -257,7 +265,12 @@ export function validateNodeNameUnique(
 export function validateNodeIdFormat(
   document: Record<string, unknown>,
 ): void {
-  for (const [location, value] of iterIdSites(document)) {
+  for (
+    const [location, value] of [
+      ...iterDeclaredIdSites(document),
+      ...iterReferenceIdSites(document),
+    ]
+  ) {
     if (typeof value !== "string" || !RFC8_ID_PATTERN.test(value)) {
       throw new ValidationError(
         SpecRule.NodeIdFormat,
@@ -277,8 +290,8 @@ export function validateNodeIdUnique(
   document: Record<string, unknown>,
 ): void {
   const seen = new Set<string>();
-  for (const [location, value, declared] of iterIdSites(document)) {
-    if (!declared || typeof value !== "string") {
+  for (const [location, value] of iterDeclaredIdSites(document)) {
+    if (typeof value !== "string") {
       continue;
     }
     if (seen.has(value)) {
