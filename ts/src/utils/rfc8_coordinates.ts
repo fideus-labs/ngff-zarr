@@ -21,10 +21,6 @@ import type {
 import type { OmeNode } from "../types/rfc8.ts";
 import { parseV06Transforms, serializeV06Transform } from "./v06_metadata.ts";
 
-/** The two RFC-8 attribute keys this module owns. */
-export const COORDINATE_SYSTEMS_KEY = "coordinateSystems";
-export const COORDINATE_TRANSFORMATIONS_KEY = "coordinateTransformations";
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -37,7 +33,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * `undefined`-like -- on the parsed object.
  */
 export function coordinateSystems(node: OmeNode): CoordinateSystem[] {
-  const raw = node.attributes?.[COORDINATE_SYSTEMS_KEY];
+  const raw = node.attributes?.coordinateSystems;
   if (!Array.isArray(raw)) {
     return [];
   }
@@ -66,7 +62,7 @@ export function setCoordinateSystems(
   }));
   node.attributes = {
     ...(node.attributes ?? {}),
-    [COORDINATE_SYSTEMS_KEY]: serialized,
+    coordinateSystems: serialized,
   };
 }
 
@@ -82,16 +78,14 @@ export function coordinateTransformations(
   systems?: CoordinateSystem[],
   version: string | undefined = "0.9.dev3",
 ): V06Transform[] {
-  const raw = node.attributes?.[COORDINATE_TRANSFORMATIONS_KEY];
+  const raw = node.attributes?.coordinateTransformations;
   if (!Array.isArray(raw) || raw.length === 0) {
     return [];
   }
   const resolved = systems ?? coordinateSystems(node);
   return parseV06Transforms(
     raw,
-    resolved.map((cs) => cs.name).filter((name): name is string =>
-      name !== undefined
-    ),
+    resolved.map((cs) => cs.name),
     resolved,
     version,
   );
@@ -104,7 +98,7 @@ export function setCoordinateTransformations(
 ): void {
   node.attributes = {
     ...(node.attributes ?? {}),
-    [COORDINATE_TRANSFORMATIONS_KEY]: transformations.map((transform) =>
+    coordinateTransformations: transformations.map((transform) =>
       serializeV06Transform(transform)
     ),
   };

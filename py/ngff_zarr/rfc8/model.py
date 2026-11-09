@@ -36,6 +36,9 @@ PATH_TYPE_ZARR = "zarr"
 #: metadata document itself.
 PATH_TYPE_JSON = "json"
 
+#: The unprefixed path types the core specification defines.
+CORE_PATH_TYPES = frozenset({PATH_TYPE_ZARR, PATH_TYPE_JSON})
+
 
 def is_prefixed_identifier(value: str) -> bool:
     """Whether ``value`` is a prefixed extension identifier (``prefix:name``).

@@ -11,19 +11,23 @@
  * {@link CollectionIo}.
  */
 
+import * as zarr from "zarrita";
+
 import type { NgffMultiscales } from "../types/multiscales.ts";
 import { OmeNodeDocumentSchema } from "../schemas/rfc8.ts";
 import { validateCollection } from "../utils/rfc8_validation.ts";
 import {
+  CORE_PATH_TYPES,
   isCollectionNode,
   NgffCollection,
   type OmeNode,
   type OmePath,
-  PATH_TYPE_JSON,
   PATH_TYPE_ZARR,
   type Reference,
 } from "../types/rfc8.ts";
 import { NgffVersion } from "../types/supported_versions.ts";
+import type { MemoryStore } from "./rfc9_zip.ts";
+import { normalizeLocalPath } from "./upgrade_ome_zarr_common.ts";
 
 /**
  * The node keys this package models; everything else round-trips through
@@ -199,37 +203,8 @@ export function nodeFromOmeDict(
 
 const HTTP_SCHEMES = ["http://", "https://"];
 
-function isHttp(location: string): boolean {
+export function isHttp(location: string): boolean {
   return HTTP_SCHEMES.some((scheme) => location.startsWith(scheme));
-}
-
-function joinLocalPath(base: string, relative: string): string {
-  const segments = [...base.split("/"), ...relative.split("/")];
-  const out: string[] = [];
-  for (const [index, segment] of segments.entries()) {
-    if (segment === "" && index > 0) {
-      continue;
-    }
-    if (segment === ".") {
-      continue;
-    }
-    if (segment === "..") {
-      const last = out[out.length - 1];
-      if (out.length === 1 && out[0] === "") {
-        // The filesystem root has no parent.
-        continue;
-      }
-      if (out.length > 0 && last !== "..") {
-        out.pop();
-      } else {
-        // A relative base cannot absorb the traversal; keep it.
-        out.push("..");
-      }
-      continue;
-    }
-    out.push(segment);
-  }
-  return out.join("/");
 }
 
 /**
@@ -258,7 +233,7 @@ export function resolveLocation(path: OmePath, base?: string): string {
   if (isHttp(base)) {
     return new URL(location, `${base.replace(/\/+$/, "")}/`).href;
   }
-  return joinLocalPath(base, location);
+  return normalizeLocalPath(`${base}/${location}`);
 }
 
 /**
@@ -288,14 +263,29 @@ export function documentBase(path: OmePath, location: string): string {
 
 /** The environment-specific access a collection loader needs. */
 export interface CollectionIo {
-  /** Root group attributes of the Zarr store at `location`, or undefined. */
-  readZarrAttrs(
-    location: string,
-  ): Promise<Record<string, unknown> | undefined>;
+  /** The readable store a local path, http(s) URL or store object designates. */
+  resolveReadStore(
+    store: string | MemoryStore | zarr.Readable,
+  ): zarr.Readable | Promise<zarr.Readable>;
   /** The parsed JSON document at `location`. */
   readJsonDocument(location: string): Promise<unknown>;
   /** A multiscales image store at `location`, via the OME-Zarr reader. */
   readImage(location: string): Promise<NgffMultiscales>;
+}
+
+/** Root group attributes of the Zarr store at `location`, or undefined. */
+async function readZarrAttrs(
+  location: string,
+  io: CollectionIo,
+): Promise<Record<string, unknown> | undefined> {
+  try {
+    const root = await zarr.open(await io.resolveReadStore(location), {
+      kind: "group",
+    });
+    return root.attrs as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -305,12 +295,12 @@ export interface CollectionIo {
  * attribute mapping or the JSON file's root object. A prefixed extension
  * path type is opaque to this package and reported as such.
  */
-export async function resolveOmeDocument(
+async function resolveOmeDocument(
   path: OmePath,
   base: string | undefined,
   io: CollectionIo,
 ): Promise<{ location: string; document: Record<string, unknown> }> {
-  if (path.type !== PATH_TYPE_ZARR && path.type !== PATH_TYPE_JSON) {
+  if (!CORE_PATH_TYPES.has(path.type)) {
     throw new Error(
       `Path type '${path.type}' is not resolvable by ngff-zarr; only ` +
         `'zarr' and 'json' paths are. A prefixed extension type is opaque ` +
@@ -319,7 +309,7 @@ export async function resolveOmeDocument(
   }
   const location = resolveLocation(path, base);
   if (path.type === PATH_TYPE_ZARR) {
-    const document = await io.readZarrAttrs(location);
+    const document = await readZarrAttrs(location, io);
     if (document === undefined) {
       throw new Error(
         `No Zarr group with attributes found at '${location}' (resolved ` +
@@ -478,7 +468,7 @@ export async function loadCollectionNodeWith(
  * The `ome` node document in `attrs`, or a pointed error naming the reader
  * that fits what the input actually is.
  */
-export function nodeDocumentOrThrow(
+function nodeDocumentOrThrow(
   attrs: Record<string, unknown>,
   where: string,
 ): Record<string, unknown> {
@@ -501,18 +491,27 @@ export function nodeDocumentOrThrow(
 }
 
 /** Root attribute keys the OME-Zarr writers own, across every version. */
-export const OME_ROOT_KEYS: ReadonlySet<string> = new Set([
+const OME_ROOT_KEYS: ReadonlySet<string> = new Set([
   "multiscales",
   "omero",
   "ome",
 ]);
+
+/** Run the RFC-8 structural rules, then the node schema, on a raw document. */
+function validateNodeDocument(ome: Record<string, unknown>): void {
+  validateCollection(
+    ome,
+    typeof ome.version === "string" ? ome.version : undefined,
+  );
+  OmeNodeDocumentSchema.parse(ome);
+}
 
 /**
  * Parse the root attributes of a collection store: the node document under
  * `ome` plus the non-OME root attribute keys. With `validate` the raw
  * document runs the RFC-8 structural rules, then the node schema.
  */
-export function parseCollectionRootAttrs(
+function parseCollectionRootAttrs(
   attrs: Record<string, unknown>,
   where: string,
   validate: boolean,
@@ -523,9 +522,7 @@ export function parseCollectionRootAttrs(
 } {
   const ome = nodeDocumentOrThrow(attrs, where);
   if (validate) {
-    const declared = typeof ome.version === "string" ? ome.version : undefined;
-    validateCollection(ome, declared);
-    OmeNodeDocumentSchema.parse(ome);
+    validateNodeDocument(ome);
   }
   const rootAttributes = Object.fromEntries(
     Object.entries(attrs).filter(([key]) => !OME_ROOT_KEYS.has(key)),
@@ -541,7 +538,7 @@ export function parseCollectionRootAttrs(
  * key. With `validate` the raw document runs the RFC-8 structural rules,
  * then the node schema.
  */
-export function parseCollectionJsonDocument(
+function parseCollectionJsonDocument(
   document: unknown,
   where: string,
   validate: boolean,
@@ -551,31 +548,158 @@ export function parseCollectionJsonDocument(
   }
   const ome = nodeDocumentOrThrow(document, where);
   if (validate) {
-    const declared = typeof ome.version === "string" ? ome.version : undefined;
-    validateCollection(ome, declared);
-    OmeNodeDocumentSchema.parse(ome);
+    validateNodeDocument(ome);
   }
   return nodeFromOmeDict(ome);
 }
 
-/** Reject a collection write at any version but 0.9.dev3. */
-export function checkCollectionVersion(version: string): string {
-  if (version !== NgffVersion.V09dev3) {
-    throw new Error(
-      `Unsupported version for an RFC-8 node document: '${version}'. Only ` +
-        `'0.9.dev3' stores the node model.`,
-    );
+export interface FromCollectionOptions {
+  /** Run the RFC-8 structural rules and schema against the raw document. */
+  validate?: boolean;
+}
+
+/**
+ * Read an RFC-8 node document from a Zarr store's root group.
+ *
+ * The store is a local directory path, an http(s) URL, or a key-to-bytes
+ * store whose root group attributes carry the document under `ome`. The
+ * root may be any node type; a collection is typical. The returned
+ * collection's resolution base is the store, so relative paths in the
+ * document dereference from it.
+ */
+export async function fromCollectionZarrWith(
+  store: string | MemoryStore | zarr.Readable,
+  options: FromCollectionOptions,
+  io: CollectionIo,
+): Promise<NgffCollection> {
+  const base = typeof store === "string"
+    ? store.replace(/\/+$/, "")
+    : undefined;
+  const root = await zarr.open(await io.resolveReadStore(store), {
+    kind: "group",
+  });
+  const { node, version, rootAttributes } = parseCollectionRootAttrs(
+    root.attrs as Record<string, unknown>,
+    `'${store}'`,
+    options.validate ?? false,
+  );
+  return new NgffCollection({ root: node, base, version, rootAttributes });
+}
+
+/**
+ * Read an RFC-8 node document from standalone JSON.
+ *
+ * `source` is the path or http(s) URL of a JSON file whose root object
+ * carries the document under `ome`, or such a parsed object itself. For an
+ * in-memory object the collection has no resolution base, so its relative
+ * paths cannot be dereferenced.
+ */
+export async function fromCollectionJsonWith(
+  source: string | Record<string, unknown>,
+  options: FromCollectionOptions,
+  io: CollectionIo,
+): Promise<NgffCollection> {
+  let document: unknown;
+  let base: string | undefined;
+  let where: string;
+  if (typeof source === "string") {
+    document = await io.readJsonDocument(source);
+    where = `'${source}'`;
+    if (isHttp(source)) {
+      base = new URL(".", source).href.replace(/\/+$/, "");
+    } else {
+      const separator = source.lastIndexOf("/");
+      base = separator <= 0 ? "." : source.slice(0, separator);
+    }
+  } else {
+    document = source;
+    where = "the given object";
   }
-  return version;
+  const { node, version } = parseCollectionJsonDocument(
+    document,
+    where,
+    options.validate ?? false,
+  );
+  return new NgffCollection({ root: node, base, version });
+}
+
+export interface ToCollectionOptions {
+  /** Run the RFC-8 structural rules on the outgoing document. */
+  validate?: boolean;
+  /** Root attribute keys written beside the OME key. */
+  rootAttributes?: Record<string, unknown> | undefined;
+}
+
+export interface ToCollectionJsonOptions {
+  /** Run the RFC-8 structural rules on the outgoing document. */
+  validate?: boolean;
 }
 
 /**
  * Serialize an RFC-8 node document to its standalone JSON form,
- * `{"ome": ...}`.
+ * `{"ome": ...}`, stamped `0.9.dev3` (the only version that stores the node
+ * model) and validated unless opted out.
  */
 export function toCollectionJsonDocument(
-  root: OmeNode,
-  version: string,
+  collection: NgffCollection | OmeNode,
+  options: ToCollectionJsonOptions = {},
 ): Record<string, unknown> {
-  return { ome: nodeToOmeDict(root, checkCollectionVersion(version)) };
+  const root = collection instanceof NgffCollection
+    ? collection.root
+    : collection;
+  if (options.validate ?? true) {
+    validateCollection(nodeToOmeDict(root), NgffVersion.V09dev3);
+  }
+  return { ome: nodeToOmeDict(root, NgffVersion.V09dev3) };
+}
+
+/**
+ * Write an RFC-8 node document as the root group of a resolved store.
+ *
+ * Writes metadata only: a Zarr format 3 group whose `attributes.ome` is the
+ * serialized document. Unlike `toOmeZarr` nothing beneath the root is ever
+ * removed, so a collection root can hold the very stores its document
+ * references. Non-OME attributes of an existing root survive;
+ * `rootAttributes` (or, when omitted, the collection's own
+ * `rootAttributes`) are written over them, and the OME key over both.
+ */
+export async function writeCollectionRoot(
+  store: MemoryStore | zarr.Readable,
+  collection: NgffCollection | OmeNode,
+  options: ToCollectionOptions = {},
+): Promise<void> {
+  const { ome } = toCollectionJsonDocument(collection, options);
+  const rootAttributes = options.rootAttributes ??
+    (collection instanceof NgffCollection
+      ? collection.rootAttributes
+      : undefined);
+  const owned = Object.keys(rootAttributes ?? {}).filter((key) =>
+    OME_ROOT_KEYS.has(key)
+  );
+  if (owned.length > 0) {
+    throw new Error(
+      `rootAttributes cannot set ${JSON.stringify(owned.sort())}: the ` +
+        `writer derives the OME metadata from the collection.`,
+    );
+  }
+  const attributes: Record<string, unknown> = {};
+  try {
+    const existing = await zarr.open(store as zarr.Readable, {
+      kind: "group",
+    });
+    for (
+      const [key, value] of Object.entries(
+        existing.attrs as Record<string, unknown>,
+      )
+    ) {
+      if (!OME_ROOT_KEYS.has(key)) {
+        attributes[key] = value;
+      }
+    }
+  } catch {
+    // No existing root group: nothing to preserve.
+  }
+  Object.assign(attributes, rootAttributes ?? {});
+  attributes.ome = ome;
+  await zarr.create(zarr.root(store as MemoryStore), { attributes });
 }

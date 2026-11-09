@@ -11,19 +11,17 @@
 
 import * as zarr from "zarrita";
 
-import { NgffCollection, type OmeNode, type Reference } from "../types/rfc8.ts";
+import type { NgffCollection, OmeNode, Reference } from "../types/rfc8.ts";
 import {
   type CollectionIo,
-  loadCollectionNodeWith as loadWithIo,
+  fromCollectionJsonWith,
+  type FromCollectionOptions,
+  fromCollectionZarrWith,
+  isHttp,
+  loadCollectionNodeWith,
   type LoadedNode,
-  parseCollectionJsonDocument,
-  parseCollectionRootAttrs,
 } from "./collection_common.ts";
 import { fromOmeZarr, type MemoryStore } from "./from_ngff_zarr-browser.ts";
-
-function isHttp(location: string): boolean {
-  return location.startsWith("http://") || location.startsWith("https://");
-}
 
 function resolveReadStore(
   store: string | MemoryStore | zarr.Readable,
@@ -55,83 +53,42 @@ async function readJsonDocument(location: string): Promise<unknown> {
 }
 
 /** The browser environment access for the collection loader. */
-export const browserCollectionIo: CollectionIo = {
-  readZarrAttrs: async (location) => {
-    try {
-      const root = await zarr.open(resolveReadStore(location), {
-        kind: "group",
-      });
-      return root.attrs as Record<string, unknown>;
-    } catch {
-      return undefined;
-    }
-  },
+const browserCollectionIo: CollectionIo = {
+  resolveReadStore,
   readJsonDocument,
   readImage: (location) => fromOmeZarr(location),
 };
 
-export interface FromCollectionOptions {
-  /** Run the RFC-8 structural rules and schema against the raw document. */
-  validate?: boolean;
-}
-
 /**
- * Read an RFC-8 node document from a Zarr store's root group. See the
- * Node.js/Deno `fromCollectionZarr` for the semantics; this variant reads
- * http(s) URLs and in-memory stores only.
+ * Read an RFC-8 node document from a Zarr store's root group: an http(s)
+ * URL or an in-memory store.
  */
-export async function fromCollectionZarr(
+export function fromCollectionZarr(
   store: string | MemoryStore | zarr.Readable,
   options: FromCollectionOptions = {},
 ): Promise<NgffCollection> {
-  const base = typeof store === "string"
-    ? store.replace(/\/+$/, "")
-    : undefined;
-  const root = await zarr.open(resolveReadStore(store), { kind: "group" });
-  const attrs = root.attrs as Record<string, unknown>;
-  const { node, version, rootAttributes } = parseCollectionRootAttrs(
-    attrs,
-    `'${store}'`,
-    options.validate ?? false,
-  );
-  return new NgffCollection({ root: node, base, version, rootAttributes });
+  return fromCollectionZarrWith(store, options, browserCollectionIo);
 }
 
 /**
  * Read an RFC-8 node document from standalone JSON: an http(s) URL or an
  * already-parsed object.
  */
-export async function fromCollectionJson(
+export function fromCollectionJson(
   source: string | Record<string, unknown>,
   options: FromCollectionOptions = {},
 ): Promise<NgffCollection> {
-  let document: unknown;
-  let base: string | undefined;
-  let where: string;
-  if (typeof source === "string") {
-    document = await readJsonDocument(source);
-    where = `'${source}'`;
-    base = new URL(".", source).href.replace(/\/+$/, "");
-  } else {
-    document = source;
-    where = "the given object";
-  }
-  const { node, version } = parseCollectionJsonDocument(
-    document,
-    where,
-    options.validate ?? false,
-  );
-  return new NgffCollection({ root: node, base, version });
+  return fromCollectionJsonWith(source, options, browserCollectionIo);
 }
 
 /**
  * Materialize what `target` designates within `collection`, dereferencing
- * its path over fetch. See `loadCollectionNode` in `collection_common.ts`
- * for the dispatch rules.
+ * its path over fetch. See `loadCollectionNodeWith` in
+ * `collection_common.ts` for the dispatch rules.
  */
 export function loadCollectionNode(
   collection: NgffCollection,
   target: OmeNode | Reference | string,
 ): Promise<LoadedNode> {
-  return loadWithIo(collection, target, browserCollectionIo);
+  return loadCollectionNodeWith(collection, target, browserCollectionIo);
 }
