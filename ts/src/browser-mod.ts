@@ -19,25 +19,19 @@ export {
   type MemoryStore,
 } from "./io/from_ngff_zarr-browser.ts";
 export {
-  browserCollectionIo,
   fromCollectionJson,
   fromCollectionZarr,
   loadCollectionNode,
 } from "./io/from_collection_zarr-browser.ts";
-export type { FromCollectionOptions } from "./io/from_collection_zarr-browser.ts";
 export {
-  documentBase,
-  nodeDocumentOrThrow,
+  type FromCollectionOptions,
+  type LoadedNode,
   nodeFromOmeDict,
   nodeToOmeDict,
-  OME_ROOT_KEYS,
-  parseCollectionJsonDocument,
-  parseCollectionRootAttrs,
   resolveLocation,
-  resolveOmeDocument,
-  toCollectionJsonDocument,
+  type ToCollectionJsonOptions,
+  type ToCollectionOptions,
 } from "./io/collection_common.ts";
-export type { CollectionIo, LoadedNode } from "./io/collection_common.ts";
 // ITK-Wasm conversion utilities
 export {
   itkImageToNgffImage,
@@ -89,10 +83,6 @@ export {
 export {
   toCollectionJson,
   toCollectionZarr,
-} from "./io/to_collection_zarr-browser.ts";
-export type {
-  ToCollectionJsonOptions,
-  ToCollectionOptions,
 } from "./io/to_collection_zarr-browser.ts";
 // upgradeOmeZarr: spec-version upgrade (in-place metadata rewrite or
 // write-to-new-store). In the browser only MemoryStore inputs/outputs are
@@ -164,8 +154,6 @@ export {
 } from "./utils/factory.ts";
 export { getMethodMetadata } from "./utils/method_metadata.ts";
 export {
-  COORDINATE_SYSTEMS_KEY,
-  COORDINATE_TRANSFORMATIONS_KEY,
   coordinateSystems,
   coordinateTransformations,
   setCoordinateSystems,
@@ -183,23 +171,7 @@ export {
   multiscaleOmeDict,
   multiscalesEntryFromOme,
 } from "./utils/rfc8_multiscale.ts";
-export {
-  CORE_PATH_TYPES,
-  validateCollection,
-  validateCoordinateSystemIdRequired,
-  validateLabelColorFormat,
-  validateLabelValueRequired,
-  validateNodeIdFormat,
-  validateNodeIdUnique,
-  validateNodeNameRequired,
-  validateNodeNameUnique,
-  validateNodeNodesXorPath,
-  validateNodeTypeRequired,
-  validatePathTypeKnown,
-  validateReferenceIdRequired,
-  validateReferencePathRequired,
-  XOR_NODE_TYPES,
-} from "./utils/rfc8_validation.ts";
+export { validateCollection } from "./utils/rfc8_validation.ts";
 export {
   SpecRule,
   type ValidateOptions,

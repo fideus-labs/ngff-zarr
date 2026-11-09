@@ -15,7 +15,7 @@ import numpy as np
 from itkwasm import array_like_to_numpy_array
 
 from ._store_types import StoreLike
-from ._supported_versions import V06_ONDISK_VERSION, NgffVersion
+from ._supported_versions import V06_ONDISK_VERSION, V09_DEV_SERIES, NgffVersion
 from ._zarrista_utils import (
     OME_ROOT_KEYS,
     _ZarristaArrayAdapter,
@@ -427,11 +427,7 @@ def _gate_top_level_transforms(source, metadata, version: str) -> None:
             f"OME-Zarr {version}, which would drop them silently. Write with "
             "version='0.6', or remove them."
         )
-    if not transforms or version not in (
-        "0.6",
-        NgffVersion.V09dev1.value,
-        NgffVersion.V09dev3.value,
-    ):
+    if not transforms or version not in ("0.6", *V09_DEV_SERIES):
         return
     from .v06.zarr_metadata import validate_transform
 

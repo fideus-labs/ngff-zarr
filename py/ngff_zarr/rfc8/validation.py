@@ -17,6 +17,7 @@ JSON-schema pass's concern; the walker skips what it cannot traverse.
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
+from itertools import chain
 from typing import Any
 
 from ..structural_validation import (
@@ -26,7 +27,7 @@ from ..structural_validation import (
     ValidationLevel,
     is_rfc8_node_model,
 )
-from .model import RFC8_ID_PATTERN, Node, is_prefixed_identifier
+from .model import CORE_PATH_TYPES, RFC8_ID_PATTERN, Node, is_prefixed_identifier
 from .serialize import node_to_ome_dict
 
 #: The node types whose schema declares the ``nodes`` / ``path`` pair, and for
@@ -34,9 +35,6 @@ from .serialize import node_to_ome_dict
 #: types are exempt (open-world), and so is ``singlescale``: its ``path`` is
 #: optional and it declares no ``nodes``.
 XOR_NODE_TYPES = frozenset({"collection", "multiscale"})
-
-#: The unprefixed path types the core specification defines.
-CORE_PATH_TYPES = frozenset({"zarr", "json"})
 
 
 def _iter_nodes(
@@ -160,24 +158,28 @@ def _iter_path_sites(
             yield f"{location}.path", reference.get("path")
 
 
-def _iter_id_sites(
+def _iter_declared_id_sites(
     document: Mapping[str, Any],
-) -> Iterator[tuple[str, Any, bool]]:
-    """Yield ``(location, value, declared)`` for every id in the document.
-
-    Declared sites are node ids and coordinate-system ids, which share the
-    document-wide uniqueness namespace; reference sites reuse a declared id
-    and are checked for format only.
+) -> Iterator[tuple[str, Any]]:
+    """Yield ``(location, value)`` for every declared id: node ids and
+    coordinate-system ids, which share the document-wide uniqueness namespace.
     """
     for location, node in _iter_nodes(document, "ome"):
         if node.get("id") is not None:
-            yield f"{location}.id", node.get("id"), True
+            yield f"{location}.id", node.get("id")
     for location, system in _iter_coordinate_systems(document):
         if system.get("id") is not None:
-            yield f"{location}.id", system.get("id"), True
+            yield f"{location}.id", system.get("id")
+
+
+def _iter_reference_id_sites(
+    document: Mapping[str, Any],
+) -> Iterator[tuple[str, Any]]:
+    """Yield ``(location, value)`` for every reference id, which reuses a
+    declared id and is checked for format only."""
     for location, reference in _iter_reference_sites(document):
         if isinstance(reference, Mapping) and reference.get("id") is not None:
-            yield f"{location}.id", reference.get("id"), False
+            yield f"{location}.id", reference.get("id")
 
 
 def _declared_multiscale_ids(document: Mapping[str, Any]) -> set[str]:
@@ -197,8 +199,8 @@ def _declared_ids(document: Mapping[str, Any]) -> set[str]:
     """The node and coordinate-system ids declared in the document."""
     return {
         value
-        for _, value, declared in _iter_id_sites(document)
-        if declared and isinstance(value, str)
+        for _, value in _iter_declared_id_sites(document)
+        if isinstance(value, str)
     }
 
 
@@ -289,7 +291,9 @@ def validate_node_id_format(document: Mapping[str, Any]) -> None:
         referenced ``id``, in depth-first order, that is not a match;
         location e.g. ``ome.nodes[0].id``.
     """
-    for location, value, _ in _iter_id_sites(document):
+    for location, value in chain(
+        _iter_declared_id_sites(document), _iter_reference_id_sites(document)
+    ):
         if not isinstance(value, str) or not RFC8_ID_PATTERN.match(value):
             raise ValidationError(
                 SpecRule.NODE_ID_FORMAT,
@@ -313,8 +317,8 @@ def validate_node_id_unique(document: Mapping[str, Any]) -> None:
         one; location e.g. ``ome.nodes[3].id``.
     """
     seen: set[str] = set()
-    for location, value, declared in _iter_id_sites(document):
-        if not declared or not isinstance(value, str):
+    for location, value in _iter_declared_id_sites(document):
+        if not isinstance(value, str):
             continue
         if value in seen:
             raise ValidationError(
