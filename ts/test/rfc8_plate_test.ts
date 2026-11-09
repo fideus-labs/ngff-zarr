@@ -61,11 +61,11 @@ Deno.test("plate attributes round-trip", () => {
   const image = wellNode.nodes![0];
   assertEquals(acquisition(image), { id: "acq_0" });
 
-  setAcquisition(image, undefined);
+  delete image.attributes!.acquisition;
   assertEquals(acquisition(image), undefined);
-  setWell(wellNode, undefined);
+  delete wellNode.attributes!.well;
   assertEquals(well(wellNode), undefined);
-  setPlate(root, undefined);
+  delete root.attributes!.plate;
   assertEquals(plate(root), undefined);
 });
 
@@ -77,7 +77,7 @@ Deno.test("the tall layout validates", () => {
   const root = widePlate();
   const wellNode = root.nodes![0];
   const image = wellNode.nodes![0];
-  setAcquisition(image, undefined);
+  delete image.attributes!.acquisition;
   const sub: OmeNode = { type: "collection", name: "A01_acq0", nodes: [image] };
   setAcquisition(sub, { id: "acq_0" });
   wellNode.nodes = [sub];

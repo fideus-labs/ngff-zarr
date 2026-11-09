@@ -19,8 +19,8 @@ import {
   toCollectionZarr,
   toOmeZarr,
 } from "../src/mod.ts";
-import { buildRootAttributes } from "../src/io/to_ngff_zarr_ozx_common.ts";
 import { documentBase, resolveLocation } from "../src/io/collection_common.ts";
+import { buildRootAttributes } from "../src/io/to_ngff_zarr_ozx_common.ts";
 import type { ImageVersion } from "../src/types/supported_versions.ts";
 import type { MemoryStore } from "../src/io/from_ngff_zarr.ts";
 
@@ -72,15 +72,6 @@ Deno.test("memory-store round trip with root attributes", async () => {
   assertEquals(collection.version, "0.9.dev3");
   assertEquals(collection.rootAttributes, { lab: "fideus" });
   assertEquals(collection.base, undefined);
-});
-
-Deno.test("collection writer accepts only 0.9.dev3", async () => {
-  await assertRejects(
-    () =>
-      toCollectionZarr(new Map(), studyCollection(), { version: "0.9.dev1" }),
-    Error,
-    "0.9.dev3",
-  );
 });
 
 Deno.test("collection writer validates by default", async () => {

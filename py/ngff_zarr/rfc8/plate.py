@@ -16,10 +16,11 @@ references, consistent with the rest of RFC-8.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any
 
-from .model import Node, OmePath, Reference
+from .model import Collection, Node, OmePath, Reference
+from .serialize import reference_to_dict
 
 #: The RFC-8 attribute keys this module owns.
 PLATE_KEY = "plate"
@@ -73,10 +74,7 @@ def _entry_from(value: Any) -> PlateEntry:
 
 
 def _entry_to_dict(entry: PlateEntry) -> dict[str, Any]:
-    serialized: dict[str, Any] = {"id": entry.id}
-    if entry.name is not None:
-        serialized["name"] = entry.name
-    return serialized
+    return {key: value for key, value in asdict(entry).items() if value is not None}
 
 
 def _reference_from(value: Any) -> Reference:
@@ -101,16 +99,6 @@ def _reference_from(value: Any) -> Reference:
     )
 
 
-def _reference_to_dict(reference: Reference) -> dict[str, Any]:
-    serialized: dict[str, Any] = {"id": reference.id}
-    if reference.path is not None:
-        serialized["path"] = {
-            "type": reference.path.type,
-            "path": reference.path.path,
-        }
-    return serialized
-
-
 def plate(node: Node) -> PlateAttribute | None:
     """The parsed ``plate`` attribute of ``node``, or ``None``."""
     attributes = node.attributes or {}
@@ -133,13 +121,10 @@ def plate(node: Node) -> PlateAttribute | None:
     )
 
 
-def set_plate(node: Node, value: PlateAttribute | None) -> None:
+def set_plate(node: Node, value: PlateAttribute) -> None:
     """Write ``value`` into ``node.attributes``, replacing the key."""
     if node.attributes is None:
         node.attributes = {}
-    if value is None:
-        node.attributes.pop(PLATE_KEY, None)
-        return
     serialized: dict[str, Any] = {}
     if value.acquisitions is not None:
         serialized["acquisitions"] = [
@@ -164,16 +149,13 @@ def well(node: Node) -> WellAttribute | None:
     )
 
 
-def set_well(node: Node, value: WellAttribute | None) -> None:
+def set_well(node: Node, value: WellAttribute) -> None:
     """Write ``value`` into ``node.attributes``, replacing the key."""
     if node.attributes is None:
         node.attributes = {}
-    if value is None:
-        node.attributes.pop(WELL_KEY, None)
-        return
     node.attributes[WELL_KEY] = {
-        "column": _reference_to_dict(value.column),
-        "row": _reference_to_dict(value.row),
+        "column": reference_to_dict(value.column),
+        "row": reference_to_dict(value.row),
     }
 
 
@@ -185,14 +167,11 @@ def acquisition(node: Node) -> Reference | None:
     return _reference_from(raw)
 
 
-def set_acquisition(node: Node, value: Reference | None) -> None:
+def set_acquisition(node: Node, value: Reference) -> None:
     """Write ``value`` into ``node.attributes``, replacing the key."""
     if node.attributes is None:
         node.attributes = {}
-    if value is None:
-        node.attributes.pop(ACQUISITION_KEY, None)
-        return
-    node.attributes[ACQUISITION_KEY] = _reference_to_dict(value)
+    node.attributes[ACQUISITION_KEY] = reference_to_dict(value)
 
 
 def plate_collection_from_hcs(hcs_plate: Any) -> Node:
@@ -225,8 +204,6 @@ def plate_collection_from_hcs(hcs_plate: Any) -> Node:
         acquisitions=acquisitions,
     )
 
-    from .model import Collection
-
     wells: list[Node] = []
     for well_meta in metadata.wells or []:
         row_name, column_name = well_meta.path.split("/")
@@ -239,7 +216,7 @@ def plate_collection_from_hcs(hcs_plate: Any) -> Node:
             ),
         )
         hcs_well = hcs_plate.get_well(row_name, column_name)
-        for image in (hcs_well.metadata.images if hcs_well else []) or []:
+        for image in hcs_well.metadata.images or [] if hcs_well else []:
             image_node = Node(
                 type="multiscale",
                 name=f"{well_meta.path}/{image.path}",

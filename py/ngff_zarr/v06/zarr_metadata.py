@@ -33,6 +33,7 @@ from .._store_types import StoreLike
 from .._supported_versions import (
     V06_ONDISK_VERSION,
     V06_SUPERSEDED_TAGS,
+    V09_DEV_SERIES,
     NgffVersion,
 )
 from ..rfc4 import AnatomicalOrientation, axes_orientations_from_axes
@@ -137,6 +138,29 @@ def _resolved_axis_count(
     coordinateSystems: list[CoordinateSystem] | None,
 ) -> int | None:
     return None if identifier is None else identifier.axis_count(coordinateSystems)
+
+
+def _identifier_from(
+    raw: object, coordinate_system_names: list
+) -> CoordinateSystemIdentifier | None:
+    """The identifier a transform's ``input``/``output`` dict declares.
+
+    A name resolves an RFC-5 reference, so it is kept only when a declared
+    system carries it; on an RFC-8 reference the id is the identity and the
+    name is a label, kept as given.
+    """
+    if not isinstance(raw, dict):
+        return None
+    identifier = CoordinateSystemIdentifier()
+    if "name" in raw and (
+        raw["name"] in coordinate_system_names or isinstance(raw.get("id"), str)
+    ):
+        identifier.name = raw["name"]
+    if "path" in raw:
+        identifier.path = raw["path"]
+    if isinstance(raw.get("id"), str):
+        identifier.id = raw["id"]
+    return identifier
 
 
 def _require_keys(data: dict, keys: tuple[str, ...], context: str) -> None:
@@ -718,7 +742,7 @@ class Metadata:
             return self._to_v05()
         if version == NgffVersion.V06:
             return self
-        if version in (NgffVersion.V09dev1, NgffVersion.V09dev3):
+        if version in V09_DEV_SERIES:
             from ..v09.zarr_metadata import Metadata as Metadata_v09
 
             return Metadata_v09.from_version(self)
@@ -1118,43 +1142,12 @@ class Metadata:
             # because coordinate system may not exist for multiscale transforms
             # where input is a dataset path
             coordinate_system_names = [cs.name for cs in coordinateSystems]
-            tf_input = transform.get("input", None)
-            tf_output = transform.get("output", None)
-
-            input = None
-            output = None
-            if isinstance(tf_input, dict):
-                input = CoordinateSystemIdentifier()
-                # A name resolves an RFC-5 reference, so it is kept only when a
-                # declared system carries it; on an RFC-8 reference the id is the
-                # identity and the name is a label, kept as given.
-                if "name" in tf_input and (
-                    tf_input["name"] in coordinate_system_names
-                    or isinstance(tf_input.get("id"), str)
-                ):
-                    input.name = tf_input["name"]
-                if "path" in tf_input:
-                    input.path = tf_input["path"]
-                if isinstance(tf_input.get("id"), str):
-                    input.id = tf_input["id"]
-
-            if isinstance(tf_output, dict):
-                output = CoordinateSystemIdentifier()
-                # A name resolves an RFC-5 reference, so it is kept only when a
-                # declared system carries it; on an RFC-8 reference the id is the
-                # identity and the name is a label, kept as given.
-                if "name" in tf_output and (
-                    tf_output["name"] in coordinate_system_names
-                    or isinstance(tf_output.get("id"), str)
-                ):
-                    output.name = tf_output["name"]
-                if "path" in tf_output:
-                    output.path = tf_output["path"]
-                if isinstance(tf_output.get("id"), str):
-                    output.id = tf_output["id"]
-
-            transformation.input = input
-            transformation.output = output
+            transformation.input = _identifier_from(
+                transform.get("input", None), coordinate_system_names
+            )
+            transformation.output = _identifier_from(
+                transform.get("output", None), coordinate_system_names
+            )
             # The wrapper branches above construct their transform from the
             # payload fields alone, so the optional name is restored here for
             # every type.

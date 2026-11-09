@@ -21,6 +21,7 @@
  */
 
 import {
+  CORE_PATH_TYPES,
   isPrefixedIdentifier,
   type OmeNode,
   RFC8_ID_PATTERN,
@@ -66,21 +67,36 @@ export const XOR_NODE_TYPES: ReadonlySet<string> = new Set([
   "multiscale",
 ]);
 
-/** The unprefixed path types the core specification defines. */
-export const CORE_PATH_TYPES: ReadonlySet<string> = new Set(["zarr", "json"]);
+function* walkWithPlate(
+  node: Record<string, unknown>,
+  location: string,
+  plate: Record<string, unknown> | undefined,
+): Generator<
+  [string, Record<string, unknown>, Record<string, unknown> | undefined]
+> {
+  yield [location, node, plate];
+  const attributes = node.attributes;
+  if (isRecord(attributes) && isRecord(attributes.plate)) {
+    plate = attributes.plate;
+  }
+  const children = node.nodes;
+  if (Array.isArray(children)) {
+    for (const [index, child] of children.entries()) {
+      if (isRecord(child)) {
+        yield* walkWithPlate(child, `${location}.nodes[${index}]`, plate);
+      }
+    }
+  }
+}
 
 function* iterNodes(
   node: Record<string, unknown>,
   location: string,
 ): Generator<[string, Record<string, unknown>]> {
-  yield [location, node];
-  const children = node.nodes;
-  if (Array.isArray(children)) {
-    for (const [index, child] of children.entries()) {
-      if (isRecord(child)) {
-        yield* iterNodes(child, `${location}.nodes[${index}]`);
-      }
-    }
+  for (
+    const [nodeLocation, child] of walkWithPlate(node, location, undefined)
+  ) {
+    yield [nodeLocation, child];
   }
 }
 
@@ -141,18 +157,23 @@ function* iterTransformReferenceSites(
   }
 }
 
+/** Each node's `labels` attribute object, with its location. */
+function* iterLabels(
+  document: Record<string, unknown>,
+): Generator<[string, Record<string, unknown>]> {
+  for (const [location, node] of iterNodes(document, "ome")) {
+    const attributes = node.attributes;
+    const labels = isRecord(attributes) ? attributes.labels : undefined;
+    if (isRecord(labels)) {
+      yield [`${location}.attributes.labels`, labels];
+    }
+  }
+}
+
 function* iterLabelEntries(
   document: Record<string, unknown>,
 ): Generator<[string, unknown]> {
-  for (const [location, node] of iterNodes(document, "ome")) {
-    const attributes = node.attributes;
-    if (!isRecord(attributes)) {
-      continue;
-    }
-    const labels = attributes.labels;
-    if (!isRecord(labels)) {
-      continue;
-    }
+  for (const [location, labels] of iterLabels(document)) {
     const entries = labels.labelAttributes;
     if (!Array.isArray(entries)) {
       continue;
@@ -160,10 +181,7 @@ function* iterLabelEntries(
     // Non-object entries are yielded too: the value rule rejects them, so
     // a `null` or string entry cannot slip past validation.
     for (const [index, entry] of entries.entries()) {
-      yield [
-        `${location}.attributes.labels.labelAttributes[${index}]`,
-        entry,
-      ];
+      yield [`${location}.labelAttributes[${index}]`, entry];
     }
   }
 }
@@ -171,21 +189,13 @@ function* iterLabelEntries(
 function* iterLabelSourceSites(
   document: Record<string, unknown>,
 ): Generator<[string, unknown]> {
-  for (const [location, node] of iterNodes(document, "ome")) {
-    const attributes = node.attributes;
-    if (!isRecord(attributes)) {
-      continue;
-    }
-    const labels = attributes.labels;
-    if (!isRecord(labels)) {
-      continue;
-    }
+  for (const [location, labels] of iterLabels(document)) {
     const sources = labels.source;
     if (!Array.isArray(sources)) {
       continue;
     }
     for (const [index, source] of sources.entries()) {
-      yield [`${location}.attributes.labels.source[${index}]`, source];
+      yield [`${location}.source[${index}]`, source];
     }
   }
 }
@@ -272,28 +282,7 @@ function* iterNodesWithPlate(
 ): Generator<
   [string, Record<string, unknown>, Record<string, unknown> | undefined]
 > {
-  function* walk(
-    node: Record<string, unknown>,
-    location: string,
-    plate: Record<string, unknown> | undefined,
-  ): Generator<
-    [string, Record<string, unknown>, Record<string, unknown> | undefined]
-  > {
-    yield [location, node, plate];
-    const attributes = node.attributes;
-    if (isRecord(attributes) && isRecord(attributes.plate)) {
-      plate = attributes.plate;
-    }
-    const children = node.nodes;
-    if (Array.isArray(children)) {
-      for (const [index, child] of children.entries()) {
-        if (isRecord(child)) {
-          yield* walk(child, `${location}.nodes[${index}]`, plate);
-        }
-      }
-    }
-  }
-  yield* walk(document, "ome", undefined);
+  yield* walkWithPlate(document, "ome", undefined);
 }
 
 function plateEntryIds(
@@ -310,6 +299,41 @@ function plateEntryIds(
     }
   }
   return ids;
+}
+
+/** Throw unless `reference` names an entry of the enclosing `plate`. */
+function checkHcsReference(
+  rule: SpecRule,
+  site: string,
+  reference: unknown,
+  plate: Record<string, unknown> | undefined,
+  plural: string,
+  subject: string,
+): void {
+  const value = isRecord(reference) ? reference.id : undefined;
+  if (typeof value !== "string") {
+    throw new ValidationError(
+      rule,
+      `${subject} must be a reference with an 'id'.`,
+      site,
+    );
+  }
+  if (plate === undefined) {
+    throw new ValidationError(
+      rule,
+      `${subject} references ${pyRepr(value)}, but no enclosing ` +
+        `collection declares a 'plate'.`,
+      site,
+    );
+  }
+  if (!plateEntryIds(plate, plural).has(value)) {
+    throw new ValidationError(
+      rule,
+      `${subject} references ${pyRepr(value)}, which the enclosing ` +
+        `plate's ${pyRepr(plural)} do not declare.`,
+      site,
+    );
+  }
 }
 
 /**
@@ -331,35 +355,43 @@ function* iterPathSites(
 }
 
 /**
- * Every id in the document: declared sites (node ids and coordinate-system
- * ids, which share the document-wide uniqueness namespace) and reference
- * sites (which reuse a declared id and are checked for format only).
+ * Every declared id in the document: node ids and coordinate-system ids,
+ * which share the document-wide uniqueness namespace.
  */
-function* iterIdSites(
+function* iterDeclaredIdSites(
   document: Record<string, unknown>,
-): Generator<[string, unknown, boolean]> {
+): Generator<[string, unknown]> {
   for (const [location, node] of iterNodes(document, "ome")) {
     if (node.id !== undefined && node.id !== null) {
-      yield [`${location}.id`, node.id, true];
+      yield [`${location}.id`, node.id];
     }
   }
   for (const [location, system] of iterCoordinateSystems(document)) {
     if (system.id !== undefined && system.id !== null) {
-      yield [`${location}.id`, system.id, true];
+      yield [`${location}.id`, system.id];
     }
   }
   // Every plate entry is yielded, id present or not: RFC-8 requires an id
   // on each acquisition, column and row, so a missing one must fail the
   // format rule rather than escape the walk.
   for (const [location, entry] of iterPlateEntries(document)) {
-    yield [`${location}.id`, isRecord(entry) ? entry.id : undefined, true];
+    yield [`${location}.id`, isRecord(entry) ? entry.id : undefined];
   }
+}
+
+/**
+ * Every reference id in the document, which reuses a declared id and is
+ * checked for format only.
+ */
+function* iterReferenceIdSites(
+  document: Record<string, unknown>,
+): Generator<[string, unknown]> {
   for (const [location, reference] of iterReferenceSites(document)) {
     if (
       isRecord(reference) && reference.id !== undefined &&
       reference.id !== null
     ) {
-      yield [`${location}.id`, reference.id, false];
+      yield [`${location}.id`, reference.id];
     }
   }
   for (const [location, reference] of iterHcsReferenceSites(document)) {
@@ -367,7 +399,7 @@ function* iterIdSites(
       isRecord(reference) && reference.id !== undefined &&
       reference.id !== null
     ) {
-      yield [`${location}.id`, reference.id, false];
+      yield [`${location}.id`, reference.id];
     }
   }
 }
@@ -391,8 +423,8 @@ function declaredMultiscaleIds(
 
 function declaredIds(document: Record<string, unknown>): Set<string> {
   const declared = new Set<string>();
-  for (const [, value, isDeclared] of iterIdSites(document)) {
-    if (isDeclared && typeof value === "string") {
+  for (const [, value] of iterDeclaredIdSites(document)) {
+    if (typeof value === "string") {
       declared.add(value);
     }
   }
@@ -474,7 +506,12 @@ export function validateNodeNameUnique(
 export function validateNodeIdFormat(
   document: Record<string, unknown>,
 ): void {
-  for (const [location, value] of iterIdSites(document)) {
+  for (
+    const [location, value] of [
+      ...iterDeclaredIdSites(document),
+      ...iterReferenceIdSites(document),
+    ]
+  ) {
     if (typeof value !== "string" || !RFC8_ID_PATTERN.test(value)) {
       throw new ValidationError(
         SpecRule.NodeIdFormat,
@@ -494,8 +531,8 @@ export function validateNodeIdUnique(
   document: Record<string, unknown>,
 ): void {
   const seen = new Set<string>();
-  for (const [location, value, declared] of iterIdSites(document)) {
-    if (!declared || typeof value !== "string") {
+  for (const [location, value] of iterDeclaredIdSites(document)) {
+    if (typeof value !== "string") {
       continue;
     }
     if (seen.has(value)) {
@@ -822,32 +859,14 @@ export function validateWellReferenceResolves(
         ["row", "rows"],
       ] as const
     ) {
-      const reference = well[field];
-      const site = `${location}.attributes.well.${field}`;
-      const value = isRecord(reference) ? reference.id : undefined;
-      if (typeof value !== "string") {
-        throw new ValidationError(
-          SpecRule.WellReferenceResolves,
-          `Well ${pyRepr(field)} must be a reference with an 'id'.`,
-          site,
-        );
-      }
-      if (plate === undefined) {
-        throw new ValidationError(
-          SpecRule.WellReferenceResolves,
-          `Well ${pyRepr(field)} references ${pyRepr(value)}, but no ` +
-            `enclosing collection declares a 'plate'.`,
-          site,
-        );
-      }
-      if (!plateEntryIds(plate, plural).has(value)) {
-        throw new ValidationError(
-          SpecRule.WellReferenceResolves,
-          `Well ${pyRepr(field)} references ${pyRepr(value)}, which the ` +
-            `enclosing plate's ${pyRepr(plural)} do not declare.`,
-          site,
-        );
-      }
+      checkHcsReference(
+        SpecRule.WellReferenceResolves,
+        `${location}.attributes.well.${field}`,
+        well[field],
+        plate,
+        plural,
+        `Well ${pyRepr(field)}`,
+      );
     }
   }
 }
@@ -868,31 +887,14 @@ export function validateAcquisitionReferenceResolves(
     if (reference === undefined || reference === null) {
       continue;
     }
-    const site = `${location}.attributes.acquisition`;
-    const value = isRecord(reference) ? reference.id : undefined;
-    if (typeof value !== "string") {
-      throw new ValidationError(
-        SpecRule.AcquisitionReferenceResolves,
-        "Acquisition must be a reference with an 'id'.",
-        site,
-      );
-    }
-    if (plate === undefined) {
-      throw new ValidationError(
-        SpecRule.AcquisitionReferenceResolves,
-        `Acquisition references ${pyRepr(value)}, but no enclosing ` +
-          `collection declares a 'plate'.`,
-        site,
-      );
-    }
-    if (!plateEntryIds(plate, "acquisitions").has(value)) {
-      throw new ValidationError(
-        SpecRule.AcquisitionReferenceResolves,
-        `Acquisition references ${pyRepr(value)}, which the enclosing ` +
-          `plate's 'acquisitions' do not declare.`,
-        site,
-      );
-    }
+    checkHcsReference(
+      SpecRule.AcquisitionReferenceResolves,
+      `${location}.attributes.acquisition`,
+      reference,
+      plate,
+      "acquisitions",
+      "Acquisition",
+    );
   }
 }
 
@@ -974,25 +976,17 @@ export function validateSinglescaleTransformShape(
       }
       continue;
     }
-    let shaped = Array.isArray(transformations) &&
-      transformations.length === 1;
-    const entry = shaped ? (transformations as unknown[])[0] : undefined;
-    if (shaped && isRecord(entry)) {
-      if (entry.type === "scale") {
-        // A single scale is the simplest conforming shape.
-      } else if (
-        entry.type === "sequence" &&
+    const entry: unknown =
+      Array.isArray(transformations) && transformations.length === 1
+        ? transformations[0]
+        : undefined;
+    const shaped = isRecord(entry) && (
+      entry.type === "scale" ||
+      (entry.type === "sequence" &&
         isScaleThenTranslation(
           Array.isArray(entry.transformations) ? entry.transformations : [],
-        )
-      ) {
-        // A sequence of scale then translation also conforms.
-      } else {
-        shaped = false;
-      }
-    } else {
-      shaped = false;
-    }
+        ))
+    );
     if (!shaped || !isRecord(entry)) {
       throw new ValidationError(
         SpecRule.SinglescaleTransformShape,
@@ -1034,22 +1028,20 @@ export function validateMultiscaleOutputConsistent(
     const attributes = node.attributes;
     // A missing or malformed coordinateSystems list declares nothing, so
     // every inline output reference fails the membership check below.
-    let declared = new Set<string>();
-    if (
-      isRecord(attributes) && Array.isArray(attributes.coordinateSystems)
-    ) {
-      declared = new Set(
-        attributes.coordinateSystems
-          .filter(isRecord)
-          .map((system) => system.id)
-          .filter((id): id is string => typeof id === "string"),
-      );
-    }
+    const systems = isRecord(attributes)
+      ? attributes.coordinateSystems
+      : undefined;
+    const declared = new Set(
+      (Array.isArray(systems) ? systems : [])
+        .filter(isRecord)
+        .map((system) => system.id)
+        .filter((id): id is string => typeof id === "string"),
+    );
     const children = node.nodes;
     if (!Array.isArray(children)) {
       continue;
     }
-    let seen: [string, string] | undefined;
+    let seen: string | undefined;
     for (const [index, child] of children.entries()) {
       if (!isRecord(child) || child.type !== "singlescale") {
         continue;
@@ -1082,12 +1074,12 @@ export function validateMultiscaleOutputConsistent(
           );
         }
         if (seen === undefined) {
-          seen = [outputId, site];
-        } else if (outputId !== seen[0]) {
+          seen = outputId;
+        } else if (outputId !== seen) {
           throw new ValidationError(
             SpecRule.MultiscaleOutputConsistent,
             `Singlescale outputs must all reference the same coordinate ` +
-              `system; got ${pyRepr(seen[0])} and ${pyRepr(outputId)}.`,
+              `system; got ${pyRepr(seen)} and ${pyRepr(outputId)}.`,
             site,
           );
         }
