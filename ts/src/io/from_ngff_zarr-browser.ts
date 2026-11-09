@@ -16,12 +16,7 @@ import {
   isV06Version,
   NgffVersion,
 } from "../types/supported_versions.ts";
-import {
-  distributedSinglescaleTransforms,
-  multiscalesEntryFromOme,
-} from "../utils/rfc8_multiscale.ts";
-import { validateCollection } from "../utils/rfc8_validation.ts";
-import { OmeNodeDocumentSchema } from "../schemas/rfc8.ts";
+import { dev3MultiscaleAsDev1 } from "../utils/rfc8_multiscale.ts";
 
 export type { ChunkCache } from "../utils/worker_pool.ts";
 
@@ -118,32 +113,11 @@ export async function fromOmeZarr(
     // is a collection-model document.
     let isDev2Multiscale = false;
     if (onDiskVersion === NgffVersion.V09dev3 && omeForVersion) {
-      if (omeForVersion.type !== "multiscale") {
-        throw new Error(
-          `The input is an OME-Zarr 0.9.dev3 store whose root is a ` +
-            `'${omeForVersion.type}' node. 0.9.dev3 stores the RFC-8 node ` +
-            `model in place of the multiscales metadata; use ` +
-            `fromCollectionZarr() to read it. fromOmeZarr() reads ` +
-            `multiscale image stores.`,
-        );
-      }
-      if (validate) {
-        validateCollection(omeForVersion, onDiskVersion);
-        OmeNodeDocumentSchema.parse(omeForVersion);
-      }
-      const singlescale = await distributedSinglescaleTransforms(
+      omeForVersion = await dev3MultiscaleAsDev1(
         omeForVersion,
         resolvedStore as zarr.Readable,
+        validate,
       );
-      const { entry, omero } = multiscalesEntryFromOme(
-        omeForVersion,
-        singlescale,
-      );
-      omeForVersion = {
-        version: NgffVersion.V09dev1,
-        multiscales: [entry],
-        ...(omero !== undefined && { omero }),
-      };
       onDiskVersion = NgffVersion.V09dev1;
       rootAttrsForVersion = { ...rootAttrsForVersion, ome: omeForVersion };
       isDev2Multiscale = true;

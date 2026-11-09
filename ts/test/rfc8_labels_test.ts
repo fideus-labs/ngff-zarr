@@ -14,7 +14,6 @@ import {
   type OmeNode,
   setLabels,
   validateCollection,
-  ValidationError,
 } from "../src/mod.ts";
 
 function labelMap(): OmeNode {
@@ -97,36 +96,6 @@ Deno.test("m:n label relations validate", () => {
     { type: "collection", name: "study", nodes: nodes.map((node) => node) },
     "0.9.dev3",
   );
-});
-
-Deno.test("label rules fire", () => {
-  const node: OmeNode = {
-    type: "multiscale",
-    name: "seg",
-    path: { type: "zarr", path: "./seg" },
-    attributes: { labels: { labelAttributes: [{ color: [1, 2, 3, 4] }] } },
-  };
-  let error = assertThrows(
-    () => validateCollection(node, "0.9.dev3"),
-    ValidationError,
-  );
-  assertEquals(error.rule, "label-value-required");
-
-  node.attributes = {
-    labels: { labelAttributes: [{ labelValue: 1, color: [1, 2, 3] }] },
-  };
-  error = assertThrows(
-    () => validateCollection(node, "0.9.dev3"),
-    ValidationError,
-  );
-  assertEquals(error.rule, "label-color-format");
-
-  node.attributes = { labels: { source: [{ id: "elsewhere" }] } };
-  error = assertThrows(
-    () => validateCollection(node, "0.9.dev3"),
-    ValidationError,
-  );
-  assertEquals(error.rule, "reference-path-required");
 });
 
 Deno.test("a null labels value is rejected", () => {

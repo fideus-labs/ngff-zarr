@@ -612,8 +612,7 @@ export async function fromZarrAttrsV06(
       };
     },
   );
-  const coordinateSystemNames = coordinateSystems.map((cs) => cs.name)
-    .filter((name): name is string => name !== undefined);
+  const coordinateSystemNames = coordinateSystems.map((cs) => cs.name);
 
   // The intrinsic coordinate system (the first one) backs the multiscale image
   // dimensions, units, and anatomical orientations.

@@ -16,7 +16,9 @@
 
 import * as zarr from "zarrita";
 
-import { RFC8_ID_PATTERN } from "../types/rfc8.ts";
+import { OmeNodeDocumentSchema } from "../schemas/rfc8.ts";
+import { NgffVersion } from "../types/supported_versions.ts";
+import { validateCollection } from "./rfc8_validation.ts";
 
 const INVALID_ID_CHARS = /[^a-zA-Z0-9\-_.]/g;
 
@@ -153,9 +155,6 @@ export function multiscaleOmeDict(
   Object.assign(attributes, rest);
 
   const ome: Record<string, unknown> = { version, type: "multiscale" };
-  if (RFC8_ID_PATTERN.test(name) && !usedIds.has(name)) {
-    ome.id = name;
-  }
   ome.name = name;
   ome.nodes = nodes;
   ome.attributes = attributes;
@@ -301,12 +300,10 @@ export async function distributedSinglescaleTransforms(
     if (Array.isArray(inline) && inline.length > 0) {
       continue;
     }
-    const rawPath = (record.path as Record<string, unknown> | undefined)
-      ?.path;
-    if (typeof rawPath !== "string") {
+    if (!isRecord(record.path) || typeof record.path.path !== "string") {
       continue;
     }
-    const path = rawPath.startsWith("./") ? rawPath.slice(2) : rawPath;
+    const path = datasetPathFrom(record);
     let child;
     try {
       child = await zarr.open(zarr.root(store).resolve(path));
@@ -330,4 +327,39 @@ export async function distributedSinglescaleTransforms(
     }
   }
   return collected;
+}
+
+/**
+ * The 0.9.dev1 `ome` value a 0.9.dev3 multiscale node document converts to,
+ * for the readers to take through the 0.9.dev1 machinery. Any other node
+ * type is a collection-model document and is refused. With `validate` the
+ * document runs the RFC-8 structural rules, then the node schema.
+ */
+export async function dev3MultiscaleAsDev1(
+  omeValue: Record<string, unknown>,
+  store: zarr.Readable,
+  validate: boolean,
+): Promise<Record<string, unknown>> {
+  if (omeValue.type !== "multiscale") {
+    throw new Error(
+      `The input is an OME-Zarr 0.9.dev3 store whose root is a ` +
+        `'${omeValue.type}' node. 0.9.dev3 stores the RFC-8 node model ` +
+        `in place of the multiscales metadata; use fromCollectionZarr() ` +
+        `to read it. fromOmeZarr() reads multiscale image stores.`,
+    );
+  }
+  if (validate) {
+    validateCollection(
+      omeValue,
+      typeof omeValue.version === "string" ? omeValue.version : undefined,
+    );
+    OmeNodeDocumentSchema.parse(omeValue);
+  }
+  const singlescale = await distributedSinglescaleTransforms(omeValue, store);
+  const { entry, omero } = multiscalesEntryFromOme(omeValue, singlescale);
+  return {
+    version: NgffVersion.V09dev1,
+    multiscales: [entry],
+    ...(omero !== undefined && { omero }),
+  };
 }

@@ -18,10 +18,11 @@ left to the caller.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from .._store_types import StoreLike
+from ..to_ngff_zarr import _remove_none_values
 from ..v06.zarr_metadata import Metadata as _MetadataV06
 from ..v09.zarr_metadata import (
     Axis,
@@ -30,7 +31,6 @@ from ..v09.zarr_metadata import (
     Transform,
     _filter_axis_dict,
 )
-from .coordinates import COORDINATE_SYSTEMS_KEY, _without_none
 from .model import Node
 
 #: The RFC-8 attribute key (and the RFC-5 ``ome`` key) this module owns.
@@ -68,14 +68,14 @@ def _identifier_from(raw: Any) -> CoordinateSystemIdentifier | None:
 
 def _parse_scene(raw: Mapping[str, Any], version: str | None) -> Scene:
     systems = None
-    if raw.get(COORDINATE_SYSTEMS_KEY) is not None:
+    if raw.get("coordinateSystems") is not None:
         systems = [
             CoordinateSystem(
                 name=entry.get("name"),
                 axes=[Axis(**_filter_axis_dict(axis)) for axis in entry["axes"]],
                 id=entry.get("id"),
             )
-            for entry in raw[COORDINATE_SYSTEMS_KEY]
+            for entry in raw["coordinateSystems"]
         ]
     raw_transforms = raw.get("coordinateTransformations") or []
     transforms = _MetadataV06._parse_transforms(raw_transforms, systems or [], version)
@@ -95,8 +95,6 @@ def _serialize_scene(value: Scene, version: str = "0.9.dev3") -> dict[str, Any]:
     The 0.6-family shape identifies coordinate systems by name, so a system
     or reference that carries no name cannot be expressed there and raises.
     """
-    from dataclasses import asdict
-
     id_based = version == "0.9.dev3"
     serialized: dict[str, Any] = {}
     if value.coordinateSystems is not None:
@@ -113,12 +111,12 @@ def _serialize_scene(value: Scene, version: str = "0.9.dev3") -> dict[str, Any]:
                     "declared system carries no name. Give it a name, or "
                     'write the scene at version "0.9.dev3".'
                 )
-            entry["axes"] = [_without_none(asdict(axis)) for axis in system.axes]
+            entry["axes"] = [_remove_none_values(asdict(axis)) for axis in system.axes]
             systems.append(entry)
-        serialized[COORDINATE_SYSTEMS_KEY] = systems
+        serialized["coordinateSystems"] = systems
     transforms = []
     for transform in value.coordinateTransformations:
-        entry = _without_none(transform.to_dict())
+        entry = _remove_none_values(transform.to_dict())
         if not id_based:
             for side in ("input", "output"):
                 reference = entry.get(side)
@@ -144,14 +142,14 @@ def _serialize_scene(value: Scene, version: str = "0.9.dev3") -> dict[str, Any]:
     return serialized
 
 
-def scene(node: Node, version: str | None = "0.9.dev3") -> Scene | None:
+def scene(node: Node) -> Scene | None:
     """The parsed ``scene`` attribute of ``node``, or ``None``."""
     raw = (node.attributes or {}).get(SCENE_KEY)
     if raw is None:
         return None
     if not isinstance(raw, Mapping):
         raise ValueError(f"A 'scene' attribute must be an object; got {raw!r}.")
-    return _parse_scene(raw, version)
+    return _parse_scene(raw, "0.9.dev3")
 
 
 def set_scene(node: Node, value: Scene | None) -> None:
@@ -202,8 +200,6 @@ def write_scene(store: StoreLike, value: Scene, version: str | None = None) -> N
     ``attributes``. Only the root metadata document is rewritten; nothing
     beneath the root is touched.
     """
-    import copy
-
     from .._supported_versions import (
         V06_ONDISK_VERSION,
         NgffVersion,
@@ -217,8 +213,8 @@ def write_scene(store: StoreLike, value: Scene, version: str | None = None) -> N
         read_group_attributes,
     )
 
-    store_path_probe = normalize_store(store)
-    existing = read_group_attributes(store_path_probe, zarr_format=3) or {}
+    store_path = normalize_store(store)
+    existing = read_group_attributes(store_path, zarr_format=3) or {}
     existing_ome = existing.get("ome")
     declared = None
     if isinstance(existing_ome, Mapping) and isinstance(
@@ -245,8 +241,7 @@ def write_scene(store: StoreLike, value: Scene, version: str | None = None) -> N
             "series."
         )
 
-    store_path = store_path_probe
-    ome = copy.deepcopy(existing.get("ome")) if existing.get("ome") else {}
+    ome = existing.get("ome") or {}
     if not isinstance(ome, Mapping):
         raise ValueError(f"The existing 'ome' entry is not an object: {ome!r}.")
     ome = dict(ome)

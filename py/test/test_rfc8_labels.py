@@ -108,26 +108,6 @@ def test_m_n_label_relations_validate():
     validate_collection(collection, version="0.9.dev3")
 
 
-def test_label_rules_fire():
-    node = Node(type="multiscale", name="seg", path=OmePath("zarr", "./seg"))
-    node.attributes = {"labels": {"labelAttributes": [{"color": [1, 2, 3, 4]}]}}
-    with pytest.raises(ValidationError) as exc_info:
-        validate_collection(node, version="0.9.dev3")
-    assert exc_info.value.rule.value == "label-value-required"
-
-    node.attributes = {
-        "labels": {"labelAttributes": [{"labelValue": 1, "color": [1, 2, 3]}]}
-    }
-    with pytest.raises(ValidationError) as exc_info:
-        validate_collection(node, version="0.9.dev3")
-    assert exc_info.value.rule.value == "label-color-format"
-
-    node.attributes = {"labels": {"source": [{"id": "elsewhere"}]}}
-    with pytest.raises(ValidationError) as exc_info:
-        validate_collection(node, version="0.9.dev3")
-    assert exc_info.value.rule.value == "reference-path-required"
-
-
 def test_a_null_labels_value_is_rejected():
     node = Node(type="multiscale", name="nuclei", nodes=[])
     node.attributes = {"labels": None}

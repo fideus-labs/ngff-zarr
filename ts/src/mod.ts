@@ -2,7 +2,15 @@
 // SPDX-License-Identifier: MIT
 
 export { config, setWorkerPoolSize } from "./config.ts";
-export * from "./io/collection_common.ts";
+export {
+  type FromCollectionOptions,
+  type LoadedNode,
+  nodeFromOmeDict,
+  nodeToOmeDict,
+  resolveLocation,
+  type ToCollectionJsonOptions,
+  type ToCollectionOptions,
+} from "./io/collection_common.ts";
 export * from "./io/from_collection_zarr.ts";
 export * from "./io/from_ngff_zarr.ts";
 export * from "./io/hcs.ts";
@@ -105,8 +113,6 @@ export {
   parseOmero,
 } from "./utils/parse_metadata.ts";
 export {
-  COORDINATE_SYSTEMS_KEY,
-  COORDINATE_TRANSFORMATIONS_KEY,
   coordinateSystems,
   coordinateTransformations,
   setCoordinateSystems,
@@ -147,27 +153,7 @@ export {
   sceneToOmeValue,
   setScene,
 } from "./utils/rfc8_scene.ts";
-export {
-  CORE_PATH_TYPES,
-  validateAcquisitionReferenceResolves,
-  validateCollection,
-  validateCoordinateSystemIdRequired,
-  validateLabelColorFormat,
-  validateLabelValueRequired,
-  validateNodeIdFormat,
-  validateNodeIdUnique,
-  validateNodeNameRequired,
-  validateNodeNameUnique,
-  validateNodeNodesXorPath,
-  validateNodeTypeRequired,
-  validatePathTypeKnown,
-  validatePlateColumnsRowsRequired,
-  validateReferenceIdRequired,
-  validateReferencePathRequired,
-  validateSceneTransformationsRequired,
-  validateWellReferenceResolves,
-  XOR_NODE_TYPES,
-} from "./utils/rfc8_validation.ts";
+export { validateCollection } from "./utils/rfc8_validation.ts";
 export {
   SpecRule,
   type ValidateOptions,

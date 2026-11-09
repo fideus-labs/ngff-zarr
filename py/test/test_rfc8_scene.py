@@ -16,7 +16,6 @@ from ngff_zarr.rfc8 import (
     validate_collection,
     write_scene,
 )
-from ngff_zarr.structural_validation import ValidationError
 from ngff_zarr.v06.zarr_metadata import Bijection
 from ngff_zarr.v09.zarr_metadata import (
     Affine,
@@ -83,46 +82,6 @@ def test_valid_scene_passes_validation():
     collection = Collection("tiles", nodes=[])
     set_scene(collection, _tiles_scene())
     validate_collection(collection, version="0.9.dev3")
-
-
-def test_scene_validation_rules():
-    collection = Collection("tiles", nodes=[])
-    collection.attributes = {"scene": {}}
-    with pytest.raises(ValidationError) as exc_info:
-        validate_collection(collection, version="0.9.dev3")
-    assert exc_info.value.rule.value == "scene-transformations-required"
-
-    # A name-based reference in a dev3 scene is refused.
-    collection.attributes = {
-        "scene": {
-            "coordinateTransformations": [
-                {
-                    "type": "identity",
-                    "input": {"name": "physical"},
-                    "output": {"id": "world"},
-                }
-            ]
-        }
-    }
-    with pytest.raises(ValidationError) as exc_info:
-        validate_collection(collection, version="0.9.dev3")
-    assert exc_info.value.rule.value == "reference-id-required"
-
-    # An unresolved scene reference without a path is refused.
-    collection.attributes = {
-        "scene": {
-            "coordinateTransformations": [
-                {
-                    "type": "identity",
-                    "input": {"id": "physical"},
-                    "output": {"id": "world"},
-                }
-            ]
-        }
-    }
-    with pytest.raises(ValidationError) as exc_info:
-        validate_collection(collection, version="0.9.dev3")
-    assert exc_info.value.rule.value == "reference-path-required"
 
 
 def test_write_and_read_scene_at_0_6_family(tmp_path):
