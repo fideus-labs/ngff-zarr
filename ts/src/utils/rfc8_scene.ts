@@ -88,17 +88,13 @@ export function sceneFromOmeValue(
   for (const [index, parsed] of transforms.entries()) {
     const entry = rawTransforms[index];
     if (isRecord(entry)) {
-      const input = identifierFrom(entry.input);
-      const output = identifierFrom(entry.output);
-      if (input !== undefined) {
-        parsed.input = input;
-      } else {
-        delete parsed.input;
-      }
-      if (output !== undefined) {
-        parsed.output = output;
-      } else {
-        delete parsed.output;
+      for (const side of ["input", "output"] as const) {
+        const reference = identifierFrom(entry[side]);
+        if (reference !== undefined) {
+          parsed[side] = reference;
+        } else {
+          delete parsed[side];
+        }
       }
     }
   }
@@ -170,10 +166,7 @@ export function sceneToOmeValue(
 }
 
 /** The parsed `scene` attribute of `node`, or `undefined`. */
-export function scene(
-  node: OmeNode,
-  version: string | undefined = "0.9.dev3",
-): Scene | undefined {
+export function scene(node: OmeNode): Scene | undefined {
   const raw = node.attributes?.[SCENE_KEY];
   if (raw === undefined || raw === null) {
     return undefined;
@@ -183,7 +176,7 @@ export function scene(
       `A 'scene' attribute must be an object; got ${JSON.stringify(raw)}.`,
     );
   }
-  return sceneFromOmeValue(raw, version);
+  return sceneFromOmeValue(raw, "0.9.dev3");
 }
 
 /** Write `value` into `node.attributes`, replacing the key. */
