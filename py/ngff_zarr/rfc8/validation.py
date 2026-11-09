@@ -92,6 +92,17 @@ def _iter_transform_reference_sites(
                 yield f"{base}.{field}", transformation.get(field)
 
 
+def _iter_labels(
+    document: Mapping[str, Any],
+) -> Iterator[tuple[str, Mapping[str, Any]]]:
+    """Yield ``(location, labels)`` for each node's ``labels`` attribute object."""
+    for location, node in _iter_nodes(document, "ome"):
+        attributes = node.get("attributes")
+        labels = attributes.get("labels") if isinstance(attributes, Mapping) else None
+        if isinstance(labels, Mapping):
+            yield f"{location}.attributes.labels", labels
+
+
 def _iter_label_entries(
     document: Mapping[str, Any],
 ) -> Iterator[tuple[str, Any]]:
@@ -100,39 +111,22 @@ def _iter_label_entries(
     Non-object entries are yielded too: the value rule rejects them, so a
     ``null`` or string entry cannot slip past validation.
     """
-    for location, node in _iter_nodes(document, "ome"):
-        attributes = node.get("attributes")
-        if not isinstance(attributes, Mapping):
-            continue
-        labels = attributes.get("labels")
-        if not isinstance(labels, Mapping):
-            continue
+    for location, labels in _iter_labels(document):
         entries = labels.get("labelAttributes")
-        if not isinstance(entries, list):
-            continue
-        for index, entry in enumerate(entries):
-            yield (
-                f"{location}.attributes.labels.labelAttributes[{index}]",
-                entry,
-            )
+        if isinstance(entries, list):
+            for index, entry in enumerate(entries):
+                yield f"{location}.labelAttributes[{index}]", entry
 
 
 def _iter_label_source_sites(
     document: Mapping[str, Any],
 ) -> Iterator[tuple[str, Any]]:
     """Yield ``(location, value)`` for each labels ``source`` reference."""
-    for location, node in _iter_nodes(document, "ome"):
-        attributes = node.get("attributes")
-        if not isinstance(attributes, Mapping):
-            continue
-        labels = attributes.get("labels")
-        if not isinstance(labels, Mapping):
-            continue
+    for location, labels in _iter_labels(document):
         sources = labels.get("source")
-        if not isinstance(sources, list):
-            continue
-        for index, source in enumerate(sources):
-            yield f"{location}.attributes.labels.source[{index}]", source
+        if isinstance(sources, list):
+            for index, source in enumerate(sources):
+                yield f"{location}.source[{index}]", source
 
 
 def _iter_reference_sites(

@@ -129,18 +129,23 @@ function* iterTransformReferenceSites(
   }
 }
 
+/** Each node's `labels` attribute object, with its location. */
+function* iterLabels(
+  document: Record<string, unknown>,
+): Generator<[string, Record<string, unknown>]> {
+  for (const [location, node] of iterNodes(document, "ome")) {
+    const attributes = node.attributes;
+    const labels = isRecord(attributes) ? attributes.labels : undefined;
+    if (isRecord(labels)) {
+      yield [`${location}.attributes.labels`, labels];
+    }
+  }
+}
+
 function* iterLabelEntries(
   document: Record<string, unknown>,
 ): Generator<[string, unknown]> {
-  for (const [location, node] of iterNodes(document, "ome")) {
-    const attributes = node.attributes;
-    if (!isRecord(attributes)) {
-      continue;
-    }
-    const labels = attributes.labels;
-    if (!isRecord(labels)) {
-      continue;
-    }
+  for (const [location, labels] of iterLabels(document)) {
     const entries = labels.labelAttributes;
     if (!Array.isArray(entries)) {
       continue;
@@ -148,10 +153,7 @@ function* iterLabelEntries(
     // Non-object entries are yielded too: the value rule rejects them, so
     // a `null` or string entry cannot slip past validation.
     for (const [index, entry] of entries.entries()) {
-      yield [
-        `${location}.attributes.labels.labelAttributes[${index}]`,
-        entry,
-      ];
+      yield [`${location}.labelAttributes[${index}]`, entry];
     }
   }
 }
@@ -159,21 +161,13 @@ function* iterLabelEntries(
 function* iterLabelSourceSites(
   document: Record<string, unknown>,
 ): Generator<[string, unknown]> {
-  for (const [location, node] of iterNodes(document, "ome")) {
-    const attributes = node.attributes;
-    if (!isRecord(attributes)) {
-      continue;
-    }
-    const labels = attributes.labels;
-    if (!isRecord(labels)) {
-      continue;
-    }
+  for (const [location, labels] of iterLabels(document)) {
     const sources = labels.source;
     if (!Array.isArray(sources)) {
       continue;
     }
     for (const [index, source] of sources.entries()) {
-      yield [`${location}.attributes.labels.source[${index}]`, source];
+      yield [`${location}.source[${index}]`, source];
     }
   }
 }
