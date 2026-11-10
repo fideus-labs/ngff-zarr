@@ -36,7 +36,7 @@ from ngff_zarr.v04.zarr_metadata import (
 
 pytest.importorskip("jsonschema", reason="schema checks need the validate extra")
 
-from jsonschema import ValidationError
+from ngff_zarr.validate import ValidationError
 from ngff_zarr.validate import validate as validate_ngff
 
 # Every plate here is a Zarr v3 store, which the zarr-python 2 legs of the

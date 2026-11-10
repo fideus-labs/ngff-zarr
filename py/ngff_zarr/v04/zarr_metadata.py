@@ -459,7 +459,6 @@ class Metadata:
         from .._zarrista_utils import open_lazy_array
         from ..ngff_image import NgffImage, non_default_axes_types
         from ..parse_metadata import _parse_omero
-        from ..validate import validate as validate_ngff
 
         # Validate structure before any processing to avoid cryptic KeyError
         if "multiscales" not in root_attrs or not root_attrs["multiscales"]:
@@ -468,28 +467,6 @@ class Metadata:
                 "This may be a v0.5 file (which has 'ome' key instead of 'multiscales'). "
                 f"Available keys: {list(root_attrs.keys())}"
             )
-
-        if validate:
-            # OME-Zarr v0.5 hoists the spec ``version`` to the group-level
-            # ``ome`` namespace and validates the ``ome``-wrapped instance
-            # against the v0.5 image schema; v0.4 keeps ``version`` on each
-            # multiscale entry and validates the bare root. Prefer the
-            # group-level version (the v0.5 read path floors it to ``"0.5"``) so
-            # a v0.5 store selects the v0.5 schema, falling back to the per-entry
-            # version for v0.4 and the legacy v0.1-0.3 layouts.
-            schema_version = str(
-                root_attrs.get("version")
-                or root_attrs["multiscales"][0].get("version", "0.4")
-            )
-            if packaging.version.parse(schema_version) >= packaging.version.parse(
-                "0.5"
-            ):
-                # ``root_attrs`` is the unwrapped ``ome`` content (multiscales +
-                # hoisted version + omero); re-wrap it so the instance matches
-                # the v0.5 image schema's required ``ome`` namespace.
-                validate_ngff({"ome": root_attrs}, version=schema_version)
-            else:
-                validate_ngff(root_attrs, version=schema_version)
 
         omero = _parse_omero(root_attrs.get("omero"))
         # OME-Zarr v0.5 hoists the spec ``version`` to the group-level ``ome``

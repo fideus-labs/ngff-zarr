@@ -1,11 +1,15 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 import json
+import warnings
+from dataclasses import dataclass
 from functools import cache
 from typing import TYPE_CHECKING
 
 from importlib_resources import files as file_resources
 from packaging import version as packaging_version
+
+from ._supported_versions import V06_ONDISK_VERSION, V06_SUPERSEDED_TAGS
 
 if TYPE_CHECKING:
     from importlib_resources.abc import Traversable
@@ -128,3 +132,106 @@ def validate(
     schema = load_schema(version=version, model=model, strict=strict)
     validator = Draft202012Validator(schema, registry=_schema_registry(version))
     validator.validate(ngff_dict)
+
+
+@dataclass(frozen=True)
+class Problem:
+    """One way a group of an OME-Zarr store breaks the specification."""
+
+    #: The rule broken, or ``schema`` for the official JSON Schema.
+    code: str
+    message: str
+    #: The group, as a path below the store root.
+    path: str = ""
+
+    def __str__(self) -> str:
+        where = f" at '{self.path}'" if self.path else ""
+        return f"[{self.code}]{where} {self.message}"
+
+
+class ValidationError(ValueError):
+    """The metadata of an OME-Zarr store breaks the specification.
+
+    ``problems`` lists every way it does.
+    """
+
+    def __init__(self, problems: list[Problem]) -> None:
+        self.problems = problems
+        super().__init__("\n".join(str(problem) for problem in problems))
+
+
+#: The JSON Schema each kind of OME-Zarr Metadata is checked against.
+_SCHEMA_OF_KEY = {
+    "multiscales": "image",
+    "image-label": "label",
+    "plate": "plate",
+    "well": "well",
+    "scene": "scene",
+    "bioformats2raw.layout": "bf2raw",
+}
+
+
+@cache
+def _validator(version: str, model: str):
+    from jsonschema import Draft202012Validator
+
+    return Draft202012Validator(
+        load_schema(version, model), registry=_schema_registry(version)
+    )
+
+
+def schema_problems(attributes: dict, version: str, path: str = "") -> list[Problem]:
+    """Check a group's attributes against the JSON Schema of each kind of
+    OME-Zarr Metadata they hold, at ``version``."""
+    ome = attributes.get("ome", attributes)
+    if not isinstance(ome, dict):
+        return [Problem("schema", "'ome' is not a JSON object", path)]
+    if "ome" in attributes and "version" not in ome:
+        return [Problem("NGFF-GN-001", "the 'ome' metadata has no 'version'", path)]
+    tag = ome.get("version")
+    if isinstance(tag, str) and tag in V06_SUPERSEDED_TAGS:
+        # Earlier releases wrote this 0.6 pre-release tag, which the bundled
+        # schemas no longer list; the rest of the document is checked as 0.6.
+        warnings.warn(
+            f"OME-Zarr store carries the superseded 0.6 pre-release tag "
+            f"{tag!r}; validating it as {V06_ONDISK_VERSION.value!r}. "
+            "upgrade_ome_zarr(store, version='0.6') rewrites the tag.",
+            stacklevel=3,
+        )
+        ome = {**ome, "version": V06_ONDISK_VERSION.value}
+        attributes = {**attributes, "ome": ome}
+        version = V06_ONDISK_VERSION.value
+    tree = _schemas_dir(version)
+    return [
+        Problem("schema", f"{model}.schema, {error.json_path}: {error.message}", path)
+        for key, model in _SCHEMA_OF_KEY.items()
+        if key in ome and tree.joinpath(f"{model}.schema").is_file()
+        for error in _validator(version, model).iter_errors(attributes)
+    ]
+
+
+def _group(node, name: str):
+    """The group ``name`` below ``node``, or None."""
+    # A name from the store's own metadata must stay below the group.
+    if ".." in name.split("/"):
+        return None
+    try:
+        child = node[name]
+    except KeyError:
+        return None
+    return None if hasattr(child, "shape") else child
+
+
+def store_problems(root, version: str) -> list[Problem]:
+    """Check the group ``root`` and the label images its ``labels`` group lists."""
+    problems = schema_problems(root.attrs.asdict(), version)
+    labels = _group(root, "labels")
+    if labels is None:
+        return problems
+    attributes = labels.attrs.asdict()
+    names = attributes.get("ome", attributes).get("labels")
+    for name in names if isinstance(names, list) else []:
+        label = _group(labels, name) if isinstance(name, str) else None
+        if label is not None:
+            problems += schema_problems(label.attrs.asdict(), version, f"labels/{name}")
+    return problems

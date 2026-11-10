@@ -23,6 +23,7 @@ import pytest
 import zarr
 from ngff_zarr import from_ngff_zarr, to_multiscales, to_ngff_zarr
 from ngff_zarr.structural_validation import SpecRule, ValidationError
+from ngff_zarr.validate import ValidationError as MetadataValidationError
 from packaging import version
 
 pytest.importorskip("jsonschema", reason="jsonschema required for validate=True")
@@ -128,23 +129,17 @@ def test_clean_roundtrip_read_has_empty_extra(tmp_path):
 
 
 @requires_zarr_v3
-def test_v05_namespacing_validated_when_ome_version_null(tmp_path):
-    # A malformed v0.5 store with ``ome.version: null`` (JSON null -> Python
-    # None) must still be validated with the v0.5 namespacing rules. The v0.5
-    # read path floors a missing *or* null version to "0.5" before the structural
-    # pass, so a leaked group-level wrapper key is still caught rather than
-    # silently treated as v0.4 (where the rule is inert).
+def test_v05_store_with_a_null_version_is_refused(tmp_path):
+    # From 0.5 ``ome.version`` MUST be a version string.
     store = _write_valid_2d_store_v05(tmp_path / "valid_v05.zarr")
     root = zarr.open_group(store, mode="r+")
     attrs = root.attrs.asdict()
     ome = attrs["ome"]
-    ome["version"] = None  # malformed: explicit null version
-    ome["multiscales"][0]["ome"] = {"version": "0.5"}  # leaked wrapper key
+    ome["version"] = None
     root.attrs["ome"] = ome
 
-    with pytest.raises(ValidationError) as exc_info:
+    with pytest.raises(MetadataValidationError, match="version"):
         from_ngff_zarr(store, validate=True)
-    assert exc_info.value.rule == SpecRule.OME_NAMESPACE
 
 
 @requires_zarr_v3
@@ -168,23 +163,17 @@ def test_v05_zarr_format_violation_raises_only_when_validating(tmp_path):
 
 
 @requires_zarr_v3
-def test_v05_namespacing_validated_when_ome_version_missing(tmp_path):
-    # A malformed v0.5 store missing ``ome.version`` must still be validated with
-    # the v0.5 namespacing rules. The store is routed to the v0.5 read path by
-    # its ``ome`` key, and that path floors the spec version to "0.5" before the
-    # structural pass, so a leaked group-level wrapper key is still caught --
-    # rather than silently treated as v0.4 (where the rule is inert).
+def test_v05_store_without_a_version_is_refused(tmp_path):
+    # From 0.5 ``ome.version`` MUST be present.
     store = _write_valid_2d_store_v05(tmp_path / "valid_v05.zarr")
     root = zarr.open_group(store, mode="r+")
     attrs = root.attrs.asdict()
     ome = attrs["ome"]
-    del ome["version"]  # malformed: missing ome.version
-    ome["multiscales"][0]["ome"] = {"version": "0.5"}  # leaked wrapper key
+    del ome["version"]
     root.attrs["ome"] = ome
 
-    with pytest.raises(ValidationError) as exc_info:
+    with pytest.raises(MetadataValidationError, match="NGFF-GN-001"):
         from_ngff_zarr(store, validate=True)
-    assert exc_info.value.rule == SpecRule.OME_NAMESPACE
 
 
 def _add_out_of_vocabulary_orientation(entry: dict) -> None:

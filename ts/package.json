@@ -85,6 +85,7 @@
     "test:all": "npm test && npm run test:node && npm run test:browser"
   },
   "dependencies": {
+    "@cfworker/json-schema": "4.1.1",
     "@fideus-labs/fizarrita": "^3.0.0",
     "@fideus-labs/worker-pool": "^2.1.0",
     "@itk-wasm/downsample": "^2.0.2",

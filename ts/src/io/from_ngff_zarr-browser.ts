@@ -24,6 +24,7 @@ import {
 } from "../utils/from_zarr_attrs.ts";
 import { isV06Version, NgffVersion } from "../types/supported_versions.ts";
 import { ensureRangeReads } from "../utils/sharding.ts";
+import { storeProblems, ValidationError } from "../utils/validate.ts";
 
 export type { ChunkCache } from "../utils/worker_pool.ts";
 
@@ -185,6 +186,15 @@ export async function fromOmeZarr(
       throw new Error(
         `'${store}' holds no transformation: the root group carries no 'ome.coordinateTransformations' entry of its own.`,
       );
+    }
+    if (validate) {
+      const problems = await storeProblems(
+        root as zarr.Group<zarr.Readable>,
+        detectVersion(rootAttrsForVersion),
+      );
+      if (problems.length > 0) {
+        throw new ValidationError(problems);
+      }
     }
     const omeForVersion = rootAttrsForVersion.ome as
       | Record<string, unknown>

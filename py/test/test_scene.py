@@ -35,7 +35,7 @@ from ngff_zarr.v06.zarr_metadata import (
 
 pytest.importorskip("jsonschema", reason="schema checks need the validate extra")
 
-from jsonschema import ValidationError
+from ngff_zarr.validate import ValidationError
 from ngff_zarr.validate import validate as validate_ngff
 
 FIXTURES = Path(__file__).parent / "fixtures" / "scene"

@@ -131,7 +131,7 @@ def test_the_flat_axes_shape_fails_the_schema_pass(tmp_path):
     a message. Reading the shape at all is a concession to stores that carry a
     0.9 version string over a 0.5-shaped entry.
     """
-    from jsonschema.exceptions import ValidationError
+    from ngff_zarr.validate import ValidationError
 
     axes = [{"name": n, "type": "space"} for n in "zyx"]
     root = _write_v09(tmp_path / "flat-validate.ome.zarr", axes, (2, 3, 4), flat=True)
@@ -265,7 +265,7 @@ def test_a_broken_0_9_dev1_store_is_refused(tmp_path):
 
     import dask.array as da
     import ngff_zarr as nz
-    from jsonschema.exceptions import ValidationError
+    from ngff_zarr.validate import ValidationError
 
     image = nz.NgffImage(
         da.zeros((1, 8, 8), dtype=np.uint8, chunks=(1, 8, 8)),
@@ -334,27 +334,17 @@ def test_validate_structural_is_version_aware(version, accepted):
 
 
 @pytest.mark.parametrize("ome", [None, "0.9.dev1", [{"version": "0.9.dev1"}]])
-def test_a_non_object_ome_fails_the_schema_rather_than_the_reader(ome):
-    """A document with no object to read a version from goes to the schema.
+def test_a_non_object_ome_is_a_problem_of_the_document(ome):
+    """A document with no object to read a version from is reported as such."""
+    from ngff_zarr.validate import schema_problems
 
-    Reaching for the version first turned a malformed document into an
-    AttributeError about ``.get``, which says nothing about the document.
-    """
-    import jsonschema
-
-    with pytest.raises(jsonschema.ValidationError):
-        Metadata._from_zarr_attrs({"ome": ome}, None, validate=True)
+    assert schema_problems({"ome": ome}, "0.9.dev1")
 
 
 @pytest.mark.parametrize("declared", [5, True, ["0.9.dev1"], {"a": 1}, ""])
-def test_a_non_string_version_does_not_select_a_schema(declared):
-    """A version that is not a string names no schema, so it selects none.
-
-    Passing it on turned the document into a ValueError listing which
-    schemas are bundled, which describes this package rather than the store.
-    """
-    import jsonschema
+def test_a_non_string_version_is_a_problem_of_the_document(declared):
+    """A version that is not a string is refused by the schema."""
+    from ngff_zarr.validate import schema_problems
 
     document = {"ome": {"version": declared, "multiscales": []}}
-    with pytest.raises(jsonschema.ValidationError):
-        Metadata._from_zarr_attrs(document, None, validate=True)
+    assert schema_problems(document, "0.9.dev1")

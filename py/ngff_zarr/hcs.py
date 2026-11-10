@@ -417,13 +417,11 @@ def from_hcs_zarr(
 
     if validate:
         from .parse_metadata import _detect_version
-        from .validate import validate as validate_ngff
+        from .validate import ValidationError, schema_problems
 
-        # Use the plate schema for HCS validation instead of the image schema,
-        # at the version the store records: from 0.5 the plate document lives
-        # under ``ome``, which the v0.4 schema does not look at.
         version = _detect_version(root_attrs).value
-        validate_ngff(root_attrs, version=version, model="plate")
+        if problems := schema_problems(root_attrs, version):
+            raise ValidationError(problems)
 
     # Extract plate metadata
     plate_data = {}

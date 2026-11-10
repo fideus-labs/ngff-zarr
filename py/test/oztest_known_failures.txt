@@ -13,32 +13,6 @@ xfail validate_zarr/v0.6/core/valid/well/minimal_path_special_char
 # A well with a non-integer acquisition: the wells of a validated plate are not checked.
 fail validate_zarr/v0.6/core/invalid/well/non_integer_acquisition_id
 
-# The reader crashes instead of refusing the case.
-error validate_zarr/v0.6/core/invalid/scene/missing_version
-
-# An invalid label image: its metadata is not checked.
-fail validate_zarr/v0.4/core/invalid/label/colors_duplicate
-fail validate_zarr/v0.4/core/invalid/label/colors_no_label_value
-fail validate_zarr/v0.4/core/invalid/label/colors_rgba_length
-fail validate_zarr/v0.4/core/invalid/label/colors_rgba_type
-fail validate_zarr/v0.4/core/invalid/label/empty_colors
-fail validate_zarr/v0.4/core/invalid/label/empty_properties
-fail validate_zarr/v0.4/core/invalid/label/properties_no_label_value
-fail validate_zarr/v0.5/core/invalid/label/colors_duplicate
-fail validate_zarr/v0.5/core/invalid/label/colors_no_label_value
-fail validate_zarr/v0.5/core/invalid/label/colors_rgba_length
-fail validate_zarr/v0.5/core/invalid/label/colors_rgba_type
-fail validate_zarr/v0.5/core/invalid/label/empty_colors
-fail validate_zarr/v0.5/core/invalid/label/empty_properties
-fail validate_zarr/v0.5/core/invalid/label/properties_no_label_value
-fail validate_zarr/v0.6/core/invalid/label/colors_duplicate
-fail validate_zarr/v0.6/core/invalid/label/colors_no_label_value
-fail validate_zarr/v0.6/core/invalid/label/colors_rgba_length
-fail validate_zarr/v0.6/core/invalid/label/colors_rgba_type
-fail validate_zarr/v0.6/core/invalid/label/empty_colors
-fail validate_zarr/v0.6/core/invalid/label/empty_properties
-fail validate_zarr/v0.6/core/invalid/label/properties_no_label_value
-
 # A valid case refused: space axes must be named as a suffix of z, y, x.
 fail validate_zarr/v0.6/core/valid/transforms/sequence
 fail validate_zarr/v0.6/transform_byDimension/valid/transforms/byDimension_reorder
