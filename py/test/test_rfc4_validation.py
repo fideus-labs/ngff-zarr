@@ -418,9 +418,8 @@ def test_from_ngff_zarr_with_rfc4_validation(tmp_path):
     else:
         root.create_dataset("0", shape=(10, 10, 10), dtype="uint8")
 
-    # Add OME-NGFF metadata with RFC 4 orientation. Spatial axes are ordered
-    # (z, y, x) -- the suffix of (z, y, x) required by the v0.4 axis-order MUST
-    # now enforced on read -- with each orientation kept on its named axis.
+    # Add OME-NGFF metadata with RFC 4 orientation, each orientation kept on
+    # its named axis.
     multiscales_metadata = {
         "version": "0.4",
         "name": "test",

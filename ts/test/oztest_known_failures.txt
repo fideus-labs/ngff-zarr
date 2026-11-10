@@ -18,8 +18,3 @@ xfail validate_zarr/v0.6/core/valid/plate/minimal_no_acquisitions
 xfail validate_zarr/v0.6/core/valid/plate/non_alphanumeric_row
 xfail validate_zarr/v0.6/core/valid/well/minimal_no_acquisition
 xfail validate_zarr/v0.6/core/valid/well/minimal_path_special_char
-
-# A valid case refused: space axes must be named as a suffix of z, y, x.
-fail validate_zarr/v0.6/core/valid/transforms/sequence
-fail validate_zarr/v0.6/transform_byDimension/valid/transforms/byDimension_reorder
-fail validate_zarr/v0.6/transform_mapAxis/valid/transforms/mapAxis

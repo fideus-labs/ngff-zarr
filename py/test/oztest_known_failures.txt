@@ -12,8 +12,3 @@ xfail validate_zarr/v0.6/core/valid/well/minimal_path_special_char
 
 # A well with a non-integer acquisition: the wells of a validated plate are not checked.
 fail validate_zarr/v0.6/core/invalid/well/non_integer_acquisition_id
-
-# A valid case refused: space axes must be named as a suffix of z, y, x.
-fail validate_zarr/v0.6/core/valid/transforms/sequence
-fail validate_zarr/v0.6/transform_byDimension/valid/transforms/byDimension_reorder
-fail validate_zarr/v0.6/transform_mapAxis/valid/transforms/mapAxis

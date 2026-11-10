@@ -119,7 +119,7 @@ EXPECTED_EVALUATION_ORDER = [
     SpecRule.AXIS_COUNT,
     SpecRule.AXIS_TYPE,
     SpecRule.AXIS_ORDER,  # validate_axis_order (class ordering)
-    SpecRule.AXIS_ORDER,  # validate_spatial_axis_order (spatial suffix)
+    SpecRule.AXIS_ORDER,  # validate_spatial_axis_order (spatial count)
     SpecRule.AXIS_NAMES_UNIQUE,
     SpecRule.GLOBAL_COORD_TRANSFORM_AFTER_PER_LEVEL,  # per-dataset scale count
     SpecRule.SCALE_LENGTH_MISMATCH,
@@ -288,8 +288,7 @@ def test_orchestrator_evaluation_order():
     observed.append(_first_violated_rule(metadata))
 
     # Stage 3 -> AXIS_ORDER (class ordering). One channel now, but a space axis
-    # still precedes it; the spatial names are still not the (z, y, x) suffix
-    # and "z" is still repeated.
+    # still precedes it and "z" is still repeated.
     metadata.axes = [
         Axis(name="x", type="space"),
         Axis(name="c", type="channel"),
@@ -298,13 +297,11 @@ def test_orchestrator_evaluation_order():
     ]
     observed.append(_first_violated_rule(metadata))
 
-    # Stage 4 -> AXIS_ORDER (spatial suffix). Class order fixed (channel first),
-    # but spatial names (x, z, z) are not the length-3 suffix of (z, y, x).
+    # Stage 4 -> AXIS_ORDER (spatial count). Class order fixed (channel first),
+    # but a single space axis is below the floor of two.
     metadata.axes = [
         Axis(name="c", type="channel"),
         Axis(name="x", type="space"),
-        Axis(name="z", type="space"),
-        Axis(name="z", type="space"),
     ]
     observed.append(_first_violated_rule(metadata))
 

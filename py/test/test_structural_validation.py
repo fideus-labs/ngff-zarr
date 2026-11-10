@@ -149,23 +149,25 @@ def test_spatial_axis_order_valid(valid_metadata):
     validate_spatial_axis_order(valid_metadata)
 
 
+def test_spatial_axis_names_are_free(valid_metadata):
+    # The spec only recommends ordering space axes zyx.
+    valid_metadata.axes = [
+        Axis(name="c", type="channel"),
+        Axis(name="x", type="space"),
+        Axis(name="y", type="space"),
+    ]
+    validate_spatial_axis_order(valid_metadata)
+
+
 @pytest.mark.parametrize(
     "case, location",
     [
-        ("suffix-mismatch", "multiscales[0].axes[1]"),
         ("too-many-spatial", "multiscales[0].axes"),
         ("too-few-spatial", "multiscales[0].axes"),
     ],
 )
 def test_spatial_axis_order_invalid(valid_metadata, case, location):
-    if case == "suffix-mismatch":
-        # (x, y) is not the (y, x) suffix of (z, y, x).
-        valid_metadata.axes = [
-            Axis(name="c", type="channel"),
-            Axis(name="x", type="space"),
-            Axis(name="y", type="space"),
-        ]
-    elif case == "too-few-spatial":
+    if case == "too-few-spatial":
         # The bundled axes schemas state minContains: 2 for 'space'.
         valid_metadata.axes = [
             Axis(name="c", type="channel"),
