@@ -385,3 +385,38 @@ def test_from_hcs_zarr_validates_against_the_stored_version(tmp_path, version):
         from_hcs_zarr(str(store), validate=True)
     # Without validation the reader is lenient, as before.
     assert from_hcs_zarr(str(store)).metadata.version == version
+
+
+def test_a_validated_plate_read_checks_its_wells_and_fields(tmp_path):
+    """``validate=True`` checks each well document and each field image."""
+    version = "0.6"
+    store = tmp_path / "plate.ome.zarr"
+    plate_metadata = _plate_metadata(version)
+    to_hcs_zarr(HCSPlate(store=str(store), plate_metadata=plate_metadata), str(store))
+    _, multiscales = _field_image(0)
+    write_hcs_well_image(
+        store=str(store),
+        multiscales=multiscales,
+        plate_metadata=plate_metadata,
+        row_name="A",
+        column_name="1",
+        field_index=0,
+        version=version,
+    )
+    well, field = store / "A" / "1", store / "A" / "1" / "0"
+    well_attrs = _group_attrs(well)
+
+    broken = json.loads(json.dumps(well_attrs))
+    broken["ome"]["well"]["images"][0]["acquisition"] = "0"
+    _write_group_attrs(well, broken)
+    with pytest.raises(ValidationError, match="acquisition"):
+        from_hcs_zarr(str(store), validate=True).get_well("A", "1")
+    assert from_hcs_zarr(str(store)).get_well("A", "1") is not None
+
+    _write_group_attrs(well, well_attrs)
+    field_attrs = _group_attrs(field)
+    del field_attrs["ome"]["multiscales"][0]["coordinateSystems"]
+    _write_group_attrs(field, field_attrs)
+    plate = from_hcs_zarr(str(store), validate=True)
+    with pytest.raises(ValidationError, match="coordinateSystems"):
+        plate.get_well("A", "1").get_image(0)

@@ -9,6 +9,3 @@ xfail validate_zarr/v0.5/core/valid/well/minimal_acquisitions
 xfail validate_zarr/v0.5/core/valid/well/minimal_no_acquisition
 xfail validate_zarr/v0.6/core/valid/well/minimal_no_acquisition
 xfail validate_zarr/v0.6/core/valid/well/minimal_path_special_char
-
-# A well with a non-integer acquisition: the wells of a validated plate are not checked.
-fail validate_zarr/v0.6/core/invalid/well/non_integer_acquisition_id

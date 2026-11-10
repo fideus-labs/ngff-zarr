@@ -396,7 +396,9 @@ def test_hcs_plates_read_urls_through_the_js_store_on_pyodide(use_js, monkeypatc
 def test_hcs_wells_open_fields_as_prefixed_js_store_views(monkeypatch):
     opened = []
     monkeypatch.setattr(
-        hcs, "from_ome_zarr", lambda store: opened.append(store) or store
+        hcs,
+        "from_ome_zarr",
+        lambda store, **_: opened.append(store) or store,
     )
     well = hcs.HCSWell(
         JsZarrStore("https://example.org/plate.zarr"),
