@@ -9,7 +9,12 @@ from typing import TYPE_CHECKING
 from importlib_resources import files as file_resources
 from packaging import version as packaging_version
 
-from ._supported_versions import V06_ONDISK_VERSION, V06_SUPERSEDED_TAGS
+from ._supported_versions import (
+    V06_ONDISK_VERSION,
+    V06_SUPERSEDED_TAGS,
+    NgffVersion,
+    is_v06_version,
+)
 
 if TYPE_CHECKING:
     from importlib_resources.abc import Traversable
@@ -210,6 +215,22 @@ def schema_problems(attributes: dict, version: str, path: str = "") -> list[Prob
     ]
 
 
+def group_problems(attributes: dict, version: str, path: str = "") -> list[Problem]:
+    """Check a group's attributes against the JSON Schema and, once the schema
+    accepts them, against the rules beyond it (``ngff_zarr.rules``)."""
+    problems = schema_problems(attributes, version, path)
+    if problems:
+        return problems
+    from .rules import rule_problems
+
+    if is_v06_version(version):
+        version = NgffVersion.V06.value
+    return [
+        Problem(code, message, path)
+        for code, message in rule_problems(attributes, version)
+    ]
+
+
 def _group(node, name: str):
     """The group ``name`` below ``node``, or None."""
     # A name from the store's own metadata must stay below the group.
@@ -224,7 +245,7 @@ def _group(node, name: str):
 
 def store_problems(root, version: str) -> list[Problem]:
     """Check the group ``root`` and the label images its ``labels`` group lists."""
-    problems = schema_problems(root.attrs.asdict(), version)
+    problems = group_problems(root.attrs.asdict(), version)
     labels = _group(root, "labels")
     if labels is None:
         return problems
@@ -233,5 +254,5 @@ def store_problems(root, version: str) -> list[Problem]:
     for name in names if isinstance(names, list) else []:
         label = _group(labels, name) if isinstance(name, str) else None
         if label is not None:
-            problems += schema_problems(label.attrs.asdict(), version, f"labels/{name}")
+            problems += group_problems(label.attrs.asdict(), version, f"labels/{name}")
     return problems

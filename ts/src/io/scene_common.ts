@@ -63,7 +63,7 @@ import {
 } from "../utils/store_below.ts";
 import type { ChunkCache } from "../utils/worker_pool.ts";
 import { memoryStoreToZip } from "./rfc9_zip.ts";
-import { schemaProblems, ValidationError } from "../utils/validate.ts";
+import { groupProblems, ValidationError } from "../utils/validate.ts";
 import {
   type ArrayWriterFactory,
   countMultiscalesWrites,
@@ -525,7 +525,7 @@ export async function readScene(
   }
   const version = readVersion(rootAttrs, options);
   if (validate) {
-    const problems = await schemaProblems(rootAttrs, version);
+    const problems = await groupProblems(rootAttrs, version);
     if (problems.length > 0) {
       throw new ValidationError(problems);
     }

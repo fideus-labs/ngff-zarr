@@ -8,6 +8,8 @@
  */
 import * as zarr from "zarrita";
 import type { Schema, Validator } from "@cfworker/json-schema";
+import { isV06Version, NgffVersion } from "../types/supported_versions.ts";
+import { ruleProblems } from "./rules.ts";
 
 /** One way a group of an OME-Zarr store breaks the specification. */
 export interface Problem {
@@ -184,6 +186,25 @@ export async function schemaProblems(
   return problems;
 }
 
+/**
+ * Check a group's attributes against the JSON Schema and, once the schema
+ * accepts them, against the rules beyond it ({@link ruleProblems}).
+ */
+export async function groupProblems(
+  attributes: Record<string, unknown>,
+  version: string,
+  path = "",
+): Promise<Problem[]> {
+  const problems = await schemaProblems(attributes, version, path);
+  if (problems.length > 0) {
+    return problems;
+  }
+  return ruleProblems(
+    attributes,
+    isV06Version(version) ? NgffVersion.V06 : version,
+  ).map(([code, message]) => ({ code, message, path }));
+}
+
 /** The group `name` below `node`, or undefined. */
 async function group(
   node: zarr.Group<zarr.Readable>,
@@ -205,7 +226,7 @@ export async function storeProblems(
   root: zarr.Group<zarr.Readable>,
   version: string,
 ): Promise<Problem[]> {
-  const problems = await schemaProblems(
+  const problems = await groupProblems(
     root.attrs as Record<string, unknown>,
     version,
   );
@@ -220,7 +241,7 @@ export async function storeProblems(
       typeof name === "string" ? await group(labels, name) : undefined;
     if (label !== undefined) {
       problems.push(
-        ...(await schemaProblems(
+        ...(await groupProblems(
           label.attrs as Record<string, unknown>,
           version,
           `labels/${name}`,

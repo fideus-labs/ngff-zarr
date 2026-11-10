@@ -473,9 +473,9 @@ def _read_scene(
     if version is None:
         version = _detect_version(root_attrs).value
     if validate:
-        from .validate import ValidationError, schema_problems
+        from .validate import ValidationError, group_problems
 
-        if problems := schema_problems(root_attrs, version):
+        if problems := group_problems(root_attrs, version):
             raise ValidationError(problems)
 
     systems, transforms = _scene_from_dict(

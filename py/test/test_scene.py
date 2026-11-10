@@ -253,8 +253,22 @@ def test_write_refuses_duplicate_or_empty_system_names(tmp_path):
 
 
 def test_scene_axis_model_follows_the_version(tmp_path):
-    _, scene = _tiles_scene()
-    scene.coordinateSystems[0].axes = [Axis(name=n, type="space") for n in "abcdef"]
+    # Six space axes break the 0.6 axis rules and are allowed from 0.9.dev1.
+    axes = [Axis(name=n, type="space") for n in "abcdef"]
+    scene = NgffScene(
+        images={},
+        coordinateSystems=[
+            CoordinateSystem(name="a", axes=axes),
+            CoordinateSystem(name="b", axes=axes),
+        ],
+        coordinateTransformations=[
+            Translation(
+                translation=[0.0] * 6,
+                input=CoordinateSystemIdentifier(name="a"),
+                output=CoordinateSystemIdentifier(name="b"),
+            )
+        ],
+    )
     with pytest.raises(ValueError, match=r"scene.coordinateSystems\[0\].axes"):
         to_ome_zarr(tmp_path / "v06.ome.zarr", scene)
     to_ome_zarr(tmp_path / "dev1.ome.zarr", scene, version="0.9.dev1")
