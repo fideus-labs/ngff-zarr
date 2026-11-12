@@ -192,7 +192,7 @@ def schema_problems(
     OME-Zarr Metadata they hold, at ``version``.
 
     ``model`` names the schema the group is read as (``image``, ``plate``,
-    ``scene``): it is checked even when the attributes lack its key."""
+    ``well``, ``scene``): it is checked even when the attributes lack its key."""
     ome = attributes.get("ome", attributes)
     if not isinstance(ome, dict):
         return [Problem("schema", "'ome' is not a JSON object", path)]
@@ -251,8 +251,9 @@ def _group(node, name: str):
 
 
 def store_problems(root, version: str) -> list[Problem]:
-    """Check the group ``root`` and the label images its ``labels`` group lists."""
-    problems = group_problems(root.attrs.asdict(), version)
+    """Check the image group ``root`` and the label images its ``labels`` group
+    lists."""
+    problems = group_problems(root.attrs.asdict(), version, model="image")
     labels = _group(root, "labels")
     if labels is None:
         return problems

@@ -64,3 +64,27 @@ def test_a_group_read_as_a_kind_is_checked_against_its_schema(model):
     attributes = {"ome": {"version": "0.6"}}
     assert schema_problems(attributes, "0.6") == []
     assert schema_problems(attributes, "0.6", model=model)
+
+
+def test_a_sequence_keeps_its_axis_count_through_a_project_axis():
+    scene = {
+        "coordinateSystems": [
+            {"name": "a", "axes": [{"name": n, "type": "space"} for n in "zyx"]},
+            {"name": "b", "axes": [{"name": n, "type": "space"} for n in "yx"]},
+        ],
+        "coordinateTransformations": [
+            {
+                "input": {"name": "a"},
+                "output": {"name": "b"},
+                "type": "sequence",
+                "transformations": [
+                    {"type": "projectAxis", "droppedInputs": [0]},
+                    {"type": "scale", "scale": [1, 1, 1]},
+                ],
+            }
+        ],
+    }
+    document = {"ome": {"version": "0.6", "scene": scene}}
+    assert schema_problems(document, "0.6") == []
+    codes = {problem.code for problem in group_problems(document, "0.6")}
+    assert "NGFF-CT-015" in codes

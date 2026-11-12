@@ -86,3 +86,35 @@ test("a group read as a scene is checked against the scene schema", async () => 
     "a scene root with no scene must be refused",
   );
 });
+
+test("a sequence keeps its axis count through a projectAxis", async () => {
+  const axes = (names: string) =>
+    [...names].map((name) => ({ name, type: "space" }));
+  const document = {
+    ome: {
+      version: "0.6",
+      scene: {
+        coordinateSystems: [
+          { name: "a", axes: axes("zyx") },
+          { name: "b", axes: axes("yx") },
+        ],
+        coordinateTransformations: [
+          {
+            input: { name: "a" },
+            output: { name: "b" },
+            type: "sequence",
+            transformations: [
+              { type: "projectAxis", droppedInputs: [0] },
+              { type: "scale", scale: [1, 1, 1] },
+            ],
+          },
+        ],
+      },
+    },
+  };
+  assertEquals(await schemaProblems(document, "0.6"), []);
+  const codes = (await groupProblems(document, "0.6")).map(
+    (problem) => problem.code,
+  );
+  assert(codes.includes("NGFF-CT-015"), `NGFF-CT-015 not in ${codes}`);
+});

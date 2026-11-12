@@ -221,12 +221,18 @@ async function group(
   }
   try {
     return await zarr.open(node.resolve(name), { kind: "group" });
-  } catch {
-    return undefined;
+  } catch (error) {
+    // No group there; any other failure is a read error to report.
+    if (zarr.isZarritaError(error, "NotFoundError")) {
+      return undefined;
+    }
+    throw error;
   }
 }
 
-/** Check the group `root` and the label images its `labels` group lists. */
+/**
+ * Check the image group `root` and the label images its `labels` group lists.
+ */
 export async function storeProblems(
   root: zarr.Group<zarr.Readable>,
   version: string,
@@ -234,6 +240,8 @@ export async function storeProblems(
   const problems = await groupProblems(
     root.attrs as Record<string, unknown>,
     version,
+    "",
+    "image",
   );
   const labels = await group(root, "labels");
   if (labels === undefined) {

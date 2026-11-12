@@ -266,7 +266,7 @@ class HCSWell:
             from .validate import ValidationError, group_problems
 
             version = _detect_version(root.attrs.asdict()).value
-            if problems := group_problems(well_attrs, version, well_path):
+            if problems := group_problems(well_attrs, version, well_path, model="well"):
                 raise ValidationError(problems)
 
         # Parse well metadata

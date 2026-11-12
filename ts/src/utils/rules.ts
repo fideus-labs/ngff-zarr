@@ -123,6 +123,13 @@ function axesAfter(step: Json, count: number | undefined): number | undefined {
   if (kind === "affine" && Array.isArray(step.affine)) {
     return step.affine.length;
   }
+  if (kind === "projectAxis" && count !== undefined) {
+    return (
+      count -
+      records(step.droppedInputs).length +
+      records(step.createdOutputs).length
+    );
+  }
   return undefined;
 }
 

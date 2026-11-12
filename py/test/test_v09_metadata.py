@@ -347,4 +347,5 @@ def test_a_non_string_version_is_a_problem_of_the_document(declared):
     from ngff_zarr.validate import schema_problems
 
     document = {"ome": {"version": declared, "multiscales": []}}
-    assert schema_problems(document, "0.9.dev1")
+    problems = schema_problems(document, "0.9.dev1")
+    assert any("$.ome.version" in problem.message for problem in problems)

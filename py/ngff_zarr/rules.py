@@ -97,6 +97,9 @@ def _axes_after(step: dict, count: int | None) -> int | None:
         return count
     if kind == "affine" and isinstance(step.get("affine"), list):
         return len(step["affine"])
+    if kind == "projectAxis" and count is not None:
+        dropped = len(step.get("droppedInputs", []))
+        return count - dropped + len(step.get("createdOutputs", []))
     return None
 
 
