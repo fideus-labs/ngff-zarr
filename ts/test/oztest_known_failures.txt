@@ -1,0 +1,80 @@
+# oztest validate_zarr cases this port does not pass yet, with the status the
+# oztest runner gives each one. Format: <status> <slug>. Remove a line once
+# the case passes: the test fails on a listed case that passes.
+
+# A plate or well, which this port does not read.
+xfail validate_zarr/v0.4/core/valid/plate/minimal_acquisitions
+xfail validate_zarr/v0.4/core/valid/plate/minimal_no_acquisitions
+xfail validate_zarr/v0.4/core/valid/plate/non_alphanumeric_row
+xfail validate_zarr/v0.4/core/valid/well/minimal_acquisitions
+xfail validate_zarr/v0.4/core/valid/well/minimal_no_acquisition
+xfail validate_zarr/v0.5/core/valid/plate/minimal_acquisitions
+xfail validate_zarr/v0.5/core/valid/plate/minimal_no_acquisitions
+xfail validate_zarr/v0.5/core/valid/plate/non_alphanumeric_row
+xfail validate_zarr/v0.5/core/valid/well/minimal_acquisitions
+xfail validate_zarr/v0.5/core/valid/well/minimal_no_acquisition
+xfail validate_zarr/v0.6/core/valid/plate/minimal_acquisitions
+xfail validate_zarr/v0.6/core/valid/plate/minimal_no_acquisitions
+xfail validate_zarr/v0.6/core/valid/plate/non_alphanumeric_row
+xfail validate_zarr/v0.6/core/valid/well/minimal_no_acquisition
+xfail validate_zarr/v0.6/core/valid/well/minimal_path_special_char
+
+# The reader crashes instead of refusing the case.
+error validate_zarr/v0.6/transform_bijection/invalid/transforms/bijection_missing_forward
+error validate_zarr/v0.6/transform_bijection/invalid/transforms/bijection_missing_inverse
+error validate_zarr/v0.6/transform_byDimension/invalid/transforms/byDimension_exploded
+
+# An invalid label image: its metadata is not checked.
+fail validate_zarr/v0.4/core/invalid/label/colors_duplicate
+fail validate_zarr/v0.4/core/invalid/label/colors_no_label_value
+fail validate_zarr/v0.4/core/invalid/label/colors_rgba_length
+fail validate_zarr/v0.4/core/invalid/label/colors_rgba_type
+fail validate_zarr/v0.4/core/invalid/label/empty_colors
+fail validate_zarr/v0.4/core/invalid/label/empty_properties
+fail validate_zarr/v0.4/core/invalid/label/properties_no_label_value
+fail validate_zarr/v0.5/core/invalid/label/colors_duplicate
+fail validate_zarr/v0.5/core/invalid/label/colors_no_label_value
+fail validate_zarr/v0.5/core/invalid/label/colors_rgba_length
+fail validate_zarr/v0.5/core/invalid/label/colors_rgba_type
+fail validate_zarr/v0.5/core/invalid/label/empty_colors
+fail validate_zarr/v0.5/core/invalid/label/empty_properties
+fail validate_zarr/v0.5/core/invalid/label/properties_no_label_value
+fail validate_zarr/v0.6/core/invalid/label/colors_duplicate
+fail validate_zarr/v0.6/core/invalid/label/colors_no_label_value
+fail validate_zarr/v0.6/core/invalid/label/colors_rgba_length
+fail validate_zarr/v0.6/core/invalid/label/colors_rgba_type
+fail validate_zarr/v0.6/core/invalid/label/empty_colors
+fail validate_zarr/v0.6/core/invalid/label/empty_properties
+fail validate_zarr/v0.6/core/invalid/label/properties_no_label_value
+
+# An invalid image: no JSON Schema check in this port.
+fail validate_zarr/v0.4/core/invalid/image/invalid_channels_window
+fail validate_zarr/v0.4/core/invalid/image/invalid_path
+fail validate_zarr/v0.4/core/invalid/image/invalid_transformation_type
+fail validate_zarr/v0.4/core/invalid/image/invalid_version
+fail validate_zarr/v0.5/core/invalid/image/invalid_channels_window
+fail validate_zarr/v0.5/core/invalid/image/invalid_path
+fail validate_zarr/v0.5/core/invalid/image/invalid_transformation_type
+fail validate_zarr/v0.6/core/invalid/image/duplicate_scale
+fail validate_zarr/v0.6/core/invalid/image/empty_transformations
+fail validate_zarr/v0.6/core/invalid/image/invalid_channels_window
+fail validate_zarr/v0.6/core/invalid/image/invalid_path
+fail validate_zarr/v0.6/core/invalid/image/missing_scale
+fail validate_zarr/v0.6/core/invalid/image/missing_transformations
+
+# A valid case refused: space axes must be named as a suffix of z, y, x.
+fail validate_zarr/v0.6/core/valid/transforms/sequence
+fail validate_zarr/v0.6/transform_byDimension/valid/transforms/byDimension_reorder
+fail validate_zarr/v0.6/transform_mapAxis/valid/transforms/mapAxis
+
+# An invalid 0.6 transformation: its parameters are not checked against its axes.
+fail validate_zarr/v0.6/core/invalid/transforms/identity_mismatch_ndim
+fail validate_zarr/v0.6/core/invalid/transforms/sequence_mismatch_ndim
+fail validate_zarr/v0.6/transform_affine/invalid/transforms/affine_inline_bottom_row
+fail validate_zarr/v0.6/transform_affine/invalid/transforms/affine_inline_columns
+fail validate_zarr/v0.6/transform_affine/invalid/transforms/affine_inline_wrong_ndim
+fail validate_zarr/v0.6/transform_bijection/invalid/transforms/bijection_mismatch_ndim
+fail validate_zarr/v0.6/transform_rotation/invalid/transforms/rotation_det_not_1
+fail validate_zarr/v0.6/transform_rotation/invalid/transforms/rotation_inline_1d
+fail validate_zarr/v0.6/transform_rotation/invalid/transforms/rotation_inline_not_orthogonal
+fail validate_zarr/v0.6/transform_rotation/invalid/transforms/rotation_inline_wrong_ndim
