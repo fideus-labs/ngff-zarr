@@ -55,6 +55,7 @@ Changelog = "https://github.com/thewtex/ngff-zarr/releases"
 
 [project.scripts]
 ngff-zarr = "ngff_zarr.cli:main"
+ngff-zarr-oztest = "ngff_zarr.oztest_dingus:main"
 
 [tool.hatch.version]
 path = "ngff_zarr/__about__.py"
