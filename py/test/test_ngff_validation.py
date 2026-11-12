@@ -637,3 +637,10 @@ def test_a_transform_spans_the_systems_it_names(tmp_path):
     entry = back.metadata.coordinateTransformations[0]
     assert entry.scale == [2.0, 2.0, 2.0]
     assert (entry.input.name, entry.output.name) == ("phys", "phys")
+
+
+@pytest.mark.parametrize("name", ["../x", "..\\x", "a\\..\\..\\x", "C:\\x", "/x"])
+def test_a_label_name_that_leaves_its_group_is_not_followed(name):
+    from ngff_zarr.validate import _group
+
+    assert _group(None, name) is None

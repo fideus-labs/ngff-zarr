@@ -1,416 +1,54 @@
 [
   {
     "code": "NGFF-CT-015",
-    "slug": "transform-params-match-ndim",
-    "level": "MUST",
-    "versions": [
-      "0.6",
-      "0.9.dev1"
-    ],
+    "versions": ["0.6", "0.9.dev1"],
     "spec": "https://github.com/ome/ngff-spec/blob/0.6/index.md?plain=1#L422",
-    "summary": "A transformation's parameters fit the dimensionality of its input and output.",
-    "example": {
-      "ome": {
-        "version": "0.6",
-        "scene": {
-          "coordinateSystems": [
-            {
-              "name": "a",
-              "axes": [
-                {
-                  "name": "y",
-                  "type": "space"
-                },
-                {
-                  "name": "x",
-                  "type": "space"
-                }
-              ]
-            },
-            {
-              "name": "b",
-              "axes": [
-                {
-                  "name": "z",
-                  "type": "space"
-                },
-                {
-                  "name": "y",
-                  "type": "space"
-                },
-                {
-                  "name": "x",
-                  "type": "space"
-                }
-              ]
-            }
-          ],
-          "coordinateTransformations": [
-            {
-              "input": {
-                "name": "a"
-              },
-              "output": {
-                "name": "b"
-              },
-              "type": "identity"
-            }
-          ]
-        }
-      }
-    }
+    "examples": [
+      {"ome": {"version": "0.6", "scene": {"coordinateSystems": [{"name": "a", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}, {"name": "b", "axes": [{"name": "z", "type": "space"}, {"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}], "coordinateTransformations": [{"input": {"name": "a"}, "output": {"name": "b"}, "type": "identity"}]}}},
+      {"ome": {"version": "0.6", "scene": {"coordinateSystems": [{"name": "a", "axes": [{"name": "z", "type": "space"}, {"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}, {"name": "b", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}], "coordinateTransformations": [{"input": {"name": "a"}, "output": {"name": "b"}, "type": "sequence", "transformations": [{"type": "projectAxis", "droppedInputs": [0]}, {"type": "scale", "scale": [1, 1, 1]}]}]}}},
+      {"ome": {"version": "0.6", "scene": {"coordinateSystems": [{"name": "a", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}, {"name": "b", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}], "coordinateTransformations": [{"input": {"name": "a"}, "output": {"name": "b"}, "type": "sequence", "transformations": [{"type": "sequence", "transformations": [{"type": "identity"}]}, {"type": "scale", "scale": [1, 1, 1]}]}]}}}
+    ]
   },
   {
     "code": "NGFF-CT-025",
-    "slug": "affine-inline-shape",
-    "level": "MUST",
-    "versions": [
-      "0.6",
-      "0.9.dev1"
-    ],
+    "versions": ["0.6", "0.9.dev1"],
     "spec": "https://github.com/ome/ngff-spec/blob/0.6/index.md?plain=1#L885-L886",
-    "summary": "An inline affine matrix has M rows of N+1 values.",
-    "example": {
-      "ome": {
-        "version": "0.6",
-        "scene": {
-          "coordinateSystems": [
-            {
-              "name": "a",
-              "axes": [
-                {
-                  "name": "y",
-                  "type": "space"
-                },
-                {
-                  "name": "x",
-                  "type": "space"
-                }
-              ]
-            },
-            {
-              "name": "b",
-              "axes": [
-                {
-                  "name": "y",
-                  "type": "space"
-                },
-                {
-                  "name": "x",
-                  "type": "space"
-                }
-              ]
-            }
-          ],
-          "coordinateTransformations": [
-            {
-              "input": {
-                "name": "a"
-              },
-              "output": {
-                "name": "b"
-              },
-              "type": "affine",
-              "affine": [
-                [
-                  1,
-                  0,
-                  10
-                ],
-                [
-                  0,
-                  1,
-                  20
-                ],
-                [
-                  0,
-                  0,
-                  1
-                ]
-              ]
-            }
-          ]
-        }
-      }
-    }
+    "examples": [
+      {"ome": {"version": "0.6", "scene": {"coordinateSystems": [{"name": "a", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}, {"name": "b", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}], "coordinateTransformations": [{"input": {"name": "a"}, "output": {"name": "b"}, "type": "affine", "affine": [[1, 0, 10], [0, 1, 20], [0, 0, 1]]}]}}}
+    ]
   },
   {
     "code": "NGFF-CT-026",
-    "slug": "rotation-same-ndim",
-    "level": "MUST",
-    "versions": [
-      "0.6",
-      "0.9.dev1"
-    ],
+    "versions": ["0.6", "0.9.dev1"],
     "spec": "https://github.com/ome/ngff-spec/blob/0.6/index.md?plain=1#L962",
-    "summary": "A rotation has as many input as output axes.",
-    "example": {
-      "ome": {
-        "version": "0.6",
-        "scene": {
-          "coordinateSystems": [
-            {
-              "name": "a",
-              "axes": [
-                {
-                  "name": "y",
-                  "type": "space"
-                },
-                {
-                  "name": "x",
-                  "type": "space"
-                }
-              ]
-            },
-            {
-              "name": "b",
-              "axes": [
-                {
-                  "name": "z",
-                  "type": "space"
-                },
-                {
-                  "name": "y",
-                  "type": "space"
-                },
-                {
-                  "name": "x",
-                  "type": "space"
-                }
-              ]
-            }
-          ],
-          "coordinateTransformations": [
-            {
-              "input": {
-                "name": "a"
-              },
-              "output": {
-                "name": "b"
-              },
-              "type": "rotation",
-              "rotation": [
-                [
-                  1,
-                  0
-                ],
-                [
-                  0,
-                  1
-                ]
-              ]
-            }
-          ]
-        }
-      }
-    }
+    "examples": [
+      {"ome": {"version": "0.6", "scene": {"coordinateSystems": [{"name": "a", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}, {"name": "b", "axes": [{"name": "z", "type": "space"}, {"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}], "coordinateTransformations": [{"input": {"name": "a"}, "output": {"name": "b"}, "type": "rotation", "rotation": [[1, 0], [0, 1]]}]}}}
+    ]
   },
   {
     "code": "NGFF-CT-027",
-    "slug": "rotation-orthonormal",
-    "level": "MUST",
-    "versions": [
-      "0.6",
-      "0.9.dev1"
-    ],
+    "versions": ["0.6", "0.9.dev1"],
     "spec": "https://github.com/ome/ngff-spec/blob/0.6/index.md?plain=1#L963-L964",
-    "summary": "A rotation matrix is orthonormal with determinant one.",
-    "example": {
-      "ome": {
-        "version": "0.6",
-        "scene": {
-          "coordinateSystems": [
-            {
-              "name": "a",
-              "axes": [
-                {
-                  "name": "y",
-                  "type": "space"
-                },
-                {
-                  "name": "x",
-                  "type": "space"
-                }
-              ]
-            },
-            {
-              "name": "b",
-              "axes": [
-                {
-                  "name": "y",
-                  "type": "space"
-                },
-                {
-                  "name": "x",
-                  "type": "space"
-                }
-              ]
-            }
-          ],
-          "coordinateTransformations": [
-            {
-              "input": {
-                "name": "a"
-              },
-              "output": {
-                "name": "b"
-              },
-              "type": "rotation",
-              "rotation": [
-                [
-                  1,
-                  0
-                ],
-                [
-                  0,
-                  -1
-                ]
-              ]
-            }
-          ]
-        }
-      }
-    }
+    "examples": [
+      {"ome": {"version": "0.6", "scene": {"coordinateSystems": [{"name": "a", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}, {"name": "b", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}], "coordinateTransformations": [{"input": {"name": "a"}, "output": {"name": "b"}, "type": "rotation", "rotation": [[1, 0], [0, -1]]}]}}},
+      {"ome": {"version": "0.6", "scene": {"coordinateSystems": [{"name": "a", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}, {"name": "b", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}], "coordinateTransformations": [{"input": {"name": "a"}, "output": {"name": "b"}, "type": "byDimension", "transformations": [{"inputAxes": [0, 1], "outputAxes": [0, 1], "transformation": {"type": "rotation", "rotation": [[1, 0], [0, -1]]}}]}]}}},
+      {"ome": {"version": "0.6", "coordinateSystems": [{"name": "a", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}, {"name": "b", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}], "coordinateTransformations": [{"input": {"name": "a"}, "output": {"name": "b"}, "type": "rotation", "rotation": [[1.0000075, 0], [0, 0.9999925]]}]}}
+    ]
   },
   {
     "code": "NGFF-CT-030",
-    "slug": "rotation-inline-shape",
-    "level": "MUST",
-    "versions": [
-      "0.6",
-      "0.9.dev1"
-    ],
+    "versions": ["0.6", "0.9.dev1"],
     "spec": "https://github.com/ome/ngff-spec/blob/0.6/index.md?plain=1#L974-L975",
-    "summary": "An inline rotation matrix is N x N.",
-    "example": {
-      "ome": {
-        "version": "0.6",
-        "scene": {
-          "coordinateSystems": [
-            {
-              "name": "a",
-              "axes": [
-                {
-                  "name": "y",
-                  "type": "space"
-                },
-                {
-                  "name": "x",
-                  "type": "space"
-                }
-              ]
-            },
-            {
-              "name": "b",
-              "axes": [
-                {
-                  "name": "y",
-                  "type": "space"
-                },
-                {
-                  "name": "x",
-                  "type": "space"
-                }
-              ]
-            }
-          ],
-          "coordinateTransformations": [
-            {
-              "input": {
-                "name": "a"
-              },
-              "output": {
-                "name": "b"
-              },
-              "type": "rotation",
-              "rotation": [
-                [
-                  1,
-                  0,
-                  0
-                ],
-                [
-                  0,
-                  1,
-                  0
-                ],
-                [
-                  0,
-                  0,
-                  1
-                ]
-              ]
-            }
-          ]
-        }
-      }
-    }
+    "examples": [
+      {"ome": {"version": "0.6", "scene": {"coordinateSystems": [{"name": "a", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}, {"name": "b", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}], "coordinateTransformations": [{"input": {"name": "a"}, "output": {"name": "b"}, "type": "rotation", "rotation": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]}]}}}
+    ]
   },
   {
     "code": "NGFF-CT-040",
-    "slug": "bijection-same-ndim",
-    "level": "MUST",
-    "versions": [
-      "0.6",
-      "0.9.dev1"
-    ],
+    "versions": ["0.6", "0.9.dev1"],
     "spec": "https://github.com/ome/ngff-spec/blob/0.6/index.md?plain=1#L1232",
-    "summary": "A bijection has as many input as output axes.",
-    "example": {
-      "ome": {
-        "version": "0.6",
-        "scene": {
-          "coordinateSystems": [
-            {
-              "name": "a",
-              "axes": [
-                {
-                  "name": "y",
-                  "type": "space"
-                },
-                {
-                  "name": "x",
-                  "type": "space"
-                }
-              ]
-            },
-            {
-              "name": "b",
-              "axes": [
-                {
-                  "name": "z",
-                  "type": "space"
-                },
-                {
-                  "name": "y",
-                  "type": "space"
-                },
-                {
-                  "name": "x",
-                  "type": "space"
-                }
-              ]
-            }
-          ],
-          "coordinateTransformations": [
-            {
-              "input": {
-                "name": "a"
-              },
-              "output": {
-                "name": "b"
-              },
-              "type": "bijection",
-              "forward": {
-                "type": "identity"
-              },
-              "inverse": {
-                "type": "identity"
-              }
-            }
-          ]
-        }
-      }
-    }
+    "examples": [
+      {"ome": {"version": "0.6", "scene": {"coordinateSystems": [{"name": "a", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}, {"name": "b", "axes": [{"name": "z", "type": "space"}, {"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}], "coordinateTransformations": [{"input": {"name": "a"}, "output": {"name": "b"}, "type": "bijection", "forward": {"type": "identity"}, "inverse": {"type": "identity"}}]}}}
+    ]
   }
 ]

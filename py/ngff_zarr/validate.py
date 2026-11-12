@@ -4,6 +4,7 @@ import json
 import warnings
 from dataclasses import dataclass
 from functools import cache
+from pathlib import PureWindowsPath
 from typing import TYPE_CHECKING
 
 from importlib_resources import files as file_resources
@@ -212,6 +213,10 @@ def schema_problems(
         attributes = {**attributes, "ome": ome}
         version = V06_ONDISK_VERSION.value
     tree = _schemas_dir(version)
+    if model and not tree.joinpath(f"{model}.schema").is_file():
+        return [
+            Problem("schema", f"OME-Zarr {version} defines no {model} metadata", path)
+        ]
     return [
         Problem("schema", f"{name}.schema, {error.json_path}: {error.message}", path)
         for key, name in _SCHEMA_OF_KEY.items()
@@ -240,8 +245,9 @@ def group_problems(
 
 def _group(node, name: str):
     """The group ``name`` below ``node``, or None."""
-    # A name from the store's own metadata must stay below the group.
-    if ".." in name.split("/"):
+    # A name from the store's own metadata must stay below the group, also
+    # where a backslash or a drive separates paths.
+    if ".." in name.replace("\\", "/").split("/") or PureWindowsPath(name).anchor:
         return None
     try:
         child = node[name]

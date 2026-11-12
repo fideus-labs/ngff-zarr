@@ -66,41 +66,36 @@ function axisCount(
  * of the coordinate systems it maps between.
  */
 function* transformationFindings(ome: Json): Generator<Finding> {
-  const scene = ome.scene;
-  if (typeof scene === "object" && scene !== null) {
-    const systems = systemsOf(scene as Json);
-    for (const [index, transform] of records(
-      (scene as Json).coordinateTransformations,
-    ).entries()) {
-      yield* dimensionFindings(
-        `scene.coordinateTransformations[${index}]`,
-        transform,
-        axisCount(transform.input, systems),
-        axisCount(transform.output, systems),
-      );
-    }
+  // Transformations sit beside the systems they name: at the root of a
+  // standalone transformation, in a scene and in each multiscales entry.
+  const documents: [string, Json][] = [["", ome]];
+  if (typeof ome.scene === "object" && ome.scene !== null) {
+    documents.push(["scene.", ome.scene as Json]);
   }
   for (const [m, entry] of records(ome.multiscales).entries()) {
-    const systems = systemsOf(entry);
-    for (const [index, transform] of records(
-      entry.coordinateTransformations,
+    documents.push([`multiscales[${m}].`, entry]);
+  }
+  for (const [prefix, document] of documents) {
+    const systems = systemsOf(document);
+    for (const [i, transform] of records(
+      document.coordinateTransformations,
     ).entries()) {
       yield* dimensionFindings(
-        `multiscales[${m}].coordinateTransformations[${index}]`,
+        `${prefix}coordinateTransformations[${i}]`,
         transform,
         axisCount(transform.input, systems),
         axisCount(transform.output, systems),
       );
     }
-    for (const [d, dataset] of records(entry.datasets).entries()) {
-      for (const [index, transform] of records(
+    for (const [d, dataset] of records(document.datasets).entries()) {
+      for (const [i, transform] of records(
         dataset.coordinateTransformations,
       ).entries()) {
         // A dataset's array has as many dimensions as the system it maps to
         // has axes.
         const count = axisCount(transform.output, systems);
         yield* dimensionFindings(
-          `multiscales[${m}].datasets[${d}].coordinateTransformations[${index}]`,
+          `${prefix}datasets[${d}].coordinateTransformations[${i}]`,
           transform,
           count,
           count,
@@ -114,9 +109,14 @@ function* transformationFindings(ome: Json): Generator<Finding> {
 function axesAfter(step: Json, count: number | undefined): number | undefined {
   const kind = step.type;
   if (
-    ["identity", "scale", "translation", "rotation", "mapAxis"].includes(
-      kind as string,
-    )
+    [
+      "identity",
+      "scale",
+      "translation",
+      "rotation",
+      "mapAxis",
+      "bijection",
+    ].includes(kind as string)
   ) {
     return count;
   }
@@ -129,6 +129,12 @@ function axesAfter(step: Json, count: number | undefined): number | undefined {
       records(step.droppedInputs).length +
       records(step.createdOutputs).length
     );
+  }
+  if (kind === "sequence") {
+    for (const inner of records(step.transformations)) {
+      count = axesAfter(inner, count);
+    }
+    return count;
   }
   return undefined;
 }

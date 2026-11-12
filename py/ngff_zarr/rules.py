@@ -4,10 +4,10 @@
 official JSON Schemas.
 
 ``rules.json`` lists each rule once: its code, the versions whose text states
-it, whether it is a MUST or a SHOULD, where the specification states it, and a
-minimal document that breaks it. The TypeScript port reads the same file. The
-checks run on a document the JSON Schema accepted, so they rely on the shapes
-the schema enforces.
+it, where the specification states it, and documents that break it, which the
+tests of both ports check. The TypeScript port reads the same file. The checks
+run on a document the JSON Schema accepted, so they rely on the shapes the
+schema enforces.
 """
 
 import json
@@ -56,34 +56,31 @@ def _axis_count(reference, systems: dict[str, dict]) -> int | None:
 def _transformation_findings(ome: dict) -> Iterator[Finding]:
     """Check each coordinate transformation of a document against the axis
     counts of the coordinate systems it maps between."""
-    scene = ome.get("scene")
-    if isinstance(scene, dict):
-        systems = _systems(scene)
-        for index, transform in enumerate(scene.get("coordinateTransformations", [])):
+    # Transformations sit beside the systems they name: at the root of a
+    # standalone transformation, in a scene and in each multiscales entry.
+    documents = [("", ome)]
+    if isinstance(ome.get("scene"), dict):
+        documents.append(("scene.", ome["scene"]))
+    documents += [
+        (f"multiscales[{m}].", entry)
+        for m, entry in enumerate(ome.get("multiscales", []))
+    ]
+    for prefix, document in documents:
+        systems = _systems(document)
+        for i, transform in enumerate(document.get("coordinateTransformations", [])):
             yield from _dimension_findings(
-                f"scene.coordinateTransformations[{index}]",
+                f"{prefix}coordinateTransformations[{i}]",
                 transform,
                 _axis_count(transform.get("input"), systems),
                 _axis_count(transform.get("output"), systems),
             )
-    for m, entry in enumerate(ome.get("multiscales", [])):
-        systems = _systems(entry)
-        for index, transform in enumerate(entry.get("coordinateTransformations", [])):
-            yield from _dimension_findings(
-                f"multiscales[{m}].coordinateTransformations[{index}]",
-                transform,
-                _axis_count(transform.get("input"), systems),
-                _axis_count(transform.get("output"), systems),
-            )
-        for d, dataset in enumerate(entry.get("datasets", [])):
-            for index, transform in enumerate(
-                dataset.get("coordinateTransformations", [])
-            ):
+        for d, dataset in enumerate(document.get("datasets", [])):
+            for i, transform in enumerate(dataset.get("coordinateTransformations", [])):
                 # A dataset's array has as many dimensions as the system it
                 # maps to has axes.
                 count = _axis_count(transform.get("output"), systems)
                 yield from _dimension_findings(
-                    f"multiscales[{m}].datasets[{d}].coordinateTransformations[{index}]",
+                    f"{prefix}datasets[{d}].coordinateTransformations[{i}]",
                     transform,
                     count,
                     count,
@@ -93,13 +90,17 @@ def _transformation_findings(ome: dict) -> Iterator[Finding]:
 def _axes_after(step: dict, count: int | None) -> int | None:
     """The axis count after a step of a sequence, when it follows from the step."""
     kind = step.get("type")
-    if kind in ("identity", "scale", "translation", "rotation", "mapAxis"):
+    if kind in ("identity", "scale", "translation", "rotation", "mapAxis", "bijection"):
         return count
     if kind == "affine" and isinstance(step.get("affine"), list):
         return len(step["affine"])
     if kind == "projectAxis" and count is not None:
         dropped = len(step.get("droppedInputs", []))
         return count - dropped + len(step.get("createdOutputs", []))
+    if kind == "sequence":
+        for inner in step.get("transformations", []):
+            count = _axes_after(inner, count)
+        return count
     return None
 
 
@@ -107,7 +108,10 @@ def _orthonormal(matrix: list) -> bool:
     rotation = np.asarray(matrix, dtype=float)
     return bool(
         np.allclose(
-            rotation @ rotation.T, np.eye(len(rotation)), atol=ROTATION_TOLERANCE
+            rotation @ rotation.T,
+            np.eye(len(rotation)),
+            rtol=0,
+            atol=ROTATION_TOLERANCE,
         )
         and abs(np.linalg.det(rotation) - 1) <= ROTATION_TOLERANCE
     )

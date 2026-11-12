@@ -175,6 +175,13 @@ export async function schemaProblems(
   for (const [key, model] of Object.entries(SCHEMA_OF_KEY)) {
     const check =
       key in ome || model === expected ? await validator(tree, model) : null;
+    if (check === null && model === expected) {
+      problems.push({
+        code: "schema",
+        message: `OME-Zarr ${version} defines no ${model} metadata`,
+        path,
+      });
+    }
     const result = check?.validate(instance);
     if (result !== undefined && !result.valid) {
       // The errors run from the document down to the value at fault; the
@@ -215,8 +222,12 @@ async function group(
   node: zarr.Group<zarr.Readable>,
   name: string,
 ): Promise<zarr.Group<zarr.Readable> | undefined> {
-  // A name from the store's own metadata must stay below the group.
-  if (name.split("/").includes("..")) {
+  // A name from the store's own metadata must stay below the group, also
+  // where a backslash or a drive separates paths.
+  if (
+    name.replaceAll("\\", "/").split("/").includes("..") ||
+    /^([A-Za-z]:|[\\/])/.test(name)
+  ) {
     return undefined;
   }
   try {

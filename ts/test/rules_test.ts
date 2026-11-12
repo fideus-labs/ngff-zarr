@@ -11,7 +11,7 @@ import { groupProblems, schemaProblems } from "../src/utils/validate.ts";
 const bundled: {
   code: string;
   versions: string[];
-  example: Record<string, unknown>;
+  examples: { ome: { version: string } }[];
 }[] = JSON.parse(
   readFileSync(
     fileURLToPath(new URL("../../py/ngff_zarr/rules.json", import.meta.url)),
@@ -27,56 +27,18 @@ test("the rule table is the one the Python package bundles", () => {
   );
 });
 
-for (const rule of bundled) {
-  test(`${rule.code} fires on its example`, async () => {
-    const version = (rule.example.ome as Record<string, unknown>)
-      .version as string;
-    assertEquals(await schemaProblems(rule.example, version), []);
-    const codes = (await groupProblems(rule.example, version)).map(
-      (problem) => problem.code,
-    );
-    assert(codes.includes(rule.code), `${rule.code} not in ${codes}`);
-  });
+for (const { code, examples } of bundled) {
+  for (const [index, example] of examples.entries()) {
+    test(`${code} fires on its example ${index}`, async () => {
+      const version = example.ome.version;
+      assertEquals(await schemaProblems(example, version), []);
+      const codes = (await groupProblems(example, version)).map(
+        (problem) => problem.code,
+      );
+      assert(codes.includes(code), `${code} not in ${codes}`);
+    });
+  }
 }
-
-test("a rule reaches the transformations of a byDimension", async () => {
-  const example = bundled.find((rule) => rule.code === "NGFF-CT-027")!.example;
-  const ome = example.ome as Record<string, unknown>;
-  const scene = ome.scene as Record<string, unknown>;
-  const rotation = (
-    scene.coordinateTransformations as Record<string, unknown>[]
-  )[0];
-  const nested = {
-    ome: {
-      ...ome,
-      scene: {
-        ...scene,
-        coordinateTransformations: [
-          {
-            input: rotation.input,
-            output: rotation.output,
-            type: "byDimension",
-            transformations: [
-              {
-                inputAxes: [0, 1],
-                outputAxes: [0, 1],
-                transformation: {
-                  type: "rotation",
-                  rotation: rotation.rotation,
-                },
-              },
-            ],
-          },
-        ],
-      },
-    },
-  };
-  assertEquals(await schemaProblems(nested, "0.6"), []);
-  const codes = (await groupProblems(nested, "0.6")).map(
-    (problem) => problem.code,
-  );
-  assert(codes.includes("NGFF-CT-027"), `NGFF-CT-027 not in ${codes}`);
-});
 
 test("a group read as a scene is checked against the scene schema", async () => {
   const attributes = { ome: { version: "0.6" } };
@@ -87,34 +49,10 @@ test("a group read as a scene is checked against the scene schema", async () => 
   );
 });
 
-test("a sequence keeps its axis count through a projectAxis", async () => {
-  const axes = (names: string) =>
-    [...names].map((name) => ({ name, type: "space" }));
-  const document = {
-    ome: {
-      version: "0.6",
-      scene: {
-        coordinateSystems: [
-          { name: "a", axes: axes("zyx") },
-          { name: "b", axes: axes("yx") },
-        ],
-        coordinateTransformations: [
-          {
-            input: { name: "a" },
-            output: { name: "b" },
-            type: "sequence",
-            transformations: [
-              { type: "projectAxis", droppedInputs: [0] },
-              { type: "scale", scale: [1, 1, 1] },
-            ],
-          },
-        ],
-      },
-    },
-  };
-  assertEquals(await schemaProblems(document, "0.6"), []);
-  const codes = (await groupProblems(document, "0.6")).map(
-    (problem) => problem.code,
+test("a kind its version does not define is a problem", async () => {
+  const attributes = { ome: { version: "0.5" } };
+  assert(
+    (await schemaProblems(attributes, "0.5", "", "scene")).length > 0,
+    "a 0.5 scene must be refused",
   );
-  assert(codes.includes("NGFF-CT-015"), `NGFF-CT-015 not in ${codes}`);
 });
