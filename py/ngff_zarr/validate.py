@@ -185,9 +185,14 @@ def _validator(version: str, model: str):
     )
 
 
-def schema_problems(attributes: dict, version: str, path: str = "") -> list[Problem]:
+def schema_problems(
+    attributes: dict, version: str, path: str = "", model: str | None = None
+) -> list[Problem]:
     """Check a group's attributes against the JSON Schema of each kind of
-    OME-Zarr Metadata they hold, at ``version``."""
+    OME-Zarr Metadata they hold, at ``version``.
+
+    ``model`` names the schema the group is read as (``image``, ``plate``,
+    ``scene``): it is checked even when the attributes lack its key."""
     ome = attributes.get("ome", attributes)
     if not isinstance(ome, dict):
         return [Problem("schema", "'ome' is not a JSON object", path)]
@@ -208,17 +213,19 @@ def schema_problems(attributes: dict, version: str, path: str = "") -> list[Prob
         version = V06_ONDISK_VERSION.value
     tree = _schemas_dir(version)
     return [
-        Problem("schema", f"{model}.schema, {error.json_path}: {error.message}", path)
-        for key, model in _SCHEMA_OF_KEY.items()
-        if key in ome and tree.joinpath(f"{model}.schema").is_file()
-        for error in _validator(version, model).iter_errors(attributes)
+        Problem("schema", f"{name}.schema, {error.json_path}: {error.message}", path)
+        for key, name in _SCHEMA_OF_KEY.items()
+        if (key in ome or name == model) and tree.joinpath(f"{name}.schema").is_file()
+        for error in _validator(version, name).iter_errors(attributes)
     ]
 
 
-def group_problems(attributes: dict, version: str, path: str = "") -> list[Problem]:
+def group_problems(
+    attributes: dict, version: str, path: str = "", model: str | None = None
+) -> list[Problem]:
     """Check a group's attributes against the JSON Schema and, once the schema
     accepts them, against the rules beyond it (``ngff_zarr.rules``)."""
-    problems = schema_problems(attributes, version, path)
+    problems = schema_problems(attributes, version, path, model)
     if problems:
         return problems
     from .rules import rule_problems
@@ -250,9 +257,13 @@ def store_problems(root, version: str) -> list[Problem]:
     if labels is None:
         return problems
     attributes = labels.attrs.asdict()
-    names = attributes.get("ome", attributes).get("labels")
+    ome = attributes.get("ome", attributes)
+    names = ome.get("labels") if isinstance(ome, dict) else None
     for name in names if isinstance(names, list) else []:
         label = _group(labels, name) if isinstance(name, str) else None
         if label is not None:
-            problems += group_problems(label.attrs.asdict(), version, f"labels/{name}")
+            # A label image implements the multiscales specification.
+            problems += group_problems(
+                label.attrs.asdict(), version, f"labels/{name}", model="image"
+            )
     return problems

@@ -164,6 +164,15 @@ def _dimension_findings(
                 "NGFF-CT-015",
                 f"{where}: the sequence ends with {count} axes, its output has {n_out}",
             )
+    elif kind == "byDimension":
+        # Each item's transformation maps as many axes as the item lists.
+        for index, item in enumerate(transform.get("transformations", [])):
+            yield from _dimension_findings(
+                f"{where}.transformations[{index}].transformation",
+                item["transformation"],
+                len(item["inputAxes"]),
+                len(item["outputAxes"]),
+            )
     elif kind == "bijection":
         if known and n_in != n_out:
             yield "NGFF-CT-040", f"{where}: a bijection maps {n_in} axes to {n_out}"

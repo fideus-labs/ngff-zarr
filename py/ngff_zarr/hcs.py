@@ -445,7 +445,7 @@ def from_hcs_zarr(
         from .validate import ValidationError, schema_problems
 
         version = _detect_version(root_attrs).value
-        if problems := schema_problems(root_attrs, version):
+        if problems := schema_problems(root_attrs, version, model="plate"):
             raise ValidationError(problems)
 
     # Extract plate metadata

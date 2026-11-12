@@ -269,6 +269,16 @@ function* dimensionFindings(
         `${where}: the sequence ends with ${count} axes, its output has ${outputCount}`,
       ];
     }
+  } else if (kind === "byDimension") {
+    // Each item's transformation maps as many axes as the item lists.
+    for (const [index, item] of records(transform.transformations).entries()) {
+      yield* dimensionFindings(
+        `${where}.transformations[${index}].transformation`,
+        item.transformation as Json,
+        (item.inputAxes as unknown[]).length,
+        (item.outputAxes as unknown[]).length,
+      );
+    }
   } else if (kind === "bijection") {
     if (known && inputCount !== outputCount) {
       yield [

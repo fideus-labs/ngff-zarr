@@ -136,12 +136,15 @@ async function validator(
 
 /**
  * Check a group's attributes against the JSON Schema of each kind of OME-Zarr
- * Metadata they hold, at `version`.
+ * Metadata they hold, at `version`. `expected` names the schema the group is
+ * read as (`image`, `scene`): it is checked even when the attributes lack its
+ * key.
  */
 export async function schemaProblems(
   attributes: Record<string, unknown>,
   version: string,
   path = "",
+  expected?: string,
 ): Promise<Problem[]> {
   const found = "ome" in attributes ? attributes.ome : attributes;
   if (!isRecord(found)) {
@@ -170,7 +173,8 @@ export async function schemaProblems(
   const instance = JSON.parse(JSON.stringify(attributes));
   const problems: Problem[] = [];
   for (const [key, model] of Object.entries(SCHEMA_OF_KEY)) {
-    const check = key in ome ? await validator(tree, model) : null;
+    const check =
+      key in ome || model === expected ? await validator(tree, model) : null;
     const result = check?.validate(instance);
     if (result !== undefined && !result.valid) {
       // The errors run from the document down to the value at fault; the
@@ -194,8 +198,9 @@ export async function groupProblems(
   attributes: Record<string, unknown>,
   version: string,
   path = "",
+  expected?: string,
 ): Promise<Problem[]> {
-  const problems = await schemaProblems(attributes, version, path);
+  const problems = await schemaProblems(attributes, version, path, expected);
   if (problems.length > 0) {
     return problems;
   }
@@ -245,6 +250,7 @@ export async function storeProblems(
           label.attrs as Record<string, unknown>,
           version,
           `labels/${name}`,
+          "image",
         )),
       );
     }

@@ -208,15 +208,14 @@ function firstScaleVector(dataset: Dataset): number[] | null {
 /**
  * Class-ordering rank for axis types: a `time` axis must precede a `channel`
  * axis, which must precede any `space` axis. Lower rank must never follow
- * higher rank (see {@link validateAxisOrder}). Axis types absent from this map
- * (e.g. `array`) carry no rank, so a pair involving one is skipped -- mirroring
- * the Python implementation's `dict.get(...) is None` handling.
+ * higher rank (see {@link validateAxisOrder}). A null or custom axis type,
+ * absent from this map, takes the rank of a channel axis.
  */
-const AXIS_TYPE_RANK: Record<string, number | undefined> = {
-  time: 0,
-  channel: 1,
-  space: 2,
-};
+const AXIS_TYPE_RANK = new Map([
+  ["time", 0],
+  ["channel", 1],
+  ["space", 2],
+]);
 
 /**
  * The v0.6 `axes` schema is a `oneOf`: either 2 or 3 `space` axes, or two or
@@ -347,8 +346,7 @@ export function validateAxisOrder(
   }
   // A null or custom axis type takes the place of a channel axis.
   const rank = (type: string | undefined): number =>
-    (type === undefined ? undefined : AXIS_TYPE_RANK[type]) ??
-    AXIS_TYPE_RANK.channel!;
+    AXIS_TYPE_RANK.get(type ?? "") ?? AXIS_TYPE_RANK.get("channel")!;
   for (let i = 0; i < axes.length - 1; i++) {
     const current = axes[i];
     const following = axes[i + 1];

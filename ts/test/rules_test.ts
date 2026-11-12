@@ -38,3 +38,51 @@ for (const rule of bundled) {
     assert(codes.includes(rule.code), `${rule.code} not in ${codes}`);
   });
 }
+
+test("a rule reaches the transformations of a byDimension", async () => {
+  const example = bundled.find((rule) => rule.code === "NGFF-CT-027")!.example;
+  const ome = example.ome as Record<string, unknown>;
+  const scene = ome.scene as Record<string, unknown>;
+  const rotation = (
+    scene.coordinateTransformations as Record<string, unknown>[]
+  )[0];
+  const nested = {
+    ome: {
+      ...ome,
+      scene: {
+        ...scene,
+        coordinateTransformations: [
+          {
+            input: rotation.input,
+            output: rotation.output,
+            type: "byDimension",
+            transformations: [
+              {
+                inputAxes: [0, 1],
+                outputAxes: [0, 1],
+                transformation: {
+                  type: "rotation",
+                  rotation: rotation.rotation,
+                },
+              },
+            ],
+          },
+        ],
+      },
+    },
+  };
+  assertEquals(await schemaProblems(nested, "0.6"), []);
+  const codes = (await groupProblems(nested, "0.6")).map(
+    (problem) => problem.code,
+  );
+  assert(codes.includes("NGFF-CT-027"), `NGFF-CT-027 not in ${codes}`);
+});
+
+test("a group read as a scene is checked against the scene schema", async () => {
+  const attributes = { ome: { version: "0.6" } };
+  assertEquals(await schemaProblems(attributes, "0.6"), []);
+  assert(
+    (await schemaProblems(attributes, "0.6", "", "scene")).length > 0,
+    "a scene root with no scene must be refused",
+  );
+});

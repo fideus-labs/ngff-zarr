@@ -24,3 +24,43 @@ def test_a_rule_is_well_formed(code):
     assert rule["level"] in ("MUST", "SHOULD")
     assert set(rule["versions"]) <= {str(v) for v in SUPPORTED_VERSIONS}
     assert rule["spec"].startswith("https://")
+
+
+def test_a_rule_reaches_the_transformations_of_a_by_dimension():
+    example = RULES["NGFF-CT-027"]["example"]
+    scene = example["ome"]["scene"]
+    rotation = scene["coordinateTransformations"][0]
+    nested = {
+        "ome": {
+            **example["ome"],
+            "scene": {
+                **scene,
+                "coordinateTransformations": [
+                    {
+                        "input": rotation["input"],
+                        "output": rotation["output"],
+                        "type": "byDimension",
+                        "transformations": [
+                            {
+                                "inputAxes": [0, 1],
+                                "outputAxes": [0, 1],
+                                "transformation": {
+                                    "type": "rotation",
+                                    "rotation": rotation["rotation"],
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+    }
+    assert schema_problems(nested, "0.6") == []
+    assert "NGFF-CT-027" in {problem.code for problem in group_problems(nested, "0.6")}
+
+
+@pytest.mark.parametrize("model", ["plate", "scene"])
+def test_a_group_read_as_a_kind_is_checked_against_its_schema(model):
+    attributes = {"ome": {"version": "0.6"}}
+    assert schema_problems(attributes, "0.6") == []
+    assert schema_problems(attributes, "0.6", model=model)

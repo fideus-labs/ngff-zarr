@@ -475,7 +475,7 @@ def _read_scene(
     if validate:
         from .validate import ValidationError, group_problems
 
-        if problems := group_problems(root_attrs, version):
+        if problems := group_problems(root_attrs, version, model="scene"):
             raise ValidationError(problems)
 
     systems, transforms = _scene_from_dict(

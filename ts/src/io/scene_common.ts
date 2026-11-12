@@ -525,7 +525,7 @@ export async function readScene(
   }
   const version = readVersion(rootAttrs, options);
   if (validate) {
-    const problems = await groupProblems(rootAttrs, version);
+    const problems = await groupProblems(rootAttrs, version, "", "scene");
     if (problems.length > 0) {
       throw new ValidationError(problems);
     }
