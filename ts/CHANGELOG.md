@@ -1,3 +1,10 @@
+## ts-v0.42.0 (2026-11-13)
+
+### 🐛 Bug Fixes
+
+- **ts**: keep the cause of a failed read ([d00224b](https://github.com/fideus-labs/ngff-zarr/commit/d00224b7432e88b73785e38c5577a57de7f0600f))
+- clarify standalone documentation updater noop ([e5b13c0](https://github.com/fideus-labs/ngff-zarr/commit/e5b13c065267014e379a15cd0d7aa1dece605b00))
+
 ## ts-v0.41.0 (2026-11-05)
 
 ### ⚡ Performance
