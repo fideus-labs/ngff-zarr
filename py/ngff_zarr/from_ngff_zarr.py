@@ -473,13 +473,17 @@ def from_ome_zarr(
             "within the plate (e.g., 'plate.zarr/A/1/0' for well A1, field 0)."
         )
 
+    if validate:
+        from .validate import ValidationError, store_problems
+
+        if problems := store_problems(root, version):
+            raise ValidationError(problems)
+
     if version == "0.9.dev1":
         from .v09.zarr_metadata import Metadata
 
-        # No 0.9.dev1 JSON Schema is published; `validate` is forwarded so
-        # validate=True reports that rather than validating nothing.
         metadata_obj, images = Metadata._from_zarr_attrs(
-            root_attrs, store, validate=validate, subpath=subpath
+            root_attrs, store, subpath=subpath
         )
         method, method_type, method_metadata = _extract_method_metadata(
             root_attrs["ome"]["multiscales"][0]
@@ -489,7 +493,7 @@ def from_ome_zarr(
         from .v06.zarr_metadata import Metadata
 
         metadata_obj, images = Metadata._from_zarr_attrs(
-            root_attrs, store, validate=validate, subpath=subpath
+            root_attrs, store, subpath=subpath
         )
         method, method_type, method_metadata = _extract_method_metadata(
             root_attrs["ome"]["multiscales"][0]

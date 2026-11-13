@@ -37,7 +37,7 @@ import {
   hasRfc4OrientationMetadata,
   validateRfc4Orientation,
 } from "./rfc4_validation.ts";
-import { formatNameList, pyRepr } from "./py_format.ts";
+import { pyRepr } from "./py_format.ts";
 import {
   isRfc3AxisModelAllowed,
   isRfc4OrientationEnforced,
@@ -58,7 +58,7 @@ export const SpecRule = {
   AxisCount: "axis-count",
   /** At most one `time` axis and at most one `channel` axis. */
   AxisType: "axis-type",
-  /** time before channel before space; spatial names suffix (z, y, x). */
+  /** time before channel before space; 2 or 3 space axes. */
   AxisOrder: "axis-order",
   /** Axis names are unique within a dataset. */
   AxisNamesUnique: "axis-names-unique",
@@ -208,22 +208,14 @@ function firstScaleVector(dataset: Dataset): number[] | null {
 /**
  * Class-ordering rank for axis types: a `time` axis must precede a `channel`
  * axis, which must precede any `space` axis. Lower rank must never follow
- * higher rank (see {@link validateAxisOrder}). Axis types absent from this map
- * (e.g. `array`) carry no rank, so a pair involving one is skipped -- mirroring
- * the Python implementation's `dict.get(...) is None` handling.
+ * higher rank (see {@link validateAxisOrder}). A null or custom axis type,
+ * absent from this map, takes the rank of a channel axis.
  */
-const AXIS_TYPE_RANK: Record<string, number | undefined> = {
-  time: 0,
-  channel: 1,
-  space: 2,
-};
-
-/**
- * Spatial axis names in canonical order. A valid set of `space` axis names is
- * the matching-length suffix of this tuple: 1 -> `["x"]`, 2 -> `["y", "x"]`,
- * 3 -> `["z", "y", "x"]` (see {@link validateSpatialAxisOrder}).
- */
-const SPATIAL_AXIS_NAMES = ["z", "y", "x"] as const;
+const AXIS_TYPE_RANK = new Map([
+  ["time", 0],
+  ["channel", 1],
+  ["space", 2],
+]);
 
 /**
  * The v0.6 `axes` schema is a `oneOf`: either 2 or 3 `space` axes, or two or
@@ -291,11 +283,13 @@ export function validateAxisCount(
 /**
  * Validate axis-type multiplicity.
  *
- * At most one `time` axis and at most one `channel` axis may be present.
+ * At most one `time` axis may be present, and at most one axis that is a
+ * `channel` axis or of a null or custom type. A v0.6 `array` coordinate system
+ * is exempt.
  *
  * @param metadata - The parsed multiscales metadata to validate.
  * @throws {ValidationError} With {@link SpecRule.AxisType} when more than one
- * `time` axis or more than one `channel` axis is present; location
+ * `time` axis, or more than one `channel` or custom axis, is present; location
  * `multiscales[0].axes`.
  */
 export function validateAxisType(
@@ -313,13 +307,13 @@ export function validateAxisType(
       "multiscales[0].axes",
     );
   }
-  const channelCount = metadata.axes.filter(
-    (ax) => ax.type === "channel",
+  const otherCount = metadata.axes.filter(
+    (ax) => ax.type !== "space" && ax.type !== "time",
   ).length;
-  if (channelCount > 1) {
+  if (otherCount > 1 && !takesArraySchemaBranch(metadata.axes, version)) {
     throw new ValidationError(
       SpecRule.AxisType,
-      `At most one 'channel' axis is permitted; found ${channelCount}.`,
+      `At most one 'channel' or custom axis is permitted; found ${otherCount}.`,
       "multiscales[0].axes",
     );
   }
@@ -328,11 +322,11 @@ export function validateAxisType(
 /**
  * Validate the class ordering of axes.
  *
- * Axes are ranked by type (`time` < `channel` < `space`) and must be listed in
- * non-decreasing rank order: every `time` axis precedes every `channel` axis,
- * which precedes every `space` axis. The first adjacent pair that inverts this
- * ranking is reported. Pairs involving an axis type with no rank (e.g. `array`)
- * are skipped.
+ * Axes are ranked by type (`time` < `channel` or custom < `space`) and must be
+ * listed in non-decreasing rank order: the `time` axis precedes the `channel`
+ * or custom axis, which precedes every `space` axis. An axis with no type ranks
+ * as a custom one. The first adjacent pair that inverts this ranking is
+ * reported. A v0.6 `array` coordinate system is exempt.
  *
  * @param metadata - The parsed multiscales metadata to validate.
  * @throws {ValidationError} With {@link SpecRule.AxisOrder} for the first
@@ -343,28 +337,27 @@ export function validateAxisOrder(
   metadata: Pick<Metadata, "axes">,
   version?: string,
 ): void {
-  if (isRfc3AxisModelAllowed(version)) {
+  const axes = metadata.axes;
+  if (
+    isRfc3AxisModelAllowed(version) ||
+    takesArraySchemaBranch(axes, version)
+  ) {
     return;
   }
-  const axes = metadata.axes;
+  // A null or custom axis type takes the place of a channel axis.
+  const rank = (type: string | undefined): number =>
+    AXIS_TYPE_RANK.get(type ?? "") ?? AXIS_TYPE_RANK.get("channel")!;
   for (let i = 0; i < axes.length - 1; i++) {
     const current = axes[i];
     const following = axes[i + 1];
-    // An axis with no `type` has no rank, mirroring the Python port's dict
-    // `.get()`; the pair is then skipped by the guard below.
-    const currentRank =
-      current.type === undefined ? undefined : AXIS_TYPE_RANK[current.type];
-    const followingRank =
-      following.type === undefined ? undefined : AXIS_TYPE_RANK[following.type];
-    if (currentRank === undefined || followingRank === undefined) {
-      continue;
-    }
+    const currentRank = rank(current.type);
+    const followingRank = rank(following.type);
     if (followingRank < currentRank) {
       throw new ValidationError(
         SpecRule.AxisOrder,
         `Axis '${following.name}' of type '${following.type}' must not ` +
           `follow axis '${current.name}' of type '${current.type}'; axes ` +
-          `must be ordered time, then channel, then space.`,
+          `must be ordered time, then channel or custom, then space.`,
         `multiscales[0].axes[${i + 1}]`,
       );
     }
@@ -372,16 +365,14 @@ export function validateAxisOrder(
 }
 
 /**
- * Validate the count and names of spatial axes.
+ * Validate the count of spatial axes.
  *
- * The `space` axes, taken in order, must be the matching-length suffix of
- * `(z, y, x)`: one spatial axis must be `(x)`, two must be `(y, x)`, and three
- * must be `(z, y, x)`. At most three `space` axes are permitted.
+ * The spec requires 2 or 3 `space` axes. Their names are free: the spec only
+ * recommends ordering them `zyx`.
  *
  * @param metadata - The parsed multiscales metadata to validate.
- * @throws {ValidationError} With {@link SpecRule.AxisOrder} when there are more
- * than three `space` axes, or when their names are not the expected suffix of
- * `(z, y, x)`; location `multiscales[0].axes` or the first offending axis.
+ * @throws {ValidationError} With {@link SpecRule.AxisOrder} when there are not
+ * 2 or 3 `space` axes; location `multiscales[0].axes`.
  */
 export function validateSpatialAxisOrder(
   metadata: Pick<Metadata, "axes">,
@@ -411,17 +402,6 @@ export function validateSpatialAxisOrder(
       `OME-Zarr v0.4, v0.5 and v0.6 require 2 or 3 'space' axes; ` +
         `found ${count}.`,
       "multiscales[0].axes",
-    );
-  }
-  const expected = SPATIAL_AXIS_NAMES.slice(SPATIAL_AXIS_NAMES.length - count);
-  const actual = spaceIndices.map((i) => metadata.axes[i].name);
-  const mismatch = actual.findIndex((name, j) => name !== expected[j]);
-  if (mismatch !== -1) {
-    throw new ValidationError(
-      SpecRule.AxisOrder,
-      `Spatial axis names ${formatNameList(actual)} must be the ` +
-        `length-${count} suffix of (z, y, x): ${formatNameList(expected)}.`,
-      `multiscales[0].axes[${spaceIndices[mismatch]}]`,
     );
   }
 }

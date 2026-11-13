@@ -378,11 +378,12 @@ test("reader - the same six-axis store tagged 0.6 is refused", async () => {
     [2, 2, 2, 2, 2, 2],
   );
 
+  // The 0.6 axes schema allows at most five axes.
   const error = await assertRejects(
     () => fromOmeZarr(store, { validate: true }),
     Error,
   );
-  assertStringIncludes(error.message, SpecRule.AxisCount);
+  assertStringIncludes(error.message, "Array has too many items (6 > 5)");
 });
 
 test("reader - a v0.6 array coordinate system needs no space axis", async () => {

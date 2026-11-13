@@ -174,20 +174,18 @@ test("validateSpatialAxisOrder - accepts the (y, x) suffix", () => {
   validateSpatialAxisOrder(buildValidMetadata());
 });
 
-test("validateSpatialAxisOrder - rejects bad suffix and too many", () => {
-  // (x, y) is not the (y, x) suffix of (z, y, x).
-  const suffixMismatch = buildValidMetadata();
-  suffixMismatch.axes = [
+test("validateSpatialAxisOrder - spatial axis names are free", () => {
+  // The spec only recommends ordering space axes zyx.
+  const xy = buildValidMetadata();
+  xy.axes = [
     { name: "c", type: "channel", unit: undefined },
     { name: "x", type: "space", unit: undefined },
     { name: "y", type: "space", unit: undefined },
   ];
-  assertRuleViolation(
-    () => validateSpatialAxisOrder(suffixMismatch),
-    SpecRule.AxisOrder,
-    "multiscales[0].axes[1]",
-  );
+  validateSpatialAxisOrder(xy);
+});
 
+test("validateSpatialAxisOrder - rejects too many space axes", () => {
   // Four space axes exceed the v0.4 maximum of three.
   const tooMany = buildValidMetadata();
   tooMany.axes = [

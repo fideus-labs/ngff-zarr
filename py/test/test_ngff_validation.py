@@ -16,6 +16,7 @@ from ngff_zarr import (
     to_ome_zarr,
     validate,
 )
+from ngff_zarr.validate import ValidationError
 from packaging import version
 
 zarr_version = version.parse(zarr.__version__)
@@ -120,7 +121,7 @@ def test_validate_v05_schema_active_on_read_path(tmp_path):
     # ``uniqueItems`` constraint -- a pure schema concern the structural rules
     # (which inspect only ``multiscales[0]``) do not check -- so it is rejected
     # under ``validate=True`` and read silently under ``validate=False``.
-    jsonschema = pytest.importorskip("jsonschema")
+    pytest.importorskip("jsonschema")
 
     store = _write_valid_2d_store_v05(tmp_path / "v05.ome.zarr")
     root = zarr.open_group(store, mode="r+")
@@ -129,48 +130,11 @@ def test_validate_v05_schema_active_on_read_path(tmp_path):
     ome["multiscales"] = [ome["multiscales"][0], ome["multiscales"][0]]
     root.attrs["ome"] = ome
 
-    with pytest.raises(jsonschema.ValidationError):
+    with pytest.raises(ValidationError):
         from_ngff_zarr(store, validate=True)
 
     multiscales = from_ngff_zarr(store, validate=False)
     assert multiscales is not None
-
-
-@requires_zarr_v3
-def test_read_path_schema_instance_by_version(tmp_path):
-    # The v0.4 and v0.5 image schemas share identical multiscale definitions and
-    # differ only in the ``ome`` wrapper, so the rewire is behavior-neutral on
-    # realistic inputs; this spy locks the wiring directly. The read path must
-    # hand the schema validator the ``ome``-wrapped instance tagged version
-    # "0.5" for a v0.5 store, and the bare root tagged "0.4" for a v0.4 store.
-    pytest.importorskip("jsonschema")
-    from unittest import mock
-
-    def _schema_call(store):
-        with mock.patch("ngff_zarr.validate.validate") as spy:
-            from_ngff_zarr(store, validate=True)
-        assert spy.call_count >= 1
-        args, kwargs = spy.call_args
-        instance = args[0] if args else kwargs["ngff_dict"]
-        version_arg = args[1] if len(args) > 1 else kwargs["version"]
-        return instance, version_arg
-
-    # v0.5: wrapped under ``ome``, tagged "0.5".
-    v05_instance, v05_version = _schema_call(
-        _write_valid_2d_store_v05(tmp_path / "v05.ome.zarr")
-    )
-    assert "ome" in v05_instance
-    assert "multiscales" in v05_instance["ome"]
-    assert v05_version == "0.5"
-
-    # v0.4: bare root with top-level ``multiscales``, tagged "0.4".
-    store_v04 = tmp_path / "v04.ome.zarr"
-    array = np.random.random((32, 16)).astype("float32")
-    to_ngff_zarr(store_v04, to_multiscales(array, [2]), version="0.4")
-    v04_instance, v04_version = _schema_call(store_v04)
-    assert "multiscales" in v04_instance
-    assert "ome" not in v04_instance
-    assert v04_version == "0.4"
 
 
 def _write_valid_3d_store_v06(store: Path) -> Path:
@@ -370,7 +334,7 @@ def test_read_does_not_substitute_a_tag_no_release_wrote(tmp_path):
     # Only the tag an earlier release wrote is substituted. A 0.6 tag no
     # release wrote is checked as given, and the schema rejects it, so it is
     # not passed off as one of the accepted tags.
-    jsonschema = pytest.importorskip("jsonschema")
+    pytest.importorskip("jsonschema")
 
     store = _write_valid_3d_store_v06(tmp_path / "image.ome.zarr")
     root = zarr.open_group(str(store), mode="r+")
@@ -380,7 +344,7 @@ def test_read_does_not_substitute_a_tag_no_release_wrote(tmp_path):
 
     with (
         warnings.catch_warnings(record=True) as caught,
-        pytest.raises(jsonschema.ValidationError, match="'0.6.dev5' is not one of"),
+        pytest.raises(ValidationError, match="'0.6.dev5' is not one of"),
     ):
         warnings.simplefilter("always")
         from_ome_zarr(store, validate=True)
@@ -390,7 +354,7 @@ def test_read_does_not_substitute_a_tag_no_release_wrote(tmp_path):
 @requires_zarr_v3
 def test_read_still_rejects_a_defect_behind_a_superseded_0_6_tag(tmp_path):
     # The substitution covers the tag and nothing else.
-    jsonschema = pytest.importorskip("jsonschema")
+    pytest.importorskip("jsonschema")
 
     store = _write_valid_3d_store_v06(tmp_path / "image.ome.zarr")
     root = zarr.open_group(str(store), mode="r+")
@@ -401,7 +365,7 @@ def test_read_still_rejects_a_defect_behind_a_superseded_0_6_tag(tmp_path):
 
     with (
         pytest.warns(UserWarning, match="superseded"),
-        pytest.raises(jsonschema.ValidationError),
+        pytest.raises(ValidationError),
     ):
         from_ome_zarr(store, validate=True)
 
@@ -427,7 +391,7 @@ def test_validate_v06_schema_active_on_read_path(tmp_path):
     # schema's ``uniqueItems`` constraint -- a pure schema concern the
     # structural rules (which inspect only ``multiscales[0]``) do not check --
     # so it is rejected under ``validate=True`` and read silently otherwise.
-    jsonschema = pytest.importorskip("jsonschema")
+    pytest.importorskip("jsonschema")
 
     store = _write_valid_3d_store_v06(tmp_path / "v06.ome.zarr")
     assert from_ngff_zarr(store, validate=True) is not None
@@ -438,7 +402,7 @@ def test_validate_v06_schema_active_on_read_path(tmp_path):
     ome["multiscales"] = [ome["multiscales"][0], ome["multiscales"][0]]
     root.attrs["ome"] = ome
 
-    with pytest.raises(jsonschema.ValidationError):
+    with pytest.raises(ValidationError):
         from_ngff_zarr(store, validate=True)
 
     multiscales = from_ngff_zarr(store, validate=False)
@@ -542,7 +506,7 @@ def test_bundled_0_6_schemas_carry_the_release_tag(tmp_path):
 def test_read_path_rejects_a_forged_version_string(tmp_path):
     # ``from_ngff_zarr(store, version="0.6")`` bypasses version detection, so a
     # store's own ``ome.version`` is what selects the schema. A forged value
-    # must be rejected by name, not resolved as a path.
+    # must be rejected as a version, not resolved as a path.
     pytest.importorskip("jsonschema")
 
     store = _write_valid_3d_store_v06(tmp_path / "v06.ome.zarr")
@@ -552,7 +516,7 @@ def test_read_path_rejects_a_forged_version_string(tmp_path):
     ome["version"] = "../../../../../../etc"
     root.attrs["ome"] = ome
 
-    with pytest.raises(ValueError, match="No JSON Schema is bundled"):
+    with pytest.raises(ValidationError, match="is not one of"):
         from_ngff_zarr(store, validate=True, version="0.6")
 
 
@@ -673,3 +637,10 @@ def test_a_transform_spans_the_systems_it_names(tmp_path):
     entry = back.metadata.coordinateTransformations[0]
     assert entry.scale == [2.0, 2.0, 2.0]
     assert (entry.input.name, entry.output.name) == ("phys", "phys")
+
+
+@pytest.mark.parametrize("name", ["../x", "..\\x", "a\\..\\..\\x", "C:\\x", "/x"])
+def test_a_label_name_that_leaves_its_group_is_not_followed(name):
+    from ngff_zarr.validate import _group
+
+    assert _group(None, name) is None

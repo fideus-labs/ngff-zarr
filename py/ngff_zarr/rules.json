@@ -1,0 +1,54 @@
+[
+  {
+    "code": "NGFF-CT-015",
+    "versions": ["0.6", "0.9.dev1"],
+    "spec": "https://github.com/ome/ngff-spec/blob/0.6/index.md?plain=1#L422",
+    "examples": [
+      {"ome": {"version": "0.6", "scene": {"coordinateSystems": [{"name": "a", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}, {"name": "b", "axes": [{"name": "z", "type": "space"}, {"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}], "coordinateTransformations": [{"input": {"name": "a"}, "output": {"name": "b"}, "type": "identity"}]}}},
+      {"ome": {"version": "0.6", "scene": {"coordinateSystems": [{"name": "a", "axes": [{"name": "z", "type": "space"}, {"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}, {"name": "b", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}], "coordinateTransformations": [{"input": {"name": "a"}, "output": {"name": "b"}, "type": "sequence", "transformations": [{"type": "projectAxis", "droppedInputs": [0]}, {"type": "scale", "scale": [1, 1, 1]}]}]}}},
+      {"ome": {"version": "0.6", "scene": {"coordinateSystems": [{"name": "a", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}, {"name": "b", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}], "coordinateTransformations": [{"input": {"name": "a"}, "output": {"name": "b"}, "type": "sequence", "transformations": [{"type": "sequence", "transformations": [{"type": "identity"}]}, {"type": "scale", "scale": [1, 1, 1]}]}]}}}
+    ]
+  },
+  {
+    "code": "NGFF-CT-025",
+    "versions": ["0.6", "0.9.dev1"],
+    "spec": "https://github.com/ome/ngff-spec/blob/0.6/index.md?plain=1#L885-L886",
+    "examples": [
+      {"ome": {"version": "0.6", "scene": {"coordinateSystems": [{"name": "a", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}, {"name": "b", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}], "coordinateTransformations": [{"input": {"name": "a"}, "output": {"name": "b"}, "type": "affine", "affine": [[1, 0, 10], [0, 1, 20], [0, 0, 1]]}]}}}
+    ]
+  },
+  {
+    "code": "NGFF-CT-026",
+    "versions": ["0.6", "0.9.dev1"],
+    "spec": "https://github.com/ome/ngff-spec/blob/0.6/index.md?plain=1#L962",
+    "examples": [
+      {"ome": {"version": "0.6", "scene": {"coordinateSystems": [{"name": "a", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}, {"name": "b", "axes": [{"name": "z", "type": "space"}, {"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}], "coordinateTransformations": [{"input": {"name": "a"}, "output": {"name": "b"}, "type": "rotation", "rotation": [[1, 0], [0, 1]]}]}}}
+    ]
+  },
+  {
+    "code": "NGFF-CT-027",
+    "versions": ["0.6", "0.9.dev1"],
+    "spec": "https://github.com/ome/ngff-spec/blob/0.6/index.md?plain=1#L963-L964",
+    "examples": [
+      {"ome": {"version": "0.6", "scene": {"coordinateSystems": [{"name": "a", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}, {"name": "b", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}], "coordinateTransformations": [{"input": {"name": "a"}, "output": {"name": "b"}, "type": "rotation", "rotation": [[1, 0], [0, -1]]}]}}},
+      {"ome": {"version": "0.6", "scene": {"coordinateSystems": [{"name": "a", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}, {"name": "b", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}], "coordinateTransformations": [{"input": {"name": "a"}, "output": {"name": "b"}, "type": "byDimension", "transformations": [{"inputAxes": [0, 1], "outputAxes": [0, 1], "transformation": {"type": "rotation", "rotation": [[1, 0], [0, -1]]}}]}]}}},
+      {"ome": {"version": "0.6", "coordinateSystems": [{"name": "a", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}, {"name": "b", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}], "coordinateTransformations": [{"input": {"name": "a"}, "output": {"name": "b"}, "type": "rotation", "rotation": [[1.0000075, 0], [0, 0.9999925]]}]}}
+    ]
+  },
+  {
+    "code": "NGFF-CT-030",
+    "versions": ["0.6", "0.9.dev1"],
+    "spec": "https://github.com/ome/ngff-spec/blob/0.6/index.md?plain=1#L974-L975",
+    "examples": [
+      {"ome": {"version": "0.6", "scene": {"coordinateSystems": [{"name": "a", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}, {"name": "b", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}], "coordinateTransformations": [{"input": {"name": "a"}, "output": {"name": "b"}, "type": "rotation", "rotation": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]}]}}}
+    ]
+  },
+  {
+    "code": "NGFF-CT-040",
+    "versions": ["0.6", "0.9.dev1"],
+    "spec": "https://github.com/ome/ngff-spec/blob/0.6/index.md?plain=1#L1232",
+    "examples": [
+      {"ome": {"version": "0.6", "scene": {"coordinateSystems": [{"name": "a", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}, {"name": "b", "axes": [{"name": "z", "type": "space"}, {"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}], "coordinateTransformations": [{"input": {"name": "a"}, "output": {"name": "b"}, "type": "bijection", "forward": {"type": "identity"}, "inverse": {"type": "identity"}}]}}}
+    ]
+  }
+]

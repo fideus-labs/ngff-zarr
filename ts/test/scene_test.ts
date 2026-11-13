@@ -265,12 +265,27 @@ test("write refuses duplicate or empty system names", async () => {
 
 test("scene axis model follows the version", async () => {
   await withTempDir(async (dir) => {
-    const { scene } = await tilesScene();
-    scene.coordinateSystems![0].axes = [..."abcdef"].map((name) => ({
+    // Six space axes break the 0.6 axis rules and are allowed from 0.9.dev1.
+    const axes = [..."abcdef"].map((name) => ({
       name,
-      type: "space",
+      type: "space" as const,
       unit: undefined,
     }));
+    const scene = new NgffScene({
+      images: {},
+      coordinateSystems: [
+        { name: "a", axes },
+        { name: "b", axes },
+      ],
+      coordinateTransformations: [
+        {
+          type: "translation",
+          translation: [0, 0, 0, 0, 0, 0],
+          input: { name: "a" },
+          output: { name: "b" },
+        },
+      ],
+    });
     await assertRejects(
       () => toOmeZarr(`${dir}/v06.ome.zarr`, scene),
       Error,

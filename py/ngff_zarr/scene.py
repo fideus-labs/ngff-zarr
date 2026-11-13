@@ -473,9 +473,10 @@ def _read_scene(
     if version is None:
         version = _detect_version(root_attrs).value
     if validate:
-        from .validate import validate as validate_ngff
+        from .validate import ValidationError, group_problems
 
-        validate_ngff(root_attrs, version=version, model="scene")
+        if problems := group_problems(root_attrs, version, model="scene"):
+            raise ValidationError(problems)
 
     systems, transforms = _scene_from_dict(
         document, version, store if array_store is None else array_store

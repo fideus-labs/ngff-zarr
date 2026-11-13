@@ -1,11 +1,21 @@
 # SPDX-FileCopyrightText: Copyright (c) Fideus Labs LLC
 # SPDX-License-Identifier: MIT
 import json
+import warnings
+from dataclasses import dataclass
 from functools import cache
+from pathlib import PureWindowsPath
 from typing import TYPE_CHECKING
 
 from importlib_resources import files as file_resources
 from packaging import version as packaging_version
+
+from ._supported_versions import (
+    V06_ONDISK_VERSION,
+    V06_SUPERSEDED_TAGS,
+    NgffVersion,
+    is_v06_version,
+)
 
 if TYPE_CHECKING:
     from importlib_resources.abc import Traversable
@@ -128,3 +138,139 @@ def validate(
     schema = load_schema(version=version, model=model, strict=strict)
     validator = Draft202012Validator(schema, registry=_schema_registry(version))
     validator.validate(ngff_dict)
+
+
+@dataclass(frozen=True)
+class Problem:
+    """One way a group of an OME-Zarr store breaks the specification."""
+
+    #: The rule broken, or ``schema`` for the official JSON Schema.
+    code: str
+    message: str
+    #: The group, as a path below the store root.
+    path: str = ""
+
+    def __str__(self) -> str:
+        where = f" at '{self.path}'" if self.path else ""
+        return f"[{self.code}]{where} {self.message}"
+
+
+class ValidationError(ValueError):
+    """The metadata of an OME-Zarr store breaks the specification.
+
+    ``problems`` lists every way it does.
+    """
+
+    def __init__(self, problems: list[Problem]) -> None:
+        self.problems = problems
+        super().__init__("\n".join(str(problem) for problem in problems))
+
+
+#: The JSON Schema each kind of OME-Zarr Metadata is checked against.
+_SCHEMA_OF_KEY = {
+    "multiscales": "image",
+    "image-label": "label",
+    "plate": "plate",
+    "well": "well",
+    "scene": "scene",
+    "bioformats2raw.layout": "bf2raw",
+}
+
+
+@cache
+def _validator(version: str, model: str):
+    from jsonschema import Draft202012Validator
+
+    return Draft202012Validator(
+        load_schema(version, model), registry=_schema_registry(version)
+    )
+
+
+def schema_problems(
+    attributes: dict, version: str, path: str = "", model: str | None = None
+) -> list[Problem]:
+    """Check a group's attributes against the JSON Schema of each kind of
+    OME-Zarr Metadata they hold, at ``version``.
+
+    ``model`` names the schema the group is read as (``image``, ``plate``,
+    ``well``, ``scene``): it is checked even when the attributes lack its key."""
+    ome = attributes.get("ome", attributes)
+    if not isinstance(ome, dict):
+        return [Problem("schema", "'ome' is not a JSON object", path)]
+    if "ome" in attributes and "version" not in ome:
+        return [Problem("NGFF-GN-001", "the 'ome' metadata has no 'version'", path)]
+    tag = ome.get("version")
+    if isinstance(tag, str) and tag in V06_SUPERSEDED_TAGS:
+        # Earlier releases wrote this 0.6 pre-release tag, which the bundled
+        # schemas no longer list; the rest of the document is checked as 0.6.
+        warnings.warn(
+            f"OME-Zarr store carries the superseded 0.6 pre-release tag "
+            f"{tag!r}; validating it as {V06_ONDISK_VERSION.value!r}. "
+            "upgrade_ome_zarr(store, version='0.6') rewrites the tag.",
+            stacklevel=3,
+        )
+        ome = {**ome, "version": V06_ONDISK_VERSION.value}
+        attributes = {**attributes, "ome": ome}
+        version = V06_ONDISK_VERSION.value
+    tree = _schemas_dir(version)
+    if model and not tree.joinpath(f"{model}.schema").is_file():
+        return [
+            Problem("schema", f"OME-Zarr {version} defines no {model} metadata", path)
+        ]
+    return [
+        Problem("schema", f"{name}.schema, {error.json_path}: {error.message}", path)
+        for key, name in _SCHEMA_OF_KEY.items()
+        if (key in ome or name == model) and tree.joinpath(f"{name}.schema").is_file()
+        for error in _validator(version, name).iter_errors(attributes)
+    ]
+
+
+def group_problems(
+    attributes: dict, version: str, path: str = "", model: str | None = None
+) -> list[Problem]:
+    """Check a group's attributes against the JSON Schema and, once the schema
+    accepts them, against the rules beyond it (``ngff_zarr.rules``)."""
+    problems = schema_problems(attributes, version, path, model)
+    if problems:
+        return problems
+    from .rules import rule_problems
+
+    if is_v06_version(version):
+        version = NgffVersion.V06.value
+    return [
+        Problem(code, message, path)
+        for code, message in rule_problems(attributes, version)
+    ]
+
+
+def _group(node, name: str):
+    """The group ``name`` below ``node``, or None."""
+    # A name from the store's own metadata must stay below the group, also
+    # where a backslash or a drive separates paths.
+    if ".." in name.replace("\\", "/").split("/") or PureWindowsPath(name).anchor:
+        return None
+    try:
+        child = node[name]
+    except KeyError:
+        return None
+    return None if hasattr(child, "shape") else child
+
+
+def store_problems(root, version: str) -> list[Problem]:
+    """Check the image group ``root`` and the label images its ``labels`` group
+    lists."""
+    problems = group_problems(root.attrs.asdict(), version, model="image")
+    labels = _group(root, "labels")
+    if labels is None:
+        return problems
+    attributes = labels.attrs.asdict()
+    ome = attributes.get("ome", attributes)
+    names = ome.get("labels") if isinstance(ome, dict) else None
+    for name in names if isinstance(names, list) else []:
+        label = _group(labels, name) if isinstance(name, str) else None
+        if label is not None:
+            # A label image implements the multiscales specification.
+            problems += group_problems(
+                label.attrs.asdict(), version, f"labels/{name}", model="image"
+            )
+    return problems
