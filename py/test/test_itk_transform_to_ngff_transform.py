@@ -616,11 +616,12 @@ def test_a_genuinely_linear_transform_is_accepted(magnitude):
 def test_a_transform_whose_matrix_contradicts_its_mapping_is_refused():
     """``IsLinear()`` and the stored matrix can both be wrong at once.
 
-    ``AzimuthElevationToCartesianTransform`` inherits ``AffineTransform``, so
-    it carries an identity matrix and offset and reports itself linear, while
-    overriding ``TransformPoint`` with a spherical-to-Cartesian mapping
-    (InsightSoftwareConsortium/ITK#6791). Nothing but confronting the model
-    with an evaluation catches it.
+    ``AzimuthElevationToCartesianTransform`` inherits ``AffineTransform`` and
+    overrides ``TransformPoint`` with a spherical-to-Cartesian mapping. An ITK
+    with InsightSoftwareConsortium/ITK#6791 has it carry an identity matrix
+    and report itself linear: nothing but confronting the model with an
+    evaluation catches that. An ITK without the defect reports it as
+    non-linear. The conversion refuses it either way.
     """
     itk = pytest.importorskip("itk")
     template = getattr(itk, "AzimuthElevationToCartesianTransform", None)
@@ -628,8 +629,9 @@ def test_a_transform_whose_matrix_contradicts_its_mapping_is_refused():
         pytest.skip("this ITK build does not wrap AzimuthElevationToCartesian")
 
     transform = template[itk.D, 3].New()
-    assert transform.IsLinear()  # the upstream defect this guards against
-    assert np.array_equal(itk.array_from_matrix(transform.GetMatrix()), np.eye(3))
+    if transform.IsLinear():
+        matrix = itk.array_from_matrix(transform.GetMatrix())
+        assert np.array_equal(matrix, np.eye(3))
 
     with pytest.raises(NotImplementedError, match="only linear"):
         itk_transform_to_ngff_transform(transform, ("z", "y", "x"))

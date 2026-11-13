@@ -55,6 +55,7 @@ Changelog = "https://github.com/thewtex/ngff-zarr/releases"
 
 [project.scripts]
 ngff-zarr = "ngff_zarr.cli:main"
+ngff-zarr-oztest = "ngff_zarr.oztest_dingus:main"
 
 [tool.hatch.version]
 path = "ngff_zarr/__about__.py"
@@ -113,6 +114,8 @@ filterwarnings = [
 ]
 log_cli_level = "INFO"
 testpaths = ["test"]
+# test/data holds downloaded test data, including the oztest repository.
+norecursedirs = ["*.egg", ".*", "build", "dist", "node_modules", "venv", "data"]
 
 [tool.ruff]
 src = ["ngff_zarr"]
@@ -237,7 +240,7 @@ zarr = ">=2.18,<3"
 
 [tool.pixi.feature.test.tasks]
 test = { cmd = "pytest", description = "Run the test suite" }
-download-test-data = "pytest -k test_from_ngff_zarr --maxfail=1 -v"
+download-test-data = "pytest -k 'test_from_ngff_zarr or test_oztest' --maxfail=1 -v"
 
 [tool.pixi.feature.lint.dependencies]
 prek = "*"

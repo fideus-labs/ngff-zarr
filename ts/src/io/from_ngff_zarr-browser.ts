@@ -292,6 +292,7 @@ export async function fromOmeZarr(
       `Failed to read OME-Zarr: ${
         error instanceof Error ? error.message : String(error)
       }`,
+      { cause: error },
     );
   }
 }

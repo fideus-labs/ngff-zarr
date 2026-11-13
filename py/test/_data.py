@@ -90,6 +90,25 @@ def _retrying_downloader(
     return download
 
 
+#: The oztest conformance cases (https://github.com/German-BioImaging/oztest),
+#: pinned to a commit. The TypeScript tests read the same extracted copy.
+OZTEST_COMMIT = "077ebbe4e1996490516259d2c3ce40a055c72e04"
+OZTEST_SHA256 = "e285019629cbf02f725b1d05715810bf8d0a08f90217f8d605773c83db32a41d"
+
+
+def oztest_cases_dir() -> Path:
+    """Download the oztest cases once and return their ``cases`` directory."""
+    pooch.retrieve(
+        fname=f"oztest-{OZTEST_COMMIT}.tar.gz",
+        path=test_data_dir,
+        url=f"https://github.com/German-BioImaging/oztest/archive/{OZTEST_COMMIT}.tar.gz",
+        known_hash=f"sha256:{OZTEST_SHA256}",
+        processor=pooch.Untar(extract_dir="oztest"),
+        downloader=_retrying_downloader(),
+    )
+    return test_data_dir / "oztest" / f"oztest-{OZTEST_COMMIT}" / "cases"
+
+
 @pytest.fixture(scope="package")
 def input_images():
     untar = pooch.Untar(extract_dir=extract_dir)
