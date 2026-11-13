@@ -1,3 +1,13 @@
+## py-v0.53.0 (2026-11-13)
+
+### ✨ Features
+
+- **py**: add the oztest dingus ([10f85f3](https://github.com/fideus-labs/ngff-zarr/commit/10f85f378ac76c063c5cd4849737c58e8770b54f))
+
+### 🐛 Bug Fixes
+
+- clarify standalone documentation updater noop ([e5b13c0](https://github.com/fideus-labs/ngff-zarr/commit/e5b13c065267014e379a15cd0d7aa1dece605b00))
+
 ## py-v0.52.0 (2026-11-05)
 
 ### ⚡ Performance
