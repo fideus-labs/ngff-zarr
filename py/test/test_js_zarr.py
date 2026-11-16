@@ -8,11 +8,13 @@ import importlib
 import inspect
 import json
 import sys
+import types
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import cloudpickle
 import dask.array as da
 import numpy as np
 import pytest
@@ -22,6 +24,7 @@ from ngff_zarr import (
     Well,
     WellImage,
     _itkwasm_pipelines,
+    _js_pool,
     _js_zarr,
     _zarrista_utils,
     hcs,
@@ -47,8 +50,9 @@ from ngff_zarr._zarrista_utils import (
     open_zarrista_lazy,
     write_dask_array,
 )
+from ngff_zarr.config import config
 from ngff_zarr.rfc9_zip import ZipReadStore
-from ngff_zarr.to_ngff_zarr import _numpy_to_zarr_dtype
+from ngff_zarr.to_ngff_zarr import _numpy_to_zarr_dtype, _prep_for_write
 
 pytest.importorskip("zarrista")
 
@@ -243,19 +247,152 @@ def test_group_creation_needs_no_zarrista_on_pyodide(tmp_path, use_js, monkeypat
     )
 
 
+class _WriteTarget(JsArrayAdapter):
+    """Records the shard-shaped writes the bridge would hand to zarrita."""
+
+    def __init__(self):
+        self.shape, self.ndim, self.dtype = SHAPE, 3, np.dtype("uint8")
+        self.write_chunks, self.writes = (4, 3, 8), []
+
+    def __setitem__(self, selection, value):
+        self.writes.append((selection, value.shape))
+
+
 def test_write_dask_array_writes_whole_shards_on_pyodide(use_js):
-    class Target(JsArrayAdapter):
-        def __init__(self):
-            self.shape, self.ndim, self.dtype = SHAPE, 3, np.dtype("uint8")
-            self.write_chunks, self.writes = (4, 3, 8), []
-
-        def __setitem__(self, selection, value):
-            self.writes.append((selection, value.shape))
-
-    target = Target()
+    target = _WriteTarget()
     write_dask_array(da.ones(SHAPE, dtype="uint8", chunks=CHUNKS), target)
 
     assert sorted(shape for _, shape in target.writes) == [(4, 3, 8), (4, 3, 8)]
+
+
+class _Pool:
+    """Stands in for pyodide_pool.WorkerPool: a submitted call has to pickle,
+    as it would for a worker, then runs in this process."""
+
+    pool_size = 2
+
+    def __init__(self):
+        self.calls = []
+
+    async def submit(self, func, /, *args, **kwargs):
+        func, args, kwargs = cloudpickle.loads(cloudpickle.dumps((func, args, kwargs)))
+        self.calls.append(func)
+        return func(*args, **kwargs)
+
+
+def test_write_dask_array_computes_on_the_pool_on_pyodide(use_js, monkeypatch):
+    monkeypatch.setattr(_js_zarr, "_block_on", asyncio.run)
+    monkeypatch.setattr(_js_pool, "pool", _Pool)
+    store_on_pool = Mock(wraps=_js_pool.store_on_pool)
+    monkeypatch.setattr(_js_pool, "store_on_pool", store_on_pool)
+    target = _WriteTarget()
+
+    write_dask_array(da.ones(SHAPE, dtype="uint8", chunks=CHUNKS), target)
+
+    assert store_on_pool.call_count == 1
+    assert sorted(target.writes) == [
+        ((slice(0, 4), slice(0, 3), slice(0, 8)), (4, 3, 8)),
+        ((slice(0, 4), slice(3, 6), slice(0, 8)), (4, 3, 8)),
+    ]
+
+
+def test_pool_needs_the_switch_the_package_and_a_registered_pool(monkeypatch):
+    fake = types.ModuleType("pyodide_pool")
+    fake.default_pool = Mock(side_effect=RuntimeError("No JS worker pool"))
+    monkeypatch.setitem(sys.modules, "pyodide_pool", fake)
+    assert _js_pool.pool() is None
+
+    fake.default_pool = Mock(return_value="the pool")
+    assert _js_pool.pool() == "the pool"
+
+    monkeypatch.setattr(config, "pyodide_pool", False)
+    assert _js_pool.pool() is None
+
+    monkeypatch.setattr(config, "pyodide_pool", "auto")
+    monkeypatch.setitem(sys.modules, "pyodide_pool", None)  # not installed
+    assert _js_pool.pool() is None
+
+
+class _Unpicklable:
+    """An array like JsArrayAdapter: reads give numpy, pickling fails."""
+
+    def __init__(self, data):
+        self._data = data
+        self.shape, self.dtype, self.ndim = data.shape, data.dtype, data.ndim
+
+    def __getitem__(self, selection):
+        return self._data[selection]
+
+    def __reduce__(self):
+        raise TypeError("a JsProxy cannot be pickled")
+
+
+@pytest.mark.parametrize(
+    "method", [Methods.ITKWASM_GAUSSIAN, Methods.ITKWASM_BIN_SHRINK]
+)
+def test_store_on_pool_ships_one_block_per_itkwasm_task(method, monkeypatch):
+    monkeypatch.setattr(_js_zarr, "_block_on", asyncio.run)
+    volume = np.arange(32**3, dtype=np.uint16).reshape(32, 32, 32) % 7
+    source = da.from_array(_Unpicklable(volume), chunks=16)
+    # _prep_for_write stacks a map_blocks on the itkwasm layer, as the chunked
+    # write path does; blockwise fusion must not swallow the itkwasm tasks.
+    level = _prep_for_write(
+        to_multiscales(source, [2], method=method, chunks=8).images[1].data
+    )
+    pool = _Pool()
+    target = np.zeros((20, 16, 16), dtype=level.dtype)
+    region = (slice(2, 18), slice(0, 16), slice(0, 16))
+
+    _js_pool.store_on_pool(pool, level, target, region)
+
+    np.testing.assert_array_equal(target[region], level.compute())
+    target[region] = 0
+    assert not target.any()
+    # One task per 8**3 input block; the store reads, slicing and halo
+    # assembly ran on the driver, so the array-like never had to pickle.
+    assert len(pool.calls) == (32 // 8) ** 3
+    assert {task.func.__module__ for task in pool.calls} == {
+        "ngff_zarr.methods._itkwasm"
+    }
+
+
+def test_store_on_pool_cancels_the_rest_when_a_task_fails(monkeypatch):
+    # An owned loop: asyncio.run would cancel leftover tasks itself on exit.
+    loop = asyncio.new_event_loop()
+    monkeypatch.setattr(_js_zarr, "_block_on", loop.run_until_complete)
+    cancelled = []
+
+    class FailingPool:
+        pool_size = 2
+        submitted = 0
+
+        async def submit(self, func, /, *args, **kwargs):
+            self.submitted += 1
+            if self.submitted == 1:
+                raise RuntimeError("worker died")
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.append(func)
+                raise
+
+    source = da.ones((16, 16, 16), dtype="uint8", chunks=8)
+    level = (
+        to_multiscales(source, [2], method=Methods.ITKWASM_BIN_SHRINK, chunks=4)
+        .images[1]
+        .data
+    )
+    pool = FailingPool()
+
+    with pytest.raises(RuntimeError, match="worker died"):
+        _js_pool.store_on_pool(pool, level, np.zeros((8, 8, 8), dtype="uint8"))
+    loop.run_until_complete(asyncio.sleep(0))  # deliver the cancellations
+    loop.close()
+
+    # The failure surfaced with the other in-flight blocks pending; none leaked,
+    # and the driver never ran ahead of the workers.
+    assert pool.submitted == 2 * pool.pool_size
+    assert len(cancelled) == pool.submitted - 1
 
 
 class _Opened(JsArrayAdapter):

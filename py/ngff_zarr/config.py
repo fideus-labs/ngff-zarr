@@ -33,6 +33,10 @@ class NgffZarrConfig:
     # Pyodide only: where to import the @fideus-labs/ngff-zarr JS package
     # from when the host did not register it as the ``ngff_zarr_js`` module.
     js_package_url: str = "https://esm.sh/@fideus-labs/ngff-zarr@0.39.0/browser"
+    # Pyodide only: "auto" runs the itkwasm downsampling tasks of a write on
+    # the pyodide-pool worker pool the host registered as ``js_pyodide_pool``
+    # (serially on the driver when there is none); False never uses a pool.
+    pyodide_pool: str | bool = "auto"
 
     # HCS cache settings
     hcs_image_cache_size: int = 100  # Max number of images to cache per well

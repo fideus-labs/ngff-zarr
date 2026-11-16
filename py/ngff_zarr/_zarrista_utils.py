@@ -970,6 +970,13 @@ def write_dask_array(darr, zarrista_array, region=None) -> None:
         target = _ZarristaArrayAdapter(zarrista_array)
     if darr.chunksize != write_chunks:
         darr = darr.rechunk(write_chunks)
+    if _USE_JS:
+        from . import _js_pool
+
+        pool = _js_pool.pool()
+        if pool is not None:
+            _js_pool.store_on_pool(pool, darr, target, region)
+            return
     store_kwargs = {"lock": False}
     if region is not None:
         store_kwargs["regions"] = region
