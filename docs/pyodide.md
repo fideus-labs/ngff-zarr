@@ -45,7 +45,9 @@ Integration, `pyodide.ffi.run_sync`). Two things have to hold:
   as a directory or an `.ozx` archive, including `metadata_only=True` stores
   filled later through `open_array`.
 - `to_multiscales` with the `ITKWASM_GAUSSIAN`, `ITKWASM_BIN_SHRINK` and
-  `ITKWASM_LABEL_IMAGE` methods. dask computes on its synchronous scheduler.
+  `ITKWASM_LABEL_IMAGE` methods. dask computes on its synchronous scheduler,
+  or on a worker pool when the host registers one (see
+  [Parallel downsampling](#parallel-downsampling)).
 - HCS plates, read by path or URL, and written with `to_hcs_zarr` and
   `write_hcs_well_image`.
 - Integer, floating point and `bool` data types; the test harness round-trips
@@ -100,6 +102,54 @@ places:
    config.js_package_url = "https://static.example.org/ngff-zarr/browser.js"
    ```
 
+## Parallel downsampling
+
+A Pyodide interpreter has one thread. With a [pyodide-pool] worker pool, one
+Pyodide interpreter per Web Worker (or Node worker thread), `to_ome_zarr` runs
+the itkwasm downsampling of each block on the workers while the driver keeps
+reading the input, assembling the blocks and writing the store. The
+`pyodide-pool` wheel, installed with `ngff-zarr` on Pyodide, ships the
+JavaScript pool, so a notebook or a page creates one from Python:
+
+```python
+import pyodide_pool
+
+pool = await pyodide_pool.create_pool(4)
+```
+
+The workers spawn as nested Web Workers from a `blob:` URL and the bundle is
+imported from a `data:` URL, so a page with a content security policy has to
+allow both. A JavaScript host can instead create the pool itself and register
+it as `js_pyodide_pool`. Node has to, because its worker threads cannot run
+blob workers; `py/test/pyodide/run.mjs` shows that setup, including the
+itkwasm shim each worker needs there:
+
+```js
+// Built from the python-wasm-parallelism repository: npm ci && npm run build
+import { PyodidePool } from "./python-wasm-parallelism/dist/index.js";
+
+const workerUrl = new URL(
+  "./python-wasm-parallelism/dist/pyodide-worker.js",
+  import.meta.url,
+);
+const pool = new PyodidePool({ poolSize: 4, workerUrl });
+pyodide.registerJsModule("js_pyodide_pool", { pool });
+```
+
+Nothing changes on the ngff-zarr side: with a pool registered, a write sends
+its itkwasm downsampling tasks to the pool and evaluates the rest of its graph,
+the slicing, halo assembly and casts, on the driver; a write with no itkwasm
+task, such as the full-resolution level, runs on the driver as before.
+`ngff_zarr.config.pyodide_pool = False` keeps everything on the driver. Workers
+install the driver's packages on their first task, so the whole
+run needs network access to PyPI, or a wheel URL the workers can fetch. Pool
+workers need the same JSPI-capable runtime as the driver.
+
+Reads stay on the driver: a store-backed input is read once per block on the
+driver and the block travels to a worker with its task, so the pool speeds up
+the downsampling but not the I/O. Each block crosses to a worker and back, so
+one worker is slower than the driver alone; the gain starts at two.
+
 ## Downsampling in a browser
 
 The itkwasm pipelines run through the `itkwasm-downsample-emscripten` wheel,
@@ -112,6 +162,7 @@ main thread, or give the wrapper an explicit worker URL with
 `itkwasm_downsample_emscripten.js_package.js_package.config = JsPackageConfig(module_url, pipeline_worker_url=...)`.
 
 [Pyodide]: https://pyodide.org
+[pyodide-pool]: https://github.com/fideus-labs/python-wasm-parallelism
 [Pyodide REPL]: https://pyodide.org/en/stable/console.html
 [JupyterLite]: https://jupyterlite.readthedocs.io/en/latest/try/lab
 [zarrista]: https://github.com/developmentseed/zarrista

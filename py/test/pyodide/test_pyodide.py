@@ -10,6 +10,7 @@ from pathlib import Path
 
 import ngff_zarr
 import numpy as np
+import pyodide_pool
 import zarr
 from dask.base import get_scheduler
 from dask.local import get_sync
@@ -31,7 +32,7 @@ from ngff_zarr import (
     write_hcs_well_image,
 )
 from ngff_zarr._js_zarr import JsZarrStore, create_js_array, open_js_array, open_js_lazy
-from pyodide.ffi import can_run_sync
+from pyodide.ffi import can_run_sync, run_sync
 
 assert sys.platform == "emscripten", sys.platform
 assert can_run_sync(), "JSPI unavailable: run with Node >= 25"
@@ -214,5 +215,31 @@ for version in ("0.4", "0.5"):
         np.testing.assert_array_equal(
             image.images[0].data.compute(), volume[:16, :16, :16]
         )
+
+# The wheel vendors the JS pool the docs tell browser users to create. Tasks on
+# that pool need blob workers, which Node lacks, so only create it, then hand
+# the default back to the registered pool (if any).
+assert run_sync(pyodide_pool.create_pool(2)).pool_size == 2
+pyodide_pool.set_default_pool(None)
+
+# Phase 8: with a pyodide-pool registered (run.mjs, NGFF_ZARR_POOL), every
+# to_ome_zarr above ran its downsampling on the workers and the checks compared
+# the stores with the driver's serial `levels`. Turning the pool off changes
+# where the work runs and nothing else.
+try:
+    import js_pyodide_pool
+except ImportError:
+    js_pyodide_pool = None
+if js_pyodide_pool is not None:
+    from ngff_zarr import _js_pool, config
+
+    pooled = js_pyodide_pool.submits()
+    assert pooled > 0, "the pool was registered but never used"
+    config.pyodide_pool = False
+    to_ome_zarr(out / "serial.ome.zarr", multiscales, version="0.5")
+    assert js_pyodide_pool.submits() == pooled
+    config.pyodide_pool = "auto"
+    check(from_ome_zarr(out / "serial.ome.zarr"))
+    print(f"pool: {pooled} tasks on {_js_pool.pool().pool_size} workers")
 
 print(f"ngff_zarr {ngff_zarr.__version__} on Pyodide, Python {sys.version}")

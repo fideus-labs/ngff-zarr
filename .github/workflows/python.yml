@@ -77,3 +77,21 @@ jobs:
           cd py/test/pyodide
           npm ci
           node run.mjs
+
+      # The same harness on a pyodide-pool worker pool. The wheel vendors only
+      # the browser bundle; Node needs the pool's worker_threads build, which
+      # is not on npm, so build it from a pinned commit of its repository.
+      - uses: actions/checkout@v4
+        with:
+          repository: fideus-labs/python-wasm-parallelism
+          ref: 2cfd3342208acc0d7115895f4beefcc03b8829b5 # the JS bundle shipped in pyodide-pool 0.2.1
+          path: pool
+          persist-credentials: false
+
+      - name: Run the Pyodide harness on a worker pool
+        env:
+          NGFF_ZARR_POOL: ${{ github.workspace }}/pool/dist/index.js
+        run: |
+          (cd pool && npm ci && npm run build)
+          cd py/test/pyodide
+          node run.mjs
