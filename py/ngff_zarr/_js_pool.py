@@ -11,10 +11,8 @@ see a zarr store: store-backed leaves are read on the driver.
 
 import asyncio
 
-import dask
 from dask._task_spec import Task, convert_legacy_graph
 from dask.array.core import slices_from_chunks
-from dask.base import collections_to_expr
 from dask.core import flatten
 
 from .config import config
@@ -99,13 +97,12 @@ def store_on_pool(pool, darr, target, region=None) -> None:
     """Write dask array *darr* into *target* (at *region*), computing on *pool*."""
     from ._js_zarr import _block_on
 
-    # Fused tasks would bundle an itkwasm call with the halo slices of all its
-    # neighbours, or with the store read feeding it; unfused, each pool task
-    # takes exactly one finished block.
-    with dask.config.set({"optimization.fuse.active": False}):
-        expr = collections_to_expr([darr], optimize_graph=True).optimize()
-        dsk = convert_legacy_graph(dict(expr.__dask_graph__()))
-        keys = list(flatten(expr.__dask_keys__()))
+    # The unoptimized graph: dask's blockwise fusion would merge an itkwasm call
+    # with the store read feeding it (a source already chunked like the level)
+    # or with the halo slices of its neighbours into one task that the pool
+    # never sees; unfused, each pool task takes exactly one finished block.
+    keys = list(flatten(darr.__dask_keys__()))
+    dsk = convert_legacy_graph(dict(darr.__dask_graph__().cull(keys)))
     region = tuple(region) if region is not None else ()
     region += (slice(None),) * (darr.ndim - len(region))
     offsets = [s.start or 0 for s in region]

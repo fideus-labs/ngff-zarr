@@ -330,10 +330,15 @@ class _Unpicklable:
 @pytest.mark.parametrize(
     "method", [Methods.ITKWASM_GAUSSIAN, Methods.ITKWASM_BIN_SHRINK]
 )
-def test_store_on_pool_ships_one_block_per_itkwasm_task(method, monkeypatch):
+# A source already chunked like the level has no rechunk between its getter and
+# the itkwasm task, the case where blockwise fusion could merge the two.
+@pytest.mark.parametrize("source_chunks", [8, 16])
+def test_store_on_pool_ships_one_block_per_itkwasm_task(
+    method, source_chunks, monkeypatch
+):
     monkeypatch.setattr(_js_zarr, "_block_on", asyncio.run)
     volume = np.arange(32**3, dtype=np.uint16).reshape(32, 32, 32) % 7
-    source = da.from_array(_Unpicklable(volume), chunks=16)
+    source = da.from_array(_Unpicklable(volume), chunks=source_chunks)
     # _prep_for_write stacks a map_blocks on the itkwasm layer, as the chunked
     # write path does; blockwise fusion must not swallow the itkwasm tasks.
     level = _prep_for_write(

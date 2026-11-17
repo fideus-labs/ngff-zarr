@@ -128,13 +128,20 @@ itkwasm shim each worker needs there:
 // Built from the python-wasm-parallelism repository: npm ci && npm run build
 import { PyodidePool } from "./python-wasm-parallelism/dist/index.js";
 
+const workerUrl = new URL(
+  "./python-wasm-parallelism/dist/pyodide-worker.js",
+  import.meta.url,
+);
 const pool = new PyodidePool({ poolSize: 4, workerUrl });
 pyodide.registerJsModule("js_pyodide_pool", { pool });
 ```
 
-Nothing changes on the ngff-zarr side: with a pool registered, every write
-computes on it; `ngff_zarr.config.pyodide_pool = False` keeps the work on the
-driver. Workers install the driver's packages on their first task, so the whole
+Nothing changes on the ngff-zarr side: with a pool registered, a write sends
+its itkwasm downsampling tasks to the pool and evaluates the rest of its graph,
+the slicing, halo assembly and casts, on the driver; a write with no itkwasm
+task, such as the full-resolution level, runs on the driver as before.
+`ngff_zarr.config.pyodide_pool = False` keeps everything on the driver. Workers
+install the driver's packages on their first task, so the whole
 run needs network access to PyPI, or a wheel URL the workers can fetch. Pool
 workers need the same JSPI-capable runtime as the driver.
 
