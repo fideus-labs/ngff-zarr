@@ -23,8 +23,21 @@ export type Finding = [code: string, message: string];
 
 type Json = Record<string, unknown>;
 
+function isRecord(value: unknown): value is Json {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The JSON objects in a list, and nothing for any other value: the schema
+ * leaves parts of a document open, which may hold anything.
+ */
 function records(value: unknown): Json[] {
-  return Array.isArray(value) ? (value as Json[]) : [];
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+/** The length of a list, or undefined for any other value. */
+function length(value: unknown): number | undefined {
+  return Array.isArray(value) ? value.length : undefined;
 }
 
 /**
@@ -39,10 +52,9 @@ export function ruleProblems(attributes: Json, version: string): Finding[] {
 
 function systemsOf(document: Json): Map<string, Json> {
   return new Map(
-    records(document.coordinateSystems).map((system) => [
-      system.name as string,
-      system,
-    ]),
+    records(document.coordinateSystems)
+      .filter((system) => typeof system.name === "string")
+      .map((system) => [system.name as string, system]),
   );
 }
 
@@ -58,7 +70,7 @@ function axisCount(
   const { path, name } = reference as Json;
   if (path) return undefined;
   const system = systems.get(name as string);
-  return system === undefined ? undefined : records(system.axes).length;
+  return system === undefined ? undefined : length(system.axes);
 }
 
 /**
@@ -105,36 +117,54 @@ function* transformationFindings(ome: Json): Generator<Finding> {
   }
 }
 
+/** The transformation types with as many output axes as input axes. */
+const KEEPS_COUNT = [
+  "identity",
+  "scale",
+  "translation",
+  "rotation",
+  "mapAxis",
+  "bijection",
+];
+
+/** Whether a step of a sequence has as many output axes as input axes. */
+function keepsCount(step: Json): boolean {
+  if (step.type === "sequence") {
+    return records(step.transformations).every(keepsCount);
+  }
+  return KEEPS_COUNT.includes(step.type as string);
+}
+
 /** The axis count after a step of a sequence, when it follows from the step. */
 function axesAfter(step: Json, count: number | undefined): number | undefined {
   const kind = step.type;
-  if (
-    [
-      "identity",
-      "scale",
-      "translation",
-      "rotation",
-      "mapAxis",
-      "bijection",
-    ].includes(kind as string)
-  ) {
+  if (KEEPS_COUNT.includes(kind as string)) {
     return count;
   }
   if (kind === "affine" && Array.isArray(step.affine)) {
     return step.affine.length;
   }
   if (kind === "projectAxis" && count !== undefined) {
-    return (
-      count -
-      records(step.droppedInputs).length +
-      records(step.createdOutputs).length
-    );
+    const dropped = length(step.droppedInputs ?? []);
+    const created = length(step.createdOutputs ?? []);
+    if (dropped !== undefined && created !== undefined) {
+      return count - dropped + created;
+    }
   }
   if (kind === "sequence") {
     for (const inner of records(step.transformations)) {
       count = axesAfter(inner, count);
     }
     return count;
+  }
+  if (kind === "byDimension") {
+    // Every output axis belongs to exactly one item.
+    const outputs = records(step.transformations).map((item) =>
+      length(item.outputAxes),
+    );
+    if (outputs.every((output) => output !== undefined)) {
+      return outputs.reduce((sum, output) => sum + output, 0);
+    }
   }
   return undefined;
 }
@@ -225,7 +255,7 @@ function* dimensionFindings(
       const count = inputCount ?? outputCount ?? matrix.length;
       if (
         matrix.length !== count ||
-        matrix.some((row) => (row as unknown[]).length !== count)
+        matrix.some((row) => !Array.isArray(row) || row.length !== count)
       ) {
         yield [
           "NGFF-CT-030",
@@ -247,7 +277,9 @@ function* dimensionFindings(
       }
       if (
         inputCount !== undefined &&
-        matrix.some((row) => (row as unknown[]).length !== inputCount + 1)
+        matrix.some(
+          (row) => !Array.isArray(row) || row.length !== inputCount + 1,
+        )
       ) {
         needs.push(
           `rows of ${inputCount + 1} values for ${inputCount} input axes`,
@@ -261,8 +293,13 @@ function* dimensionFindings(
       }
     }
   } else if (kind === "sequence") {
+    const steps = records(transform.transformations);
     let count = inputCount;
-    for (const [index, step] of records(transform.transformations).entries()) {
+    if (count === undefined && steps.every(keepsCount)) {
+      // Steps that keep their axis count give the input the output's.
+      count = outputCount;
+    }
+    for (const [index, step] of steps.entries()) {
       const after = axesAfter(step, count);
       yield* dimensionFindings(
         `${where}.transformations[${index}]`,
@@ -285,12 +322,14 @@ function* dimensionFindings(
   } else if (kind === "byDimension") {
     // Each item's transformation maps as many axes as the item lists.
     for (const [index, item] of records(transform.transformations).entries()) {
-      yield* dimensionFindings(
-        `${where}.transformations[${index}].transformation`,
-        item.transformation as Json,
-        (item.inputAxes as unknown[]).length,
-        (item.outputAxes as unknown[]).length,
-      );
+      if (isRecord(item.transformation)) {
+        yield* dimensionFindings(
+          `${where}.transformations[${index}].transformation`,
+          item.transformation,
+          length(item.inputAxes),
+          length(item.outputAxes),
+        );
+      }
     }
   } else if (kind === "bijection") {
     if (known && inputCount !== outputCount) {

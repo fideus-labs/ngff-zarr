@@ -13,7 +13,7 @@ import {
   stat,
   writeTextFile,
 } from "./_fs.ts";
-import { assertEquals, assertRejects } from "./_assert.ts";
+import { assertEquals, assertInstanceOf, assertRejects } from "./_assert.ts";
 import { ZipFileStore } from "@zarrita/storage";
 import {
   type Affine,
@@ -30,6 +30,8 @@ import {
 } from "../src/mod.ts";
 import type { MemoryStore } from "../src/io/from_ngff_zarr.ts";
 import { fromOmeZarr as fromOmeZarrBrowser } from "../src/io/from_ngff_zarr-browser.ts";
+import type { Rotation } from "../src/types/zarr_metadata.ts";
+import { ValidationError } from "../src/utils/validate.ts";
 import {
   storeToZip as storeToZipBrowser,
   toOmeZarr as toOmeZarrBrowser,
@@ -195,6 +197,62 @@ test("a requested version is checked against the stored one", async () => {
         }),
       Error,
       "Expected OME-Zarr version 0.5, but found 0.6",
+    );
+  });
+});
+
+test("a validated read applies the shared rules", async () => {
+  await withTempDir(async (dir) => {
+    const store = `${dir}/identity.ome.zarr`;
+    await toOmeZarr(store, affine());
+    const document = JSON.parse(await readTextFile(`${store}/zarr.json`));
+    document.attributes.ome = {
+      version: "0.6",
+      coordinateSystems: [
+        { name: "a", axes: [{ name: "y" }, { name: "x" }] },
+        { name: "b", axes: [{ name: "z" }, { name: "y" }, { name: "x" }] },
+      ],
+      coordinateTransformations: [
+        { type: "identity", input: { name: "a" }, output: { name: "b" } },
+      ],
+    };
+    await writeTextFile(`${store}/zarr.json`, JSON.stringify(document));
+
+    const read = await fromOmeZarr(store, { kind: "transformation" });
+    assertEquals(read.type, "identity");
+    const error = await assertRejects(
+      () => fromOmeZarr(store, { kind: "transformation", validate: true }),
+      Error,
+      "NGFF-CT-015",
+    );
+    assertInstanceOf(error.cause, ValidationError);
+  });
+});
+
+test("a stored rotation is checked when validating", async () => {
+  await withTempDir(async (dir) => {
+    const store = `${dir}/rotation.ome.zarr`;
+    const rotation: Rotation = {
+      type: "rotation",
+      rotation: [
+        [2, 0],
+        [0, 1],
+      ],
+      input: { name: "a" },
+      output: { name: "b" },
+    };
+    await toOmeZarr(store, rotation);
+    const document = JSON.parse(await readTextFile(`${store}/zarr.json`));
+    const [written] = document.attributes.ome.coordinateTransformations;
+    assertEquals("rotation" in written, false);
+    assertEquals(typeof written.path, "string");
+
+    const read = await fromOmeZarr(store, { kind: "transformation" });
+    assertEquals((read as Rotation).rotation, rotation.rotation);
+    await assertRejects(
+      () => fromOmeZarr(store, { kind: "transformation", validate: true }),
+      Error,
+      "NGFF-CT-027",
     );
   });
 });

@@ -639,8 +639,12 @@ def test_a_transform_spans_the_systems_it_names(tmp_path):
     assert (entry.input.name, entry.output.name) == ("phys", "phys")
 
 
-@pytest.mark.parametrize("name", ["../x", "..\\x", "a\\..\\..\\x", "C:\\x", "/x"])
+@pytest.mark.parametrize(
+    "name",
+    ["../x", "..\\x", "a\\..\\..\\x", "C:\\x", "/x", "%2e%2e/x", ".%2e/x", "..%2fx"],
+)
 def test_a_label_name_that_leaves_its_group_is_not_followed(name):
+    # The percent-encoded forms are what the TypeScript store resolver decodes.
     from ngff_zarr.validate import _group
 
     assert _group(None, name) is None

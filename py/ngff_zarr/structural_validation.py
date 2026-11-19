@@ -412,9 +412,10 @@ def validate_axis_type(metadata: Metadata, version: object | None = None) -> Non
     """Validate axis-type multiplicity.
 
     At most one ``time`` axis may be present, and at most one axis that is a
-    ``channel`` axis or of a null or custom type. A v0.6 ``array`` coordinate
-    system is exempt (see :func:`_takes_array_schema_branch`). Inert when
-    ``version`` adopts RFC-3 (see :func:`is_rfc3_axis_model_allowed`).
+    ``channel`` axis or of a null or custom type. The ``array`` axes of a v0.6
+    array coordinate system are not counted (see
+    :func:`_takes_array_schema_branch`). Inert when ``version`` adopts RFC-3
+    (see :func:`is_rfc3_axis_model_allowed`).
 
     Raises
     ------
@@ -432,8 +433,11 @@ def validate_axis_type(metadata: Metadata, version: object | None = None) -> Non
             f"At most one 'time' axis is permitted; found {time_count}.",
             "multiscales[0].axes",
         )
-    other_count = sum(1 for ax in metadata.axes if ax.type not in ("space", "time"))
-    if other_count > 1 and not _takes_array_schema_branch(metadata.axes, version):
+    exempt = ("space", "time")
+    if _takes_array_schema_branch(metadata.axes, version):
+        exempt = (*exempt, "array")
+    other_count = sum(1 for ax in metadata.axes if ax.type not in exempt)
+    if other_count > 1:
         raise ValidationError(
             SpecRule.AXIS_TYPE,
             f"At most one 'channel' or custom axis is permitted; found {other_count}.",

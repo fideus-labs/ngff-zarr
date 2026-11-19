@@ -40,6 +40,40 @@ for (const { code, examples } of bundled) {
   }
 }
 
+const OPEN: [string, unknown][] = [
+  ["coordinateSystems", null],
+  ["coordinateSystems", [{}]],
+  ["coordinateSystems", [null]],
+  ["coordinateTransformations", null],
+  ["coordinateTransformations", [null]],
+  ["coordinateTransformations", [{ type: "sequence", transformations: null }]],
+  ["datasets", null],
+  ["datasets", [null]],
+];
+
+for (const [key, value] of OPEN) {
+  test(`${key} ${JSON.stringify(value)} beside a scene does not break the rules`, async () => {
+    // `ome` is open to properties the schema does not define; the rules check
+    // only what has the shape they expect, and still report the scene's finding.
+    const example = bundled.find((rule) => rule.code === "NGFF-CT-015")!
+      .examples[0];
+    const attributes = { ome: { ...example.ome, [key]: value } };
+    assertEquals(await schemaProblems(attributes, "0.6"), []);
+    assertEquals(
+      (await groupProblems(attributes, "0.6")).map((problem) => problem.code),
+      ["NGFF-CT-015"],
+    );
+  });
+}
+
+test("series metadata is checked against its schema", async () => {
+  assert((await schemaProblems({ series: 42 }, "0.4")).length > 0);
+  assert(
+    (await schemaProblems({ ome: { version: "0.5", series: 42 } }, "0.5"))
+      .length > 0,
+  );
+});
+
 test("a group read as a scene is checked against the scene schema", async () => {
   const attributes = { ome: { version: "0.6" } };
   assertEquals(await schemaProblems(attributes, "0.6"), []);

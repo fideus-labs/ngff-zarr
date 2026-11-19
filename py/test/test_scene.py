@@ -29,6 +29,7 @@ from ngff_zarr.v06.zarr_metadata import (
     Bijection,
     Displacements,
     MapAxis,
+    Rotation,
     TransformSequence,
     Translation,
 )
@@ -154,6 +155,25 @@ def test_scene_matrices_are_stored_in_arrays(tmp_path):
     to_ome_zarr(copy_store, read, overwrite=False)
     assert _root_document(copy_store)["attributes"]["ome"]["scene"] == scene_document
     assert NgffScene.from_ome_zarr(copy_store).coordinateTransformations[1] == affine
+
+
+def test_a_stored_rotation_is_checked_when_validating(tmp_path):
+    _, scene = _tiles_scene()
+    scene.coordinateTransformations[1] = Rotation(
+        rotation=[[2.0, 0.0], [0.0, 1.0]],
+        input=CoordinateSystemIdentifier(path="tile_1", name="intrinsic"),
+        output=CoordinateSystemIdentifier(name="world"),
+    )
+    store = tmp_path / "tiles.ome.zarr"
+    to_ome_zarr(store, scene)
+    scene_document = _root_document(store)["attributes"]["ome"]["scene"]
+    written = scene_document["coordinateTransformations"][1]
+    assert "rotation" not in written
+    assert written["path"]
+    read = from_ome_zarr(store, kind="scene")
+    assert read.coordinateTransformations[1].rotation == [[2.0, 0.0], [0.0, 1.0]]
+    with pytest.raises(ValidationError, match="NGFF-CT-027"):
+        from_ome_zarr(store, kind="scene", validate=True)
 
 
 @pytest.mark.skipif(

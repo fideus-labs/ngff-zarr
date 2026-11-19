@@ -19,10 +19,12 @@ from ngff_zarr import (
 from ngff_zarr.v06.zarr_metadata import (
     Affine,
     Displacements,
+    Rotation,
     Scale,
     TransformSequence,
     Translation,
 )
+from ngff_zarr.validate import ValidationError
 
 
 def _affine() -> Affine:
@@ -148,6 +150,42 @@ def test_transformation_with_a_displacement_field(tmp_path):
     field_read = from_ome_zarr(store / read.path)
     assert isinstance(field_read, NgffMultiscales)
     assert field_read.metadata.coordinateSystems[0].axes[0].type == "displacement"
+
+
+def test_a_validated_read_applies_the_shared_rules(tmp_path):
+    store = tmp_path / "identity.ome.zarr"
+    to_ome_zarr(store, _affine())
+    document = json.loads((store / "zarr.json").read_text())
+    document["attributes"]["ome"] = {
+        "version": "0.6",
+        "coordinateSystems": [
+            {"name": "a", "axes": [{"name": "y"}, {"name": "x"}]},
+            {"name": "b", "axes": [{"name": "z"}, {"name": "y"}, {"name": "x"}]},
+        ],
+        "coordinateTransformations": [
+            {"type": "identity", "input": {"name": "a"}, "output": {"name": "b"}}
+        ],
+    }
+    (store / "zarr.json").write_text(json.dumps(document))
+    assert from_ome_zarr(store, kind="transformation").type == "identity"
+    with pytest.raises(ValidationError, match="NGFF-CT-015"):
+        from_ome_zarr(store, kind="transformation", validate=True)
+
+
+def test_a_stored_rotation_is_checked_when_validating(tmp_path):
+    store = tmp_path / "rotation.ome.zarr"
+    rotation = Rotation(
+        rotation=[[2.0, 0.0], [0.0, 1.0]],
+        input=CoordinateSystemIdentifier(name="a"),
+        output=CoordinateSystemIdentifier(name="b"),
+    )
+    to_ome_zarr(store, rotation)
+    (written,) = _root_ome(store)["coordinateTransformations"]
+    assert "rotation" not in written
+    assert written["path"]
+    assert from_ome_zarr(store, kind="transformation").rotation == rotation.rotation
+    with pytest.raises(ValidationError, match="NGFF-CT-027"):
+        from_ome_zarr(store, kind="transformation", validate=True)
 
 
 @pytest.mark.parametrize("path", ["../dfield", "..\\dfield", "%2e%2e/dfield"])

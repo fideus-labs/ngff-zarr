@@ -524,14 +524,19 @@ export async function readScene(
     );
   }
   const version = readVersion(rootAttrs, options);
+  const resolvedDocument = await resolveMatrices(document, resolved);
   if (validate) {
-    const problems = await groupProblems(rootAttrs, version, "", "scene");
+    const ome = rootAttrs.ome as Record<string, unknown>;
+    const problems = await groupProblems(rootAttrs, version, "", "scene", {
+      ...rootAttrs,
+      ome: { ...ome, scene: resolvedDocument },
+    });
     if (problems.length > 0) {
       throw new ValidationError(problems);
     }
   }
   const { coordinateTransformations, coordinateSystems } = sceneFromOmeValue(
-    await resolveMatrices(document, resolved),
+    resolvedDocument,
     version,
   );
   const images: Record<string, NgffMultiscales> = {};

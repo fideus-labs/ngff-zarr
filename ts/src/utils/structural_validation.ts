@@ -284,8 +284,8 @@ export function validateAxisCount(
  * Validate axis-type multiplicity.
  *
  * At most one `time` axis may be present, and at most one axis that is a
- * `channel` axis or of a null or custom type. A v0.6 `array` coordinate system
- * is exempt.
+ * `channel` axis or of a null or custom type. The `array` axes of a v0.6 array
+ * coordinate system are not counted.
  *
  * @param metadata - The parsed multiscales metadata to validate.
  * @throws {ValidationError} With {@link SpecRule.AxisType} when more than one
@@ -307,10 +307,13 @@ export function validateAxisType(
       "multiscales[0].axes",
     );
   }
+  const exempt = takesArraySchemaBranch(metadata.axes, version)
+    ? ["space", "time", "array"]
+    : ["space", "time"];
   const otherCount = metadata.axes.filter(
-    (ax) => ax.type !== "space" && ax.type !== "time",
+    (ax) => !exempt.includes(ax.type as string),
   ).length;
-  if (otherCount > 1 && !takesArraySchemaBranch(metadata.axes, version)) {
+  if (otherCount > 1) {
     throw new ValidationError(
       SpecRule.AxisType,
       `At most one 'channel' or custom axis is permitted; found ${otherCount}.`,

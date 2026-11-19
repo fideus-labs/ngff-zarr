@@ -43,6 +43,7 @@ import {
   toOmeZarrOzx as toOmeZarrOzxBrowser,
 } from "../src/io/to_ngff_zarr-browser.ts";
 import { sceneFromOmeValue } from "../src/io/scene_common.ts";
+import type { Rotation } from "../src/types/zarr_metadata.ts";
 import { bytesOnlyCodecs } from "../src/utils/codecs.ts";
 
 const FIXTURES = new URL("../../py/test/fixtures/scene/", import.meta.url);
@@ -942,6 +943,46 @@ test("the scene's own matrices are stored in arrays", async () => {
     );
     const reread = await fromOmeZarr(copy, { kind: "scene" });
     assertEquals(reread.coordinateTransformations[1], { ...toWorld, path });
+  });
+});
+
+test("a stored rotation of a scene is checked when validating", async () => {
+  await withTempDir(async (dir) => {
+    const { scene } = await tilesScene();
+    const rotation: Rotation = {
+      type: "rotation",
+      rotation: [
+        [2, 0],
+        [0, 1],
+      ],
+      input: { path: "tile_1", name: "intrinsic" },
+      output: { name: "world" },
+    };
+    scene.coordinateTransformations[1] = rotation;
+    const store = `${dir}/tiles.ome.zarr`;
+    await toOmeZarr(store, scene);
+    const document = await rootDocument(store);
+    const ome = (document.attributes as Record<string, unknown>).ome as Record<
+      string,
+      unknown
+    >;
+    const written = (
+      (ome.scene as Record<string, unknown>)
+        .coordinateTransformations as Record<string, unknown>[]
+    )[1];
+    assertEquals("rotation" in written, false);
+    assertEquals(typeof written.path, "string");
+
+    const read = await fromOmeZarr(store, { kind: "scene" });
+    assertEquals(
+      (read.coordinateTransformations[1] as Rotation).rotation,
+      rotation.rotation,
+    );
+    await assertRejects(
+      () => fromOmeZarr(store, { kind: "scene", validate: true }),
+      Error,
+      "NGFF-CT-027",
+    );
   });
 });
 

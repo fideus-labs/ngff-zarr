@@ -44,6 +44,7 @@ import {
 } from "./scene_common.ts";
 import { memoryStoreToZip } from "./rfc9_zip.ts";
 import { gateOzxVersion, type OzxVersion } from "./to_ngff_zarr_ozx_common.ts";
+import { groupProblems, ValidationError } from "../utils/validate.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -201,7 +202,8 @@ export async function transformationToOzx(
 /**
  * The transformation `rootAttrs` declares; `fromOmeZarr` calls this. `store`
  * is the store object the document was read from; a matrix stored in an
- * array below it is loaded inline.
+ * array below it is loaded inline. `validate` checks the document against
+ * the schema and the rules of its version.
  */
 export async function readTransformation(
   store: zarr.Readable,
@@ -209,10 +211,20 @@ export async function readTransformation(
   options: { validate?: boolean; version?: string } = {},
 ): Promise<V06Transform> {
   const version = readVersion(rootAttrs, options);
-  const { coordinateTransformations } = sceneFromOmeValue(
-    await resolveMatrices(rootAttrs.ome as Record<string, unknown>, store),
-    version,
+  const ome = await resolveMatrices(
+    rootAttrs.ome as Record<string, unknown>,
+    store,
   );
+  if (options.validate ?? false) {
+    const problems = await groupProblems(rootAttrs, version, "", undefined, {
+      ...rootAttrs,
+      ome,
+    });
+    if (problems.length > 0) {
+      throw new ValidationError(problems);
+    }
+  }
+  const { coordinateTransformations } = sceneFromOmeValue(ome, version);
   if (coordinateTransformations.length !== 1) {
     throw new Error(
       "A transformation store holds one coordinateTransformations entry; " +

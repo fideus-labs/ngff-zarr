@@ -10,6 +10,7 @@ import * as zarr from "zarrita";
 import type { Schema, Validator } from "@cfworker/json-schema";
 import { isV06Version, NgffVersion } from "../types/supported_versions.ts";
 import { ruleProblems } from "./rules.ts";
+import { isPathBelowRoot } from "./store_below.ts";
 
 /** One way a group of an OME-Zarr store breaks the specification. */
 export interface Problem {
@@ -45,6 +46,7 @@ const SCHEMA_OF_KEY: Record<string, string> = {
   well: "well",
   scene: "scene",
   "bioformats2raw.layout": "bf2raw",
+  series: "ome",
 };
 
 /**
@@ -200,19 +202,23 @@ export async function schemaProblems(
 /**
  * Check a group's attributes against the JSON Schema and, once the schema
  * accepts them, against the rules beyond it ({@link ruleProblems}).
+ * `resolved` is what the rules check in place of `attributes`: the same
+ * document with the matrices it keeps in arrays loaded inline, which the
+ * schema sees as stored.
  */
 export async function groupProblems(
   attributes: Record<string, unknown>,
   version: string,
   path = "",
   expected?: string,
+  resolved: Record<string, unknown> = attributes,
 ): Promise<Problem[]> {
   const problems = await schemaProblems(attributes, version, path, expected);
   if (problems.length > 0) {
     return problems;
   }
   return ruleProblems(
-    attributes,
+    resolved,
     isV06Version(version) ? NgffVersion.V06 : version,
   ).map(([code, message]) => ({ code, message, path }));
 }
@@ -222,12 +228,8 @@ async function group(
   node: zarr.Group<zarr.Readable>,
   name: string,
 ): Promise<zarr.Group<zarr.Readable> | undefined> {
-  // A name from the store's own metadata must stay below the group, also
-  // where a backslash or a drive separates paths.
-  if (
-    name.replaceAll("\\", "/").split("/").includes("..") ||
-    /^([A-Za-z]:|[\\/])/.test(name)
-  ) {
+  // A name from the store's own metadata must stay below the group.
+  if (!isPathBelowRoot(name)) {
     return undefined;
   }
   try {

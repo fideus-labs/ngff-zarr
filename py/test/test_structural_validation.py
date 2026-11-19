@@ -257,6 +257,23 @@ def test_spatial_axis_order_needs_two_array_axes(valid_metadata):
         validate_spatial_axis_order(valid_metadata, "0.6")
 
 
+def test_axis_type_counts_the_other_axes_of_an_array_coordinate_system(
+    valid_metadata,
+):
+    """Only the ``array`` axes of a v0.6 array coordinate system are exempt."""
+    valid_metadata.axes = [
+        Axis(name="i0", type="array"),
+        Axis(name="i1", type="array"),
+        Axis(name="c", type="channel"),
+    ]
+    validate_axis_type(valid_metadata, "0.6")
+
+    valid_metadata.axes.append(Axis(name="c2", type="channel"))
+    with pytest.raises(ValidationError) as exc_info:
+        validate_axis_type(valid_metadata, "0.6")
+    assert exc_info.value.rule == SpecRule.AXIS_TYPE
+
+
 def test_axis_names_unique_valid(valid_metadata):
     validate_axis_names_unique(valid_metadata)
 

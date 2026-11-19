@@ -4,12 +4,12 @@ import json
 import warnings
 from dataclasses import dataclass
 from functools import cache
-from pathlib import PureWindowsPath
 from typing import TYPE_CHECKING
 
 from importlib_resources import files as file_resources
 from packaging import version as packaging_version
 
+from ._matrix_transform_arrays import is_path_below_root
 from ._supported_versions import (
     V06_ONDISK_VERSION,
     V06_SUPERSEDED_TAGS,
@@ -174,6 +174,7 @@ _SCHEMA_OF_KEY = {
     "well": "well",
     "scene": "scene",
     "bioformats2raw.layout": "bf2raw",
+    "series": "ome",
 }
 
 
@@ -226,10 +227,18 @@ def schema_problems(
 
 
 def group_problems(
-    attributes: dict, version: str, path: str = "", model: str | None = None
+    attributes: dict,
+    version: str,
+    path: str = "",
+    model: str | None = None,
+    resolved: dict | None = None,
 ) -> list[Problem]:
     """Check a group's attributes against the JSON Schema and, once the schema
-    accepts them, against the rules beyond it (``ngff_zarr.rules``)."""
+    accepts them, against the rules beyond it (``ngff_zarr.rules``).
+
+    ``resolved`` is what the rules check in place of ``attributes``: the same
+    document with the matrices it keeps in arrays loaded inline, which the
+    schema sees as stored."""
     problems = schema_problems(attributes, version, path, model)
     if problems:
         return problems
@@ -237,17 +246,17 @@ def group_problems(
 
     if is_v06_version(version):
         version = NgffVersion.V06.value
+    document = attributes if resolved is None else resolved
     return [
         Problem(code, message, path)
-        for code, message in rule_problems(attributes, version)
+        for code, message in rule_problems(document, version)
     ]
 
 
 def _group(node, name: str):
     """The group ``name`` below ``node``, or None."""
-    # A name from the store's own metadata must stay below the group, also
-    # where a backslash or a drive separates paths.
-    if ".." in name.replace("\\", "/").split("/") or PureWindowsPath(name).anchor:
+    # A name from the store's own metadata must stay below the group.
+    if not is_path_below_root(name):
         return None
     try:
         child = node[name]

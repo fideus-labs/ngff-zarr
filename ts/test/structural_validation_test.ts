@@ -503,6 +503,25 @@ test("axis names must stay unique at 0.9.dev1", () => {
   );
 });
 
+test("the other axes of a v0.6 array coordinate system are counted", () => {
+  // Only the `array` axes of an array coordinate system are exempt from the
+  // one-channel-or-custom-axis rule.
+  const arrayCs = buildValidMetadata();
+  arrayCs.axes = [
+    { name: "i0", type: "array", unit: undefined },
+    { name: "i1", type: "array", unit: undefined },
+    { name: "c", type: "channel", unit: undefined },
+  ];
+  validateAxisType(arrayCs, "0.6");
+
+  arrayCs.axes.push({ name: "c2", type: "channel", unit: undefined });
+  assertRuleViolation(
+    () => validateAxisType(arrayCs, "0.6"),
+    SpecRule.AxisType,
+    "multiscales[0].axes",
+  );
+});
+
 test("fewer than two space axes is rejected below 0.9.dev1", () => {
   // The v0.4 and v0.5 axes schemas state minContains: 2 on `space` axes.
   // v0.6 adds an `array` arm, covered separately below.
