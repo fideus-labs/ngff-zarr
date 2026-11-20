@@ -260,7 +260,9 @@ class OmeroChannel:
     label: str | None = None
 
     def validate_color(self):
-        if not re.fullmatch(r"[0-9A-Fa-f]{6}", self.color):
+        if not isinstance(self.color, str) or not re.fullmatch(
+            r"[0-9A-Fa-f]{6}", self.color
+        ):
             raise ValueError(f"Invalid color '{self.color}'. Must be 6 hex digits.")
 
 

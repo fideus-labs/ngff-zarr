@@ -454,6 +454,22 @@ test("reader - a v0.6 array coordinate system needs no space axis", async () => 
   assertEquals(result.images[0].dims, ["i", "j"]);
 });
 
+test("reader - a channel without a color is refused when validating", async () => {
+  // The 0.6 image schema does not require `color`; the spec text does.
+  const ome = omeBlock("0.6", [
+    { name: "y", type: "space" },
+    { name: "x", type: "space" },
+  ]);
+  ome.omero = { channels: [{ window: { min: 0, max: 1, start: 0, end: 1 } }] };
+  const store = await createOmeNamespacedStore(ome, [4, 4]);
+
+  await assertRejects(
+    () => fromOmeZarr(store, { validate: true }),
+    Error,
+    SpecRule.OmeroChannelColorFormat,
+  );
+});
+
 // --- The declared version drives the RFC 4 orientation checks on read ---
 
 /** `(t, y, x)` axes with an orientation on the non-spatial time axis. */

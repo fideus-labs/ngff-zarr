@@ -26,9 +26,9 @@ rules enforce OME-Zarr v0.4 MUSTs; the two v0.5 namespacing rules
 no-op) for v0.4. The three RFC 4 orientation rules (9–11) are normative from
 OME-Zarr 0.9.dev1, which incorporates RFC-4 through `ome/ngff-spec#190`: they are
 inert when the caller declares 0.4, 0.5 or 0.6, where RFC 4 has no normative
-status, and stay on when no version is declared — a strictness choice, like
-`axis-names-unique` below 0.9.dev1. For the conceptual background and the two
-validation levels, see [[overview]]; for invocation, see [[api]].
+status, and stay on when no version is declared — a strictness choice. For the
+conceptual background and the two validation levels, see [[overview]]; for
+invocation, see [[api]].
 
 Location strings are dotted-segment, JSON-Pointer-style identifiers of the
 offending metadata node, emitted byte-for-byte identically in both languages.
@@ -43,7 +43,7 @@ the `SpecRule` enum declares them and the orchestrators evaluate them.
 | 1  | `axis-count` | images/multiscales | The number of axes is within the closed range 2–5. Inert for 0.9.dev1. | v0.4: between 2 and 5 axes, inclusive. | `multiscales[0].axes` |
 | 2  | `axis-type` | images/multiscales | At most one `time` axis and at most one `channel` or custom axis; the `array` axes of a v0.6 `array` coordinate system are not counted. Inert for 0.9.dev1. | v0.4: ≤ 1 time axis and ≤ 1 channel axis. | `multiscales[0].axes` |
 | 3  | `axis-order` | images/multiscales | Axes ordered time → channel → space; 2 or 3 space axes, with free names. Inert for 0.9.dev1; a v0.6 `array` coordinate system is exempt from the two-space-axis floor, but not from the three-axis cap. | v0.4: axes ordered time, then channel, then space, with 2 or 3 `space` axes. | `multiscales[0].axes[1]` |
-| 4  | `axis-names-unique` | images/multiscales | No two axes share a `name`. Never inert. | RFC-3 rule 5: axis names MUST NOT be repeated within a dataset. No released schema states it, so below 0.9.dev1 this is a strictness choice, not a spec MUST of those versions. | `multiscales[0].axes[2]` |
+| 4  | `axis-names-unique` | images/multiscales | No two axes share a `name`. Never inert. | Every version: 0.4 and 0.5 state that the values of the `name` fields MUST be unique; 0.6 and 0.9.dev1 state they MUST be unique within the same coordinate system. No bundled schema encodes it. | `multiscales[0].axes[2]` |
 | 5 | `scale-length-mismatch` | images/multiscales | Every `scale`/`translation` vector length equals the axis count, for both the global and per-dataset transforms. At v0.6 the multiscale-level transforms map between named coordinate systems, so only the per-dataset ones are measured. | v0.4: each scale/translation has exactly one entry per axis. | `multiscales[0].datasets[2].coordinateTransformations[0]` |
 | 6 | `global-coord-transform-after-per-level` | images/multiscales | Exactly one `scale` per dataset, and a `translation` must follow — not precede — its `scale`. | v0.4: each dataset defines exactly one scale; a translation follows its scale. | `multiscales[0].datasets[1].coordinateTransformations` |
 | 7 | `dataset-order-highest-to-lowest` | images/multiscales | Datasets ordered finest → coarsest; the spatial scale must not decrease as the level index rises. | v0.4: multiscale datasets ordered from highest to lowest resolution. | `multiscales[0].datasets[2]` |

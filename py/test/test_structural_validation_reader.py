@@ -21,7 +21,7 @@ optional ``jsonschema`` dependency.
 import numpy as np
 import pytest
 import zarr
-from ngff_zarr import from_ngff_zarr, to_multiscales, to_ngff_zarr
+from ngff_zarr import from_ngff_zarr, to_multiscales, to_ngff_image, to_ngff_zarr
 from ngff_zarr.structural_validation import SpecRule, ValidationError
 from ngff_zarr.validate import ValidationError as MetadataValidationError
 from packaging import version
@@ -234,3 +234,70 @@ def test_scale_length_violation_raises_only_when_validating(tmp_path):
     # The same corrupted store reads cleanly when validation is disabled.
     multiscales = from_ngff_zarr(store, validate=False)
     assert multiscales is not None
+
+
+def _write_czyx_store(dest, version) -> str:
+    """Write a valid ``(c, z, y, x)`` two-level multiscales at *version*."""
+    store = str(dest)
+    image = to_ngff_image(np.zeros((2, 4, 8, 8), dtype="uint8"), dims=list("czyx"))
+    to_ngff_zarr(store, to_multiscales(image, [2]), version=version)
+    return store
+
+
+def _edit_ome(store, edit) -> None:
+    """Apply *edit* to the ``ome`` attributes of a Zarr v3 store."""
+    root = zarr.open_group(store, mode="r+")
+    ome = root.attrs.asdict()["ome"]
+    edit(ome)
+    root.attrs["ome"] = ome
+
+
+_WINDOW = {"min": 0.0, "max": 1.0, "start": 0.0, "end": 1.0}
+
+
+@requires_zarr_v3
+def test_a_v06_read_runs_the_structural_rules(tmp_path):
+    # Two channel axes pass the 0.6 axes schema; the axis-type rule refuses them.
+    store = _write_czyx_store(tmp_path / "v06.zarr", "0.6")
+
+    def two_channel_axes(ome):
+        for system in ome["multiscales"][0]["coordinateSystems"]:
+            system["axes"][1] = {"name": "c2", "type": "channel"}
+
+    _edit_ome(store, two_channel_axes)
+
+    with pytest.raises(ValidationError) as exc_info:
+        from_ngff_zarr(store, validate=True)
+    assert exc_info.value.rule == SpecRule.AXIS_TYPE
+
+    assert from_ngff_zarr(store, validate=False) is not None
+
+
+@requires_zarr_v3
+def test_a_0_9_dev1_read_runs_the_structural_rules(tmp_path):
+    # The image schema types a channel color as any string; the
+    # omero-channel-color-format rule holds it to six hex digits.
+    store = _write_czyx_store(tmp_path / "v09.zarr", "0.9.dev1")
+    channel = {"color": "ZZZZZZ", "window": _WINDOW}
+    _edit_ome(store, lambda ome: ome.update(omero={"channels": [channel]}))
+
+    with pytest.raises(ValidationError) as exc_info:
+        from_ngff_zarr(store, validate=True)
+    assert exc_info.value.rule == SpecRule.OMERO_CHANNEL_COLOR_FORMAT
+
+    assert from_ngff_zarr(store, validate=False) is not None
+
+
+@requires_zarr_v3
+@pytest.mark.parametrize("version", ["0.5", "0.6"])
+def test_a_channel_without_a_color_is_refused_when_validating(tmp_path, version):
+    # The 0.5 and 0.6 image schemas do not require ``color``; the spec text does.
+    store = _write_czyx_store(tmp_path / "store.zarr", version)
+    _edit_ome(store, lambda ome: ome.update(omero={"channels": [{"window": _WINDOW}]}))
+
+    with pytest.raises(ValidationError) as exc_info:
+        from_ngff_zarr(store, validate=True)
+    assert exc_info.value.rule == SpecRule.OMERO_CHANNEL_COLOR_FORMAT
+
+    channel = from_ngff_zarr(store, validate=False).metadata.omero.channels[0]
+    assert channel.color is None

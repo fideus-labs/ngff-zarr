@@ -85,9 +85,8 @@ The versions that adopt the RFC-3 axis model are pinned the same way, as a
 1. `0.9.dev1`
 
 Rules 1–3 (and the spatial arm of 3) are inert at those versions and enforced
-at every other. Rule 4, `axis-names-unique`, is never inert: RFC-3 *adds* it,
-and ngff-zarr applies it at all versions as a strictness choice (see
-[[rule-reference]]).
+at every other. Rule 4, `axis-names-unique`, is never inert: every version
+states it (see [[rule-reference]]).
 
 The versions at which the RFC-4 orientation rules are normative are pinned the
 same way, as a `CANONICAL_RFC4_VERSIONS` literal:

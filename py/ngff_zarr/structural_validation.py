@@ -372,8 +372,7 @@ def is_rfc4_orientation_enforced(version: object | None = None) -> bool:
     it): the released 0.4, 0.5 and 0.6 specs give ``orientation`` no normative
     status, so when the caller declares one of those versions the orientation
     rules are inert. ``None`` keeps them on: with no declared version,
-    enforcement is a strictness choice, exactly like ``axis-names-unique``
-    below 0.9.dev1 (see docs/validation/rule-reference.md).
+    enforcement is a strictness choice (see docs/validation/rule-reference.md).
 
     The gate points the opposite way from :func:`is_rfc3_axis_model_allowed`:
     at 0.9.dev1 RFC-3 *lifts* the axis restrictions while RFC-4 *adds* the
@@ -524,13 +523,13 @@ def validate_axis_names_unique(
 ) -> None:
     """Validate that axis names are unique within the dataset.
 
-    This rule is **never** inert. It states RFC-3 rule 5, "axis names MUST NOT
-    be repeated within a dataset". No released schema carries it: v0.4 and v0.5
-    say nothing, and v0.6 has only a non-normative ``description`` on
-    ``axis.name``. Below 0.9.dev1 it is therefore a strictness choice rather
-    than a spec MUST of those versions.
+    This rule is **never** inert. Every version states it: at 0.4 and 0.5 the
+    values of the ``name`` fields MUST be unique across the axes, and from 0.6
+    they MUST be unique within the same coordinate system. No bundled schema
+    encodes it (the 0.6 and 0.9.dev1 ``axes`` schemas say so only in the
+    ``description`` of ``axis.name``), so this rule carries it.
 
-    RFC-3 rule 5 also says names SHOULD NOT differ only by case. That is a
+    RFC-3 rule 5 adds that names SHOULD NOT differ only by case. That is a
     SHOULD and is not enforced.
 
     ``version`` is accepted so callers can invoke every axis rule uniformly.

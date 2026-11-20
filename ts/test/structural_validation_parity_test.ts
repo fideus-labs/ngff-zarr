@@ -98,7 +98,7 @@ const NON_RFC3_VERSIONS: (string | undefined)[] = [
 // The gate points the opposite way from CANONICAL_RFC3_VERSIONS: RFC-3 *lifts*
 // the axis restrictions at 0.9.dev1 while RFC-4 *adds* the orientation
 // requirements, so the rules are inert below these versions. No version at all
-// keeps them on, as a strictness choice (like axis-names-unique).
+// keeps them on, as a strictness choice.
 const CANONICAL_RFC4_VERSIONS: string[] = ["0.9.dev1"];
 
 // Every other supported version must leave the orientation rules inert. Read

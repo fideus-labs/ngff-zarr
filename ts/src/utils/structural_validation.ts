@@ -412,10 +412,12 @@ export function validateSpatialAxisOrder(
 /**
  * Validate that axis names are unique within the dataset.
  *
- * Never inert. It states RFC-3 rule 5, "axis names MUST NOT be repeated within
- * a dataset". No released schema carries it, so below `0.9.dev1` it is a
- * strictness choice rather than a spec MUST of those versions. Rule 5 also says
- * names SHOULD NOT differ only by case. That is a SHOULD and is not enforced.
+ * Never inert. Every version states it: at 0.4 and 0.5 the values of the
+ * `name` fields MUST be unique across the axes, and from 0.6 they MUST be
+ * unique within the same coordinate system. No bundled schema encodes it (the
+ * 0.6 and 0.9.dev1 `axes` schemas say so only in the `description` of
+ * `axis.name`), so this rule carries it. RFC-3 rule 5 adds that names SHOULD
+ * NOT differ only by case. That is a SHOULD and is not enforced.
  *
  * @param metadata - The parsed multiscales metadata to validate.
  * @throws {ValidationError} With {@link SpecRule.AxisNamesUnique} for the first
