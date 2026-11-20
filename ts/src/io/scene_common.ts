@@ -64,6 +64,11 @@ import {
 import type { ChunkCache } from "../utils/worker_pool.ts";
 import { memoryStoreToZip } from "./rfc9_zip.ts";
 import {
+  ruleProblems,
+  schemaProblems,
+  ValidationError,
+} from "../utils/validate.ts";
+import {
   type ArrayWriterFactory,
   countMultiscalesWrites,
   DEFAULT_OZX_CHUNKS_PER_SHARD,
@@ -523,8 +528,26 @@ export async function readScene(
     );
   }
   const version = readVersion(rootAttrs, options);
+  if (validate) {
+    // The schema reads the document as stored, before any matrix is loaded.
+    const problems = await schemaProblems(rootAttrs, version, "", "scene");
+    if (problems.length > 0) {
+      throw new ValidationError(problems);
+    }
+  }
+  const resolvedDocument = await resolveMatrices(document, resolved);
+  if (validate) {
+    const ome = rootAttrs.ome as Record<string, unknown>;
+    const problems = ruleProblems(
+      { ...rootAttrs, ome: { ...ome, scene: resolvedDocument } },
+      version,
+    );
+    if (problems.length > 0) {
+      throw new ValidationError(problems);
+    }
+  }
   const { coordinateTransformations, coordinateSystems } = sceneFromOmeValue(
-    await resolveMatrices(document, resolved),
+    resolvedDocument,
     version,
   );
   const images: Record<string, NgffMultiscales> = {};

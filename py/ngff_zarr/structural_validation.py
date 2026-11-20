@@ -43,7 +43,7 @@ violation, in canonical spec-MUST order.
 #       <=1 time axis and <=1 channel axis
 #       e.g. multiscales[0].axes
 #   axis-order
-#       time before channel before space; space names a suffix of (z, y, x)
+#       time before channel before space; 2 or 3 space axes
 #       e.g. multiscales[0].axes[1]
 #   axis-names-unique
 #       no two axes share a name (RFC-3 rule 5)
@@ -329,10 +329,8 @@ def _flat_model(metadata: Any) -> Any:
 # never follow higher rank (see ``validate_axis_order``).
 _AXIS_TYPE_RANK = {"time": 0, "channel": 1, "space": 2}
 
-# Spatial axis names in canonical order. A valid set of ``space`` axis names
-# is the matching-length suffix of this tuple: 1 -> ("x",), 2 -> ("y", "x"),
-# 3 -> ("z", "y", "x") (see ``validate_spatial_axis_order``).
-_SPATIAL_AXIS_NAMES = ("z", "y", "x")
+# A null or custom axis type takes the place of a channel axis.
+_CUSTOM_RANK = _AXIS_TYPE_RANK["channel"]
 
 #: The v0.6 ``axes`` schema is a ``oneOf``: either 2 or 3 ``space`` axes, or
 #: two or more ``array`` axes. An RFC-5 array coordinate system takes the
@@ -374,8 +372,7 @@ def is_rfc4_orientation_enforced(version: object | None = None) -> bool:
     it): the released 0.4, 0.5 and 0.6 specs give ``orientation`` no normative
     status, so when the caller declares one of those versions the orientation
     rules are inert. ``None`` keeps them on: with no declared version,
-    enforcement is a strictness choice, exactly like ``axis-names-unique``
-    below 0.9.dev1 (see docs/validation/rule-reference.md).
+    enforcement is a strictness choice (see docs/validation/rule-reference.md).
 
     The gate points the opposite way from :func:`is_rfc3_axis_model_allowed`:
     at 0.9.dev1 RFC-3 *lifts* the axis restrictions while RFC-4 *adds* the
@@ -413,15 +410,17 @@ def validate_axis_count(metadata: Metadata, version: object | None = None) -> No
 def validate_axis_type(metadata: Metadata, version: object | None = None) -> None:
     """Validate axis-type multiplicity.
 
-    At most one ``time`` axis and at most one ``channel`` axis may be present.
-    Inert when ``version`` adopts RFC-3 (see
-    :func:`is_rfc3_axis_model_allowed`).
+    At most one ``time`` axis may be present, and at most one axis that is a
+    ``channel`` axis or of a null or custom type. The ``array`` axes of a v0.6
+    array coordinate system are not counted (see
+    :func:`_takes_array_schema_branch`). Inert when ``version`` adopts RFC-3
+    (see :func:`is_rfc3_axis_model_allowed`).
 
     Raises
     ------
     ValidationError
-        With :attr:`SpecRule.AXIS_TYPE` when more than one ``time`` axis or
-        more than one ``channel`` axis is present; location
+        With :attr:`SpecRule.AXIS_TYPE` when more than one ``time`` axis, or
+        more than one ``channel`` or custom axis, is present; location
         ``multiscales[0].axes``.
     """
     if is_rfc3_axis_model_allowed(version):
@@ -433,11 +432,14 @@ def validate_axis_type(metadata: Metadata, version: object | None = None) -> Non
             f"At most one 'time' axis is permitted; found {time_count}.",
             "multiscales[0].axes",
         )
-    channel_count = sum(1 for ax in metadata.axes if ax.type == "channel")
-    if channel_count > 1:
+    exempt = ("space", "time")
+    if _takes_array_schema_branch(metadata.axes, version):
+        exempt = (*exempt, "array")
+    other_count = sum(1 for ax in metadata.axes if ax.type not in exempt)
+    if other_count > 1:
         raise ValidationError(
             SpecRule.AXIS_TYPE,
-            f"At most one 'channel' axis is permitted; found {channel_count}.",
+            f"At most one 'channel' or custom axis is permitted; found {other_count}.",
             "multiscales[0].axes",
         )
 
@@ -445,11 +447,13 @@ def validate_axis_type(metadata: Metadata, version: object | None = None) -> Non
 def validate_axis_order(metadata: Metadata, version: object | None = None) -> None:
     """Validate the class ordering of axes.
 
-    Axes are ranked by type (``time`` < ``channel`` < ``space``) and must be
-    listed in non-decreasing rank order: every ``time`` axis precedes every
-    ``channel`` axis, which precedes every ``space`` axis. The first adjacent
-    pair that inverts this ranking is reported. Inert when ``version`` adopts
-    RFC-3 (see :func:`is_rfc3_axis_model_allowed`).
+    Axes are ranked by type (``time`` < ``channel`` or custom < ``space``) and
+    must be listed in non-decreasing rank order: the ``time`` axis precedes the
+    ``channel`` or custom axis, which precedes every ``space`` axis. An axis
+    with no type ranks as a custom one. The first adjacent pair that inverts
+    this ranking is reported. A v0.6 ``array`` coordinate system is exempt.
+    Inert when ``version`` adopts RFC-3 (see
+    :func:`is_rfc3_axis_model_allowed`).
 
     Raises
     ------
@@ -458,22 +462,20 @@ def validate_axis_order(metadata: Metadata, version: object | None = None) -> No
         lower-ranked axis type follows a higher-ranked one; location
         ``multiscales[0].axes[i+1]``.
     """
-    if is_rfc3_axis_model_allowed(version):
-        return
     axes = metadata.axes
+    if is_rfc3_axis_model_allowed(version) or _takes_array_schema_branch(axes, version):
+        return
     for i in range(len(axes) - 1):
         current = axes[i]
         following = axes[i + 1]
-        current_rank = _AXIS_TYPE_RANK.get(current.type)
-        following_rank = _AXIS_TYPE_RANK.get(following.type)
-        if current_rank is None or following_rank is None:
-            continue
+        current_rank = _AXIS_TYPE_RANK.get(current.type, _CUSTOM_RANK)
+        following_rank = _AXIS_TYPE_RANK.get(following.type, _CUSTOM_RANK)
         if following_rank < current_rank:
             raise ValidationError(
                 SpecRule.AXIS_ORDER,
                 f"Axis '{following.name}' of type '{following.type}' must not "
                 f"follow axis '{current.name}' of type '{current.type}'; axes "
-                f"must be ordered time, then channel, then space.",
+                f"must be ordered time, then channel or custom, then space.",
                 f"multiscales[0].axes[{i + 1}]",
             )
 
@@ -481,12 +483,11 @@ def validate_axis_order(metadata: Metadata, version: object | None = None) -> No
 def validate_spatial_axis_order(
     metadata: Metadata, version: object | None = None
 ) -> None:
-    """Validate the count and names of spatial axes.
+    """Validate the count of spatial axes.
 
-    The spec requires 2 or 3 ``space`` axes, and, taken in order, they must be
-    the matching-length suffix of ``(z, y, x)``: two spatial axes must be
-    ``(y, x)`` and three must be ``(z, y, x)``. Inert when ``version`` adopts
-    RFC-3 (see :func:`is_rfc3_axis_model_allowed`).
+    The spec requires 2 or 3 ``space`` axes. Their names are free: the spec
+    only recommends ordering them ``zyx``. Inert when ``version`` adopts RFC-3
+    (see :func:`is_rfc3_axis_model_allowed`).
 
     At v0.6 the space-axis floor does not apply to an RFC-5 *array* coordinate
     system, which the schema's ``oneOf`` admits with no ``space`` axis at all
@@ -496,8 +497,7 @@ def validate_spatial_axis_order(
     ------
     ValidationError
         With :attr:`SpecRule.AXIS_ORDER` when there are not 2 or 3 ``space``
-        axes, or when their names are not the expected suffix of
-        ``(z, y, x)``.
+        axes.
     """
     if is_rfc3_axis_model_allowed(version):
         return
@@ -516,16 +516,6 @@ def validate_spatial_axis_order(
             f"OME-Zarr v0.4, v0.5 and v0.6 require 2 or 3 'space' axes; found {count}.",
             "multiscales[0].axes",
         )
-    expected = _SPATIAL_AXIS_NAMES[len(_SPATIAL_AXIS_NAMES) - count :]
-    actual = tuple(metadata.axes[i].name for i in space_indices)
-    if actual != expected:
-        mismatch = next((j for j in range(count) if actual[j] != expected[j]), 0)
-        raise ValidationError(
-            SpecRule.AXIS_ORDER,
-            f"Spatial axis names {list(actual)} must be the length-{count} "
-            f"suffix of (z, y, x): {list(expected)}.",
-            f"multiscales[0].axes[{space_indices[mismatch]}]",
-        )
 
 
 def validate_axis_names_unique(
@@ -533,13 +523,13 @@ def validate_axis_names_unique(
 ) -> None:
     """Validate that axis names are unique within the dataset.
 
-    This rule is **never** inert. It states RFC-3 rule 5, "axis names MUST NOT
-    be repeated within a dataset". No released schema carries it: v0.4 and v0.5
-    say nothing, and v0.6 has only a non-normative ``description`` on
-    ``axis.name``. Below 0.9.dev1 it is therefore a strictness choice rather
-    than a spec MUST of those versions.
+    This rule is **never** inert. Every version states it: at 0.4 and 0.5 the
+    values of the ``name`` fields MUST be unique across the axes, and from 0.6
+    they MUST be unique within the same coordinate system. No bundled schema
+    encodes it (the 0.6 and 0.9.dev1 ``axes`` schemas say so only in the
+    ``description`` of ``axis.name``), so this rule carries it.
 
-    RFC-3 rule 5 also says names SHOULD NOT differ only by case. That is a
+    RFC-3 rule 5 adds that names SHOULD NOT differ only by case. That is a
     SHOULD and is not enforced.
 
     ``version`` is accepted so callers can invoke every axis rule uniformly.

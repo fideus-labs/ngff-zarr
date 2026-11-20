@@ -5,7 +5,15 @@
 // listed in oztest_known_failures.txt; any other result fails, including a
 // listed case that passes. The cases are the ones the Python tests download.
 import { test } from "vite-plus/test";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { fromOmeZarr } from "../src/io/from_ngff_zarr.ts";
 
@@ -67,4 +75,25 @@ test("oztest validate_zarr cases", { timeout: 600_000 }, async () => {
     if (!got.has(slug)) unexpected.push(`${slug}: listed, but not a case`);
   }
   if (unexpected.length) throw new Error(unexpected.join("\n"));
+});
+
+test("a label image without multiscales is refused", async () => {
+  const store = join(mkdtempSync(join(tmpdir(), "ngff-zarr-")), "label.zarr");
+  cpSync(
+    join(CASES, "validate_zarr/v0.6/core/valid/label/minimal.ome.zarr"),
+    store,
+    { recursive: true },
+  );
+  const document = join(store, "labels", "lbl", "zarr.json");
+  const node = JSON.parse(readFileSync(document, "utf8"));
+  delete node.attributes.ome.multiscales;
+  writeFileSync(document, JSON.stringify(node));
+
+  let message = "accepted";
+  try {
+    await fromOmeZarr(store, { validate: true });
+  } catch (error) {
+    message = ((error as Error).cause as Error).message;
+  }
+  if (!message.includes("labels/lbl")) throw new Error(message);
 });

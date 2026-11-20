@@ -29,13 +29,14 @@ from ngff_zarr.v06.zarr_metadata import (
     Bijection,
     Displacements,
     MapAxis,
+    Rotation,
     TransformSequence,
     Translation,
 )
 
 pytest.importorskip("jsonschema", reason="schema checks need the validate extra")
 
-from jsonschema import ValidationError
+from ngff_zarr.validate import ValidationError
 from ngff_zarr.validate import validate as validate_ngff
 
 FIXTURES = Path(__file__).parent / "fixtures" / "scene"
@@ -156,6 +157,44 @@ def test_scene_matrices_are_stored_in_arrays(tmp_path):
     assert NgffScene.from_ome_zarr(copy_store).coordinateTransformations[1] == affine
 
 
+def test_a_stored_rotation_is_checked_when_validating(tmp_path):
+    _, scene = _tiles_scene()
+    scene.coordinateTransformations[1] = Rotation(
+        rotation=[[2.0, 0.0], [0.0, 1.0]],
+        input=CoordinateSystemIdentifier(path="tile_1", name="intrinsic"),
+        output=CoordinateSystemIdentifier(name="world"),
+    )
+    store = tmp_path / "tiles.ome.zarr"
+    to_ome_zarr(store, scene)
+    scene_document = _root_document(store)["attributes"]["ome"]["scene"]
+    written = scene_document["coordinateTransformations"][1]
+    assert "rotation" not in written
+    assert written["path"]
+    read = from_ome_zarr(store, kind="scene")
+    assert read.coordinateTransformations[1].rotation == [[2.0, 0.0], [0.0, 1.0]]
+    with pytest.raises(ValidationError, match="NGFF-CT-027"):
+        from_ome_zarr(store, kind="scene", validate=True)
+
+
+def test_a_scene_without_a_version_is_refused_before_its_matrices_are_read(tmp_path):
+    _, scene = _tiles_scene()
+    scene.coordinateTransformations[1] = Rotation(
+        rotation=[[1.0, 0.0], [0.0, 1.0]],
+        input=CoordinateSystemIdentifier(path="tile_1", name="intrinsic"),
+        output=CoordinateSystemIdentifier(name="world"),
+    )
+    store = tmp_path / "tiles.ome.zarr"
+    to_ome_zarr(store, scene)
+    document = _root_document(store)
+    ome = document["attributes"]["ome"]
+    del ome["version"]
+    ome["scene"]["coordinateTransformations"][1]["path"] = "nowhere"
+    (store / "zarr.json").write_text(json.dumps(document))
+
+    with pytest.raises(ValidationError, match="NGFF-GN-001"):
+        from_ome_zarr(store, kind="scene", validate=True)
+
+
 @pytest.mark.skipif(
     packaging.version.parse(zarr.__version__).major < 3,
     reason="Zarr v3 stores need zarr-python >= 3",
@@ -253,8 +292,22 @@ def test_write_refuses_duplicate_or_empty_system_names(tmp_path):
 
 
 def test_scene_axis_model_follows_the_version(tmp_path):
-    _, scene = _tiles_scene()
-    scene.coordinateSystems[0].axes = [Axis(name=n, type="space") for n in "abcdef"]
+    # Six space axes break the 0.6 axis rules and are allowed from 0.9.dev1.
+    axes = [Axis(name=n, type="space") for n in "abcdef"]
+    scene = NgffScene(
+        images={},
+        coordinateSystems=[
+            CoordinateSystem(name="a", axes=axes),
+            CoordinateSystem(name="b", axes=axes),
+        ],
+        coordinateTransformations=[
+            Translation(
+                translation=[0.0] * 6,
+                input=CoordinateSystemIdentifier(name="a"),
+                output=CoordinateSystemIdentifier(name="b"),
+            )
+        ],
+    )
     with pytest.raises(ValueError, match=r"scene.coordinateSystems\[0\].axes"):
         to_ome_zarr(tmp_path / "v06.ome.zarr", scene)
     to_ome_zarr(tmp_path / "dev1.ome.zarr", scene, version="0.9.dev1")

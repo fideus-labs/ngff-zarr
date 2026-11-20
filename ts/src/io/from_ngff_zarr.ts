@@ -24,6 +24,7 @@ import {
 import { zarrGet } from "../utils/worker_pool.ts";
 import { ensureRangeReads } from "../utils/sharding.ts";
 import { isOzxPath } from "./rfc9_zip.ts";
+import { storeProblems, ValidationError } from "../utils/validate.ts";
 
 export type { ChunkCache } from "../utils/worker_pool.ts";
 
@@ -234,6 +235,16 @@ export async function fromOmeZarr(
         throw new Error(
           `Expected OME-Zarr version ${requestedVersion}, but found ${detectedVersion}`,
         );
+      }
+    }
+
+    if (validate) {
+      const problems = await storeProblems(
+        root as zarr.Group<zarr.Readable>,
+        detectedVersion,
+      );
+      if (problems.length > 0) {
+        throw new ValidationError(problems);
       }
     }
 

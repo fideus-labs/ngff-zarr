@@ -295,14 +295,21 @@ def _scene_to_dict(scene: NgffScene) -> dict[str, Any]:
     return document
 
 
-def _scene_from_dict(
-    document: dict[str, Any], version: str | None, store: Any = None
-) -> tuple[list[CoordinateSystem] | None, list[Transform]]:
-    """Parse an ``ome.scene`` object into its coordinate systems and transformations.
+def _resolve_matrices(document: dict[str, Any], store: Any) -> dict[str, Any]:
+    """``document`` with each rotation and affine matrix it stores in an array
+    below ``store``, the group it was read from, loaded inline."""
+    return {
+        **document,
+        "coordinateTransformations": resolve_matrix_transforms(
+            document.get("coordinateTransformations") or [], store
+        ),
+    }
 
-    With ``store``, the group the document was read from, each rotation and
-    affine matrix stored in an array below it is loaded inline.
-    """
+
+def _scene_from_dict(
+    document: dict[str, Any], version: str | None
+) -> tuple[list[CoordinateSystem] | None, list[Transform]]:
+    """Parse an ``ome.scene`` object into its coordinate systems and transformations."""
     from .v09.zarr_metadata import _filter_axis_dict
 
     systems = None
@@ -315,8 +322,6 @@ def _scene_from_dict(
             for entry in document["coordinateSystems"]
         ]
     raw = document.get("coordinateTransformations") or []
-    if store is not None:
-        raw = resolve_matrix_transforms(raw, store)
     transforms = Metadata_v06._parse_transforms(raw, systems or [], version)
     # The multiscales parser keeps a reference only when its name resolves in
     # the systems it is given. A scene's references mostly name systems of its
@@ -473,13 +478,20 @@ def _read_scene(
     if version is None:
         version = _detect_version(root_attrs).value
     if validate:
-        from .validate import validate as validate_ngff
+        from .validate import ValidationError, rule_problems, schema_problems
 
-        validate_ngff(root_attrs, version=version, model="scene")
-
-    systems, transforms = _scene_from_dict(
-        document, version, store if array_store is None else array_store
+        # The schema reads the document as stored, before any matrix is loaded.
+        if problems := schema_problems(root_attrs, version, model="scene"):
+            raise ValidationError(problems)
+    document = _resolve_matrices(
+        document, store if array_store is None else array_store
     )
+    if validate:
+        resolved = {"ome": {**root_attrs["ome"], "scene": document}}
+        if problems := rule_problems(resolved, version):
+            raise ValidationError(problems)
+
+    systems, transforms = _scene_from_dict(document, version)
     images: dict[str, NgffMultiscales] = {}
     for transform in transforms:
         for reference in (transform.input, transform.output):

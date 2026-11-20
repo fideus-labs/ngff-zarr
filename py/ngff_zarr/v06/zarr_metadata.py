@@ -23,16 +23,12 @@ __all__ = [
     "Metadata",
 ]
 
-import copy
-import warnings
 from abc import ABC
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Union
 
 from .._store_types import StoreLike
 from .._supported_versions import (
-    V06_ONDISK_VERSION,
-    V06_SUPERSEDED_TAGS,
     NgffVersion,
 )
 from ..rfc4 import AnatomicalOrientation, axes_orientations_from_axes
@@ -860,7 +856,6 @@ class Metadata:
         cls,
         root_attrs: dict,
         store: StoreLike,
-        validate: bool = False,
         subpath: str | None = None,
     ) -> tuple["Metadata", list["NgffImage"]]:
         """Create Metadata instance from ome-zarr metadata dictionary.
@@ -877,7 +872,6 @@ class Metadata:
         from .._zarrista_utils import open_lazy_array
         from ..ngff_image import NgffImage, non_default_axes_types
         from ..parse_metadata import _parse_omero
-        from ..validate import validate as validate_ngff
 
         # make sure root_attrs['ome]['multiscales'] exists
         if "ome" not in root_attrs or "multiscales" not in root_attrs["ome"]:
@@ -896,30 +890,6 @@ class Metadata:
             or root_attrs["ome"]["multiscales"][0].get("version")
             or "0.6"
         )
-
-        if validate:
-            schema_version = declared_version
-            schema_attrs = root_attrs
-            if schema_version in V06_SUPERSEDED_TAGS:
-                # The bundled 0.6 schemas accept the released ``0.6`` tag and
-                # ``0.6rc0``. A store tagged ``0.6.dev4``, which an earlier
-                # release wrote, differs from a valid store in that string
-                # alone, so the rest of the document is validated with
-                # ``V06_ONDISK_VERSION`` (``"0.6"``) substituted, and the
-                # substitution is reported: ``upgrade_ome_zarr`` rewrites the
-                # tag in place.
-                warnings.warn(
-                    f"OME-Zarr store carries the superseded 0.6 pre-release tag "
-                    f"{schema_version!r}; the bundled 0.6 schemas accept "
-                    f"{V06_ONDISK_VERSION.value!r}. Validating the rest of the "
-                    "document with that tag substituted. upgrade_ome_zarr("
-                    "store, version='0.6') rewrites the tag.",
-                    stacklevel=2,
-                )
-                schema_attrs = copy.deepcopy(root_attrs)
-                schema_attrs["ome"]["version"] = V06_ONDISK_VERSION.value
-                schema_version = V06_ONDISK_VERSION.value
-            validate_ngff(schema_attrs, version=schema_version)
 
         omero = _parse_omero(root_attrs.get("ome", {}).get("omero"))
         root_attrs = root_attrs["ome"]["multiscales"][0]

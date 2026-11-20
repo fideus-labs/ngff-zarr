@@ -98,7 +98,7 @@ const NON_RFC3_VERSIONS: (string | undefined)[] = [
 // The gate points the opposite way from CANONICAL_RFC3_VERSIONS: RFC-3 *lifts*
 // the axis restrictions at 0.9.dev1 while RFC-4 *adds* the orientation
 // requirements, so the rules are inert below these versions. No version at all
-// keeps them on, as a strictness choice (like axis-names-unique).
+// keeps them on, as a strictness choice.
 const CANONICAL_RFC4_VERSIONS: string[] = ["0.9.dev1"];
 
 // Every other supported version must leave the orientation rules inert. Read
@@ -123,7 +123,7 @@ const EXPECTED_EVALUATION_ORDER: SpecRule[] = [
   SpecRule.AxisCount,
   SpecRule.AxisType,
   SpecRule.AxisOrder, // validateAxisOrder (class ordering)
-  SpecRule.AxisOrder, // validateSpatialAxisOrder (spatial suffix)
+  SpecRule.AxisOrder, // validateSpatialAxisOrder (spatial count)
   SpecRule.AxisNamesUnique,
   SpecRule.GlobalCoordTransformAfterPerLevel, // per-dataset scale count
   SpecRule.ScaleLengthMismatch,
@@ -316,8 +316,7 @@ test("validateStructural evaluates rules in canonical order", () => {
   observed.push(firstViolatedRule(metadata));
 
   // Stage 3 -> AxisOrder (class ordering). One channel now, but a space axis
-  // still precedes it; the spatial names are still not the (z, y, x) suffix
-  // and "z" is still repeated.
+  // still precedes it and "z" is still repeated.
   metadata.axes = [
     { name: "x", type: "space", unit: undefined },
     { name: "c", type: "channel", unit: undefined },
@@ -326,13 +325,11 @@ test("validateStructural evaluates rules in canonical order", () => {
   ];
   observed.push(firstViolatedRule(metadata));
 
-  // Stage 4 -> AxisOrder (spatial suffix). Class order fixed (channel first),
-  // but spatial names (x, z, z) are not the length-3 suffix of (z, y, x).
+  // Stage 4 -> AxisOrder (spatial count). Class order fixed (channel first),
+  // but a single space axis is below the floor of two.
   metadata.axes = [
     { name: "c", type: "channel", unit: undefined },
     { name: "x", type: "space", unit: undefined },
-    { name: "z", type: "space", unit: undefined },
-    { name: "z", type: "space", unit: undefined },
   ];
   observed.push(firstViolatedRule(metadata));
 
