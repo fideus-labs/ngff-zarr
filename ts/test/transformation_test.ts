@@ -38,6 +38,10 @@ import {
   toOmeZarrOzx as toOmeZarrOzxBrowser,
 } from "../src/io/to_ngff_zarr-browser.ts";
 
+function space(name: string): { name: string; type: string } {
+  return { name, type: "space" };
+}
+
 function affine(): Affine {
   return {
     type: "affine",
@@ -209,8 +213,8 @@ test("a validated read applies the shared rules", async () => {
     document.attributes.ome = {
       version: "0.6",
       coordinateSystems: [
-        { name: "a", axes: [{ name: "y" }, { name: "x" }] },
-        { name: "b", axes: [{ name: "z" }, { name: "y" }, { name: "x" }] },
+        { name: "a", axes: [space("y"), space("x")] },
+        { name: "b", axes: [space("z"), space("y"), space("x")] },
       ],
       coordinateTransformations: [
         { type: "identity", input: { name: "a" }, output: { name: "b" } },
@@ -253,6 +257,55 @@ test("a stored rotation is checked when validating", async () => {
       () => fromOmeZarr(store, { kind: "transformation", validate: true }),
       Error,
       "NGFF-CT-027",
+    );
+  });
+});
+
+test("a transformation without a version is refused before its matrix is read", async () => {
+  await withTempDir(async (dir) => {
+    const store = `${dir}/rotation.ome.zarr`;
+    const rotation: Rotation = {
+      type: "rotation",
+      rotation: [
+        [1, 0],
+        [0, 1],
+      ],
+      input: { name: "a" },
+      output: { name: "b" },
+    };
+    await toOmeZarr(store, rotation);
+    const document = JSON.parse(await readTextFile(`${store}/zarr.json`));
+    delete document.attributes.ome.version;
+    document.attributes.ome.coordinateTransformations[0].path = "nowhere";
+    await writeTextFile(`${store}/zarr.json`, JSON.stringify(document));
+
+    await assertRejects(
+      () => fromOmeZarr(store, { kind: "transformation", validate: true }),
+      Error,
+      "NGFF-GN-001",
+    );
+  });
+});
+
+test("a validated read checks the document against the schema", async () => {
+  await withTempDir(async (dir) => {
+    const store = `${dir}/scale.ome.zarr`;
+    await toOmeZarr(store, affine());
+    const document = JSON.parse(await readTextFile(`${store}/zarr.json`));
+    document.attributes.ome.coordinateTransformations = [
+      {
+        type: "scale",
+        scale: ["1", "1"],
+        input: { name: "ji" },
+        output: { name: "yx" },
+      },
+    ];
+    await writeTextFile(`${store}/zarr.json`, JSON.stringify(document));
+
+    await assertRejects(
+      () => fromOmeZarr(store, { kind: "transformation", validate: true }),
+      Error,
+      "coordinateTransformations/0",
     );
   });
 });
@@ -471,7 +524,14 @@ for (const path of ["../dfield", "..\\dfield", "%2e%2e/dfield"]) {
       const document = JSON.parse(await readTextFile(`${store}/zarr.json`));
       (
         document.attributes.ome as Record<string, unknown>
-      ).coordinateTransformations = [{ type: "displacements", path }];
+      ).coordinateTransformations = [
+        {
+          type: "displacements",
+          path,
+          input: { name: "ji" },
+          output: { name: "yx" },
+        },
+      ];
       await writeTextFile(`${store}/zarr.json`, JSON.stringify(document));
       const read = await fromOmeZarr(store, { kind: "transformation" });
       assertEquals((read as Displacements).path, path);

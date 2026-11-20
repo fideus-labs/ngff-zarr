@@ -986,6 +986,42 @@ test("a stored rotation of a scene is checked when validating", async () => {
   });
 });
 
+test("a scene without a version is refused before its matrices are read", async () => {
+  await withTempDir(async (dir) => {
+    const { scene } = await tilesScene();
+    const rotation: Rotation = {
+      type: "rotation",
+      rotation: [
+        [1, 0],
+        [0, 1],
+      ],
+      input: { path: "tile_1", name: "intrinsic" },
+      output: { name: "world" },
+    };
+    scene.coordinateTransformations[1] = rotation;
+    const store = `${dir}/tiles.ome.zarr`;
+    await toOmeZarr(store, scene);
+    const document = await rootDocument(store);
+    const ome = (document.attributes as Record<string, unknown>).ome as Record<
+      string,
+      unknown
+    >;
+    delete ome.version;
+    const written = (
+      (ome.scene as Record<string, unknown>)
+        .coordinateTransformations as Record<string, unknown>[]
+    )[1];
+    written.path = "nowhere";
+    await writeTextFile(`${store}/zarr.json`, JSON.stringify(document));
+
+    await assertRejects(
+      () => fromOmeZarr(store, { kind: "scene", validate: true }),
+      Error,
+      "NGFF-GN-001",
+    );
+  });
+});
+
 test("a scene is written where it can be held", async () => {
   await withTempDir(async (dir) => {
     const { scene } = await tilesScene();

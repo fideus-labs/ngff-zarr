@@ -176,6 +176,25 @@ def test_a_stored_rotation_is_checked_when_validating(tmp_path):
         from_ome_zarr(store, kind="scene", validate=True)
 
 
+def test_a_scene_without_a_version_is_refused_before_its_matrices_are_read(tmp_path):
+    _, scene = _tiles_scene()
+    scene.coordinateTransformations[1] = Rotation(
+        rotation=[[1.0, 0.0], [0.0, 1.0]],
+        input=CoordinateSystemIdentifier(path="tile_1", name="intrinsic"),
+        output=CoordinateSystemIdentifier(name="world"),
+    )
+    store = tmp_path / "tiles.ome.zarr"
+    to_ome_zarr(store, scene)
+    document = _root_document(store)
+    ome = document["attributes"]["ome"]
+    del ome["version"]
+    ome["scene"]["coordinateTransformations"][1]["path"] = "nowhere"
+    (store / "zarr.json").write_text(json.dumps(document))
+
+    with pytest.raises(ValidationError, match="NGFF-GN-001"):
+        from_ome_zarr(store, kind="scene", validate=True)
+
+
 @pytest.mark.skipif(
     packaging.version.parse(zarr.__version__).major < 3,
     reason="Zarr v3 stores need zarr-python >= 3",

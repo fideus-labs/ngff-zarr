@@ -36,6 +36,10 @@ def _affine() -> Affine:
     )
 
 
+def _space(name: str) -> dict:
+    return {"name": name, "type": "space"}
+
+
 def _root_ome(store) -> dict:
     return json.loads((store / "zarr.json").read_text())["attributes"]["ome"]
 
@@ -159,8 +163,8 @@ def test_a_validated_read_applies_the_shared_rules(tmp_path):
     document["attributes"]["ome"] = {
         "version": "0.6",
         "coordinateSystems": [
-            {"name": "a", "axes": [{"name": "y"}, {"name": "x"}]},
-            {"name": "b", "axes": [{"name": "z"}, {"name": "y"}, {"name": "x"}]},
+            {"name": "a", "axes": [_space("y"), _space("x")]},
+            {"name": "b", "axes": [_space("z"), _space("y"), _space("x")]},
         ],
         "coordinateTransformations": [
             {"type": "identity", "input": {"name": "a"}, "output": {"name": "b"}}
@@ -188,6 +192,44 @@ def test_a_stored_rotation_is_checked_when_validating(tmp_path):
         from_ome_zarr(store, kind="transformation", validate=True)
 
 
+def test_a_transformation_without_a_version_is_refused_before_its_matrix_is_read(
+    tmp_path,
+):
+    store = tmp_path / "rotation.ome.zarr"
+    rotation = Rotation(
+        rotation=[[1.0, 0.0], [0.0, 1.0]],
+        input=CoordinateSystemIdentifier(name="a"),
+        output=CoordinateSystemIdentifier(name="b"),
+    )
+    to_ome_zarr(store, rotation)
+    document = json.loads((store / "zarr.json").read_text())
+    ome = document["attributes"]["ome"]
+    del ome["version"]
+    ome["coordinateTransformations"][0]["path"] = "nowhere"
+    (store / "zarr.json").write_text(json.dumps(document))
+
+    with pytest.raises(ValidationError, match="NGFF-GN-001"):
+        from_ome_zarr(store, kind="transformation", validate=True)
+
+
+def test_a_validated_read_checks_the_document_against_the_schema(tmp_path):
+    store = tmp_path / "scale.ome.zarr"
+    to_ome_zarr(store, _affine())
+    document = json.loads((store / "zarr.json").read_text())
+    document["attributes"]["ome"]["coordinateTransformations"] = [
+        {
+            "type": "scale",
+            "scale": ["1", "1"],
+            "input": {"name": "ji"},
+            "output": {"name": "yx"},
+        }
+    ]
+    (store / "zarr.json").write_text(json.dumps(document))
+
+    with pytest.raises(ValidationError, match=r"coordinateTransformations\[0\]"):
+        from_ome_zarr(store, kind="transformation", validate=True)
+
+
 @pytest.mark.parametrize("path", ["../dfield", "..\\dfield", "%2e%2e/dfield"])
 def test_paths_outside_the_store_are_refused(tmp_path, path):
     warp = Displacements(
@@ -202,7 +244,12 @@ def test_paths_outside_the_store_are_refused(tmp_path, path):
     to_ome_zarr(store, _affine())
     document = json.loads((store / "zarr.json").read_text())
     document["attributes"]["ome"]["coordinateTransformations"] = [
-        {"type": "displacements", "path": path}
+        {
+            "type": "displacements",
+            "path": path,
+            "input": {"name": "ji"},
+            "output": {"name": "yx"},
+        }
     ]
     (store / "zarr.json").write_text(json.dumps(document))
     assert from_ome_zarr(store, kind="transformation").path == path

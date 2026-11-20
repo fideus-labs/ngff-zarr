@@ -226,31 +226,28 @@ def schema_problems(
     ]
 
 
-def group_problems(
-    attributes: dict,
-    version: str,
-    path: str = "",
-    model: str | None = None,
-    resolved: dict | None = None,
-) -> list[Problem]:
-    """Check a group's attributes against the JSON Schema and, once the schema
-    accepts them, against the rules beyond it (``ngff_zarr.rules``).
-
-    ``resolved`` is what the rules check in place of ``attributes``: the same
-    document with the matrices it keeps in arrays loaded inline, which the
-    schema sees as stored."""
-    problems = schema_problems(attributes, version, path, model)
-    if problems:
-        return problems
-    from .rules import rule_problems
+def rule_problems(document: dict, version: str, path: str = "") -> list[Problem]:
+    """Check a group's attributes against the rules beyond the JSON Schema
+    (``ngff_zarr.rules``). ``document`` holds the matrices the group keeps in
+    arrays inline: the rules read values, the schema reads what is stored."""
+    from . import rules
 
     if is_v06_version(version):
         version = NgffVersion.V06.value
-    document = attributes if resolved is None else resolved
     return [
         Problem(code, message, path)
-        for code, message in rule_problems(document, version)
+        for code, message in rules.rule_problems(document, version)
     ]
+
+
+def group_problems(
+    attributes: dict, version: str, path: str = "", model: str | None = None
+) -> list[Problem]:
+    """Check a group's attributes against the JSON Schema and, once the schema
+    accepts them, against the rules beyond it."""
+    return schema_problems(attributes, version, path, model) or rule_problems(
+        attributes, version, path
+    )
 
 
 def _group(node, name: str):

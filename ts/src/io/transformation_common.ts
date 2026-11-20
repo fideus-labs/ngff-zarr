@@ -44,7 +44,11 @@ import {
 } from "./scene_common.ts";
 import { memoryStoreToZip } from "./rfc9_zip.ts";
 import { gateOzxVersion, type OzxVersion } from "./to_ngff_zarr_ozx_common.ts";
-import { groupProblems, ValidationError } from "../utils/validate.ts";
+import {
+  ruleProblems,
+  schemaProblems,
+  ValidationError,
+} from "../utils/validate.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -211,15 +215,24 @@ export async function readTransformation(
   options: { validate?: boolean; version?: string } = {},
 ): Promise<V06Transform> {
   const version = readVersion(rootAttrs, options);
-  const ome = await resolveMatrices(
-    rootAttrs.ome as Record<string, unknown>,
-    store,
-  );
+  const stored = rootAttrs.ome as Record<string, unknown>;
   if (options.validate ?? false) {
-    const problems = await groupProblems(rootAttrs, version, "", undefined, {
-      ...rootAttrs,
-      ome,
-    });
+    // A transformation store holds a scene document without images, which
+    // the scene schema describes. It reads the document as stored, before
+    // any matrix is loaded.
+    const problems = await schemaProblems(
+      { ...rootAttrs, ome: { ...stored, scene: stored } },
+      version,
+      "",
+      "scene",
+    );
+    if (problems.length > 0) {
+      throw new ValidationError(problems);
+    }
+  }
+  const ome = await resolveMatrices(stored, store);
+  if (options.validate ?? false) {
+    const problems = ruleProblems({ ...rootAttrs, ome }, version);
     if (problems.length > 0) {
       throw new ValidationError(problems);
     }

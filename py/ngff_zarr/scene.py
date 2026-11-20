@@ -477,15 +477,18 @@ def _read_scene(
         raise ValueError(f"The 'ome.scene' entry must be an object; got {document!r}.")
     if version is None:
         version = _detect_version(root_attrs).value
+    if validate:
+        from .validate import ValidationError, rule_problems, schema_problems
+
+        # The schema reads the document as stored, before any matrix is loaded.
+        if problems := schema_problems(root_attrs, version, model="scene"):
+            raise ValidationError(problems)
     document = _resolve_matrices(
         document, store if array_store is None else array_store
     )
     if validate:
-        from .validate import ValidationError, group_problems
-
         resolved = {"ome": {**root_attrs["ome"], "scene": document}}
-        problems = group_problems(root_attrs, version, model="scene", resolved=resolved)
-        if problems:
+        if problems := rule_problems(resolved, version):
             raise ValidationError(problems)
 
     systems, transforms = _scene_from_dict(document, version)

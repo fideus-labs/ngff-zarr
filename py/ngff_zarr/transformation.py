@@ -132,12 +132,19 @@ def _read_transformation(
 
     if version is None:
         version = _detect_version(root_attrs).value
-    ome = _resolve_matrices(root_attrs["ome"], store)
+    stored = root_attrs["ome"]
     if validate:
-        from .validate import ValidationError, group_problems
+        from .validate import ValidationError, rule_problems, schema_problems
 
-        resolved = {**root_attrs, "ome": ome}
-        if problems := group_problems(root_attrs, version, resolved=resolved):
+        # A transformation store holds a scene document without images, which
+        # the scene schema describes. It reads the document as stored, before
+        # any matrix is loaded.
+        as_scene = {**root_attrs, "ome": {**stored, "scene": stored}}
+        if problems := schema_problems(as_scene, version, model="scene"):
+            raise ValidationError(problems)
+    ome = _resolve_matrices(stored, store)
+    if validate:
+        if problems := rule_problems({**root_attrs, "ome": ome}, version):
             raise ValidationError(problems)
     _, transforms = _scene_from_dict(ome, version)
     if len(transforms) != 1:

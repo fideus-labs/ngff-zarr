@@ -63,7 +63,11 @@ import {
 } from "../utils/store_below.ts";
 import type { ChunkCache } from "../utils/worker_pool.ts";
 import { memoryStoreToZip } from "./rfc9_zip.ts";
-import { groupProblems, ValidationError } from "../utils/validate.ts";
+import {
+  ruleProblems,
+  schemaProblems,
+  ValidationError,
+} from "../utils/validate.ts";
 import {
   type ArrayWriterFactory,
   countMultiscalesWrites,
@@ -524,13 +528,20 @@ export async function readScene(
     );
   }
   const version = readVersion(rootAttrs, options);
+  if (validate) {
+    // The schema reads the document as stored, before any matrix is loaded.
+    const problems = await schemaProblems(rootAttrs, version, "", "scene");
+    if (problems.length > 0) {
+      throw new ValidationError(problems);
+    }
+  }
   const resolvedDocument = await resolveMatrices(document, resolved);
   if (validate) {
     const ome = rootAttrs.ome as Record<string, unknown>;
-    const problems = await groupProblems(rootAttrs, version, "", "scene", {
-      ...rootAttrs,
-      ome: { ...ome, scene: resolvedDocument },
-    });
+    const problems = ruleProblems(
+      { ...rootAttrs, ome: { ...ome, scene: resolvedDocument } },
+      version,
+    );
     if (problems.length > 0) {
       throw new ValidationError(problems);
     }
