@@ -127,6 +127,7 @@ async function _writeImage(
       chunkShape: layout.chunkShape,
       fillValue: 0,
       codecs: layout.codecs,
+      dimensionNames: image.dims,
     });
 
     await _writeArrayData(
