@@ -24,11 +24,13 @@ import { test } from "vite-plus/test";
 import {
   assertEquals,
   assertExists,
+  assertInstanceOf,
   assertRejects,
   assertStringIncludes,
 } from "./_assert.ts";
 import * as zarr from "zarrita";
 import { fromOmeZarr, type MemoryStore } from "../src/io/from_ngff_zarr.ts";
+import { ValidationError } from "../src/utils/validate.ts";
 import {
   fromZarrAttrsV04,
   fromZarrAttrsV05,
@@ -230,14 +232,64 @@ test("fromZarrAttrsV04 - structural validation gates a multi-digit minor version
   assertExists(result.metadata);
 });
 
+/** The root document of an in-memory store, to edit and store again. */
+function rootDocument(store: MemoryStore): Record<string, unknown> {
+  return JSON.parse(new TextDecoder().decode(store.get("/zarr.json")!));
+}
+
+function setRootDocument(
+  store: MemoryStore,
+  document: Record<string, unknown>,
+): void {
+  store.set("/zarr.json", new TextEncoder().encode(JSON.stringify(document)));
+}
+
+test("fromOmeZarr - a v0.5 store without a version is a validation error", async () => {
+  // From 0.5 `ome.version` MUST be present. Mirrors the Python
+  // `test_v05_store_without_a_version_is_refused`.
+  const store = await createImageStoreV05(buildValidImageMetadataV05());
+  const document = rootDocument(store);
+  delete (
+    (document.attributes as Record<string, unknown>).ome as Record<
+      string,
+      unknown
+    >
+  ).version;
+  setRootDocument(store, document);
+
+  const error = await assertRejects(
+    () => fromOmeZarr(store, { validate: true }),
+    Error,
+    "NGFF-GN-001",
+  );
+  assertInstanceOf(error.cause, ValidationError);
+  // Without validation the store reads as 0.5, as in the Python port.
+  assertEquals((await fromOmeZarr(store)).images.length, 2);
+});
+
+test("fromOmeZarr - a label name that leaves its group is not followed", async () => {
+  // The store resolver decodes percent-encoded dot segments, so the raw name
+  // is not where it reads. Mirrors the Python
+  // `test_a_label_name_that_leaves_its_group_is_not_followed`.
+  const store = await createImageStoreV05(buildValidImageMetadataV05());
+  const root = zarr.root(store);
+  const labels = ["%2e%2e/%2e%2e/private", ".%2e/.%2e/private", "..%2fprivate"];
+  await zarr.create(root.resolve("labels"), {
+    attributes: { ome: { version: "0.5", labels } },
+  });
+  await zarr.create(root.resolve("private"), {
+    attributes: { ome: { version: "0.5", multiscales: 42 } },
+  });
+
+  assertEquals((await fromOmeZarr(store, { validate: true })).images.length, 2);
+});
+
 test("fromZarrAttrsV05 - v0.5 namespacing validated when ome.version missing", async () => {
   // A malformed v0.5 store missing `ome.version` must still be validated with
   // the v0.5 namespacing rules. fromZarrAttrsV05 definitionally handles v0.5,
   // so it floors the spec version to "0.5" before the structural pass -- a
   // leaked group-level wrapper key is therefore still caught, rather than
-  // silently treated as v0.4 (where the rule is inert). Exercised directly on
-  // fromZarrAttrsV05 because fromOmeZarr rejects a versionless `ome` store at
-  // its version-detection step.
+  // silently treated as v0.4 (where the rule is inert).
   const metadata = buildValidImageMetadataV05();
   metadata.ome = { version: "0.5" }; // leaked group-level wrapper key
   const store = await createImageStoreV05(metadata);
@@ -378,11 +430,12 @@ test("reader - the same six-axis store tagged 0.6 is refused", async () => {
     [2, 2, 2, 2, 2, 2],
   );
 
+  // The 0.6 axes schema allows at most five axes.
   const error = await assertRejects(
     () => fromOmeZarr(store, { validate: true }),
     Error,
   );
-  assertStringIncludes(error.message, SpecRule.AxisCount);
+  assertStringIncludes(error.message, "Array has too many items (6 > 5)");
 });
 
 test("reader - a v0.6 array coordinate system needs no space axis", async () => {
@@ -399,6 +452,22 @@ test("reader - a v0.6 array coordinate system needs no space axis", async () => 
 
   const result = await fromOmeZarr(store, { validate: true });
   assertEquals(result.images[0].dims, ["i", "j"]);
+});
+
+test("reader - a channel without a color is refused when validating", async () => {
+  // The 0.6 image schema does not require `color`; the spec text does.
+  const ome = omeBlock("0.6", [
+    { name: "y", type: "space" },
+    { name: "x", type: "space" },
+  ]);
+  ome.omero = { channels: [{ window: { min: 0, max: 1, start: 0, end: 1 } }] };
+  const store = await createOmeNamespacedStore(ome, [4, 4]);
+
+  await assertRejects(
+    () => fromOmeZarr(store, { validate: true }),
+    Error,
+    SpecRule.OmeroChannelColorFormat,
+  );
 });
 
 // --- The declared version drives the RFC 4 orientation checks on read ---

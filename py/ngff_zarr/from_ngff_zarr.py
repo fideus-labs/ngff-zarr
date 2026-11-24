@@ -473,24 +473,28 @@ def from_ome_zarr(
             "within the plate (e.g., 'plate.zarr/A/1/0' for well A1, field 0)."
         )
 
-    if version == "0.9.dev1":
-        from .v09.zarr_metadata import Metadata
+    if validate:
+        from .validate import ValidationError, store_problems
 
-        # No 0.9.dev1 JSON Schema is published; `validate` is forwarded so
-        # validate=True reports that rather than validating nothing.
-        metadata_obj, images = Metadata._from_zarr_attrs(
-            root_attrs, store, validate=validate, subpath=subpath
-        )
-        method, method_type, method_metadata = _extract_method_metadata(
-            root_attrs["ome"]["multiscales"][0]
-        )
+        if problems := store_problems(root, version):
+            raise ValidationError(problems)
 
-    elif version.startswith("0.6"):
-        from .v06.zarr_metadata import Metadata
+    if version == "0.9.dev1" or version.startswith("0.6"):
+        if version == "0.9.dev1":
+            from .v09.zarr_metadata import Metadata
+        else:
+            from .v06.zarr_metadata import Metadata
 
         metadata_obj, images = Metadata._from_zarr_attrs(
-            root_attrs, store, validate=validate, subpath=subpath
+            root_attrs, store, subpath=subpath
         )
+        if validate:
+            # The v0.4 and v0.5 parsers run this pass themselves. The version
+            # lifts the axis caps at 0.9.dev1 and turns the RFC-4 orientation
+            # rules on there.
+            from .structural_validation import validate_structural
+
+            validate_structural(metadata_obj, version=version)
         method, method_type, method_metadata = _extract_method_metadata(
             root_attrs["ome"]["multiscales"][0]
         )

@@ -79,7 +79,7 @@ def _parse_omero(omero_data: Union[dict, None]) -> Omero | None:
 
                 channels.append(
                     OmeroChannel(
-                        color=str(channel["color"]),  # type: ignore
+                        color=str(channel["color"]) if "color" in channel else None,
                         label=str(channel.get("label", None))
                         if channel.get("label") is not None
                         else None,  # type: ignore

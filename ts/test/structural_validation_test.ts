@@ -174,20 +174,18 @@ test("validateSpatialAxisOrder - accepts the (y, x) suffix", () => {
   validateSpatialAxisOrder(buildValidMetadata());
 });
 
-test("validateSpatialAxisOrder - rejects bad suffix and too many", () => {
-  // (x, y) is not the (y, x) suffix of (z, y, x).
-  const suffixMismatch = buildValidMetadata();
-  suffixMismatch.axes = [
+test("validateSpatialAxisOrder - spatial axis names are free", () => {
+  // The spec only recommends ordering space axes zyx.
+  const xy = buildValidMetadata();
+  xy.axes = [
     { name: "c", type: "channel", unit: undefined },
     { name: "x", type: "space", unit: undefined },
     { name: "y", type: "space", unit: undefined },
   ];
-  assertRuleViolation(
-    () => validateSpatialAxisOrder(suffixMismatch),
-    SpecRule.AxisOrder,
-    "multiscales[0].axes[1]",
-  );
+  validateSpatialAxisOrder(xy);
+});
 
+test("validateSpatialAxisOrder - rejects too many space axes", () => {
   // Four space axes exceed the v0.4 maximum of three.
   const tooMany = buildValidMetadata();
   tooMany.axes = [
@@ -502,6 +500,25 @@ test("axis names must stay unique at 0.9.dev1", () => {
     () => validateAxisNamesUnique(repeated, "0.9.dev1"),
     SpecRule.AxisNamesUnique,
     "multiscales[0].axes[2]",
+  );
+});
+
+test("the other axes of a v0.6 array coordinate system are counted", () => {
+  // Only the `array` axes of an array coordinate system are exempt from the
+  // one-channel-or-custom-axis rule.
+  const arrayCs = buildValidMetadata();
+  arrayCs.axes = [
+    { name: "i0", type: "array", unit: undefined },
+    { name: "i1", type: "array", unit: undefined },
+    { name: "c", type: "channel", unit: undefined },
+  ];
+  validateAxisType(arrayCs, "0.6");
+
+  arrayCs.axes.push({ name: "c2", type: "channel", unit: undefined });
+  assertRuleViolation(
+    () => validateAxisType(arrayCs, "0.6"),
+    SpecRule.AxisType,
+    "multiscales[0].axes",
   );
 });
 

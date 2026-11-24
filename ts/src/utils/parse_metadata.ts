@@ -161,7 +161,9 @@ export function detectVersion(rootAttrs: Record<string, unknown>): NgffVersion {
 
   if ("ome" in rootAttrs && rootAttrs.ome) {
     const ome = rootAttrs.ome as Record<string, unknown>;
-    versionStr = ome.version as string | undefined;
+    // An `ome` block without a version reads as 0.5, as in the Python port;
+    // a validated read then reports the missing version.
+    versionStr = (ome.version as string | undefined) ?? "0.5";
   }
 
   // Fall back to multiscales if version not found in ome

@@ -84,8 +84,7 @@ export function isRfc3AxisModelAllowed(version?: string): boolean {
  * 0.4, 0.5 and 0.6 specs give `orientation` no normative status, so when the
  * caller declares one of those versions the orientation rules are inert.
  * `undefined` keeps them on: with no declared version, enforcement is a
- * strictness choice, exactly like `axis-names-unique` below 0.9.dev1 (see
- * docs/validation/rule-reference.md).
+ * strictness choice (see docs/validation/rule-reference.md).
  *
  * The gate points the opposite way from {@link isRfc3AxisModelAllowed}: at
  * 0.9.dev1 RFC-3 *lifts* the axis restrictions while RFC-4 *adds* the

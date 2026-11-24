@@ -28,6 +28,7 @@ from .scene import (
     _check_image_path,
     _externalize_matrices,
     _field_paths,
+    _resolve_matrices,
     _scene_from_dict,
 )
 from .v06.zarr_metadata import Transform, validate_transform
@@ -119,19 +120,33 @@ def _write_transformation(
 
 
 def _read_transformation(
-    root_attrs: dict[str, Any], validate: bool, version: str | None, store: Any = None
+    root_attrs: dict[str, Any], validate: bool, version: str | None, store: Any
 ) -> Transform:
     """The transformation ``root_attrs`` declares; see ``from_ome_zarr``.
 
     ``store`` is the opened store the document came from; a matrix stored in
-    an array below it is loaded inline.
+    an array below it is loaded inline. ``validate`` checks the document
+    against the schema and the rules of ``version``.
     """
     from .parse_metadata import _detect_version
 
-    ome = root_attrs["ome"]
     if version is None:
         version = _detect_version(root_attrs).value
-    _, transforms = _scene_from_dict(ome, version, store)
+    stored = root_attrs["ome"]
+    if validate:
+        from .validate import ValidationError, rule_problems, schema_problems
+
+        # A transformation store holds a scene document without images, which
+        # the scene schema describes. It reads the document as stored, before
+        # any matrix is loaded.
+        as_scene = {**root_attrs, "ome": {**stored, "scene": stored}}
+        if problems := schema_problems(as_scene, version, model="scene"):
+            raise ValidationError(problems)
+    ome = _resolve_matrices(stored, store)
+    if validate:
+        if problems := rule_problems({**root_attrs, "ome": ome}, version):
+            raise ValidationError(problems)
+    _, transforms = _scene_from_dict(ome, version)
     if len(transforms) != 1:
         raise ValueError(
             "A transformation store holds one coordinateTransformations entry; "

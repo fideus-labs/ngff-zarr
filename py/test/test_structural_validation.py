@@ -149,23 +149,25 @@ def test_spatial_axis_order_valid(valid_metadata):
     validate_spatial_axis_order(valid_metadata)
 
 
+def test_spatial_axis_names_are_free(valid_metadata):
+    # The spec only recommends ordering space axes zyx.
+    valid_metadata.axes = [
+        Axis(name="c", type="channel"),
+        Axis(name="x", type="space"),
+        Axis(name="y", type="space"),
+    ]
+    validate_spatial_axis_order(valid_metadata)
+
+
 @pytest.mark.parametrize(
     "case, location",
     [
-        ("suffix-mismatch", "multiscales[0].axes[1]"),
         ("too-many-spatial", "multiscales[0].axes"),
         ("too-few-spatial", "multiscales[0].axes"),
     ],
 )
 def test_spatial_axis_order_invalid(valid_metadata, case, location):
-    if case == "suffix-mismatch":
-        # (x, y) is not the (y, x) suffix of (z, y, x).
-        valid_metadata.axes = [
-            Axis(name="c", type="channel"),
-            Axis(name="x", type="space"),
-            Axis(name="y", type="space"),
-        ]
-    elif case == "too-few-spatial":
+    if case == "too-few-spatial":
         # The bundled axes schemas state minContains: 2 for 'space'.
         valid_metadata.axes = [
             Axis(name="c", type="channel"),
@@ -253,6 +255,23 @@ def test_spatial_axis_order_needs_two_array_axes(valid_metadata):
     ]
     with pytest.raises(ValidationError):
         validate_spatial_axis_order(valid_metadata, "0.6")
+
+
+def test_axis_type_counts_the_other_axes_of_an_array_coordinate_system(
+    valid_metadata,
+):
+    """Only the ``array`` axes of a v0.6 array coordinate system are exempt."""
+    valid_metadata.axes = [
+        Axis(name="i0", type="array"),
+        Axis(name="i1", type="array"),
+        Axis(name="c", type="channel"),
+    ]
+    validate_axis_type(valid_metadata, "0.6")
+
+    valid_metadata.axes.append(Axis(name="c2", type="channel"))
+    with pytest.raises(ValidationError) as exc_info:
+        validate_axis_type(valid_metadata, "0.6")
+    assert exc_info.value.rule == SpecRule.AXIS_TYPE
 
 
 def test_axis_names_unique_valid(valid_metadata):

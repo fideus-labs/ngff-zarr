@@ -170,7 +170,11 @@ class HCSPlate:
         # Cache wells to avoid reloading - using bounded cache now
         if well_path not in self._wells:
             hcs_well = HCSWell.from_store(
-                self.store, well_path, well_meta, self.image_cache_size
+                self.store,
+                well_path,
+                well_meta,
+                self.image_cache_size,
+                validate=self._validate,
             )
             if self._validate:
                 # Strict structural validation of the well's own metadata, in
@@ -223,11 +227,13 @@ class HCSWell:
         well_metadata: PlateWell,
         well_group_metadata: Well,
         image_cache_size: int | None = None,
+        validate: bool = False,
     ):
         self.store = store
         self.path = well_path
         self.plate_metadata = well_metadata
         self.metadata = well_group_metadata
+        self._validate = validate
 
         # Use bounded cache for images to prevent memory issues
         from .config import config
@@ -242,14 +248,26 @@ class HCSWell:
         well_path: str,
         well_metadata: PlateWell,
         image_cache_size: int | None = None,
+        validate: bool = False,
     ) -> "HCSWell":
-        """Load a well from a zarr store."""
+        """Load a well from a zarr store.
+
+        With ``validate``, the well's own metadata is checked first, and each
+        field image is read with validation.
+        """
         # Dispatches on store type: local paths read through the compat
         # layer, bytes mappings (including ZipReadStore for .ozx) through
         # the store reader, other store objects through zarr-python.
         root = _open_root_node(store, None)
         well_group = root[well_path]
         well_attrs = well_group.attrs.asdict()
+        if validate:
+            from .parse_metadata import _detect_version
+            from .validate import ValidationError, group_problems
+
+            version = _detect_version(root.attrs.asdict()).value
+            if problems := group_problems(well_attrs, version, well_path, model="well"):
+                raise ValidationError(problems)
 
         # Parse well metadata
         well_data = {}
@@ -296,7 +314,12 @@ class HCSWell:
         well_group_metadata = Well(images=images, version=version)
 
         return cls(
-            store, well_path, well_metadata, well_group_metadata, image_cache_size
+            store,
+            well_path,
+            well_metadata,
+            well_group_metadata,
+            image_cache_size,
+            validate,
         )
 
     @property
@@ -326,12 +349,14 @@ class HCSWell:
                 # A view of the same store (remote, .ozx archive, or the JS
                 # store on Pyodide) narrowed to this field's sub-hierarchy.
                 self._images[image_path] = from_ome_zarr(
-                    self.store.with_prefix(image_path)
+                    self.store.with_prefix(image_path), validate=self._validate
                 )
             elif isinstance(self.store, (str, Path)):
                 # If store is a path string, append the image path
                 full_image_path = Path(self.store) / self.path / image_meta.path
-                self._images[image_path] = from_ome_zarr(str(full_image_path))
+                self._images[image_path] = from_ome_zarr(
+                    str(full_image_path), validate=self._validate
+                )
             else:
                 raise TypeError(
                     "HCS plates are read from local directory paths, remote "
@@ -417,13 +442,11 @@ def from_hcs_zarr(
 
     if validate:
         from .parse_metadata import _detect_version
-        from .validate import validate as validate_ngff
+        from .validate import ValidationError, schema_problems
 
-        # Use the plate schema for HCS validation instead of the image schema,
-        # at the version the store records: from 0.5 the plate document lives
-        # under ``ome``, which the v0.4 schema does not look at.
         version = _detect_version(root_attrs).value
-        validate_ngff(root_attrs, version=version, model="plate")
+        if problems := schema_problems(root_attrs, version, model="plate"):
+            raise ValidationError(problems)
 
     # Extract plate metadata
     plate_data = {}
