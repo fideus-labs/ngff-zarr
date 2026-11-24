@@ -64,6 +64,11 @@ pip wheel py/ -w py/dist --no-deps        # from the repository root
 cd py/test/pyodide && npm ci && node run.mjs
 ```
 
+To run the downsampling on a [pyodide-pool](https://github.com/fideus-labs/python-wasm-parallelism)
+worker pool as well, build that repository (`npm ci && npm run build`) and
+point the harness at it: `NGFF_ZARR_POOL=/path/to/python-wasm-parallelism/dist/index.js node run.mjs`
+(`NGFF_ZARR_POOL_SIZE` sets the worker count, default 4).
+
 ### MCP Server (mcp/)
 
 ```bash

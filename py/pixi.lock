@@ -23274,6 +23274,7 @@ packages:
   - packaging
   - platformdirs
   - psutil ; sys_platform != 'emscripten'
+  - pyodide-pool>=0.2.1 ; sys_platform == 'emscripten'
   - rich
   - rich-argparse
   - typing-extensions
