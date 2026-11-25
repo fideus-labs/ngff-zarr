@@ -52,15 +52,22 @@ released schema carries it. A `ValidationError` carries `.rule` (a `SpecRule`),
 `Spec rule [<rule>] violated: <message>`.
 
 **Validate on read** with `from_ome_zarr(store, validate=True)` (the `validate`
-keyword defaults to `False`). The `ValidationError` propagates unchanged:
+keyword defaults to `False`). A validated read checks every group of the store
+against the JSON Schema and the specification rules, and raises
+`ngff_zarr.validate.ValidationError` — a `ValueError` distinct from the
+structural `ValidationError` above — listing every problem rather than only the
+first. Its `.problems` attribute holds `Problem` entries with a `code`,
+`message` and group `path`:
 
 ```python
-from ngff_zarr import from_ome_zarr, ValidationError
+from ngff_zarr import from_ome_zarr
+from ngff_zarr.validate import ValidationError
 
 try:
     multiscales = from_ome_zarr("image.ome.zarr", validate=True)
 except ValidationError as exc:
-    print(f"rule={exc.rule.value} location={exc.location}: {exc.message}")
+    for problem in exc.problems:
+        print(problem)  # [<code>] at '<path>' <message>
 ```
 
 **Validate an already-parsed metadata object** directly, choosing the level:
@@ -140,12 +147,12 @@ try {
 }
 ```
 
-> **Note.** `fromOmeZarr` wraps any read failure — including a structural
-> `ValidationError` — as `Error("Failed to read OME-Zarr: <message>")`. The
-> original `rule`/`location` are therefore not recoverable via `instanceof`
-> on the read path; only the prefixed message survives. When you need the typed
-> `SpecRule` and `location`, call `validateStructural` on the parsed metadata
-> directly (the typed path above).
+> **Note.** `fromOmeZarr` wraps any read failure as
+> `Error("Failed to read OME-Zarr: <message>")`. For a validated read, the
+> original `ValidationError` is the error's `cause`; it lists every problem in
+> its `problems` array, each with a `code`, `message` and group `path`. For the
+> typed `SpecRule` and `location` of a single rule, call `validateStructural` on
+> the parsed metadata directly (the typed path above).
 
 For HCS metadata, `validatePlate(plate)` and `validateWell(plate, well)` are
 the plate/well counterparts. Pass `{ level: ValidationLevel.SchemaOnly }` to
